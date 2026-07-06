@@ -1,0 +1,23 @@
+<svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="o" x1="60" y1="14" x2="60" y2="70" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF8A2B"/>
+      <stop offset="0.55" stop-color="#F76D01"/>
+      <stop offset="1" stop-color="#DC3708"/>
+    </linearGradient>
+    <linearGradient id="p" x1="22" y1="60" x2="98" y2="60" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9A6BB0"/>
+      <stop offset="0.5" stop-color="#6B358D"/>
+      <stop offset="1" stop-color="#400095"/>
+    </linearGradient>
+    <linearGradient id="r" x1="60" y1="62" x2="60" y2="86" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C40000"/>
+      <stop offset="1" stop-color="#79081D"/>
+    </linearGradient>
+  </defs>
+  <path d="M63 16 L75 20 L60.5 64 L47 60 Z" fill="url(#o)" stroke-linejoin="round"/>
+  <path d="M44 38 L53.5 41 L46 64 L35.5 61 Z" fill="url(#o)" stroke-linejoin="round"/>
+  <path d="M22 56 Q60 96 98 56" stroke="url(#p)" stroke-width="14" stroke-linecap="round" fill="none"/>
+  <path d="M25 66 L40 64 L37 82 L22 82 Z" fill="url(#r)" stroke-linejoin="round"/>
+  <path d="M80 64 L95 66 L98 82 L83 82 Z" fill="url(#r)" stroke-linejoin="round"/>
+</svg>

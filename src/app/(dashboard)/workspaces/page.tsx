@@ -1,0 +1,16 @@
+import { DashboardPageHeader } from "@/components/layout/dashboard-header-context";
+import { WorkspaceList } from "@/modules/workspaces/components/workspace-list";
+
+export default function WorkspacesPage() {
+  return (
+    <>
+      <DashboardPageHeader
+        title="Workspaces"
+        description="Manage your AI assistant workspaces"
+      />
+      <div className="p-6">
+        <WorkspaceList />
+      </div>
+    </>
+  );
+}
