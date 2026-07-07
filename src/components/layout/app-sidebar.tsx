@@ -18,6 +18,7 @@ import {
   User,
   KeyRound,
   Shield,
+  Gauge,
 } from "lucide-react";
 import { LogoMark } from "@/components/brand/logo";
 import { SidebarNavItem } from "./sidebar/sidebar-nav-item";
@@ -103,6 +104,7 @@ export function AppSidebar() {
 
   const accountNav = [
     { label: "Store", href: "/store", icon: <Plug className="h-4 w-4" /> },
+    { label: "Usage", href: "/usage", icon: <Gauge className="h-4 w-4" /> },
   ];
 
   return (
@@ -360,6 +362,9 @@ function SidebarAccountCard({
         </DropdownMenuItem>
         <DropdownMenuItem asChild className="text-[var(--color-sidebar-text-muted)] data-[highlighted]:bg-[var(--color-sidebar-surface-hover)] data-[highlighted]:text-[var(--color-sidebar-text)]">
           <Link href="/settings?section=billing"><CreditCard className="h-4 w-4" /> Billing & Plan</Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild className="text-[var(--color-sidebar-text-muted)] data-[highlighted]:bg-[var(--color-sidebar-surface-hover)] data-[highlighted]:text-[var(--color-sidebar-text)]">
+          <Link href="/usage"><Gauge className="h-4 w-4" /> Usage</Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild className="text-[var(--color-sidebar-text-muted)] data-[highlighted]:bg-[var(--color-sidebar-surface-hover)] data-[highlighted]:text-[var(--color-sidebar-text)]">
           <Link href="/settings?section=notifications"><Bell className="h-4 w-4" /> Notifications</Link>

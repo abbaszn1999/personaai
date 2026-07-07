@@ -47,6 +47,7 @@ src/
 │   │   ├── setup/page.tsx
 │   │   ├── analytics/page.tsx
 │   │   ├── store/page.tsx
+│   │   ├── usage/page.tsx
 │   │   └── settings/page.tsx
 │   ├── (marketing)/
 │   │   └── page.tsx
@@ -170,6 +171,26 @@ src/
 │   │   │   └── connections.ts
 │   │   ├── types.ts                  ← was: domain/store/types.ts
 │   │   └── constants.ts              ← was: domain/store/constants.ts
+│   │
+│   ├── billing/                      ← Plans, credits & usage (frontend-only, no payment provider yet)
+│   │   ├── components/
+│   │   │   ├── usage-dashboard.tsx   ← /usage page: images created, remaining credit only
+│   │   │   ├── usage-summary-cards.tsx
+│   │   │   ├── usage-chart.tsx
+│   │   │   ├── plans-section.tsx     ← rendered from Settings > Billing, not /usage
+│   │   │   ├── plan-card.tsx
+│   │   │   ├── credit-bundles-section.tsx  ← rendered from Settings > Billing, not /usage
+│   │   │   ├── credit-bundle-card.tsx
+│   │   │   ├── api-key-section.tsx   ← BYO OpenAI key for the chat agent (Settings > API Keys)
+│   │   │   └── chat-usage-section.tsx  ← /usage page: BYO-chat lane, separate from Autommerce-metered image credits
+│   │   ├── hooks/
+│   │   │   └── use-billing.ts
+│   │   ├── mocks/
+│   │   │   ├── usage-history.ts
+│   │   │   └── chat-usage.ts         ← informational-only mock (Autommerce doesn't meter chat)
+│   │   ├── store.ts                  ← Zustand — activeTierId, rendersUsed, overageCredits, openaiApiKey (session-local, mirrors store/ globalConnection pattern)
+│   │   ├── types.ts
+│   │   └── constants.ts              ← PLAN_TIERS (Fixed / Hybrid), CREDIT_BUNDLES, MONTHLY_INCLUDED_RENDERS
 │   │
 │   ├── shopping-agent/               ← Text shopping assistant (unwearable mode)
 │   │   ├── components/
