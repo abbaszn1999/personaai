@@ -10,10 +10,8 @@ interface BillingState {
   rendersUsed: number;
   overageCredits: number;
   lastPurchasedBundleId: string | null;
-  openaiApiKey: string;
   switchTier: (id: PlanTierId) => void;
   purchaseBundle: (id: string) => void;
-  setOpenaiApiKey: (key: string) => void;
 }
 
 export const useBillingStore = create<BillingState>((set) => ({
@@ -21,7 +19,6 @@ export const useBillingStore = create<BillingState>((set) => ({
   rendersUsed: RENDERS_USED_THIS_CYCLE,
   overageCredits: 0,
   lastPurchasedBundleId: null,
-  openaiApiKey: "",
 
   switchTier: (id) => set({ activeTierId: id }),
 
@@ -34,6 +31,4 @@ export const useBillingStore = create<BillingState>((set) => ({
         lastPurchasedBundleId: id,
       };
     }),
-
-  setOpenaiApiKey: (key) => set({ openaiApiKey: key }),
 }));

@@ -18,7 +18,7 @@ export default function EmbedPreviewPage({ params }: Props) {
   if (!ws) {
     return (
       <div className="flex h-screen items-center justify-center bg-[var(--color-surface-base)]">
-        <p className="text-[var(--color-text-muted)]">Workspace not found.</p>
+        <p className="text-[var(--color-text-muted)]">Project not found.</p>
       </div>
     );
   }

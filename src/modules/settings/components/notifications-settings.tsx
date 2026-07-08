@@ -17,7 +17,7 @@ const NOTIFICATIONS: NotificationToggle[] = [
   { id: "new-session",     label: "New session started",        description: "Get notified when a shopper opens your widget",             defaultEnabled: false },
   { id: "weekly-report",   label: "Weekly performance report",  description: "Summary of sessions, conversions, and revenue every Monday", defaultEnabled: true },
   { id: "cart-add",        label: "Add to cart events",         description: "Alert when a shopper adds a product via the widget",         defaultEnabled: false },
-  { id: "workspace-pause", label: "Workspace status change",    description: "Notify when a workspace is paused or goes offline",          defaultEnabled: true },
+  { id: "workspace-pause", label: "Project status change",      description: "Notify when your project is paused or goes offline",         defaultEnabled: true },
   { id: "billing-alerts",  label: "Billing & usage alerts",     description: "Warn when approaching session limits or payment due",        defaultEnabled: true },
 ];
 

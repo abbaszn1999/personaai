@@ -2,6 +2,7 @@ import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { UserProvider } from "@/modules/auth/context/user-context";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { WorkspacesBootstrap } from "@/modules/workspaces/providers/workspaces-bootstrap";
+import { StoreConnectionBootstrap } from "@/modules/store/providers/store-connection-bootstrap";
 
 export default async function DashboardLayout({
   children,
@@ -12,6 +13,7 @@ export default async function DashboardLayout({
   return (
     <UserProvider user={user}>
       <WorkspacesBootstrap />
+      <StoreConnectionBootstrap />
       <DashboardShell>{children}</DashboardShell>
     </UserProvider>
   );

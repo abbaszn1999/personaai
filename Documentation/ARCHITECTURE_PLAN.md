@@ -1,4 +1,4 @@
-# AutoShopping — Architecture & Restructure Plan
+# Persona AI — Architecture & Restructure Plan
 
 ## Final Decision Summary
 
@@ -97,31 +97,35 @@ src/
 │   │       ├── helpers.ts            ← was: src/lib/auth/helpers.ts
 │   │       └── google.ts             ← was: src/lib/auth/google.ts
 │   │
-│   ├── workspaces/                   ← Everything workspaces
+│   ├── workspaces/                   ← Everything workspaces (project shell only: name, mode, status —
+│   │   │                                no store connection or category data; that's account-level, see modules/store/)
 │   │   ├── components/
 │   │   │   ├── workspace-list.tsx    ← was: features/workspaces/components/
-│   │   │   ├── workspace-card.tsx
+│   │   │   ├── workspace-card.tsx    ← reads connection/categories from modules/store/store.ts, not the workspace
 │   │   │   └── workspace-overview.tsx
 │   │   ├── settings/                 ← was: features/workspace-settings/
-│   │   │   ├── workspace-settings-dashboard.tsx
+│   │   │   ├── workspace-settings-dashboard.tsx  ← 2 tabs only: General, Danger Zone
 │   │   │   ├── ws-general-section.tsx
 │   │   │   ├── ws-branding-editor.tsx
-│   │   │   ├── ws-categories-section.tsx
 │   │   │   └── ws-danger-section.tsx
+│   │   │       (ws-categories-section.tsx removed — category selection now
+│   │   │        lives in store/components/catalog-sync-panel.tsx, since
+│   │   │        choosing active categories is part of the store/catalog
+│   │   │        setup flow, not project settings)
 │   │   ├── hooks/
 │   │   │   └── use-workspaces.ts     ← was: features/workspaces/hooks/
 │   │   ├── providers/
 │   │   │   └── workspaces-bootstrap.tsx  ← was: components/providers/
-│   │   ├── store.ts                  ← was: lib/store/workspace-store.ts
-│   │   ├── types.ts                  ← was: domain/workspaces/types.ts
+│   │   ├── store.ts                  ← was: lib/store/workspace-store.ts (no globalConnection — moved to modules/store/store.ts)
+│   │   ├── types.ts                  ← was: domain/workspaces/types.ts (no storeConnection/selectedCategoryIds fields)
 │   │   └── constants.ts              ← was: domain/workspaces/constants.ts
 │   │
-│   ├── onboarding/                   ← Setup wizard
+│   ├── onboarding/                   ← Setup wizard (Name → Mode → Review; no Categories step —
+│   │   │                                category selection happens later in Store → Catalog Sync)
 │   │   ├── components/
 │   │   │   ├── setup-wizard.tsx
 │   │   │   ├── step-name.tsx
 │   │   │   ├── step-mode.tsx
-│   │   │   ├── step-categories.tsx
 │   │   │   └── step-review.tsx
 │   │   ├── hooks/
 │   │   │   └── use-setup-wizard.ts
@@ -131,10 +135,9 @@ src/
 │   ├── settings/                     ← Account settings
 │   │   ├── components/
 │   │   │   ├── settings-dashboard.tsx
-│   │   │   ├── general-settings.tsx
-│   │   │   ├── password-settings.tsx
-│   │   │   ├── security-settings.tsx
-│   │   │   ├── connected-accounts.tsx
+│   │   │   ├── general-settings.tsx      ← the "Profile" nav item; stacks 3 cards: ProfileForm, <PasswordSettings />, <ConnectedAccounts />
+│   │   │   ├── password-settings.tsx     ← not its own nav item — rendered inside general-settings.tsx
+│   │   │   ├── connected-accounts.tsx    ← not its own nav item — rendered inside general-settings.tsx
 │   │   │   ├── notifications-settings.tsx
 │   │   │   ├── billing-settings.tsx
 │   │   │   └── danger-zone.tsx
@@ -159,14 +162,27 @@ src/
 │   │   └── mocks/
 │   │       └── analytics-data.ts
 │   │
-│   ├── store/                        ← E-commerce store connection
+│   ├── store/                        ← E-commerce store connection — account-level (one per owner,
+│   │   │                                survives project delete/recreate), backed by the
+│   │   │                                `store_connections` table (see lib/db/store-connections.ts).
+│   │   │                                Shopify is a real integration (Admin API, see lib/shopify/client.ts);
+│   │   │                                WooCommerce/WordPress/Custom remain simulated for now.
 │   │   ├── components/
-│   │   │   ├── store-dashboard.tsx
+│   │   │   ├── store-dashboard.tsx   ← Connection tab has no "Replace with a different store" —
+│   │   │   │                            disconnect first, then the connect form reappears
 │   │   │   ├── connection-card.tsx
 │   │   │   ├── connect-store-form.tsx
-│   │   │   └── catalog-sync-panel.tsx
+│   │   │   └── catalog-sync-panel.tsx  ← also owns category selection (selectedCategoryIds),
+│   │   │                                  persisted via PATCH /api/store-connection, merged in
+│   │   │                                  from the former ws-categories-section.tsx
 │   │   ├── hooks/
-│   │   │   └── use-store-connect.ts
+│   │   │   └── use-store-connect.ts  ← thin bridge from the Store page to store.ts; only reads
+│   │   │                                workspace.mode (from modules/workspaces/store.ts) to pick
+│   │   │                                the wearable/unwearable mock category taxonomy
+│   │   ├── providers/
+│   │   │   └── store-connection-bootstrap.tsx  ← mounted in (dashboard)/layout.tsx, loads store.ts on mount
+│   │   ├── store.ts                  ← Zustand — connection, selectedCategoryIds, productCount, syncedAt;
+│   │   │                                single source of truth, calls /api/store-connection
 │   │   ├── mocks/
 │   │   │   └── connections.ts
 │   │   ├── types.ts                  ← was: domain/store/types.ts
@@ -181,14 +197,15 @@ src/
 │   │   │   ├── plan-card.tsx
 │   │   │   ├── credit-bundles-section.tsx  ← rendered from Settings > Billing, not /usage
 │   │   │   ├── credit-bundle-card.tsx
-│   │   │   ├── api-key-section.tsx   ← BYO OpenAI key for the chat agent (Settings > API Keys)
+│   │   │   ├── api-key-section.tsx   ← BYO OpenAI key for the chat agent (Settings > API Keys) — real DB persistence
 │   │   │   └── chat-usage-section.tsx  ← /usage page: BYO-chat lane, separate from Autommerce-metered image credits
 │   │   ├── hooks/
-│   │   │   └── use-billing.ts
+│   │   │   ├── use-billing.ts
+│   │   │   └── use-openai-api-key.ts ← real CRUD against /api/account/api-key (GET/PUT/DELETE); never receives the raw key back, only hasKey + a masked preview
 │   │   ├── mocks/
 │   │   │   ├── usage-history.ts
 │   │   │   └── chat-usage.ts         ← informational-only mock (Autommerce doesn't meter chat)
-│   │   ├── store.ts                  ← Zustand — activeTierId, rendersUsed, overageCredits, openaiApiKey (session-local, mirrors store/ globalConnection pattern)
+│   │   ├── store.ts                  ← Zustand — activeTierId, rendersUsed, overageCredits (still frontend-only; the OpenAI key moved off this store into use-openai-api-key.ts once it became DB-backed)
 │   │   ├── types.ts
 │   │   └── constants.ts              ← PLAN_TIERS (Fixed / Hybrid), CREDIT_BUNDLES, MONTHLY_INCLUDED_RENDERS
 │   │
@@ -413,6 +430,33 @@ export async function updateWorkspace(id: string, ownerId: string, patch: Update
 export async function deleteWorkspace(id: string, ownerId: string)
 export async function countWorkspacesByOwner(ownerId: string)
 ```
+`workspaces` only stores `name`, `mode`, `status` — no store connection or category columns.
+
+### `src/lib/db/store-connections.ts`
+```typescript
+export async function getStoreConnectionByOwner(ownerId: string)
+export async function upsertStoreConnection(data: UpsertStoreConnectionInput)   // connect / replace
+export async function updateStoreConnection(ownerId: string, patch: UpdateStoreConnectionInput)  // categories, sync fields
+export async function deleteStoreConnection(ownerId: string)                    // disconnect
+```
+Backs the `store_connections` table (one row per `owner_id`, unique — account-level, not tied to a
+project): `platform`, `store_name`, `store_url`, `api_key_encrypted`, `status`, `selected_category_ids`
+(jsonb), `categories` (jsonb — the store's full available taxonomy), `product_count`, `synced_at`.
+Exposed via `src/app/api/store-connection/route.ts` (GET/POST/PATCH/DELETE); the API route never
+returns `api_key_encrypted` to the client.
+
+### `src/lib/shopify/client.ts`
+```typescript
+export function normalizeShopifyDomain(input: string): string        // "mystore" → "mystore.myshopify.com"
+export async function verifyShopifyCredentials(domain: string, accessToken: string)  // throws ShopifyApiError on invalid creds
+export async function getShopifyProductCount(domain: string, accessToken: string)
+export async function getShopifyCollections(domain: string, accessToken: string)     // custom + smart collections → StoreCategory[]
+```
+Real Shopify Admin API (REST, Custom App access token auth — no OAuth flow). Used by
+`/api/store-connection` POST (connect: verifies credentials, pulls real product count + collections)
+and PATCH with `{ sync: true }` (re-pulls both using the decrypted stored token). WooCommerce,
+WordPress, and Custom platform options still simulate these numbers (`Math.random`) — no real
+integration yet.
 
 ### `src/lib/db/users.ts`
 ```typescript
@@ -422,7 +466,15 @@ export async function createUser(data: CreateUserInput)
 export async function updateUser(id: string, patch: Partial<UserRow>)
 export async function setPasswordHash(userId: string, hash: string)
 export async function completeOnboarding(userId: string, data: OnboardingData)
+export async function setOpenaiApiKey(id: string, encryptedKey: string | null)   // stores ciphertext only
+export async function getOpenaiApiKeyEncrypted(id: string)
 ```
+
+### `src/lib/utils/crypto.ts`
+AES-256-GCM helpers for encrypting BYO secrets (currently just the OpenAI key) before they're written
+to Postgres. Key is derived from `OPENAI_KEY_ENCRYPTION_SECRET` (env). Exposes `encryptSecret`,
+`decryptSecret`, and `maskSecret` (e.g. `"sk-...ab12"`) — the API route only ever sends the mask back
+to the client, never the decrypted key, via `src/app/api/account/api-key/route.ts` (GET/PUT/DELETE).
 
 ### `src/lib/db/sessions.ts`
 ```typescript

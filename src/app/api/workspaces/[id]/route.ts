@@ -18,7 +18,6 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       name?: string;
       status?: WorkspaceStatus;
       mode?: WorkspaceMode;
-      selectedCategoryIds?: string[];
     } = {};
 
     if (typeof body.name === "string" && body.name.trim().length >= 2) {
@@ -30,9 +29,6 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (["wearable", "unwearable"].includes(body.mode)) {
       patch.mode = body.mode;
     }
-    if (Array.isArray(body.selectedCategoryIds)) {
-      patch.selectedCategoryIds = body.selectedCategoryIds;
-    }
 
     if (Object.keys(patch).length === 0) {
       return Response.json({ error: "No valid fields to update" }, { status: 400 });
@@ -41,7 +37,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     const workspace = await updateWorkspace(id, user.id, patch);
 
     if (!workspace) {
-      return Response.json({ error: "Workspace not found or update failed" }, { status: 404 });
+      return Response.json({ error: "Project not found or update failed" }, { status: 404 });
     }
 
     return Response.json({ workspace });
@@ -62,7 +58,7 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
     const ok = await deleteWorkspace(id, user.id);
 
     if (!ok) {
-      return Response.json({ error: "Workspace not found or delete failed" }, { status: 404 });
+      return Response.json({ error: "Project not found or delete failed" }, { status: 404 });
     }
 
     return Response.json({ success: true });

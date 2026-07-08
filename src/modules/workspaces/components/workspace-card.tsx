@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { StatusPill } from "@/components/ui/status-pill";
 import { AgentOrb } from "@/components/ui/agent-orb";
 import { Button } from "@/components/ui/button";
+import { useStoreConnectionStore } from "@/modules/store/store";
 
 interface WorkspaceCardProps {
   workspace: Workspace;
@@ -18,6 +19,8 @@ interface WorkspaceCardProps {
 }
 
 export function WorkspaceCard({ workspace, isActive, onActivate }: WorkspaceCardProps) {
+  const connection = useStoreConnectionStore((s) => s.connection);
+  const selectedCategoryIds = useStoreConnectionStore((s) => s.selectedCategoryIds);
   const previewHref =
     workspace.mode === "wearable"
       ? `/workspaces/${workspace.id}/try-on`
@@ -47,10 +50,9 @@ export function WorkspaceCard({ workspace, isActive, onActivate }: WorkspaceCard
         {/* Store connection */}
         <div className="mt-4 flex items-center gap-2 text-sm">
           <Plug className="h-3.5 w-3.5 text-[var(--color-text-muted)]" />
-          {workspace.storeConnection ? (
+          {connection ? (
             <span className="text-[var(--color-text-secondary)]">
-              {PLATFORM_LABELS[workspace.storeConnection.platform]} ·{" "}
-              {workspace.storeConnection.storeName}
+              {PLATFORM_LABELS[connection.platform]} · {connection.storeName}
             </span>
           ) : (
             <span className="text-[var(--color-text-muted)]">No store connected</span>
@@ -61,7 +63,7 @@ export function WorkspaceCard({ workspace, isActive, onActivate }: WorkspaceCard
         <div className="mt-2 flex items-center gap-2 text-sm">
           <FolderOpen className="h-3.5 w-3.5 text-[var(--color-text-muted)]" />
           <span className="text-[var(--color-text-secondary)]">
-            {workspace.selectedCategoryIds.length} categories selected
+            {selectedCategoryIds.length} categories selected
           </span>
         </div>
 
@@ -74,7 +76,7 @@ export function WorkspaceCard({ workspace, isActive, onActivate }: WorkspaceCard
             </Button>
           </Link>
           <Link href={settingsHref}>
-            <Button size="sm" variant="secondary" title="Workspace Settings">
+            <Button size="sm" variant="secondary" title="Project Settings">
               <SlidersHorizontal className="h-3.5 w-3.5" />
             </Button>
           </Link>

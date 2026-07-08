@@ -9,10 +9,8 @@ export function useBilling() {
     rendersUsed,
     overageCredits,
     lastPurchasedBundleId,
-    openaiApiKey,
     switchTier,
     purchaseBundle,
-    setOpenaiApiKey,
   } = useBillingStore();
 
   const activeTier = PLAN_TIERS.find((t) => t.id === activeTierId) ?? PLAN_TIERS[0];
@@ -29,9 +27,7 @@ export function useBilling() {
     isOverCap,
     overageCredits,
     lastPurchasedBundleId,
-    openaiApiKey,
     switchTier,
     purchaseBundle,
-    setOpenaiApiKey,
   };
 }

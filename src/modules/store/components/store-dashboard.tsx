@@ -4,14 +4,12 @@ import * as React from "react";
 import {
   Plug,
   FolderOpen,
-  Plus,
   Store,
   RefreshCw,
 } from "lucide-react";
 import { DashboardPageHeader } from "@/components/layout/dashboard-header-context";
 import { PanelNav, type PanelNavItem } from "@/components/layout/panel-nav";
 import { SettingsSection } from "@/components/ui/settings-section";
-import { EmptyState } from "@/components/ui/empty-state";
 import { StatusPill } from "@/components/ui/status-pill";
 import { ConnectionCard } from "./connection-card";
 import { ConnectStoreForm } from "./connect-store-form";
@@ -20,34 +18,19 @@ import { useStoreConnect } from "../hooks/use-store-connect";
 import { PLATFORM_LABELS } from "@/modules/store/constants";
 import { cn } from "@/lib/utils/cn";
 
-type StoreTab = "overview" | "connect" | "catalog";
+type StoreTab = "connection" | "catalog";
 
 export function StoreDashboard() {
   const store = useStoreConnect();
   const connection = store.connection;
-  const [activeTab, setActiveTab] = React.useState<StoreTab>(connection ? "overview" : "connect");
-
-  // Auto-switch to overview once connected
-  const prevConnected = React.useRef(!!connection);
-  React.useEffect(() => {
-    if (!prevConnected.current && connection) {
-      setActiveTab("overview");
-    }
-    prevConnected.current = !!connection;
-  }, [connection]);
+  const [activeTab, setActiveTab] = React.useState<StoreTab>("connection");
 
   const NAV_ITEMS: PanelNavItem[] = [
     {
-      id: "overview",
+      id: "connection",
       label: "Connection",
       description: connection ? PLATFORM_LABELS[connection.platform] : "Not connected",
       icon: <Plug className="h-4 w-4" />,
-    },
-    {
-      id: "connect",
-      label: connection ? "Replace Store" : "Connect Store",
-      description: "Add or change platform",
-      icon: <Plus className="h-4 w-4" />,
     },
     {
       id: "catalog",
@@ -99,6 +82,9 @@ export function StoreDashboard() {
                 </button>
               )}
             </div>
+            {store.syncError && (
+              <p className="text-xs text-[var(--color-error)]">{store.syncError}</p>
+            )}
           </div>
 
           {/* Nav */}
@@ -112,72 +98,51 @@ export function StoreDashboard() {
 
         {/* ── Right Content ── */}
         <div className="flex-1 min-w-0 animate-fade-in">
-          {activeTab === "overview" && (
+          {activeTab === "connection" && (
             <SettingsSection
-              title="Connected Store"
-              description="Your active e-commerce platform integration"
+              title={connection ? "Connected Store" : "Connect a Store"}
+              description={
+                connection
+                  ? "Your active e-commerce platform integration"
+                  : "Choose your platform and enter your API credentials"
+              }
               icon={<Plug className="h-4 w-4" />}
               accent="brand"
             >
               {connection ? (
-                <div className="space-y-4">
-                  <ConnectionCard
-                    connection={connection}
-                    productCount={store.productCount}
-                    categoryCount={store.categoryCount}
-                    isSyncing={store.isSyncing}
-                    syncedAt={store.syncedAt}
-                    onDisconnect={store.disconnect}
-                    onSync={store.syncNow}
-                  />
-                  <button
-                    onClick={() => setActiveTab("connect")}
-                    className="flex items-center gap-2 text-sm text-[var(--color-brand)] hover:underline"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    Replace with a different store
-                  </button>
-                </div>
+                <ConnectionCard
+                  connection={connection}
+                  productCount={store.productCount}
+                  categoryCount={store.categoryCount}
+                  isSyncing={store.isSyncing}
+                  syncedAt={store.syncedAt}
+                  onDisconnect={store.disconnect}
+                  onSync={store.syncNow}
+                />
               ) : (
-                <EmptyState
-                  icon={<Plug className="h-6 w-6" />}
-                  title="No store connected"
-                  description="Connect your e-commerce platform to let the AI agent access your products and categories."
-                  action={{ label: "Connect a Store", onClick: () => setActiveTab("connect") }}
+                <ConnectStoreForm
+                  platform={store.form.platform}
+                  storeUrl={store.form.storeUrl}
+                  apiKey={store.form.apiKey}
+                  isConnecting={store.isConnecting}
+                  canConnect={store.canConnect}
+                  error={store.connectError}
+                  onChange={store.updateForm}
+                  onConnect={store.connect}
                 />
               )}
-            </SettingsSection>
-          )}
-
-          {activeTab === "connect" && (
-            <SettingsSection
-              title={connection ? "Replace Connection" : "Connect a Store"}
-              description="Choose your platform and enter your API credentials"
-              icon={<Plug className="h-4 w-4" />}
-              accent="brand"
-            >
-              <ConnectStoreForm
-                platform={store.form.platform}
-                storeUrl={store.form.storeUrl}
-                apiKey={store.form.apiKey}
-                isConnecting={store.isConnecting}
-                canConnect={store.canConnect}
-                onChange={store.updateForm}
-                onConnect={store.connect}
-              />
             </SettingsSection>
           )}
 
           {activeTab === "catalog" && connection && (
             <SettingsSection
               title="Catalog Sync"
-              description="Products and categories synced from your store"
+              description="Products and categories synced from your store — choose which are active for your agent"
               icon={<FolderOpen className="h-4 w-4" />}
               accent="unwearable"
             >
               <CatalogSyncPanel
                 productCount={store.productCount}
-                categoryCount={store.categoryCount}
                 isSyncing={store.isSyncing}
                 syncedAt={store.syncedAt}
                 mode={store.workspace?.mode ?? "unwearable"}

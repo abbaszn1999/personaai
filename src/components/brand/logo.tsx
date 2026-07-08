@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils/cn";
  * Variants:
  *  - "mark"  : the triangular "A" symbol only
  *  - "full"  : symbol + "Autommerce" wordmark (company)
- *  - "tool"  : symbol + "AutoShopping" with "by Autommerce" caption (the product)
+ *  - "tool"  : symbol + "Persona AI" with "by Autommerce" caption (the product)
  */
 type LogoVariant = "mark" | "full" | "tool";
 
@@ -50,7 +50,7 @@ export function Logo({
             className={cn("font-display font-extrabold tracking-tight", textColor)}
             style={{ fontSize: size * 0.56 }}
           >
-            AutoShopping
+            Persona AI
           </span>
           <span
             className={cn(

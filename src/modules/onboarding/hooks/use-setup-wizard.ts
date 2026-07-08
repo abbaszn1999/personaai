@@ -5,12 +5,12 @@ import { useRouter } from "next/navigation";
 import type { WorkspaceSetupForm } from "../schemas/workspace-setup";
 import { SETUP_STEPS } from "../schemas/workspace-setup";
 import { useWorkspaceStore } from "@/modules/workspaces/store";
+import { useStoreConnectionStore } from "@/modules/store/store";
 import type { Workspace } from "@/modules/workspaces/types";
 
 const INITIAL_FORM: WorkspaceSetupForm = {
   name: "",
   mode: null,
-  selectedCategoryIds: [],
 };
 
 export function useSetupWizard() {
@@ -18,7 +18,8 @@ export function useSetupWizard() {
   const [form, setForm] = React.useState<WorkspaceSetupForm>(INITIAL_FORM);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [submitError, setSubmitError] = React.useState<string | null>(null);
-  const { addWorkspace, setActiveWorkspace, globalConnection } = useWorkspaceStore();
+  const { addWorkspace, setActiveWorkspace } = useWorkspaceStore();
+  const connection = useStoreConnectionStore((s) => s.connection);
   const router = useRouter();
 
   const totalSteps = SETUP_STEPS.length;
@@ -36,7 +37,6 @@ export function useSetupWizard() {
     switch (step) {
       case 0: return form.name.trim().length >= 2;
       case 1: return form.mode !== null;
-      case 2: return form.selectedCategoryIds.length > 0;
       default: return true;
     }
   }
@@ -53,23 +53,18 @@ export function useSetupWizard() {
         body: JSON.stringify({
           name: form.name.trim(),
           mode: form.mode,
-          selectedCategoryIds: form.selectedCategoryIds,
         }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
-        setSubmitError(data.error ?? "Failed to create workspace");
+        setSubmitError(data.error ?? "Failed to create project");
         setIsSubmitting(false);
         return;
       }
 
-      const workspace: Workspace = {
-        ...data.workspace,
-        // Inherit account-level store connection for the overview display
-        storeConnection: globalConnection ?? data.workspace.storeConnection ?? null,
-      };
+      const workspace: Workspace = data.workspace;
 
       addWorkspace(workspace);
       setActiveWorkspace(workspace.id);
@@ -98,6 +93,6 @@ export function useSetupWizard() {
     isSubmitting,
     submitError,
     steps: SETUP_STEPS,
-    globalConnection,
+    connection,
   };
 }

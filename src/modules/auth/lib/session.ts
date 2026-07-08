@@ -27,7 +27,7 @@ export interface SessionData {
 
 export const sessionOptions: SessionOptions = {
   password: process.env.SESSION_SECRET!,
-  cookieName: "autoshopping.sid",
+  cookieName: "persona-ai.sid",
   ttl: 60 * 60 * 24 * 7, // 7 days
   cookieOptions: {
     httpOnly: true,

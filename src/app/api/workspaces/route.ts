@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { name, mode, selectedCategoryIds } = await req.json();
+    const { name, mode } = await req.json();
 
     if (!name || typeof name !== "string" || name.trim().length < 2) {
       return Response.json({ error: "Name must be at least 2 characters" }, { status: 400 });
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
 
     const count = await countWorkspacesByOwner(user.id);
     if (count >= (user.workspaceLimit ?? 3)) {
-      return Response.json({ error: "Workspace limit reached" }, { status: 403 });
+      return Response.json({ error: "Project limit reached" }, { status: 403 });
     }
 
     const workspace = await createWorkspace({
@@ -46,11 +46,10 @@ export async function POST(req: NextRequest) {
       name: name.trim(),
       mode,
       status: "active",
-      selectedCategoryIds: selectedCategoryIds ?? [],
     });
 
     if (!workspace) {
-      return Response.json({ error: "Failed to create workspace" }, { status: 500 });
+      return Response.json({ error: "Failed to create project" }, { status: 500 });
     }
 
     return Response.json({ workspace }, { status: 201 });

@@ -6,8 +6,6 @@ export interface WorkspaceRow {
   name: string;
   mode: WorkspaceMode;
   status: WorkspaceStatus;
-  selectedCategoryIds: string[];
-  storeConnection: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -18,8 +16,6 @@ function rowToWorkspace(row: Record<string, unknown>): WorkspaceRow {
     name: row.name as string,
     mode: row.mode as WorkspaceMode,
     status: row.status as WorkspaceStatus,
-    selectedCategoryIds: (row.selected_category_ids as string[]) ?? [],
-    storeConnection: (row.store_connection as Record<string, unknown> | null) ?? null,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
   };
@@ -54,7 +50,6 @@ export interface CreateWorkspaceInput {
   name: string;
   mode: WorkspaceMode;
   status?: WorkspaceStatus;
-  selectedCategoryIds?: string[];
 }
 
 export async function createWorkspace(input: CreateWorkspaceInput): Promise<WorkspaceRow | null> {
@@ -65,7 +60,6 @@ export async function createWorkspace(input: CreateWorkspaceInput): Promise<Work
       name: input.name,
       mode: input.mode,
       status: input.status ?? "active",
-      selected_category_ids: input.selectedCategoryIds ?? [],
     })
     .select("*")
     .single();
@@ -82,7 +76,6 @@ export interface UpdateWorkspaceInput {
   name?: string;
   status?: WorkspaceStatus;
   mode?: WorkspaceMode;
-  selectedCategoryIds?: string[];
 }
 
 export async function updateWorkspace(
@@ -94,7 +87,6 @@ export async function updateWorkspace(
   if (patch.name !== undefined) dbPatch.name = patch.name;
   if (patch.status !== undefined) dbPatch.status = patch.status;
   if (patch.mode !== undefined) dbPatch.mode = patch.mode;
-  if (patch.selectedCategoryIds !== undefined) dbPatch.selected_category_ids = patch.selectedCategoryIds;
 
   const { data, error } = await db
     .from("workspaces")

@@ -16,7 +16,7 @@ export default async function SetupPage() {
   return (
     <>
       <DashboardPageHeader
-        title="Create Workspace"
+        title="Create Project"
         description="Follow the steps to configure a new AI shopping assistant"
       />
       <div className="p-6">

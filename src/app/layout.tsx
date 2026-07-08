@@ -27,9 +27,9 @@ const bodyFont = Inter({
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "AutoShopping — AI Shopping Assistant by Autommerce",
+  title: "Persona AI — AI Shopping Assistant by Autommerce",
   description:
-    "AutoShopping by Autommerce gives your store an AI shopping assistant and virtual try-on that turn browsers into buyers. E-commerce with AI Excellence.",
+    "Persona AI by Autommerce gives your store an AI shopping assistant and virtual try-on that turn browsers into buyers. E-commerce with AI Excellence.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

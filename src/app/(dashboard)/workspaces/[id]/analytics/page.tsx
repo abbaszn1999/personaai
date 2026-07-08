@@ -16,7 +16,7 @@ export default function WorkspaceAnalyticsPage({ params }: Props) {
     <>
       <DashboardPageHeader
         title="Analytics"
-        description={ws ? `Performance for ${ws.name}` : "Workspace analytics"}
+        description={ws ? `Performance for ${ws.name}` : "Project analytics"}
       />
       <div className="p-6">
         <AnalyticsDashboard workspaceId={id} />

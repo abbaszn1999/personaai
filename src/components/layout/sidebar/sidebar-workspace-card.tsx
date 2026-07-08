@@ -2,8 +2,8 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Settings } from "lucide-react";
-import { WorkspaceSwitcher } from "../workspace-switcher";
+import { Settings, Plus } from "lucide-react";
+import { AgentOrb } from "@/components/ui/agent-orb";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { WORKSPACE_MODE_LABELS } from "@/modules/workspaces/constants";
 import type { Workspace } from "@/modules/workspaces/types";
@@ -27,7 +27,7 @@ export function SidebarWorkspaceCard({
       <TooltipTrigger asChild>
         <Link
           href={`/workspaces/${workspace.id}/settings`}
-          aria-label="Workspace settings"
+          aria-label="Project settings"
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-md)] text-[var(--color-sidebar-text-muted)] sidebar-glass sidebar-glass-hover transition-colors"
         >
           <Settings className="h-3.5 w-3.5" />
@@ -37,7 +37,7 @@ export function SidebarWorkspaceCard({
         side="right"
         className="bg-[var(--color-sidebar-bg)] border-[var(--color-sidebar-border)] text-[var(--color-sidebar-text)]"
       >
-        Workspace settings
+        Project settings
       </TooltipContent>
     </Tooltip>
   );
@@ -45,7 +45,30 @@ export function SidebarWorkspaceCard({
   if (collapsed) {
     return (
       <div className="px-1 py-1 flex flex-col items-center gap-1.5">
-        <WorkspaceSwitcher collapsed variant="dark" />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            {workspace ? (
+              <div className="flex items-center justify-center p-1.5">
+                <AgentOrb mode={workspace.mode} size="sm" />
+              </div>
+            ) : (
+              <Link
+                href="/setup"
+                className="flex items-center justify-center p-1.5 rounded-[var(--radius-md)] sidebar-glass-hover transition-colors"
+              >
+                <div className="h-8 w-8 rounded-full gradient-brand shrink-0 flex items-center justify-center">
+                  <Plus className="h-4 w-4 text-white" />
+                </div>
+              </Link>
+            )}
+          </TooltipTrigger>
+          <TooltipContent
+            side="right"
+            className="bg-[var(--color-sidebar-bg)] border-[var(--color-sidebar-border)] text-[var(--color-sidebar-text)]"
+          >
+            {workspace?.name ?? "Add Project"}
+          </TooltipContent>
+        </Tooltip>
         {settingsButton}
       </div>
     );
@@ -54,9 +77,30 @@ export function SidebarWorkspaceCard({
   return (
     <div className="mx-2.5 mb-2 rounded-[var(--radius-xl)] sidebar-glass p-3 space-y-2.5">
       <div className="flex items-center gap-1.5">
-        <div className="flex-1 min-w-0">
-          <WorkspaceSwitcher variant="dark" />
-        </div>
+        {workspace ? (
+          <div className="flex-1 min-w-0 flex items-center gap-2.5 px-2.5 py-2">
+            <AgentOrb mode={workspace.mode} size="sm" />
+            <div className="flex-1 min-w-0 text-left">
+              <div className="text-sm font-semibold truncate text-[var(--color-sidebar-text)]">
+                {workspace.name}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <Link
+            href="/setup"
+            className="group flex-1 min-w-0 flex items-center gap-2.5 px-2.5 py-2 rounded-[var(--radius-lg)] sidebar-glass-hover transition-colors"
+          >
+            <div className="h-8 w-8 rounded-full gradient-brand shrink-0 flex items-center justify-center">
+              <Plus className="h-4 w-4 text-white" />
+            </div>
+            <div className="flex-1 min-w-0 text-left">
+              <div className="text-sm font-semibold truncate text-[var(--color-sidebar-text)] group-hover:text-[var(--color-brand)] transition-colors">
+                Add Project
+              </div>
+            </div>
+          </Link>
+        )}
         {settingsButton}
       </div>
 

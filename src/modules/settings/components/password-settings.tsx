@@ -103,7 +103,7 @@ export function PasswordSettings() {
       <SettingsSection title="Password" description="Manage your password" icon={<KeyRound className="h-4 w-4" />} accent="brand">
         <p className="text-sm text-[var(--color-text-muted)]">
           Your account uses Google sign-in. To add a password, visit{" "}
-          <strong className="text-[var(--color-text-secondary)]">Connected Accounts</strong>.
+          <strong className="text-[var(--color-text-secondary)]">Profile</strong>.
         </p>
       </SettingsSection>
     );

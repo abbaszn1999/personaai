@@ -22,7 +22,7 @@ export function KpiRow({ range }: KpiRowProps) {
       <MetricCard
         label="Tool Revenue"
         value={formatRevenue(s.revenue)}
-        sub="Attributed to AutoShopping"
+        sub="Attributed to Persona AI"
         icon={<DollarSign className="h-4 w-4" />}
         accent="brand"
         trend={{ value: s.trends.revenue, label: "vs prior period" }}

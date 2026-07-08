@@ -2,28 +2,22 @@
 
 import * as React from "react";
 import { Suspense } from "react";
-import { User, KeyRound, Shield, Link2, CreditCard, Bell, AlertTriangle, KeySquare } from "lucide-react";
+import { User, CreditCard, Bell, AlertTriangle, KeySquare } from "lucide-react";
 import { useSearchParams, usePathname } from "next/navigation";
 import { DashboardPageHeader } from "@/components/layout/dashboard-header-context";
 import { PanelNav, type PanelNavItem } from "@/components/layout/panel-nav";
 import { SettingsProfileProvider } from "../context/settings-profile-context";
 import { GeneralSettings } from "./general-settings";
-import { PasswordSettings } from "./password-settings";
-import { SecuritySettings } from "./security-settings";
-import { ConnectedAccounts } from "./connected-accounts";
 import { BillingSettings } from "./billing-settings";
 import { ApiKeySection } from "@/modules/billing/components/api-key-section";
 import { NotificationsSettings } from "./notifications-settings";
 import { DangerZone } from "./danger-zone";
 import { cn } from "@/lib/utils/cn";
 
-type SectionId = "profile" | "password" | "security" | "connected" | "api-keys" | "billing" | "notifications" | "danger";
+type SectionId = "profile" | "api-keys" | "billing" | "notifications" | "danger";
 
 const NAV_ITEMS: PanelNavItem[] = [
-  { id: "profile",       label: "Profile",             description: "Name, avatar & email",       icon: <User className="h-4 w-4" /> },
-  { id: "password",      label: "Password",             description: "Change or reset password",   icon: <KeyRound className="h-4 w-4" /> },
-  { id: "security",      label: "Security",             description: "Sessions & devices",          icon: <Shield className="h-4 w-4" /> },
-  { id: "connected",     label: "Connected Accounts",   description: "Google & sign-in methods",   icon: <Link2 className="h-4 w-4" /> },
+  { id: "profile",       label: "Profile",             description: "Name, avatar & connected accounts", icon: <User className="h-4 w-4" /> },
   { id: "api-keys",      label: "API Keys",             description: "OpenAI key for chat agent",  icon: <KeySquare className="h-4 w-4" /> },
   { id: "notifications", label: "Notifications",        description: "Email alert preferences",    icon: <Bell className="h-4 w-4" /> },
   { id: "billing",       label: "Billing",              description: "Plans & credits",            icon: <CreditCard className="h-4 w-4" /> },
@@ -38,9 +32,6 @@ function parseSection(param: string | null): SectionId {
 
 const SECTION_COMPONENTS: Record<SectionId, React.ComponentType> = {
   profile: GeneralSettings,
-  password: PasswordSettings,
-  security: SecuritySettings,
-  connected: ConnectedAccounts,
   "api-keys": ApiKeySection,
   notifications: NotificationsSettings,
   billing: BillingSettings,

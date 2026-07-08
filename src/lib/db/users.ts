@@ -18,6 +18,7 @@ export interface UserRow {
   has_completed_onboarding: boolean;
   onboarding_data: Record<string, unknown> | null;
   notification_preferences: Record<string, unknown> | null;
+  openai_api_key_encrypted: string | null;
   credits: number;
   subscription_tier: string;
   workspace_limit: number;
@@ -232,4 +233,29 @@ export async function completeOnboarding(id: string, onboardingData: Record<stri
 
 export async function deleteUser(id: string): Promise<void> {
   await db.from("users").delete().eq("id", id);
+}
+
+/** Stores the (already-encrypted) OpenAI API key ciphertext, or clears it when `null`. */
+export async function setOpenaiApiKey(id: string, encryptedKey: string | null): Promise<boolean> {
+  const { error } = await db
+    .from("users")
+    .update({ openai_api_key_encrypted: encryptedKey, updated_at: new Date().toISOString() })
+    .eq("id", id);
+
+  if (error) {
+    console.error("[db/users setOpenaiApiKey]", error);
+    return false;
+  }
+  return true;
+}
+
+export async function getOpenaiApiKeyEncrypted(id: string): Promise<string | null> {
+  const { data, error } = await db
+    .from("users")
+    .select("openai_api_key_encrypted")
+    .eq("id", id)
+    .single();
+
+  if (error || !data) return null;
+  return data.openai_api_key_encrypted ?? null;
 }

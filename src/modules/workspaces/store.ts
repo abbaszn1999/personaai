@@ -2,16 +2,13 @@
 
 import { create } from "zustand";
 import type { Workspace } from "@/modules/workspaces/types";
-import type { StoreConnection } from "@/modules/store/types";
 
 interface WorkspaceState {
   workspaces: Workspace[];
   activeWorkspaceId: string | null;
-  globalConnection: StoreConnection | null;
   isLoading: boolean;
   loadWorkspaces: () => Promise<void>;
   setActiveWorkspace: (id: string) => void;
-  setGlobalConnection: (conn: StoreConnection | null) => void;
   addWorkspace: (workspace: Workspace) => void;
   updateWorkspace: (id: string, patch: Partial<Workspace>) => void;
   removeWorkspace: (id: string) => void;
@@ -21,7 +18,6 @@ interface WorkspaceState {
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   workspaces: [],
   activeWorkspaceId: null,
-  globalConnection: null,
   isLoading: false,
 
   loadWorkspaces: async () => {
@@ -39,11 +35,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
             s.activeWorkspaceId && workspaces.some((w) => w.id === s.activeWorkspaceId)
               ? s.activeWorkspaceId
               : (workspaces[0]?.id ?? null),
-          // Seed globalConnection from first workspace that has one
-          globalConnection:
-            s.globalConnection ??
-            (workspaces.find((w) => w.storeConnection?.status === "connected")
-              ?.storeConnection ?? null),
         }));
       } else {
         set({ isLoading: false });
@@ -54,8 +45,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   setActiveWorkspace: (id) => set({ activeWorkspaceId: id }),
-
-  setGlobalConnection: (conn) => set({ globalConnection: conn }),
 
   addWorkspace: (workspace) =>
     set((s) => ({

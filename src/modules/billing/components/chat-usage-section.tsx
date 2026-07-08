@@ -6,12 +6,12 @@ import { SettingsSection } from "@/components/ui/settings-section";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
 import { MetricCard } from "@/components/ui/metric-card";
-import { useBilling } from "../hooks/use-billing";
+import { useOpenaiApiKey } from "../hooks/use-openai-api-key";
 import { CHAT_MESSAGES_THIS_CYCLE } from "../mocks/chat-usage";
 
 export function ChatUsageSection() {
-  const { openaiApiKey } = useBilling();
-  const connected = openaiApiKey.trim().length > 0;
+  const { hasKey, loading } = useOpenaiApiKey();
+  const connected = !loading && hasKey;
 
   return (
     <SettingsSection

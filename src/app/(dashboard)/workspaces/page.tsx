@@ -5,8 +5,8 @@ export default function WorkspacesPage() {
   return (
     <>
       <DashboardPageHeader
-        title="Workspaces"
-        description="Manage your AI assistant workspaces"
+        title="Project"
+        description="Manage your AI assistant project"
       />
       <div className="p-6">
         <WorkspaceList />

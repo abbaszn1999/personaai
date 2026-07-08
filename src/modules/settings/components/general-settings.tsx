@@ -6,6 +6,8 @@ import { SettingsSection } from "@/components/ui/settings-section";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useSettingsProfile } from "../context/settings-profile-context";
+import { PasswordSettings } from "./password-settings";
+import { ConnectedAccounts } from "./connected-accounts";
 
 function ProfileForm({ profile }: { profile: NonNullable<ReturnType<typeof useSettingsProfile>["profile"]> }) {
   const { updateLocal } = useSettingsProfile();
@@ -108,19 +110,21 @@ function ProfileForm({ profile }: { profile: NonNullable<ReturnType<typeof useSe
 export function GeneralSettings() {
   const { profile, loading } = useSettingsProfile();
 
-  if (loading || !profile) {
-    return (
-      <SettingsSection title="Profile" description="Your name, avatar and email" icon={<User className="h-4 w-4" />} accent="brand">
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => <div key={i} className="h-9 rounded-[var(--radius-md)] skeleton" />)}
-        </div>
-      </SettingsSection>
-    );
-  }
-
   return (
-    <SettingsSection title="Profile" description="Your public name, avatar and contact information" icon={<User className="h-4 w-4" />} accent="brand">
-      <ProfileForm key={profile.email} profile={profile} />
-    </SettingsSection>
+    <div className="space-y-6">
+      <SettingsSection title="Profile" description="Your public name, avatar and contact information" icon={<User className="h-4 w-4" />} accent="brand">
+        {loading || !profile ? (
+          <div className="space-y-3">
+            {[1, 2, 3].map((i) => <div key={i} className="h-9 rounded-[var(--radius-md)] skeleton" />)}
+          </div>
+        ) : (
+          <ProfileForm key={profile.email} profile={profile} />
+        )}
+      </SettingsSection>
+
+      <PasswordSettings />
+
+      <ConnectedAccounts />
+    </div>
   );
 }

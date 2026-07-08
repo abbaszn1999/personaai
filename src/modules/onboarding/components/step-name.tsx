@@ -18,14 +18,14 @@ export function StepName({ form, onChange }: StepNameProps) {
           <Sparkles className="h-5 w-5 text-white" />
         </div>
         <div>
-          <h2 className="text-xl font-bold text-[var(--color-text-primary)]">Name your workspace</h2>
+          <h2 className="text-xl font-bold text-[var(--color-text-primary)]">Name your project</h2>
           <p className="text-sm text-[var(--color-text-muted)]">
             Give this AI assistant a meaningful name for your store.
           </p>
         </div>
       </div>
       <Input
-        label="Workspace Name"
+        label="Project Name"
         placeholder="e.g. Fashion Store, Electronics Hub…"
         value={form.name}
         onChange={(e) => onChange({ name: e.target.value })}

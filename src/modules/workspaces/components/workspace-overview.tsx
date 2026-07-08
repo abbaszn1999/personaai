@@ -25,7 +25,7 @@ import { Badge } from "@/components/ui/badge";
 import type { Workspace } from "@/modules/workspaces/types";
 import { WORKSPACE_MODE_LABELS } from "@/modules/workspaces/constants";
 import { PLATFORM_LABELS } from "@/modules/store/constants";
-import { useWorkspaceStore } from "@/modules/workspaces/store";
+import { useStoreConnectionStore } from "@/modules/store/store";
 import { MOCK_WEARABLE_CATEGORIES, MOCK_UNWEARABLE_CATEGORIES } from "@/lib/mock-api/catalog";
 import { cn } from "@/lib/utils/cn";
 
@@ -49,12 +49,13 @@ function wsStats(id: string) {
 interface Props { workspace: Workspace }
 
 export function WorkspaceOverview({ workspace }: Props) {
-  const { globalConnection } = useWorkspaceStore();
+  const connection = useStoreConnectionStore((s) => s.connection);
+  const selectedCategoryIds = useStoreConnectionStore((s) => s.selectedCategoryIds);
   const stats = wsStats(workspace.id);
   const [syncing, setSyncing] = React.useState(false);
 
   const categories = workspace.mode === "wearable" ? MOCK_WEARABLE_CATEGORIES : MOCK_UNWEARABLE_CATEGORIES;
-  const activeCategories = categories.filter((c) => workspace.selectedCategoryIds.includes(c.id));
+  const activeCategories = categories.filter((c) => selectedCategoryIds.includes(c.id));
 
   const previewHref   = workspace.mode === "wearable"
     ? `/workspaces/${workspace.id}/try-on`
@@ -134,15 +135,15 @@ export function WorkspaceOverview({ workspace }: Props) {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {globalConnection?.status === "connected" ? (
+            {connection?.status === "connected" ? (
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-semibold text-[var(--color-text-primary)]">
-                      {globalConnection.storeName}
+                      {connection.storeName}
                     </p>
                     <p className="text-xs text-[var(--color-text-muted)]">
-                      {PLATFORM_LABELS[globalConnection.platform]} · {globalConnection.storeUrl}
+                      {PLATFORM_LABELS[connection.platform]} · {connection.storeUrl}
                     </p>
                   </div>
                   <StatusPill status="connected" />

@@ -20,9 +20,9 @@ export function WorkspaceList() {
     return (
       <EmptyState
         icon={<FolderOpen className="h-6 w-6" />}
-        title="No workspaces yet"
-        description="Create your first workspace to start configuring your AI shopping assistant."
-        action={{ label: "Create Workspace", onClick: () => router.push("/setup") }}
+        title="No project yet"
+        description="Create your project to start configuring your AI shopping assistant."
+        action={{ label: "Create Project", onClick: () => router.push("/setup") }}
       />
     );
   }
@@ -32,17 +32,17 @@ export function WorkspaceList() {
       <div className="flex items-center justify-between mb-5">
         <div>
           <h2 className="text-base font-semibold text-[var(--color-text-primary)]">
-            All Workspaces
+            Your Project
           </h2>
           <p className="text-sm text-[var(--color-text-muted)] mt-0.5">
-            {workspaces.length} workspace{workspaces.length !== 1 ? "s" : ""}
+            {workspaces.length} project{workspaces.length !== 1 ? "s" : ""}
           </p>
         </div>
         {canCreateWorkspace && (
           <Link href="/setup">
             <Button size="md">
               <Plus className="h-4 w-4" />
-              New Workspace
+              New Project
             </Button>
           </Link>
         )}

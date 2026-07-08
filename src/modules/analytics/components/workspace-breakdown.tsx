@@ -19,8 +19,8 @@ export function WorkspaceBreakdown() {
   return (
     <div className="card-base p-5 flex flex-col gap-4">
       <div>
-        <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">Workspace Breakdown</h3>
-        <p className="text-xs text-[var(--color-text-muted)] mt-0.5">Performance per agent workspace</p>
+        <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">Project Breakdown</h3>
+        <p className="text-xs text-[var(--color-text-muted)] mt-0.5">Performance per agent project</p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

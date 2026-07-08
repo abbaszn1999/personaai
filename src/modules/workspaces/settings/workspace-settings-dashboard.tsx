@@ -3,21 +3,18 @@
 import * as React from "react";
 import {
   Settings,
-  FolderOpen,
   AlertTriangle,
 } from "lucide-react";
 import { PanelNav, type PanelNavItem } from "@/components/layout/panel-nav";
 import { WsGeneralSection } from "./ws-general-section";
-import { WsCategoriesSection } from "./ws-categories-section";
 import { WsDangerSection } from "./ws-danger-section";
 import type { Workspace } from "@/modules/workspaces/types";
 
-type SectionId = "general" | "categories" | "danger";
+type SectionId = "general" | "danger";
 
 const NAV_ITEMS: PanelNavItem[] = [
   { id: "general",    label: "General",    description: "Name, mode & status",       icon: <Settings className="h-4 w-4" /> },
-  { id: "categories", label: "Categories", description: "Active product categories", icon: <FolderOpen className="h-4 w-4" /> },
-  { id: "danger",     label: "Danger Zone", description: "Pause or delete workspace", icon: <AlertTriangle className="h-4 w-4" />, danger: true },
+  { id: "danger",     label: "Danger Zone", description: "Pause or delete project", icon: <AlertTriangle className="h-4 w-4" />, danger: true },
 ];
 
 interface Props { workspace: Workspace }
@@ -30,7 +27,7 @@ export function WorkspaceSettingsDashboard({ workspace }: Props) {
       {/* Left nav */}
       <aside className="w-56 shrink-0">
         <PanelNav
-          title="Workspace Settings"
+          title="Project Settings"
           items={NAV_ITEMS}
           activeId={activeSection}
           onSelect={(id) => setActiveSection(id as SectionId)}
@@ -39,9 +36,8 @@ export function WorkspaceSettingsDashboard({ workspace }: Props) {
 
       {/* Right content */}
       <div className="flex-1 min-w-0 animate-fade-in">
-        {activeSection === "general"    && <WsGeneralSection workspace={workspace} />}
-        {activeSection === "categories" && <WsCategoriesSection workspace={workspace} />}
-        {activeSection === "danger"     && <WsDangerSection workspace={workspace} />}
+        {activeSection === "general" && <WsGeneralSection workspace={workspace} />}
+        {activeSection === "danger"  && <WsDangerSection workspace={workspace} />}
       </div>
     </div>
   );

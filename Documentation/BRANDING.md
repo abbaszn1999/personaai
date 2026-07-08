@@ -1,6 +1,6 @@
 # Autommerce — Brand & Design System
 
-The single source of truth for the visual identity of **AutoShopping** and its parent company **Autommerce**. Use this when building new pages, components, marketing material, or emails so everything stays on-brand.
+The single source of truth for the visual identity of **Persona AI** and its parent company **Autommerce**. Use this when building new pages, components, marketing material, or emails so everything stays on-brand.
 
 ---
 
@@ -9,14 +9,14 @@ The single source of truth for the visual identity of **AutoShopping** and its p
 | Level | Name | Usage |
 |-------|------|-------|
 | Company | **Autommerce** | Legal/company entity. Footer, "by Autommerce", invoices, domains. |
-| Product (tool) | **AutoShopping** | The SaaS product itself. App title, dashboard, docs, in-app copy. |
+| Product (tool) | **Persona AI** | The SaaS product itself. App title, dashboard, docs, in-app copy. |
 | Tagline | **E-commerce with AI Excellence** | Marketing hero, footer, social. |
 
 Rules:
-- The tool is always written **AutoShopping** (one word, camel-case S).
+- The tool is always written **Persona AI** (two words, both capitalized).
 - The company is **Autommerce** (double "m").
-- When space allows, lock them up as **AutoShopping · by Autommerce** (see `Logo` `tool` variant).
-- Never write "ShopAgent", "Auto Shopping", or "Automerce".
+- When space allows, lock them up as **Persona AI · by Autommerce** (see `Logo` `tool` variant).
+- Never write "ShopAgent", "Auto Shopping", "AutoShopping", or "Automerce".
 
 ---
 
@@ -95,7 +95,7 @@ Headings and the `.font-display` utility use the display font automatically (see
 `import { Logo, LogoMark } from "@/components/brand/logo"`
 
 `<Logo />` props:
-- `variant`: `"mark"` (symbol only) · `"full"` (symbol + "Autommerce") · `"tool"` (symbol + "AutoShopping" / "by Autommerce")
+- `variant`: `"mark"` (symbol only) · `"full"` (symbol + "Autommerce") · `"tool"` (symbol + "Persona AI" / "by Autommerce")
 - `size`: mark height in px (wordmark scales relative to it)
 - `inverted`: light wordmark text for dark backgrounds
 - `className`, `markClassName`

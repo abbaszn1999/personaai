@@ -15,16 +15,46 @@ export function WsDangerSection({ workspace }: Props) {
   const router = useRouter();
   const [confirmDelete, setConfirmDelete] = React.useState(false);
   const [isDeleting, setIsDeleting] = React.useState(false);
+  const [isPausing, setIsPausing] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   async function handleDelete() {
     setIsDeleting(true);
-    await new Promise((r) => setTimeout(r, 800));
-    removeWorkspace(workspace.id);
-    router.push("/workspaces");
+    setError(null);
+    try {
+      const res = await fetch(`/api/workspaces/${workspace.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Failed to delete project");
+      }
+      removeWorkspace(workspace.id);
+      router.push("/workspaces");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete project");
+      setIsDeleting(false);
+    }
   }
 
-  function handlePause() {
-    updateWorkspace(workspace.id, { status: workspace.status === "active" ? "paused" : "active" });
+  async function handlePause() {
+    const nextStatus = workspace.status === "active" ? "paused" : "active";
+    setIsPausing(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/workspaces/${workspace.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Failed to update project");
+      }
+      updateWorkspace(workspace.id, { status: nextStatus });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update project");
+    } finally {
+      setIsPausing(false);
+    }
   }
 
   return (
@@ -35,28 +65,32 @@ export function WsDangerSection({ workspace }: Props) {
       accent="danger"
     >
       <div className="space-y-3">
-        {/* Pause workspace */}
+        {error && (
+          <p className="text-xs text-[var(--color-error)] px-1">{error}</p>
+        )}
+
+        {/* Pause project */}
         <div className="flex items-start justify-between gap-4 rounded-[var(--radius-lg)] border border-[var(--color-border)] px-4 py-3">
           <div>
             <p className="text-sm font-semibold text-[var(--color-text-primary)]">
-              {workspace.status === "active" ? "Pause Workspace" : "Resume Workspace"}
+              {workspace.status === "active" ? "Pause Project" : "Resume Project"}
             </p>
             <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
               {workspace.status === "active"
                 ? "Pausing stops the embed widget from serving shoppers without deleting any data."
-                : "Resume this workspace to make it live again."}
+                : "Resume this project to make it live again."}
             </p>
           </div>
-          <Button variant="secondary" size="sm" className="shrink-0" onClick={handlePause}>
+          <Button variant="secondary" size="sm" className="shrink-0" loading={isPausing} onClick={handlePause}>
             <Pause className="h-3.5 w-3.5" />
             {workspace.status === "active" ? "Pause" : "Resume"}
           </Button>
         </div>
 
-        {/* Delete workspace */}
+        {/* Delete project */}
         <div className="flex items-start justify-between gap-4 rounded-[var(--radius-lg)] border border-[var(--color-error-light)] bg-[var(--color-error-light)] px-4 py-3">
           <div>
-            <p className="text-sm font-semibold text-[var(--color-error)]">Delete Workspace</p>
+            <p className="text-sm font-semibold text-[var(--color-error)]">Delete Project</p>
             <p className="text-xs text-[var(--color-error)] opacity-80 mt-0.5">
               Permanently deletes &ldquo;{workspace.name}&rdquo; and all its configuration. Cannot be undone.
             </p>

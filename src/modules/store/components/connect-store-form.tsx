@@ -22,6 +22,7 @@ interface ConnectStoreFormProps {
   apiKey: string;
   isConnecting: boolean;
   canConnect: boolean;
+  error?: string | null;
   onChange: (patch: { platform?: StorePlatform | null; storeUrl?: string; apiKey?: string }) => void;
   onConnect: () => void;
 }
@@ -32,6 +33,7 @@ export function ConnectStoreForm({
   apiKey,
   isConnecting,
   canConnect,
+  error,
   onChange,
   onConnect,
 }: ConnectStoreFormProps) {
@@ -93,9 +95,19 @@ export function ConnectStoreForm({
             placeholder="Paste your API key here"
             value={apiKey}
             onChange={(e) => onChange({ apiKey: e.target.value })}
-            hint="Your credentials are never stored — this is a prototype simulation"
+            hint={
+              platform === "shopify"
+                ? "From your Shopify admin: Settings → Apps and sales channels → Develop apps → create an app → Admin API access token. Verified live and stored encrypted."
+                : "This platform's integration is currently simulated — no real API calls are made yet."
+            }
           />
         </div>
+      )}
+
+      {error && (
+        <p className="text-sm text-[var(--color-error)] bg-[var(--color-error-light)] rounded-[var(--radius-md)] px-3 py-2">
+          {error}
+        </p>
       )}
 
       <Button

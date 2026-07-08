@@ -17,10 +17,10 @@ export default function WorkspaceSettingsPage({ params }: Props) {
   if (!ws) {
     return (
       <>
-        <DashboardPageHeader title="Workspace not found" />
+        <DashboardPageHeader title="Project not found" />
         <div className="p-6 flex flex-col items-center gap-4 py-16">
-          <p className="text-[var(--color-text-muted)]">This workspace does not exist.</p>
-          <Link href="/workspaces"><Button variant="secondary">Back to Workspaces</Button></Link>
+          <p className="text-[var(--color-text-muted)]">This project does not exist.</p>
+          <Link href="/workspaces"><Button variant="secondary">Back to Project</Button></Link>
         </div>
       </>
     );
@@ -30,7 +30,7 @@ export default function WorkspaceSettingsPage({ params }: Props) {
     <>
       <DashboardPageHeader
         title={`${ws.name} — Settings`}
-        description="Manage this workspace's configuration, categories, and status"
+        description="Manage this project's configuration"
       />
       <div className="p-6">
         <WorkspaceSettingsDashboard workspace={ws} />

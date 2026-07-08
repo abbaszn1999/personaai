@@ -46,7 +46,7 @@ export function StepMode({ form, onChange }: StepModeProps) {
           return (
             <button
               key={mode}
-              onClick={() => onChange({ mode, selectedCategoryIds: [] })}
+              onClick={() => onChange({ mode })}
               className={cn(
                 "relative flex flex-col gap-4 rounded-[var(--radius-xl)] border p-5 text-left transition-all duration-150",
                 selected

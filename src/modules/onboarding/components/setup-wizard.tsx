@@ -10,16 +10,15 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { useSetupWizard } from "../hooks/use-setup-wizard";
 import { StepName } from "./step-name";
 import { StepMode } from "./step-mode";
-import { StepCategories } from "./step-categories";
 import { StepReview } from "./step-review";
 import { PLATFORM_LABELS } from "@/modules/store/constants";
 
-const STEP_COMPONENTS = [StepName, StepMode, StepCategories, StepReview];
+const STEP_COMPONENTS = [StepName, StepMode, StepReview];
 
 export function SetupWizard() {
   const wizard = useSetupWizard();
   const StepComponent = STEP_COMPONENTS[wizard.step];
-  const hasStore = wizard.globalConnection !== null;
+  const hasStore = wizard.connection !== null;
 
   // Gate: no store connected → block the wizard
   if (!hasStore) {
@@ -34,7 +33,7 @@ export function SetupWizard() {
               Connect your store first
             </h2>
             <p className="text-sm text-[var(--color-text-muted)] mt-2 max-w-xs">
-              Before creating a workspace, you need to connect your e-commerce store so the AI agent can access your products and categories.
+              Before creating a project, you need to connect your e-commerce store so the AI agent can access your products and categories.
             </p>
           </div>
           <Link href="/store">
@@ -55,10 +54,10 @@ export function SetupWizard() {
         <Plug className="h-4 w-4 text-[var(--color-success)] shrink-0" />
         <p className="text-sm text-[var(--color-success)] flex-1">
           <span className="font-semibold">
-            {PLATFORM_LABELS[wizard.globalConnection!.platform]}
+            {PLATFORM_LABELS[wizard.connection!.platform]}
           </span>
           {" — "}
-          {wizard.globalConnection!.storeName}
+          {wizard.connection!.storeName}
         </p>
         <StatusPill status="connected" />
       </div>
@@ -92,7 +91,7 @@ export function SetupWizard() {
           {wizard.isLast ? (
             <Button onClick={wizard.finish} size="lg" loading={wizard.isSubmitting}>
               <Sparkles className="h-4 w-4" />
-              Create Workspace
+              Create Project
             </Button>
           ) : (
             <Button onClick={wizard.next} disabled={!wizard.canProceed()}>

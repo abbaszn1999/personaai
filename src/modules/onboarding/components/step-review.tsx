@@ -5,9 +5,8 @@ import { CheckCircle2 } from "lucide-react";
 import type { WorkspaceSetupForm } from "../schemas/workspace-setup";
 import { WORKSPACE_MODE_LABELS } from "@/modules/workspaces/constants";
 import { PLATFORM_LABELS } from "@/modules/store/constants";
-import { MOCK_WEARABLE_CATEGORIES, MOCK_UNWEARABLE_CATEGORIES } from "@/lib/mock-api/catalog";
 import { AgentOrb } from "@/components/ui/agent-orb";
-import { useWorkspaceStore } from "@/modules/workspaces/store";
+import { useStoreConnectionStore } from "@/modules/store/store";
 
 interface StepReviewProps {
   form: WorkspaceSetupForm;
@@ -16,16 +15,14 @@ interface StepReviewProps {
 }
 
 export function StepReview({ form }: StepReviewProps) {
-  const { globalConnection } = useWorkspaceStore();
-  const allCategories = [...MOCK_WEARABLE_CATEGORIES, ...MOCK_UNWEARABLE_CATEGORIES];
-  const selectedCats = allCategories.filter((c) => form.selectedCategoryIds.includes(c.id));
+  const connection = useStoreConnectionStore((s) => s.connection);
 
   return (
     <div className="space-y-6 animate-fade-in">
       <div>
         <h2 className="text-xl font-bold text-[var(--color-text-primary)]">Review & create</h2>
         <p className="text-sm text-[var(--color-text-muted)] mt-1">
-          Confirm your workspace settings before creating.
+          Confirm your project settings before creating.
         </p>
       </div>
 
@@ -43,21 +40,15 @@ export function StepReview({ form }: StepReviewProps) {
 
         <div className="divide-y divide-[var(--color-border)]">
           {/* Store connection is inherited, shown read-only */}
-          {globalConnection && (
-            <>
-              <ReviewRow
-                label="Store"
-                value={`${PLATFORM_LABELS[globalConnection.platform]} — ${globalConnection.storeName}`}
-              />
-            </>
+          {connection && (
+            <ReviewRow
+              label="Store"
+              value={`${PLATFORM_LABELS[connection.platform]} — ${connection.storeName}`}
+            />
           )}
           <ReviewRow
             label="Agent Mode"
             value={form.mode ? WORKSPACE_MODE_LABELS[form.mode] : "—"}
-          />
-          <ReviewRow
-            label="Categories"
-            value={selectedCats.length > 0 ? selectedCats.map((c) => c.name).join(", ") : "—"}
           />
         </div>
       </div>
@@ -65,7 +56,7 @@ export function StepReview({ form }: StepReviewProps) {
       <div className="flex items-center gap-2.5 rounded-[var(--radius-lg)] bg-[var(--color-success-light)] px-4 py-3">
         <CheckCircle2 className="h-5 w-5 text-[var(--color-success)] shrink-0" />
         <p className="text-sm text-[var(--color-success)]">
-          Everything looks good! Click <strong>Create Workspace</strong> to continue.
+          Everything looks good! Click <strong>Create Project</strong> to continue.
         </p>
       </div>
     </div>

@@ -16,8 +16,6 @@ import {
   ChevronsLeft,
   ChevronsRight,
   User,
-  KeyRound,
-  Shield,
   Gauge,
 } from "lucide-react";
 import { LogoMark } from "@/components/brand/logo";
@@ -39,10 +37,11 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { useWorkspaceStore } from "@/modules/workspaces/store";
+import { useStoreConnectionStore } from "@/modules/store/store";
 import { useUser } from "@/modules/auth/context/user-context";
 import { cn } from "@/lib/utils/cn";
 
-const COLLAPSE_KEY = "autoshopping.sidebar.collapsed";
+const COLLAPSE_KEY = "persona-ai.sidebar.collapsed";
 
 let collapsedValue = false;
 const collapseListeners = new Set<() => void>();
@@ -74,10 +73,11 @@ function useSidebarCollapsed() {
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const { workspaces, activeWorkspaceId, globalConnection } = useWorkspaceStore();
+  const { workspaces, activeWorkspaceId } = useWorkspaceStore();
+  const connection = useStoreConnectionStore((s) => s.connection);
   const active = workspaces.find((w) => w.id === activeWorkspaceId);
   const collapsed = useSidebarCollapsed();
-  const connected = globalConnection?.status === "connected";
+  const connected = connection?.status === "connected";
 
   function toggleCollapsed() {
     setSidebarCollapsed(!collapsed);
@@ -104,7 +104,6 @@ export function AppSidebar() {
 
   const accountNav = [
     { label: "Store", href: "/store", icon: <Plug className="h-4 w-4" /> },
-    { label: "Usage", href: "/usage", icon: <Gauge className="h-4 w-4" /> },
   ];
 
   return (
@@ -136,7 +135,7 @@ export function AppSidebar() {
                   className="leading-none whitespace-nowrap"
                 >
                   <span className="block text-sm font-display font-extrabold text-[var(--color-sidebar-text)] tracking-tight">
-                    AutoShopping
+                    Persona AI
                   </span>
                   <span className="block text-[11px] text-[var(--color-sidebar-text-muted)] mt-0.5">by Autommerce</span>
                 </motion.span>
@@ -159,7 +158,7 @@ export function AppSidebar() {
             workspace={active}
             collapsed={collapsed}
             storeConnected={connected}
-            storeName={globalConnection?.storeName ?? null}
+            storeName={connection?.storeName ?? null}
           />
         </div>
 
@@ -202,7 +201,7 @@ export function AppSidebar() {
               !collapsed && (
                 <div className="px-3 py-6 text-center sidebar-glass rounded-[var(--radius-lg)] mx-1">
                   <p className="text-xs text-[var(--color-sidebar-text-muted)]">
-                    Select or create a workspace to get started
+                    Create a project to get started
                   </p>
                 </div>
               )
@@ -230,7 +229,7 @@ export function AppSidebar() {
             ))}
             <SidebarAccountCard
               collapsed={collapsed}
-              storeName={globalConnection?.storeName ?? null}
+              storeName={connection?.storeName ?? null}
               connected={connected}
             />
           </div>
@@ -353,12 +352,6 @@ function SidebarAccountCard({
         <DropdownMenuSeparator className="bg-[var(--color-sidebar-border)]" />
         <DropdownMenuItem asChild className="text-[var(--color-sidebar-text-muted)] data-[highlighted]:bg-[var(--color-sidebar-surface-hover)] data-[highlighted]:text-[var(--color-sidebar-text)]">
           <Link href="/settings?section=profile"><User className="h-4 w-4" /> Account Settings</Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild className="text-[var(--color-sidebar-text-muted)] data-[highlighted]:bg-[var(--color-sidebar-surface-hover)] data-[highlighted]:text-[var(--color-sidebar-text)]">
-          <Link href="/settings?section=password"><KeyRound className="h-4 w-4" /> Password</Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild className="text-[var(--color-sidebar-text-muted)] data-[highlighted]:bg-[var(--color-sidebar-surface-hover)] data-[highlighted]:text-[var(--color-sidebar-text)]">
-          <Link href="/settings?section=security"><Shield className="h-4 w-4" /> Security</Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild className="text-[var(--color-sidebar-text-muted)] data-[highlighted]:bg-[var(--color-sidebar-surface-hover)] data-[highlighted]:text-[var(--color-sidebar-text)]">
           <Link href="/settings?section=billing"><CreditCard className="h-4 w-4" /> Billing & Plan</Link>

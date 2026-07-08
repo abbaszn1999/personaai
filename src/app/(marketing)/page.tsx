@@ -82,7 +82,7 @@ export default function LandingPage() {
           </h1>
 
           <p className="text-lg text-[var(--color-text-secondary)] max-w-xl leading-relaxed">
-            AutoShopping gives your store an AI shopping assistant and virtual
+            Persona AI gives your store an AI shopping assistant and virtual
             try-on that help customers find — and buy — the perfect product.
           </p>
 
