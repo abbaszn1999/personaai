@@ -1,23 +1,132 @@
-import type { ChatMessage } from "@/modules/shopping-agent/types";
+import type { BundleSuggestion, ChatMessage } from "@/modules/shopping-agent/types";
 import { MOCK_WEARABLE_PRODUCTS } from "@/lib/mock-api/catalog";
 
 export const INITIAL_WEARABLE_MESSAGE: ChatMessage = {
   id: "msg-wearable-init",
   role: "assistant",
-  content:
-    "Hi! I'm your personal style assistant. Based on your body profile I can recommend clothes that will fit you perfectly. What are you looking to wear today?",
+  content: "Hi Alex, I'm your Style Assistant. Let's find you the perfect look — I just need a few quick details.",
   timestamp: new Date().toISOString(),
 };
 
 export type WearableQuickReply = { label: string; query: string };
 
 export const WEARABLE_QUICK_REPLIES: WearableQuickReply[] = [
+  { label: "Build a full outfit bundle", query: "Can you build me a full outfit bundle?" },
   { label: "Show me dresses",       query: "Show me dresses" },
   { label: "Men's shirts",          query: "Find me a nice shirt" },
   { label: "Casual sneakers",       query: "I need casual sneakers" },
   { label: "What's trending?",      query: "What's trending right now?" },
-  { label: "Generate try-on",       query: "Generate a try-on preview" },
 ];
+
+// ─── Intake Q&A — professional "ask mode" before any recommendations ──────────
+
+export interface IntakeQuestion {
+  id: "occasion" | "style" | "budget";
+  prompt: string;
+  options: string[];
+}
+
+export const INTAKE_QUESTIONS: IntakeQuestion[] = [
+  {
+    id: "occasion",
+    prompt: "First — what's the occasion you're shopping for?",
+    options: ["Business meeting", "Casual weekend", "Date night", "Wedding guest"],
+  },
+  {
+    id: "style",
+    prompt: "Got it. What style do you gravitate toward?",
+    options: ["Classic & polished", "Smart casual", "Streetwear", "Minimal & clean"],
+  },
+  {
+    id: "budget",
+    prompt: "Last one — what's your budget for this look?",
+    options: ["Under $300", "$300 – $600", "$600 – $1,000", "No limit"],
+  },
+];
+
+export function getIntakeQuestionMessage(index: number): ChatMessage {
+  const question = INTAKE_QUESTIONS[index];
+  return {
+    id: `msg-intake-${question.id}`,
+    role: "assistant",
+    content: question.prompt,
+    timestamp: new Date().toISOString(),
+    quickOptions: question.options,
+  };
+}
+
+// ─── Scanning sequence — professional "searching the catalog" moment ──────────
+
+export const SCAN_STAGES = [
+  "Scanning 12,400+ SKUs…",
+  "Matching your style profile…",
+  "Filtering by budget…",
+  "Ranking best fits for your body type…",
+] as const;
+
+export const SCAN_STAGE_DURATION_MS = 650;
+
+// ─── Personalized recommendations, derived from the intake answers ────────────
+
+export type IntakeAnswers = Partial<Record<IntakeQuestion["id"], string>>;
+
+function pickProductIdsForAnswers(answers: IntakeAnswers): string[] {
+  const occasion = (answers.occasion ?? "").toLowerCase();
+  if (occasion.includes("business") || occasion.includes("wedding")) {
+    return ["p-w-005", "p-w-002", "p-w-008"]; // blazer, oxford shirt, derby shoes
+  }
+  if (occasion.includes("date")) {
+    return ["p-w-002", "p-w-004", "p-w-008"]; // shirt, chinos, derby shoes
+  }
+  return ["p-w-006", "p-w-007", "p-w-003"]; // tee, jeans, sneakers
+}
+
+export function buildRecommendationMessage(answers: IntakeAnswers): ChatMessage {
+  const occasion = answers.occasion?.toLowerCase() ?? "your occasion";
+  const style = answers.style ? ` with a ${answers.style.toLowerCase()} edge` : "";
+  const budgetNote = answers.budget ? ` — all within your ${answers.budget} budget` : "";
+  const productIds = pickProductIdsForAnswers(answers);
+
+  return {
+    id: `msg-rec-${Date.now()}`,
+    role: "assistant",
+    content: `Perfect — I scanned the catalog and found some great pieces for ${occasion}${style}${budgetNote}. Tap "Add to Cart" to buy, or "Wear It" to see it on your avatar instantly.`,
+    timestamp: new Date().toISOString(),
+    productRecommendations: productIds,
+    quickOptions: ["Build a full outfit bundle", "Just show me these items"],
+  };
+}
+
+// ─── Bundle suggestions — complete, multi-item curated looks ──────────────────
+
+export const MOCK_BUNDLES: BundleSuggestion[] = [
+  {
+    id: "bundle-executive",
+    label: "Modern Executive",
+    productIds: ["p-w-005", "p-w-002", "p-w-004", "p-w-008"],
+  },
+  {
+    id: "bundle-weekend",
+    label: "Weekend Edit",
+    productIds: ["p-w-006", "p-w-007", "p-w-003"],
+  },
+  {
+    id: "bundle-essentials",
+    label: "Smart Essentials",
+    productIds: ["p-w-006", "p-w-007"],
+  },
+];
+
+export function getBundleSuggestionMessage(): ChatMessage {
+  return {
+    id: `msg-bundle-${Date.now()}`,
+    role: "assistant",
+    content:
+      `Great call — here are curated looks I've put together for you. Hit "Render Full Look" to see the whole outfit on your avatar, or add everything to your cart in one tap.`,
+    timestamp: new Date().toISOString(),
+    bundles: MOCK_BUNDLES,
+  };
+}
 
 export function getWearableMockResponse(query: string): ChatMessage {
   const q = query.toLowerCase();
@@ -74,6 +183,15 @@ export function getWearableMockResponse(query: string): ChatMessage {
     };
   }
 
+  if (q.includes("just show") || q.includes("just these") || q.includes("no thanks")) {
+    return {
+      id: `msg-${Date.now()}`,
+      role: "assistant",
+      content: `Sounds good! Whenever you're ready, tap "Wear It" on any piece to preview it on your avatar, or ask me for sizing help.`,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
   if (q.includes("size") || q.includes("fit") || q.includes("measurement")) {
     return {
       id: `msg-${Date.now()}`,
@@ -91,8 +209,10 @@ export function getWearableMockResponse(query: string): ChatMessage {
   };
 }
 
+/** Full studio photos used as generated try-on results (same visual class as onboarding avatars). */
 export const MOCK_TRY_ON_IMAGES = [
-  "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=600",
-  "https://images.unsplash.com/photo-1469334031218-e382a71b716b?w=600",
-  "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600",
+  "/avatars/avatar-studio-male-1.png",
+  "/avatars/avatar-studio-male-2.png",
+  "/avatars/avatar-studio-female-1.png",
+  "/avatars/avatar-studio-female-2.png",
 ];

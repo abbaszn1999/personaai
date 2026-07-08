@@ -43,6 +43,13 @@ export interface TryOnImageMessage {
   fitNotes: string;
 }
 
+/** A curated multi-item look the agent can suggest as a single "complete the outfit" unit. */
+export interface BundleSuggestion {
+  id: string;
+  label: string;
+  productIds: string[];
+}
+
 export interface ChatMessage {
   id: string;
   role: ChatRole;
@@ -50,4 +57,8 @@ export interface ChatMessage {
   timestamp: string;
   productRecommendations?: string[];
   tryOnImage?: TryOnImageMessage;
+  /** Chip-style quick-answer options rendered under this specific message (e.g. intake Q&A). */
+  quickOptions?: string[];
+  /** Complete outfit bundles suggested alongside this message. */
+  bundles?: BundleSuggestion[];
 }
