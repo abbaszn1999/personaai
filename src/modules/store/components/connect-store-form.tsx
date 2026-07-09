@@ -11,8 +11,7 @@ import { cn } from "@/lib/utils/cn";
 
 const PLATFORMS: { id: StorePlatform; emoji: string; description: string }[] = [
   { id: "shopify",     emoji: "🛍️", description: "Connect via Admin API key" },
-  { id: "woocommerce", emoji: "🌐", description: "WooCommerce REST API" },
-  { id: "wordpress",   emoji: "📝", description: "WordPress Application Password" },
+  { id: "wordpress",   emoji: "📝", description: "Connect via Application Password" },
   { id: "custom",      emoji: "⚙️", description: "Any headless or custom store" },
 ];
 
@@ -20,10 +19,22 @@ interface ConnectStoreFormProps {
   platform: StorePlatform | null;
   storeUrl: string;
   apiKey: string;
+  clientId: string;
+  clientSecret: string;
+  wpUsername: string;
+  wpAppPassword: string;
   isConnecting: boolean;
   canConnect: boolean;
   error?: string | null;
-  onChange: (patch: { platform?: StorePlatform | null; storeUrl?: string; apiKey?: string }) => void;
+  onChange: (patch: {
+    platform?: StorePlatform | null;
+    storeUrl?: string;
+    apiKey?: string;
+    clientId?: string;
+    clientSecret?: string;
+    wpUsername?: string;
+    wpAppPassword?: string;
+  }) => void;
   onConnect: () => void;
 }
 
@@ -31,6 +42,10 @@ export function ConnectStoreForm({
   platform,
   storeUrl,
   apiKey,
+  clientId,
+  clientSecret,
+  wpUsername,
+  wpAppPassword,
   isConnecting,
   canConnect,
   error,
@@ -50,7 +65,17 @@ export function ConnectStoreForm({
             return (
               <button
                 key={p.id}
-                onClick={() => onChange({ platform: p.id, storeUrl: "", apiKey: "" })}
+                onClick={() =>
+                  onChange({
+                    platform: p.id,
+                    storeUrl: "",
+                    apiKey: "",
+                    clientId: "",
+                    clientSecret: "",
+                    wpUsername: "",
+                    wpAppPassword: "",
+                  })
+                }
                 className={cn(
                   "flex flex-col items-center gap-1.5 rounded-[var(--radius-xl)] border p-3 text-center transition-all duration-150 relative",
                   selected
@@ -89,18 +114,51 @@ export function ConnectStoreForm({
             value={storeUrl}
             onChange={(e) => onChange({ storeUrl: e.target.value })}
           />
-          <Input
-            label={PLATFORM_API_LABEL[platform]}
-            type="password"
-            placeholder="Paste your API key here"
-            value={apiKey}
-            onChange={(e) => onChange({ apiKey: e.target.value })}
-            hint={
-              platform === "shopify"
-                ? "From your Shopify admin: Settings → Apps and sales channels → Develop apps → create an app → Admin API access token. Verified live and stored encrypted."
-                : "This platform's integration is currently simulated — no real API calls are made yet."
-            }
-          />
+
+          {platform === "shopify" ? (
+            <>
+              <Input
+                label="Client ID"
+                placeholder="Paste your app's Client ID"
+                value={clientId}
+                onChange={(e) => onChange({ clientId: e.target.value })}
+                hint="Create a Custom app for your store in the Shopify Dev Dashboard (Settings → Client credentials), grant it the read_products scope, and install it on your store — then paste its Client ID and Client Secret here. Verified live and stored encrypted."
+              />
+              <Input
+                label="Client Secret"
+                type="password"
+                placeholder="Paste your app's Client Secret"
+                value={clientSecret}
+                onChange={(e) => onChange({ clientSecret: e.target.value })}
+              />
+            </>
+          ) : platform === "wordpress" ? (
+            <>
+              <Input
+                label="WordPress Username"
+                placeholder="e.g. shop-manager"
+                value={wpUsername}
+                onChange={(e) => onChange({ wpUsername: e.target.value })}
+                hint="Generate an Application Password from a dedicated WordPress user (Users → Profile → Application Passwords) — ideally a Shop Manager account rather than your personal admin login. Verified live against your store's WooCommerce REST API and stored encrypted."
+              />
+              <Input
+                label="Application Password"
+                type="password"
+                placeholder="xxxx xxxx xxxx xxxx xxxx xxxx"
+                value={wpAppPassword}
+                onChange={(e) => onChange({ wpAppPassword: e.target.value })}
+              />
+            </>
+          ) : (
+            <Input
+              label={PLATFORM_API_LABEL[platform]}
+              type="password"
+              placeholder="Paste your API key here"
+              value={apiKey}
+              onChange={(e) => onChange({ apiKey: e.target.value })}
+              hint="This platform's integration is currently simulated — no real API calls are made yet."
+            />
+          )}
         </div>
       )}
 

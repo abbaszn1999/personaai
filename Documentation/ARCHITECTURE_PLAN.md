@@ -165,8 +165,14 @@ src/
 │   ├── store/                        ← E-commerce store connection — account-level (one per owner,
 │   │   │                                survives project delete/recreate), backed by the
 │   │   │                                `store_connections` table (see lib/db/store-connections.ts).
-│   │   │                                Shopify is a real integration (Admin API, see lib/shopify/client.ts);
-│   │   │                                WooCommerce/WordPress/Custom remain simulated for now.
+│   │   │                                Shopify is a real integration (Admin API, see lib/shopify/client.ts) —
+│   │   │                                merchant brings their own Shopify app's Client ID/Secret, exchanged
+│   │   │                                for a token via the OAuth client credentials grant (no redirect flow).
+│   │   │                                WordPress is also a real integration (WooCommerce REST API, see
+│   │   │                                lib/woocommerce/client.ts) — merchant authenticates with a WordPress
+│   │   │                                Application Password (Basic Auth, no expiry). The separate
+│   │   │                                "WooCommerce" platform button was removed — "WordPress" is the one
+│   │   │                                entry point for e-commerce-on-WordPress. Custom remains simulated.
 │   │   ├── components/
 │   │   │   ├── store-dashboard.tsx   ← Connection tab has no "Replace with a different store" —
 │   │   │   │                            disconnect first, then the connect form reappears
@@ -189,25 +195,42 @@ src/
 │   │   └── constants.ts              ← was: domain/store/constants.ts
 │   │
 │   ├── billing/                      ← Plans, credits & usage (frontend-only, no payment provider yet)
+│   │   │                                Settings > Billing is project-gated: with no project yet it
+│   │   │                                renders an EmptyState ("Create Project") instead of any plan/
+│   │   │                                credit UI. Once a project exists, tiers are mode-aware via
+│   │   │                                getPlanTiers(mode) — Wearable keeps Nano Banana render pricing
+│   │   │                                (Fixed $2,000, Hybrid $500+10%), Unwearable is tool-usage only,
+│   │   │                                no render costs (Fixed $1,500, Hybrid $0+10%), and has no
+│   │   │                                Credit Bundles section at all (no image API calls to overage).
+│   │   │                                The Hybrid Performance Tier is isContactOnly in both modes —
+│   │   │                                commission/profit-based, so it needs a manually-negotiated
+│   │   │                                contract rather than a self-service "switch to this plan".
 │   │   ├── components/
-│   │   │   ├── usage-dashboard.tsx   ← /usage page: images created, remaining credit only
+│   │   │   ├── usage-dashboard.tsx   ← /usage page: images created, remaining credit only (still
+│   │   │   │                            wearable-flavored; not mode-gated, out of scope for now)
 │   │   │   ├── usage-summary-cards.tsx
 │   │   │   ├── usage-chart.tsx
-│   │   │   ├── plans-section.tsx     ← rendered from Settings > Billing, not /usage
-│   │   │   ├── plan-card.tsx
-│   │   │   ├── credit-bundles-section.tsx  ← rendered from Settings > Billing, not /usage
+│   │   │   ├── plans-section.tsx     ← rendered from Settings > Billing, not /usage; takes a
+│   │   │   │                            `mode` prop, renders getPlanTiers(mode)/getInfraNotes(mode)
+│   │   │   ├── plan-card.tsx         ← renders plan.description; disables + relabels the button to
+│   │   │   │                            "Contact Us to Enable" when plan.isContactOnly
+│   │   │   ├── credit-bundles-section.tsx  ← rendered from Settings > Billing (Wearable only), not /usage
 │   │   │   ├── credit-bundle-card.tsx
 │   │   │   ├── api-key-section.tsx   ← BYO OpenAI key for the chat agent (Settings > API Keys) — real DB persistence
 │   │   │   └── chat-usage-section.tsx  ← /usage page: BYO-chat lane, separate from Autommerce-metered image credits
 │   │   ├── hooks/
-│   │   │   ├── use-billing.ts
+│   │   │   ├── use-billing.ts        ← accepts an optional mode (defaults to "wearable" for /usage);
+│   │   │   │                            resolves tiers via getPlanTiers(mode), returns them as `tiers`
 │   │   │   └── use-openai-api-key.ts ← real CRUD against /api/account/api-key (GET/PUT/DELETE); never receives the raw key back, only hasKey + a masked preview
 │   │   ├── mocks/
 │   │   │   ├── usage-history.ts
 │   │   │   └── chat-usage.ts         ← informational-only mock (Autommerce doesn't meter chat)
 │   │   ├── store.ts                  ← Zustand — activeTierId, rendersUsed, overageCredits (still frontend-only; the OpenAI key moved off this store into use-openai-api-key.ts once it became DB-backed)
 │   │   ├── types.ts
-│   │   └── constants.ts              ← PLAN_TIERS (Fixed / Hybrid), CREDIT_BUNDLES, MONTHLY_INCLUDED_RENDERS
+│   │   └── constants.ts              ← PLAN_TIERS + UNWEARABLE_PLAN_TIERS (Fixed / Hybrid, mode-specific
+│   │                                    pricing/features), getPlanTiers(mode) selector, INFRA_NOTES +
+│   │                                    UNWEARABLE_INFRA_NOTES / getInfraNotes(mode), CREDIT_BUNDLES,
+│   │                                    MONTHLY_INCLUDED_RENDERS
 │   │
 │   ├── shopping-agent/               ← Text shopping assistant (unwearable mode)
 │   │   ├── components/
@@ -445,18 +468,55 @@ project): `platform`, `store_name`, `store_url`, `api_key_encrypted`, `status`, 
 Exposed via `src/app/api/store-connection/route.ts` (GET/POST/PATCH/DELETE); the API route never
 returns `api_key_encrypted` to the client.
 
+`api_key_encrypted` is a **generalized encrypted credentials column**, not a single bare secret: it
+holds `encryptSecret(JSON.stringify(fields))` where `fields` varies by `platform` — `{ clientId,
+clientSecret }` for Shopify, `{ wpUsername, wpAppPassword }` for WordPress, `{ apiKey }` for the
+still-simulated Custom platform. `encodeCredentials`/`decodeCredentials` in `src/lib/utils/crypto.ts`
+wrap this so any future platform's multi-field credentials fit without a schema change.
+
 ### `src/lib/shopify/client.ts`
 ```typescript
 export function normalizeShopifyDomain(input: string): string        // "mystore" → "mystore.myshopify.com"
+export async function getShopifyAccessToken(domain: string, clientId: string, clientSecret: string)  // OAuth client credentials grant
 export async function verifyShopifyCredentials(domain: string, accessToken: string)  // throws ShopifyApiError on invalid creds
 export async function getShopifyProductCount(domain: string, accessToken: string)
 export async function getShopifyCollections(domain: string, accessToken: string)     // custom + smart collections → StoreCategory[]
 ```
-Real Shopify Admin API (REST, Custom App access token auth — no OAuth flow). Used by
-`/api/store-connection` POST (connect: verifies credentials, pulls real product count + collections)
-and PATCH with `{ sync: true }` (re-pulls both using the decrypted stored token). WooCommerce,
-WordPress, and Custom platform options still simulate these numbers (`Math.random`) — no real
+Real Shopify Admin API (REST). Authentication is a **"bring your own app" client-credentials model**,
+not an OAuth redirect flow: each merchant creates their own Custom app in their own Shopify Dev
+Dashboard (scoped to their own store, `read_products` scope), installs it on their store, and pastes
+its Client ID + Client Secret into the Connect Store form. `getShopifyAccessToken` exchanges those for
+a short-lived (~24h) Admin API access token via `POST /admin/oauth/access_token` with
+`grant_type=client_credentials` — no browser redirect/approval screen, and no Shopify App Review,
+because the client credentials grant only works when the app and the store belong to the same Shopify
+organization, which is guaranteed here since the merchant owns both. No access token is stored; only
+the encrypted Client ID/Secret are, and a fresh token is requested on every connect/sync. Used by
+`/api/store-connection` POST (connect: gets a token, verifies credentials, pulls real product count +
+collections) and PATCH with `{ sync: true }` (decodes the stored Client ID/Secret, gets a fresh token,
+re-pulls both). The Custom platform option still simulates these numbers (`Math.random`) — no real
 integration yet.
+
+### `src/lib/woocommerce/client.ts`
+```typescript
+export function normalizeWordPressUrl(input: string): string   // "example.com" → "https://example.com"
+export async function verifyWordPressCredentials(siteUrl: string, username: string, appPassword: string)  // throws WooCommerceApiError on invalid creds
+export async function getWordPressProductCount(siteUrl: string, username: string, appPassword: string)
+export async function getWordPressCategories(siteUrl: string, username: string, appPassword: string)      // → StoreCategory[]
+```
+Real WooCommerce REST API (`/wp-json/wc/v3`) for e-commerce-on-WordPress stores. Authentication is a
+**WordPress Application Password** (Basic Auth) rather than OAuth or WooCommerce's own Consumer
+Key/Secret — the merchant generates one from a dedicated WordPress user (Users → Profile → Application
+Passwords, ideally a Shop Manager role) and pastes the username + password into the Connect Store form.
+Every request sends `Authorization: Basic base64(username:appPassword)`; unlike Shopify's client
+credentials grant, there's no token exchange or expiry — the same credentials are reused until revoked
+in WordPress. Product count comes from the `X-WP-Total` response header on `/products?per_page=1`
+(WooCommerce has no dedicated count endpoint); category counts come inline from
+`/products/categories` (`{ id, name, count }`), simpler than Shopify's per-collection count requests.
+Used by `/api/store-connection` POST (connect: verifies credentials, pulls real product count +
+categories) and PATCH with `{ sync: true }` (decodes the stored username/Application Password,
+re-pulls both). The separate "WooCommerce" platform button was removed from the UI in favor of
+"WordPress" as the single real e-commerce-on-WordPress integration; WordPress core content
+(posts/pages) sync is out of scope.
 
 ### `src/lib/db/users.ts`
 ```typescript

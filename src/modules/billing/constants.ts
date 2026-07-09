@@ -1,4 +1,5 @@
 import type { PlanTier, CreditBundle } from "./types";
+import type { WorkspaceMode } from "@/modules/workspaces/types";
 
 export const MONTHLY_INCLUDED_RENDERS = 5000;
 
@@ -32,8 +33,48 @@ export const PLAN_TIERS: PlanTier[] = [
       "Lower upfront monthly cost",
       "10% commission on direct conversions only",
     ],
+    isContactOnly: true,
   },
 ];
+
+export const UNWEARABLE_PLAN_TIERS: PlanTier[] = [
+  {
+    id: "fixed",
+    name: "Fixed Platform Tier",
+    priceLabel: "$1,500",
+    priceSub: "/month flat fee",
+    monthlyRenders: 0,
+    description: "Unlimited AI shopping assistant usage — no image generation involved.",
+    bestFor: "Ideal for established brands with high, predictable traffic who want to keep 100% of their driven sales revenue.",
+    features: [
+      "Unlimited AI shopping assistant conversations",
+      "Powered by your own OpenAI API key",
+      "Keep 100% of driven sales revenue",
+      "Predictable flat monthly cost",
+    ],
+  },
+  {
+    id: "hybrid",
+    name: "Hybrid Performance Tier",
+    priceLabel: "$0",
+    priceSub: "/month base + 10% commission",
+    monthlyRenders: 0,
+    description: "No base fee — Autommerce only earns a 10% commission on direct conversions.",
+    bestFor: "Perfect for brands wanting zero upfront cost while aligning Autommerce directly with active sales growth.",
+    features: [
+      "Unlimited AI shopping assistant conversations",
+      "Powered by your own OpenAI API key",
+      "Zero upfront monthly cost",
+      "10% commission on direct conversions only",
+    ],
+    isContactOnly: true,
+  },
+];
+
+/** Selects the commercial tier set for the given project mode — Wearable includes Nano Banana render costs, Unwearable is tool-usage only. */
+export function getPlanTiers(mode: WorkspaceMode): PlanTier[] {
+  return mode === "unwearable" ? UNWEARABLE_PLAN_TIERS : PLAN_TIERS;
+}
 
 export const CREDIT_BUNDLES: CreditBundle[] = [
   {
@@ -64,3 +105,13 @@ export const INFRA_NOTES: string[] = [
   "Mannequin & styling generations are managed natively by Autommerce, fixed to studio-grade 2K high-fidelity output.",
   "Unlimited prompt and image input references are included at no extra credit cost — only 2K visual outputs are deducted from your monthly cap.",
 ];
+
+export const UNWEARABLE_INFRA_NOTES: string[] = [
+  "Conversational chat uses your own OpenAI API key — you control text chat volume and cost natively.",
+  "This plan is powered entirely by the AI shopping assistant — no separate image-generation credits apply.",
+];
+
+/** Selects the infra notes list for the given project mode. */
+export function getInfraNotes(mode: WorkspaceMode): string[] {
+  return mode === "unwearable" ? UNWEARABLE_INFRA_NOTES : INFRA_NOTES;
+}

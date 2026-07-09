@@ -1,9 +1,10 @@
 "use client";
 
 import { useBillingStore } from "../store";
-import { MONTHLY_INCLUDED_RENDERS, PLAN_TIERS } from "../constants";
+import { MONTHLY_INCLUDED_RENDERS, getPlanTiers } from "../constants";
+import type { WorkspaceMode } from "@/modules/workspaces/types";
 
-export function useBilling() {
+export function useBilling(mode: WorkspaceMode = "wearable") {
   const {
     activeTierId,
     rendersUsed,
@@ -13,13 +14,15 @@ export function useBilling() {
     purchaseBundle,
   } = useBillingStore();
 
-  const activeTier = PLAN_TIERS.find((t) => t.id === activeTierId) ?? PLAN_TIERS[0];
+  const tiers = getPlanTiers(mode);
+  const activeTier = tiers.find((t) => t.id === activeTierId) ?? tiers[0];
   const rendersRemaining = Math.max(MONTHLY_INCLUDED_RENDERS - rendersUsed, 0);
   const percentUsed = Math.min((rendersUsed / MONTHLY_INCLUDED_RENDERS) * 100, 100);
   const isOverCap = rendersUsed >= MONTHLY_INCLUDED_RENDERS;
 
   return {
     activeTier,
+    tiers,
     activeTierId,
     rendersUsed,
     rendersRemaining,

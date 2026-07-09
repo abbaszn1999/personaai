@@ -25,6 +25,11 @@ export function StoreDashboard() {
   const connection = store.connection;
   const [activeTab, setActiveTab] = React.useState<StoreTab>("connection");
 
+  async function handleConnect() {
+    const connected = await store.connect();
+    if (connected) setActiveTab("catalog");
+  }
+
   const NAV_ITEMS: PanelNavItem[] = [
     {
       id: "connection",
@@ -124,11 +129,15 @@ export function StoreDashboard() {
                   platform={store.form.platform}
                   storeUrl={store.form.storeUrl}
                   apiKey={store.form.apiKey}
+                  clientId={store.form.clientId}
+                  clientSecret={store.form.clientSecret}
+                  wpUsername={store.form.wpUsername}
+                  wpAppPassword={store.form.wpAppPassword}
                   isConnecting={store.isConnecting}
                   canConnect={store.canConnect}
                   error={store.connectError}
                   onChange={store.updateForm}
-                  onConnect={store.connect}
+                  onConnect={handleConnect}
                 />
               )}
             </SettingsSection>

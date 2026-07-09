@@ -9,6 +9,8 @@ export interface PlanTier {
   description: string;
   bestFor: string;
   features: string[];
+  /** True when this tier requires a manually-negotiated contract — no self-service "switch to this plan". */
+  isContactOnly?: boolean;
 }
 
 export interface CreditBundle {

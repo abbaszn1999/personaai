@@ -25,6 +25,50 @@ export function normalizeShopifyDomain(input: string): string {
   return domain;
 }
 
+interface ShopifyTokenResponse {
+  access_token?: string;
+  error?: string;
+  error_description?: string;
+}
+
+/**
+ * Exchanges a merchant's own Shopify app Client ID + Secret for a short-lived Admin API
+ * access token via the OAuth client credentials grant. Only works because each merchant's
+ * app is installed on their own store (same Shopify organization) — see
+ * https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/client-credentials-grant.
+ * Tokens expire after ~24h, so callers should request a fresh one before each API call
+ * rather than caching it.
+ */
+export async function getShopifyAccessToken(domain: string, clientId: string, clientSecret: string): Promise<string> {
+  const res = await fetch(`https://${domain}/admin/oauth/access_token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: clientId,
+      client_secret: clientSecret,
+    }),
+    cache: "no-store",
+  });
+
+  const data: ShopifyTokenResponse | null = await res.json().catch(() => null);
+
+  if (!res.ok || !data?.access_token) {
+    if (data?.error === "shop_not_permitted") {
+      throw new ShopifyApiError(
+        "This app's Client ID/Secret isn't valid for this store — make sure the app was created under the same Shopify account and installed on this store.",
+        res.status
+      );
+    }
+    throw new ShopifyApiError(
+      data?.error_description || `Failed to authenticate with Shopify (${res.status})`,
+      res.status
+    );
+  }
+
+  return data.access_token;
+}
+
 async function shopifyFetch<T>(domain: string, accessToken: string, path: string): Promise<T> {
   const res = await fetch(`https://${domain}/admin/api/${API_VERSION}${path}`, {
     headers: {
@@ -96,10 +140,11 @@ export async function getShopifyCollections(domain: string, accessToken: string)
       const countData = await shopifyFetch<{ count: number }>(
         domain,
         accessToken,
-        `/collections/${collection.id}/products/count.json`
+        `/products/count.json?collection_id=${collection.id}`
       );
       return { id: String(collection.id), name: collection.title, productCount: countData.count ?? 0 };
-    } catch {
+    } catch (err) {
+      console.error(`[shopify getShopifyCollections] product count failed for collection ${collection.id}`, err);
       return { id: String(collection.id), name: collection.title, productCount: 0 };
     }
   });

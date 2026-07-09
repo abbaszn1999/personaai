@@ -39,3 +39,18 @@ export function maskSecret(plaintext: string): string {
   if (plaintext.length <= 8) return "••••••••";
   return `${plaintext.slice(0, 3)}...${plaintext.slice(-4)}`;
 }
+
+/**
+ * Encrypts an arbitrary set of named credential fields (e.g. `{ apiKey }` or
+ * `{ clientId, clientSecret }`) into a single opaque string. Lets one encrypted
+ * column (`store_connections.api_key_encrypted`) hold whatever shape of
+ * credentials each platform needs, without per-platform schema changes.
+ */
+export function encodeCredentials(fields: Record<string, string>): string {
+  return encryptSecret(JSON.stringify(fields));
+}
+
+/** Decrypts a payload produced by {@link encodeCredentials}. */
+export function decodeCredentials(payload: string): Record<string, string> {
+  return JSON.parse(decryptSecret(payload)) as Record<string, string>;
+}

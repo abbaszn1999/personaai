@@ -7,14 +7,22 @@ import {
   deleteStoreConnection,
   type StoreConnectionRow,
 } from "@/lib/db/store-connections";
-import { encryptSecret, decryptSecret } from "@/lib/utils/crypto";
+import { encodeCredentials, decodeCredentials } from "@/lib/utils/crypto";
 import {
   normalizeShopifyDomain,
   verifyShopifyCredentials,
+  getShopifyAccessToken,
   getShopifyProductCount,
   getShopifyCollections,
   ShopifyApiError,
 } from "@/lib/shopify/client";
+import {
+  normalizeWordPressUrl,
+  verifyWordPressCredentials,
+  getWordPressProductCount,
+  getWordPressCategories,
+  WooCommerceApiError,
+} from "@/lib/woocommerce/client";
 import type { StorePlatform, StoreCategory } from "@/modules/store/types";
 
 const VALID_PLATFORMS: StorePlatform[] = ["shopify", "woocommerce", "wordpress", "custom"];
@@ -67,7 +75,7 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { platform, storeUrl, apiKey } = await req.json();
+    const { platform, storeUrl, apiKey, clientId, clientSecret, wpUsername, wpAppPassword } = await req.json();
 
     if (!VALID_PLATFORMS.includes(platform)) {
       return Response.json({ error: "Invalid platform" }, { status: 400 });
@@ -80,35 +88,70 @@ export async function POST(req: NextRequest) {
     let storeName = trimmedUrl.split(".")[0] || "My Store";
     let productCount = 0;
     let categories: StoreCategory[] = [];
+    let apiKeyEncrypted: string | null = null;
 
     if (platform === "shopify") {
-      const token = typeof apiKey === "string" ? apiKey.trim() : "";
-      if (!token) {
-        return Response.json({ error: "An Admin API access token is required for Shopify" }, { status: 400 });
+      const trimmedClientId = typeof clientId === "string" ? clientId.trim() : "";
+      const trimmedClientSecret = typeof clientSecret === "string" ? clientSecret.trim() : "";
+      if (!trimmedClientId || !trimmedClientSecret) {
+        return Response.json(
+          { error: "Client ID and Client Secret are required for Shopify" },
+          { status: 400 }
+        );
       }
 
       const domain = normalizeShopifyDomain(trimmedUrl);
       try {
+        const token = await getShopifyAccessToken(domain, trimmedClientId, trimmedClientSecret);
         const shopInfo = await verifyShopifyCredentials(domain, token);
         storeName = shopInfo.name;
         trimmedUrl = shopInfo.domain;
         productCount = await getShopifyProductCount(trimmedUrl, token);
         categories = await getShopifyCollections(trimmedUrl, token);
+        apiKeyEncrypted = encodeCredentials({ clientId: trimmedClientId, clientSecret: trimmedClientSecret });
       } catch (err) {
         console.error("[store-connection POST shopify]", err);
+        const message =
+          err instanceof ShopifyApiError
+            ? err.message
+            : "Could not connect to Shopify — check your store domain, Client ID, and Client Secret";
         const status = err instanceof ShopifyApiError && err.status === 401 ? 401 : 400;
+        return Response.json({ error: message }, { status });
+      }
+    } else if (platform === "wordpress") {
+      const trimmedUsername = typeof wpUsername === "string" ? wpUsername.trim() : "";
+      const trimmedAppPassword = typeof wpAppPassword === "string" ? wpAppPassword.trim() : "";
+      if (!trimmedUsername || !trimmedAppPassword) {
         return Response.json(
-          { error: "Could not connect to Shopify — check your store URL and access token" },
-          { status }
+          { error: "WordPress username and Application Password are required" },
+          { status: 400 }
         );
+      }
+
+      const siteUrl = normalizeWordPressUrl(trimmedUrl);
+      try {
+        const shopInfo = await verifyWordPressCredentials(siteUrl, trimmedUsername, trimmedAppPassword);
+        storeName = shopInfo.name;
+        trimmedUrl = siteUrl.replace(/^https?:\/\//, "");
+        productCount = await getWordPressProductCount(siteUrl, trimmedUsername, trimmedAppPassword);
+        categories = await getWordPressCategories(siteUrl, trimmedUsername, trimmedAppPassword);
+        apiKeyEncrypted = encodeCredentials({ wpUsername: trimmedUsername, wpAppPassword: trimmedAppPassword });
+      } catch (err) {
+        console.error("[store-connection POST wordpress]", err);
+        const message =
+          err instanceof WooCommerceApiError
+            ? err.message
+            : "Could not connect to WordPress — check your site URL, username, and Application Password";
+        const status = err instanceof WooCommerceApiError && err.status === 401 ? 401 : 400;
+        return Response.json({ error: message }, { status });
       }
     } else {
       // No real integration yet for this platform — simulate an initial catalog sync.
       productCount = Math.floor(Math.random() * 300) + 50;
+      if (typeof apiKey === "string" && apiKey.trim().length > 0) {
+        apiKeyEncrypted = encodeCredentials({ apiKey: apiKey.trim() });
+      }
     }
-
-    const apiKeyEncrypted =
-      typeof apiKey === "string" && apiKey.trim().length > 0 ? encryptSecret(apiKey.trim()) : null;
 
     const row = await upsertStoreConnection({
       ownerId: user.id,
@@ -158,13 +201,27 @@ export async function PATCH(req: NextRequest) {
 
       if (current.platform === "shopify" && current.apiKeyEncrypted) {
         try {
-          const token = decryptSecret(current.apiKeyEncrypted);
+          const { clientId, clientSecret } = decodeCredentials(current.apiKeyEncrypted);
+          const token = await getShopifyAccessToken(current.storeUrl, clientId, clientSecret);
           patch.productCount = await getShopifyProductCount(current.storeUrl, token);
           patch.categories = await getShopifyCollections(current.storeUrl, token);
           patch.syncedAt = new Date().toISOString();
         } catch (err) {
           console.error("[store-connection PATCH sync shopify]", err);
-          return Response.json({ error: "Failed to sync with Shopify" }, { status: 502 });
+          const message = err instanceof ShopifyApiError ? err.message : "Failed to sync with Shopify";
+          return Response.json({ error: message }, { status: 502 });
+        }
+      } else if (current.platform === "wordpress" && current.apiKeyEncrypted) {
+        try {
+          const { wpUsername, wpAppPassword } = decodeCredentials(current.apiKeyEncrypted);
+          const siteUrl = normalizeWordPressUrl(current.storeUrl);
+          patch.productCount = await getWordPressProductCount(siteUrl, wpUsername, wpAppPassword);
+          patch.categories = await getWordPressCategories(siteUrl, wpUsername, wpAppPassword);
+          patch.syncedAt = new Date().toISOString();
+        } catch (err) {
+          console.error("[store-connection PATCH sync wordpress]", err);
+          const message = err instanceof WooCommerceApiError ? err.message : "Failed to sync with WordPress";
+          return Response.json({ error: message }, { status: 502 });
         }
       } else {
         // Simulated re-sync for platforms without a real integration yet.

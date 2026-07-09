@@ -3,11 +3,10 @@
 import { create } from "zustand";
 import type { StoreConnection, StorePlatform, StoreCategory } from "@/modules/store/types";
 
-interface ConnectInput {
-  platform: StorePlatform;
-  storeUrl: string;
-  apiKey: string;
-}
+type ConnectInput =
+  | { platform: StorePlatform; storeUrl: string; apiKey: string }
+  | { platform: StorePlatform; storeUrl: string; clientId: string; clientSecret: string }
+  | { platform: StorePlatform; storeUrl: string; wpUsername: string; wpAppPassword: string };
 
 interface StoreConnectionState {
   connection: StoreConnection | null;
@@ -30,8 +29,9 @@ interface StoreConnectionState {
 /**
  * Account-level store connection (platform, credentials, sync state, and the
  * categories selected for the agent). Backed by the single `store_connections`
- * row for this account — see `/api/store-connection`. For Shopify, `connect`
- * and `syncNow` hit the real Admin API; other platforms remain simulated.
+ * row for this account — see `/api/store-connection`. For Shopify and
+ * WordPress, `connect` and `syncNow` hit the real Admin/WooCommerce REST
+ * APIs; other platforms remain simulated.
  */
 export const useStoreConnectionStore = create<StoreConnectionState>((set, get) => ({
   connection: null,

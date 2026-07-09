@@ -64,9 +64,9 @@ export function ConnectionCard({
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3">
         {[
-          { label: "Products",   value: productCount  },
-          { label: "Categories", value: categoryCount },
-          { label: "Last Sync",  value: lastSync       },
+          { label: "Products",         value: productCount  },
+          { label: "Active Categories", value: categoryCount },
+          { label: "Last Sync",        value: lastSync       },
         ].map(({ label, value }) => (
           <div key={label} className="rounded-[var(--radius-lg)] bg-[var(--color-surface-base)] px-3 py-2.5 text-center">
             <p className="text-xs text-[var(--color-text-muted)]">{label}</p>
