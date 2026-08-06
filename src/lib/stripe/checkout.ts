@@ -98,6 +98,7 @@ export async function createStripeCheckout(input: CreateCheckoutInput): Promise<
     success_url: `${config.appUrl}/settings?section=billing&checkout=success&orderId=${order.id}&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${config.appUrl}/settings?section=billing&checkout=cancelled&orderId=${order.id}`,
     metadata,
+    allow_promotion_codes: true,
     automatic_tax: { enabled: config.automaticTax },
     tax_id_collection: { enabled: config.automaticTax },
     customer_update: { address: "auto", name: "auto" },
