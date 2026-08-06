@@ -23,11 +23,17 @@ git push
    - **Runtime**: `Node`.
    - **Build Command**:
      ```bash
-     corepack enable && pnpm install --frozen-lockfile && pnpm build
+     corepack enable; NODE_ENV=development pnpm install --frozen-lockfile; pnpm run build
      ```
+
+     The `NODE_ENV=development` here is intentional and only affects the install step: Render
+     sets `NODE_ENV=production` for builds by default, which makes `pnpm install` silently skip
+     everything in `devDependencies` — including `tailwindcss`, `esbuild`, and other packages
+     the build itself needs. `pnpm run build` still produces a normal production build; Next.js
+     sets its own internal production mode regardless of this shell variable.
    - **Start Command**:
      ```bash
-     pnpm start
+     pnpm run start
      ```
    - **Instance Type**: Starter is fine to begin with; upgrade later if you see slow cold
      response times (Render's free/starter tiers can spin down when idle).
