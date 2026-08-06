@@ -19,6 +19,9 @@ interface TryOnPreviewPanelProps {
   currentImageIndex: number;
   currentTryOn: GeneratedTryOn | null;
   isGenerating: boolean;
+  /** The fixed backdrop plate paired with the shopper's avatar — real Persona Agent
+   *  renders are subject-only cutouts, so this is layered underneath. */
+  backdropUrl?: string | null;
   onPrev: () => void;
   onNext: () => void;
 }
@@ -28,6 +31,7 @@ export function TryOnPreviewPanel({
   currentImageIndex,
   currentTryOn,
   isGenerating,
+  backdropUrl,
   onPrev,
   onNext,
 }: TryOnPreviewPanelProps) {
@@ -103,6 +107,9 @@ export function TryOnPreviewPanel({
           </div>
         ) : currentTryOn ? (
           <>
+            {backdropUrl && (
+              <Image src={backdropUrl} alt="" fill className="object-cover" unoptimized />
+            )}
             <Image
               src={currentTryOn.imageUrl}
               alt="Try-on preview"

@@ -4,10 +4,13 @@ import * as React from "react";
 import Image from "next/image";
 import {
   Check,
+  Camera,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   Heart,
+  Image as ImageIcon,
+  ImageUp,
   Loader2,
   Maximize2,
   Palette,
@@ -23,14 +26,16 @@ import type { GeneratedTryOn } from "../hooks/use-try-on-agent";
 import type { TryOnProfile } from "../types";
 import type { Product } from "@/modules/shopping-agent/types";
 import { formatPrice } from "@/modules/shopping-agent/constants";
-import { MOCK_WEARABLE_PRODUCTS } from "@/lib/mock-api/catalog";
-import { BODY_SHAPE_LABELS, DEFAULT_MANNEQUIN_IMAGE, MOCK_OUTFIT_SWATCHES } from "../constants";
+import { DEFAULT_MANNEQUIN_IMAGE, STUDIO_BACKDROPS } from "../constants";
 import {
-  formatHeightImperial,
-  formatWeightImperial,
-  getGarmentCategory,
+  formatChestCm,
+  formatHeightCm,
+  formatShoeSizeEu,
+  formatWaistCm,
+  formatWeightKg,
   getHotspotPosition,
   getProductSizeLabel,
+  resolveGarmentSlot,
   getProfileFitSummary,
   recommendSize,
 } from "../utils/fit-metrics";
@@ -39,6 +44,12 @@ import { AvatarWearScanOverlay } from "./avatar-wear-scan-overlay";
 import { GarmentHotspot, type ActiveLookItem } from "./garment-hotspot";
 import { SizeGuideModal } from "./size-guide-modal";
 import { cn } from "@/lib/utils/cn";
+import { useWearableTheme } from "../theme-context";
+import type { EmbedRuntimeConfig } from "../hooks/use-try-on-agent";
+import { useRealtimeTryOn } from "../hooks/use-realtime-tryon";
+import { RealtimeTryOnOverlay } from "./realtime-tryon-overlay";
+import { LiveProductPicker } from "./live-product-picker";
+import { LiveProductStack } from "./live-product-stack";
 
 interface AvatarMannequinPanelProps {
   profile: TryOnProfile;
@@ -49,13 +60,25 @@ interface AvatarMannequinPanelProps {
   isGenerating: boolean;
   isRegeneratingAvatar: boolean;
   cartItems: Product[];
+  /** IDs currently mid-flight to the real cart — shown as a spinner so a slow (but working)
+   *  sync never looks like a silent failure. */
+  pendingCartItemIds?: string[];
   onPrev: () => void;
   onNext: () => void;
   onSelectImage: (index: number) => void;
   onRemoveFromOutfit: (id: string) => void;
   onRegenerateAvatar: (patch: Partial<TryOnProfile>) => void;
   onAddToCart: (product: Product) => void;
+  /** Bulk "Add all to cart" — bypasses the variant picker and keeps today's
+   *  auto-pick-first-in-stock-variant behavior. Falls back to `onAddToCart` when omitted. */
+  onBulkAddToCart?: (product: Product) => void;
+  onChangeBackdrop: (url: string) => void;
+  onUploadBackdrop: (file: File) => void;
+  isUploadingBackdrop: boolean;
+  backdropUploadError: string | null;
   mobile?: boolean;
+  embed?: EmbedRuntimeConfig;
+  workspaceId?: string;
 }
 
 const ZOOM_MIN = 1;
@@ -63,59 +86,27 @@ const ZOOM_MAX = 2;
 const ZOOM_STEP = 0.25;
 
 /** Toolbar actions that actually do something useful on a static 2D photo —
- *  zoom + fullscreen work today; 3D is reserved for a future capture pipeline. */
+ *  zoom + fullscreen only apply while viewing a photo. */
 const TOOLBAR_ACTIONS = [
   { id: "zoom-in", icon: ZoomIn, label: "Zoom In" },
   { id: "zoom-out", icon: ZoomOut, label: "Zoom Out" },
   { id: "fullscreen", icon: Maximize2, label: "Fullscreen" },
-  { id: "3d", label: "3D", isText: true, disabled: true },
 ] as const;
 
-/** Shown as a sensible default "look" before the shopper has added or generated anything. */
-const DEMO_LOOK_PRODUCTS = MOCK_WEARABLE_PRODUCTS.filter((p) => ["p-w-002", "p-w-003"].includes(p.id));
+/** Image ⇄ Live mode switcher shown in the left toolbar (replaces the old
+ *  disabled "3D — coming soon" slot; 3D will land in that same spot later). */
+const MODE_TOGGLE_ACTIONS = [
+  { id: "photo", icon: null, label: "Image" },
+  { id: "live", icon: Camera, label: "Live" },
+] as const;
 
 /** Right edge of the info column, so other absolute elements (nav chevrons etc.) can
  *  clear it. The glass cards themselves use `right-4 w-[240px]`. */
 const INFO_COLUMN_SPACE = 260;
 
-/** The photo itself has one fixed background baked in — since we can't cleanly re-composite
- *  a new photographed scene behind the model, "changing the background" swaps a curated
- *  studio color wash instead. Every wash is a flat/gradient fill, so it always covers the
- *  full panel edge-to-edge with zero crop or seam artifacts, however the panel is resized. */
-const BACKGROUND_THEMES = [
-  {
-    id: "charcoal",
-    label: "Charcoal Studio",
-    swatch: "#1a1820",
-    panelBg: "#0d0b14",
-    keyLight: "rgba(255,255,255,0.07)",
-    gradient: "from-[#38353d] via-[#252229] to-[#141217]",
-  },
-  {
-    id: "warm-loft",
-    label: "Warm Loft",
-    swatch: "#2a1f14",
-    panelBg: "#150f09",
-    keyLight: "rgba(255,210,160,0.10)",
-    gradient: "from-[#6b5644] via-[#40332a] to-[#201914]",
-  },
-  {
-    id: "midnight",
-    label: "Midnight Runway",
-    swatch: "#160f2e",
-    panelBg: "#0b0818",
-    keyLight: "rgba(160,140,255,0.10)",
-    gradient: "from-[#39316b] via-[#221c3f] to-[#100d20]",
-  },
-  {
-    id: "studio-white",
-    label: "Studio White",
-    swatch: "#3a3a42",
-    panelBg: "#1c1c24",
-    keyLight: "rgba(255,255,255,0.12)",
-    gradient: "from-[#d9d9de] via-[#aaaab2] to-[#75757e]",
-  },
-] as const;
+/** Panel color that frames the studio photo (blends the photo edge + vignettes) — follows
+ *  the active wearable theme so the frame matches the chat panel next to it. */
+const PANEL_BG_BY_THEME = { dark: "#0d0b14", light: "#f2f0f5" } as const;
 
 /** Matches the reference card style: dark near-opaque background, very subtle border,
  *  enough backdrop blur so the card reads as a premium glass surface. */
@@ -143,24 +134,91 @@ export function AvatarMannequinPanel({
   isGenerating,
   isRegeneratingAvatar,
   cartItems,
+  pendingCartItemIds = [],
   onPrev,
   onNext,
   onSelectImage,
   onRemoveFromOutfit,
   onRegenerateAvatar,
   onAddToCart,
+  onBulkAddToCart,
+  onChangeBackdrop,
+  onUploadBackdrop,
+  isUploadingBackdrop,
+  backdropUploadError,
   mobile = false,
+  embed,
+  workspaceId,
 }: AvatarMannequinPanelProps) {
+  const handleBulkAddToCart = onBulkAddToCart ?? onAddToCart;
+  const theme = useWearableTheme();
+  const panelBg = PANEL_BG_BY_THEME[theme];
   const [activeSwatchIndex, setActiveSwatchIndex] = React.useState(0);
   const [isEditOpen, setIsEditOpen] = React.useState(false);
   const [isSizeGuideOpen, setIsSizeGuideOpen] = React.useState(false);
   const [isFullscreen, setIsFullscreen] = React.useState(false);
   const [justAddedAll, setJustAddedAll] = React.useState(false);
   const [zoomLevel, setZoomLevel] = React.useState(1);
-  const [bgThemeId, setBgThemeId] = React.useState<string>(BACKGROUND_THEMES[0].id);
+  /** Pan offset (px) applied on top of the zoom scale — lets the shopper drag around a
+   *  zoomed-in photo instead of always scaling from the same fixed spot. */
+  const [pan, setPan] = React.useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = React.useState(false);
+  const photoAreaRef = React.useRef<HTMLElement | null>(null);
+  const panDragRef = React.useRef<{ startX: number; startY: number; startPanX: number; startPanY: number } | null>(null);
   const [isBgPickerOpen, setIsBgPickerOpen] = React.useState(false);
-  const bgTheme = BACKGROUND_THEMES.find((t) => t.id === bgThemeId) ?? BACKGROUND_THEMES[0];
+  const [viewMode, setViewMode] = React.useState<"photo" | "live">("photo");
+  const realtime = useRealtimeTryOn({ embed, workspaceId });
   const bgPickerRef = React.useRef<HTMLDivElement>(null);
+  const backdropFileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const setPhotoAreaRef = React.useCallback((el: HTMLElement | null) => {
+    photoAreaRef.current = el;
+  }, []);
+
+  /** Keeps the image from being dragged so far it leaves a visible gap at any edge —
+   *  the further zoomed in, the more room there is to pan before hitting that limit. */
+  const clampPan = React.useCallback((next: { x: number; y: number }, zoom: number) => {
+    const rect = photoAreaRef.current?.getBoundingClientRect();
+    if (!rect) return { x: 0, y: 0 };
+    const maxX = (rect.width * (zoom - 1)) / 2;
+    const maxY = (rect.height * (zoom - 1)) / 2;
+    return {
+      x: maxX <= 0 ? 0 : Math.max(-maxX, Math.min(maxX, next.x)),
+      y: maxY <= 0 ? 0 : Math.max(-maxY, Math.min(maxY, next.y)),
+    };
+  }, []);
+
+  // Re-clamp whenever the zoom level changes so panning out then zooming out doesn't
+  // leave the photo stuck off-center.
+  React.useEffect(() => {
+    setPan((p) => clampPan(p, zoomLevel));
+  }, [zoomLevel, clampPan]);
+
+  const handlePhotoPointerDown = React.useCallback(
+    (e: React.PointerEvent<HTMLElement>) => {
+      if (zoomLevel <= ZOOM_MIN) return;
+      e.currentTarget.setPointerCapture(e.pointerId);
+      panDragRef.current = { startX: e.clientX, startY: e.clientY, startPanX: pan.x, startPanY: pan.y };
+      setIsPanning(true);
+    },
+    [zoomLevel, pan.x, pan.y]
+  );
+  const handlePhotoPointerMove = React.useCallback(
+    (e: React.PointerEvent<HTMLElement>) => {
+      if (!panDragRef.current) return;
+      const dx = e.clientX - panDragRef.current.startX;
+      const dy = e.clientY - panDragRef.current.startY;
+      setPan(clampPan({ x: panDragRef.current.startPanX + dx, y: panDragRef.current.startPanY + dy }, zoomLevel));
+    },
+    [clampPan, zoomLevel]
+  );
+  const handlePhotoPointerUp = React.useCallback((e: React.PointerEvent<HTMLElement>) => {
+    if (panDragRef.current && e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+    panDragRef.current = null;
+    setIsPanning(false);
+  }, []);
 
   React.useEffect(() => {
     if (!isBgPickerOpen) return;
@@ -182,7 +240,10 @@ export function AvatarMannequinPanel({
   const handleZoomOut = React.useCallback(() => {
     setZoomLevel((z) => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2)));
   }, []);
-  const handleResetZoom = React.useCallback(() => setZoomLevel(1), []);
+  const handleResetZoom = React.useCallback(() => {
+    setZoomLevel(1);
+    setPan({ x: 0, y: 0 });
+  }, []);
 
   React.useEffect(() => {
     if (!isFullscreen) return;
@@ -220,6 +281,10 @@ export function AvatarMannequinPanel({
 
   React.useEffect(() => {
     setImgSrc(displayImage);
+    // New photo (new try-on render, regenerated avatar, etc.) — any previous pan offset
+    // is meaningless for different content, so start fresh rather than showing it cropped.
+    setZoomLevel(1);
+    setPan({ x: 0, y: 0 });
   }, [displayImage]);
 
   function handleImageError() {
@@ -228,48 +293,93 @@ export function AvatarMannequinPanel({
     }
   }
 
-  const cartItemIds = React.useMemo(() => new Set(cartItems.map((p) => p.id)), [cartItems]);
+  // Real Persona Agent renders are subject-only cutouts on a transparent background —
+  // they need their paired fixed backdrop plate layered underneath. Mock/default/custom
+  // images are already complete baked photos, so they render as a single flat layer.
+  const hasFixedBackdrop = Boolean(profile.backdropUrl) && imgSrc !== DEFAULT_MANNEQUIN_IMAGE;
+  const isCustomBackdropActive =
+    Boolean(profile.backdropUrl) && !STUDIO_BACKDROPS.some((bg) => bg.url === profile.backdropUrl);
 
-  /** The garments currently shown on the avatar — a real generated style, the
-   *  outfit being built, or a sensible demo look so hotspots always have content. */
+  const cartItemIds = React.useMemo(() => new Set(cartItems.map((p) => p.id)), [cartItems]);
+  const pendingCartIds = React.useMemo(() => new Set(pendingCartItemIds), [pendingCartItemIds]);
+
+  /** Garments on the avatar — only real try-on results or the live outfit being built. */
   const activeItems: ActiveLookItem[] = React.useMemo(() => {
     const source: Product[] =
       currentTryOn && currentTryOn.outfitProducts.length > 0
         ? currentTryOn.outfitProducts
-        : outfitItems.length > 0
-          ? outfitItems
-          : DEMO_LOOK_PRODUCTS;
+        : outfitItems;
 
     const categoryCounts: Partial<Record<string, number>> = {};
 
     return source.map((product) => {
-      const category = getGarmentCategory(product.name);
+      const category = resolveGarmentSlot(product);
       const staggerIndex = categoryCounts[category] ?? 0;
       categoryCounts[category] = staggerIndex + 1;
+      // Shoes are sized in EU numbers from the real profile stat, not the XS–XL letter
+      // size every other garment gets from BMI — showing "S" for a shoe made no sense.
+      const fallbackSize = category === "shoes" ? formatShoeSizeEu(profile.shoeSizeEu) : defaultSize;
       return {
         product,
-        size: currentTryOn?.recommendedSizes[product.id] ?? defaultSize,
-        position: getHotspotPosition(product.name, staggerIndex),
+        size: currentTryOn?.recommendedSizes[product.id] ?? fallbackSize,
+        position: getHotspotPosition(product, staggerIndex),
       };
     });
-  }, [currentTryOn, outfitItems, defaultSize]);
+  }, [currentTryOn, outfitItems, defaultSize, profile.shoeSizeEu]);
+  const liveProducts = React.useMemo(() => {
+    const byId = new Map<string, Product>();
+    for (const version of tryOnImages) {
+      for (const product of version.outfitProducts) byId.set(product.id, product);
+    }
+    for (const product of outfitItems) byId.set(product.id, product);
+    return Array.from(byId.values());
+  }, [tryOnImages, outfitItems]);
+
+  // Auto-preview the first catalog item as soon as the live camera connects, so the
+  // shopper sees a result immediately instead of having to pick a product themselves first.
+  React.useEffect(() => {
+    if (realtime.status !== "live" || realtime.activeProductId || liveProducts.length === 0) return;
+    void realtime.switchProduct(liveProducts[0]);
+  }, [realtime.status, realtime.activeProductId, liveProducts, realtime.switchProduct]);
+
+  function changeViewMode(next: "photo" | "live") {
+    if (next === "photo" && viewMode === "live") realtime.stop("photo-mode");
+    setViewMode(next);
+  }
 
   const lookLabel = hasGeneratedLooks
     ? `Style ${currentImageIndex + 1} of ${total}`
     : outfitItems.length > 0
       ? "Your Outfit"
-      : "Suggested Look";
+      : "Your Avatar";
 
+  const outfitSwatches = hasGeneratedLooks
+    ? tryOnImages.map((tryOn, i) => ({
+        id: tryOn.id,
+        // A version swatch represents the generated look, not one garment's catalog photo.
+        thumb: tryOn.imageUrl,
+        active: i === currentImageIndex,
+        onClick: () => onSelectImage(i),
+      }))
+    : outfitItems.map((p, i) => ({
+        id: p.id,
+        thumb: p.imageUrl,
+        active: i === activeSwatchIndex,
+        onClick: () => setActiveSwatchIndex(i),
+      }));
+
+  const anyPendingInCart = activeItems.some((item) => pendingCartIds.has(item.product.id));
   const cartTotal = activeItems.reduce((sum, item) => sum + item.product.price, 0);
   const currency = activeItems[0]?.product.currency ?? "USD";
 
   const sizeRows = activeItems.map((item) => ({
-    label: getProductSizeLabel(item.product.name),
+    id: item.product.id,
+    label: getProductSizeLabel(item.product),
     size: item.size,
   }));
 
   function handleAddAllToCart() {
-    activeItems.forEach((item) => onAddToCart(item.product));
+    activeItems.forEach((item) => handleBulkAddToCart(item.product));
     setJustAddedAll(true);
     setTimeout(() => setJustAddedAll(false), 2000);
   }
@@ -279,6 +389,7 @@ export function AvatarMannequinPanel({
     return (
       <MobileAvatarStrip
         imgSrc={imgSrc}
+        backdropUrl={hasFixedBackdrop ? profile.backdropUrl : null}
         onImageError={handleImageError}
         fit={fit}
         profile={profile}
@@ -288,6 +399,7 @@ export function AvatarMannequinPanel({
         justAddedAll={justAddedAll}
         activeItems={activeItems}
         cartItemIds={cartItemIds}
+        pendingCartIds={pendingCartIds}
         isGenerating={isGenerating}
         isRegeneratingAvatar={isRegeneratingAvatar}
         hasGeneratedLooks={hasGeneratedLooks}
@@ -302,6 +414,10 @@ export function AvatarMannequinPanel({
         handleAddAllToCart={handleAddAllToCart}
         lookLabel={lookLabel}
         onRegenerateAvatar={onRegenerateAvatar}
+        viewMode={viewMode}
+        onViewModeChange={changeViewMode}
+        realtime={realtime}
+        liveProducts={liveProducts}
       />
     );
   }
@@ -313,24 +429,81 @@ export function AvatarMannequinPanel({
         "border border-white/[0.06] shadow-[0_32px_80px_rgba(0,0,0,0.7)]",
         "bg-[#0d0b14] transition-colors duration-700"
       )}
-      style={{ background: bgTheme.panelBg }}
+      style={{ background: panelBg }}
     >
-      {/* ── Layer 0: Studio photo — fills full height, natural width, left-anchored ── */}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={imgSrc}
-        alt="Standing avatar in studio"
-        onError={handleImageError}
-        className="absolute inset-y-0 left-0 h-full w-auto transition-transform duration-300 ease-out select-none"
-        style={{ transform: `scale(${zoomLevel})`, transformOrigin: "30% 100%" }}
-      />
+      {/* ── Layer 0: Studio photo — fills full height, natural width, left-anchored.
+          Draggable to pan once zoomed in (pointer handlers no-op at 1x zoom). ── */}
+      {viewMode === "live" ? (
+        <div className="absolute inset-y-0 left-0 right-[300px] overflow-hidden">
+          <RealtimeTryOnOverlay
+            status={realtime.status}
+            stream={realtime.remoteStream}
+            remainingSeconds={realtime.remainingSeconds}
+            activeProductId={realtime.activeProductId}
+            errorMessage={realtime.errorMessage}
+            hasProducts={liveProducts.length > 0}
+            onStart={realtime.start}
+            onStop={() => realtime.stop("stop-button")}
+          />
+        </div>
+      ) : hasFixedBackdrop ? (
+        <div
+          ref={setPhotoAreaRef}
+          className={cn(
+            "absolute inset-y-0 left-0 h-full select-none touch-none",
+            isPanning ? "transition-none" : "transition-transform duration-300 ease-out",
+            zoomLevel > ZOOM_MIN && (isPanning ? "cursor-grabbing" : "cursor-grab")
+          )}
+          style={{
+            aspectRatio: "3 / 4",
+            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoomLevel})`,
+            // Center-anchored so zoom scales in place — an off-center origin makes the
+            // whole frame visibly shift on every zoom step, which reads as the panel "moving".
+            transformOrigin: "50% 50%",
+          }}
+          onPointerDown={handlePhotoPointerDown}
+          onPointerMove={handlePhotoPointerMove}
+          onPointerUp={handlePhotoPointerUp}
+          onPointerCancel={handlePhotoPointerUp}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={profile.backdropUrl!} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover select-none" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={imgSrc}
+            alt="Standing avatar in studio"
+            onError={handleImageError}
+            draggable={false}
+            className="absolute inset-0 h-full w-full object-cover select-none"
+          />
+        </div>
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          ref={setPhotoAreaRef}
+          src={imgSrc}
+          alt="Standing avatar in studio"
+          onError={handleImageError}
+          draggable={false}
+          onPointerDown={handlePhotoPointerDown}
+          onPointerMove={handlePhotoPointerMove}
+          onPointerUp={handlePhotoPointerUp}
+          onPointerCancel={handlePhotoPointerUp}
+          className={cn(
+            "absolute inset-y-0 left-0 h-full w-auto select-none touch-none",
+            isPanning ? "transition-none" : "transition-transform duration-300 ease-out",
+            zoomLevel > ZOOM_MIN && (isPanning ? "cursor-grabbing" : "cursor-grab")
+          )}
+          style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoomLevel})`, transformOrigin: "50% 50%" }}
+        />
+      )}
 
       {/* ── Layer 1: Right-side fade — blends photo edge into the dark panel bg ── */}
-      <div className="absolute inset-0 z-[2] pointer-events-none"
+      {viewMode === "photo" && <div className="absolute inset-0 z-[2] pointer-events-none"
         style={{
-          background: `linear-gradient(to right, transparent 52%, ${bgTheme.panelBg}CC 64%, ${bgTheme.panelBg} 72%)`,
+          background: `linear-gradient(to right, transparent 52%, ${panelBg}CC 64%, ${panelBg} 72%)`,
         }}
-      />
+      />}
 
       {/* ── Layer 2: Top vignette — keeps Save/Share legible ── */}
       <div className="absolute inset-x-0 top-0 h-24 z-[3] pointer-events-none"
@@ -342,17 +515,25 @@ export function AvatarMannequinPanel({
         style={{ background: "linear-gradient(to top, rgba(0,0,0,0.60), transparent)" }}
       />
 
-      {/* ── Hotspots — mapped to exact photo aspect ratio ── */}
-      {!isGenerating && !isRegeneratingAvatar && (
-        <div className="absolute inset-y-0 left-0 z-[8]" style={{ aspectRatio: "1024 / 1536" }}>
+      {/* ── Hotspots — mapped to exact photo aspect ratio. pointer-events-none on the
+          wrapper so empty space lets clicks/drags reach the photo underneath (e.g. panning);
+          each hotspot dot opts back in with its own pointer-events-auto. ── */}
+      {viewMode === "photo" && !isGenerating && !isRegeneratingAvatar && (
+        <div className="absolute inset-y-0 left-0 z-[8] pointer-events-none" style={{ aspectRatio: "1024 / 1536" }}>
           {activeItems.map((item) => (
-            <GarmentHotspot key={item.product.id} item={item} inCart={cartItemIds.has(item.product.id)} onAddToCart={onAddToCart} />
+            <GarmentHotspot
+              key={item.product.id}
+              item={item}
+              inCart={cartItemIds.has(item.product.id)}
+              isPending={pendingCartIds.has(item.product.id)}
+              onAddToCart={onAddToCart}
+            />
           ))}
         </div>
       )}
 
       {/* ── Top-right: Save / Share ── */}
-      <div className="absolute top-5 right-5 z-[20] flex items-center gap-2">
+      {viewMode === "photo" && <div className="absolute top-5 right-5 z-[20] flex items-center gap-2">
         {[
           { icon: Heart, label: "Save Look" },
           { icon: Share2, label: "Share" },
@@ -366,103 +547,174 @@ export function AvatarMannequinPanel({
             {label}
           </button>
         ))}
-      </div>
+      </div>}
 
       {/* ── Left toolbar ── */}
-      <div className="absolute left-5 top-1/2 -translate-y-1/2 z-[20] flex flex-col items-center gap-3">
+      <div ref={bgPickerRef} className="absolute left-5 top-1/2 -translate-y-1/2 z-[20] flex flex-col items-center gap-3">
         <div
-          ref={bgPickerRef}
           className="relative flex flex-col items-center gap-1.5 px-1.5 py-2 rounded-[20px] border border-white/[0.12] bg-black/50 backdrop-blur-2xl shadow-[0_8px_28px_rgba(0,0,0,0.5)]"
         >
-          {/* Background picker */}
-          <button
-            type="button"
-            title="Change background"
-            onClick={() => setIsBgPickerOpen((v) => !v)}
-            className={cn(
-              "h-9 w-9 rounded-full flex items-center justify-center transition-all",
-              isBgPickerOpen ? "text-[#f76d01] bg-white/[0.1]" : "text-white/50 hover:text-white/90 hover:bg-white/[0.08]"
-            )}
-          >
-            <Palette className="h-[17px] w-[17px]" strokeWidth={1.6} />
-          </button>
-
-          <div className="h-px w-5 bg-white/[0.1]" />
-
-          {/* Zoom + fullscreen + 3D */}
-          {TOOLBAR_ACTIONS.map((mode) => {
-            const Icon = "icon" in mode ? mode.icon : null;
-            const isDisabled = "disabled" in mode && mode.disabled;
-            const isZoomDisabled = (mode.id === "zoom-in" && !canZoomIn) || (mode.id === "zoom-out" && !canZoomOut);
-            const disabled = isDisabled || isZoomDisabled;
-            return (
+          {viewMode === "photo" && (
+            <>
+              {/* Background picker */}
               <button
-                key={mode.id}
                 type="button"
-                title={isDisabled ? `${mode.label} — coming soon` : mode.label}
-                disabled={disabled}
-                onClick={() => !disabled && handleToolbarAction(mode.id)}
+                title="Change background"
+                onClick={() => setIsBgPickerOpen((v) => !v)}
                 className={cn(
-                  "relative h-9 w-9 rounded-full flex items-center justify-center transition-all",
-                  mode.id === "3d"
-                    ? "text-[#f76d01]/60 cursor-not-allowed text-[11px] font-bold"
-                    : disabled
-                      ? "text-white/20 cursor-not-allowed"
-                      : "text-white/50 hover:text-white/90 hover:bg-white/[0.08] active:scale-90"
+                  "h-9 w-9 rounded-full flex items-center justify-center transition-all",
+                  isBgPickerOpen ? "text-[var(--color-brand)] bg-white/[0.1]" : "text-white/50 hover:text-white/90 hover:bg-white/[0.08]"
                 )}
               >
-                {"isText" in mode && mode.isText
-                  ? <span className="text-[11px] font-bold">3D</span>
-                  : Icon && <Icon className="h-[17px] w-[17px]" strokeWidth={1.6} />}
-                {isDisabled && (
-                  <span className="absolute -right-1 -top-0.5 rounded-full bg-white/[0.12] px-[3px] py-px text-[5.5px] font-bold uppercase tracking-wide text-white/60 leading-none">
-                    Soon
-                  </span>
-                )}
+                <Palette className="h-[17px] w-[17px]" strokeWidth={1.6} />
               </button>
-            );
-          })}
+
+              <div className="h-px w-5 bg-white/[0.1]" />
+
+              {/* Zoom + fullscreen */}
+              {TOOLBAR_ACTIONS.map((mode) => {
+                const isZoomDisabled = (mode.id === "zoom-in" && !canZoomIn) || (mode.id === "zoom-out" && !canZoomOut);
+                return (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    title={mode.label}
+                    disabled={isZoomDisabled}
+                    onClick={() => !isZoomDisabled && handleToolbarAction(mode.id)}
+                    className={cn(
+                      "relative h-9 w-9 rounded-full flex items-center justify-center transition-all",
+                      isZoomDisabled
+                        ? "text-white/20 cursor-not-allowed"
+                        : "text-white/50 hover:text-white/90 hover:bg-white/[0.08] active:scale-90"
+                    )}
+                  >
+                    <mode.icon className="h-[17px] w-[17px]" strokeWidth={1.6} />
+                  </button>
+                );
+              })}
+
+              <div className="h-px w-5 bg-white/[0.1]" />
+            </>
+          )}
+
+          {/* Image ⇄ Live mode switch — replaces the old disabled "3D" slot */}
+          {MODE_TOGGLE_ACTIONS.map((mode) => (
+            <button
+              key={mode.id}
+              type="button"
+              title={mode.label}
+              onClick={() => changeViewMode(mode.id)}
+              className={cn(
+                "h-9 w-9 rounded-full flex items-center justify-center transition-all",
+                viewMode === mode.id
+                  ? "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-[var(--color-brand-contrast)] shadow-sm"
+                  : "text-white/50 hover:text-white/90 hover:bg-white/[0.08]"
+              )}
+            >
+              {mode.icon ? (
+                <mode.icon className="h-[17px] w-[17px]" strokeWidth={1.6} />
+              ) : (
+                <ImageIcon className="h-[17px] w-[17px]" strokeWidth={1.6} />
+              )}
+            </button>
+          ))}
+
+          {/* Absolutely positioned (not a normal flex child) so it never changes the height
+              of this toolbar pill — that was shifting the whole toolbar's vertical-centered
+              position every time it appeared/disappeared on zoom. */}
+          {zoomLevel !== 1 && (
+            <button
+              type="button"
+              onClick={handleResetZoom}
+              className="absolute left-1/2 top-full mt-2 -translate-x-1/2 flex items-center gap-1 rounded-full border border-white/15 bg-black/50 backdrop-blur-xl px-2 py-1 text-[10px] font-semibold text-white/70 hover:text-white transition-colors whitespace-nowrap"
+            >
+              <RotateCcw className="h-2.5 w-2.5" />
+              {Math.round(zoomLevel * 100)}%
+            </button>
+          )}
         </div>
 
-        {zoomLevel !== 1 && (
-          <button
-            type="button"
-            onClick={handleResetZoom}
-            className="flex items-center gap-1 rounded-full border border-white/15 bg-black/50 backdrop-blur-xl px-2 py-1 text-[10px] font-semibold text-white/70 hover:text-white transition-colors"
-          >
-            <RotateCcw className="h-2.5 w-2.5" />
-            {Math.round(zoomLevel * 100)}%
-          </button>
-        )}
-
         {/* Background picker popover */}
-        {isBgPickerOpen && (
-          <div className="absolute left-full top-0 ml-3 z-[30] w-44 rounded-2xl border border-white/[0.1] bg-[rgba(12,10,18,0.96)] backdrop-blur-2xl p-2.5 shadow-[0_16px_48px_rgba(0,0,0,0.6)]">
+        {viewMode === "photo" && isBgPickerOpen && (
+          <div className="absolute left-full top-0 ml-3 z-[30] w-52 rounded-2xl border border-white/[0.1] bg-[rgba(12,10,18,0.96)] backdrop-blur-2xl p-2.5 shadow-[0_16px_48px_rgba(0,0,0,0.6)]">
             <p className="px-1 pb-2 text-[9px] font-bold uppercase tracking-[0.16em] text-white/35">Studio Backdrop</p>
-            <div className="flex flex-col gap-0.5">
-              {BACKGROUND_THEMES.map((theme) => (
-                <button
-                  key={theme.id}
-                  type="button"
-                  onClick={() => { setBgThemeId(theme.id); setIsBgPickerOpen(false); }}
-                  className={cn(
-                    "flex items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-colors",
-                    theme.id === bgThemeId ? "bg-white/[0.1]" : "hover:bg-white/[0.05]"
-                  )}
-                >
-                  <span className={cn("h-5 w-5 shrink-0 rounded-full border-2", theme.id === bgThemeId ? "border-[#f76d01]" : "border-white/20")}
-                    style={{ backgroundColor: theme.swatch }} />
-                  <span className="text-[11px] font-medium text-white/80">{theme.label}</span>
-                  {theme.id === bgThemeId && <Check className="h-3 w-3 text-[#f76d01] ml-auto shrink-0" />}
-                </button>
-              ))}
+            <div className="grid grid-cols-2 gap-1.5 mb-2">
+              {STUDIO_BACKDROPS.map((bg) => {
+                const isActive = profile.backdropUrl === bg.url;
+                return (
+                  <button
+                    key={bg.id}
+                    type="button"
+                    title={bg.label}
+                    onClick={() => { onChangeBackdrop(bg.url); setIsBgPickerOpen(false); }}
+                    className={cn(
+                      "relative aspect-[3/4] rounded-lg overflow-hidden border-2 transition-all",
+                      isActive ? "border-[var(--color-brand)]" : "border-white/15 hover:border-white/40"
+                    )}
+                  >
+                    <Image src={bg.url} alt={bg.label} fill className="object-cover" unoptimized />
+                    {isActive && (
+                      <span className="absolute top-1 right-1 h-4 w-4 rounded-full bg-[var(--color-brand)] flex items-center justify-center">
+                        <Check className="h-2.5 w-2.5 text-white" />
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
+
+            {isCustomBackdropActive && (
+              <div className="flex items-center gap-2 mb-2 rounded-lg bg-white/[0.08] px-2 py-1.5">
+                <span className="relative h-6 w-6 shrink-0 rounded-md overflow-hidden border border-[var(--color-brand)]">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={profile.backdropUrl!} alt="Custom background" className="h-full w-full object-cover" />
+                </span>
+                <span className="text-[11px] font-medium text-white/80 flex-1 truncate">Custom background</span>
+                <Check className="h-3 w-3 text-[var(--color-brand)] shrink-0" />
+              </div>
+            )}
+
+            <input
+              ref={backdropFileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) onUploadBackdrop(file);
+                e.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => backdropFileInputRef.current?.click()}
+              disabled={isUploadingBackdrop}
+              className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-white/[0.12] px-2 py-2 text-[11px] font-medium text-white/70 hover:text-white hover:bg-white/[0.06] transition-colors disabled:opacity-50"
+            >
+              {isUploadingBackdrop ? <Loader2 className="h-3 w-3 animate-spin" /> : <ImageUp className="h-3 w-3" />}
+              {isUploadingBackdrop ? "Uploading…" : "Upload your own"}
+            </button>
+            {backdropUploadError && (
+              <p className="mt-1.5 px-1 text-[10px] text-red-400 leading-snug">{backdropUploadError}</p>
+            )}
+            <p className="mt-1.5 px-1 text-[9px] text-white/25 leading-snug">Uploaded backgrounds are temporary and may be cleared on server restart.</p>
           </div>
         )}
       </div>
 
       {/* ── Right info column ── */}
-      <div className="absolute top-5 right-5 z-[20] w-[252px] flex flex-col gap-3">
+      {viewMode === "live" ? (
+        <aside className="absolute inset-y-0 right-0 z-[20] w-[300px] border-l border-[var(--color-border)] bg-[var(--color-surface-base)] px-4 pt-5">
+          <LiveProductPicker
+            products={liveProducts}
+            activeProductId={realtime.activeProductId}
+            cartItemIds={cartItemIds}
+            pendingCartIds={pendingCartIds}
+            onSelect={realtime.switchProduct}
+            onAddToCart={onAddToCart}
+          />
+        </aside>
+      ) : <div className="absolute top-5 right-5 z-[20] w-[252px] flex flex-col gap-3">
 
         {/* Fit Analysis card */}
         <InfoCard className="p-4">
@@ -482,9 +734,8 @@ export function AvatarMannequinPanel({
                 />
                 <defs>
                   <linearGradient id="fitGaugeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#f76d01" />
-                    <stop offset="50%" stopColor="#c8304e" />
-                    <stop offset="100%" stopColor="#6c28d9" />
+                    <stop offset="0%" stopColor="var(--color-brand-from)" />
+                    <stop offset="100%" stopColor="var(--color-brand-to)" />
                   </linearGradient>
                 </defs>
               </svg>
@@ -504,7 +755,7 @@ export function AvatarMannequinPanel({
                   <span className="text-white/85 font-semibold">{m.value}%</span>
                 </div>
                 <div className="h-[3px] rounded-full bg-white/[0.08] overflow-hidden">
-                  <div className="h-full rounded-full bg-gradient-to-r from-[#f76d01] to-[#ff6b35]" style={{ width: `${m.value}%` }} />
+                  <div className="h-full rounded-full bg-[var(--color-brand)]" style={{ width: `${m.value}%` }} />
                 </div>
               </div>
             ))}
@@ -518,16 +769,18 @@ export function AvatarMannequinPanel({
             <button
               type="button"
               onClick={() => setIsEditOpen(true)}
-              className="flex items-center gap-1 text-[11px] font-medium text-[#f76d01] hover:text-[#ff8a2b] transition-colors"
+              className="flex items-center gap-1 text-[11px] font-medium text-[var(--color-brand)] hover:opacity-80 transition-all"
             >
               <Pencil className="h-3 w-3" /> Edit
             </button>
           </div>
           <div className="space-y-2">
             {[
-              { label: "Height", value: formatHeightImperial(profile.heightCm) },
-              { label: "Weight", value: formatWeightImperial(profile.weightKg) },
-              { label: "Build",  value: fit.buildLabel },
+              { label: "Height", value: formatHeightCm(profile.heightCm) },
+              { label: "Weight", value: formatWeightKg(profile.weightKg) },
+              { label: "Chest", value: formatChestCm(profile.chestCm) },
+              { label: "Waist", value: formatWaistCm(profile.waistCm) },
+              { label: "Shoe Size", value: formatShoeSizeEu(profile.shoeSizeEu) },
             ].map(({ label, value }) => (
               <div key={label} className="flex items-center justify-between">
                 <span className="text-[12px] text-white/45">{label}</span>
@@ -539,43 +792,58 @@ export function AvatarMannequinPanel({
           <div className="my-3.5 h-px bg-white/[0.07]" />
 
           <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-white/35 mb-3">Size Recommendation</p>
-          <div className="space-y-2">
-            {sizeRows.map((row) => (
-              <div key={row.label} className="flex items-center justify-between">
-                <span className="text-[12px] text-white/45">{row.label}</span>
-                <span className="text-[12px] text-white/90 font-semibold">{row.size}</span>
+          {sizeRows.length > 0 ? (
+            <>
+              <div className="space-y-2">
+                {sizeRows.map((row) => (
+                  <div key={row.id} className="flex items-center justify-between">
+                    <span className="text-[12px] text-white/45">{row.label}</span>
+                    <span className="text-[12px] text-white/90 font-semibold">{row.size}</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={() => setIsSizeGuideOpen(true)}
-            className="mt-3 text-[11px] font-medium text-[#f76d01] hover:text-[#ff8a2b] transition-colors"
-          >
-            View Size Guide
-          </button>
+              <button
+                type="button"
+                onClick={() => setIsSizeGuideOpen(true)}
+                className="mt-3 text-[11px] font-medium text-[var(--color-brand)] hover:opacity-80 transition-all"
+              >
+                View Size Guide
+              </button>
+            </>
+          ) : (
+            <p className="text-[12px] text-white/40">Add items to see size recommendations.</p>
+          )}
         </InfoCard>
 
         {/* Add All to Cart */}
+        {activeItems.length > 0 && (
         <button
           type="button"
           onClick={handleAddAllToCart}
+          disabled={anyPendingInCart}
           className={cn(
             "w-full h-[54px] rounded-[16px] font-semibold text-[13px] flex items-center justify-between px-5 transition-all",
-            "bg-gradient-to-r from-[#f76d01] to-[#e05500] text-white",
-            "shadow-[0_8px_28px_rgba(247,109,1,0.4)] hover:brightness-110 active:scale-[0.98]"
+            "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-white",
+            "shadow-[var(--shadow-glow)] hover:brightness-110 active:scale-[0.98] disabled:opacity-70"
           )}
         >
           <span className="flex items-center gap-2">
-            {justAddedAll ? <Check className="h-4 w-4" /> : <ShoppingBag className="h-4 w-4" />}
-            {justAddedAll ? "Added to Cart" : "Add All to Cart"}
+            {anyPendingInCart ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : justAddedAll ? (
+              <Check className="h-4 w-4" />
+            ) : (
+              <ShoppingBag className="h-4 w-4" />
+            )}
+            {anyPendingInCart ? "Adding to Cart…" : justAddedAll ? "Added to Cart" : "Add All to Cart"}
           </span>
           <span className="text-[15px] font-bold">{formatPrice(cartTotal, currency)}</span>
         </button>
-      </div>
+        )}
+      </div>}
 
       {/* Wear scan — top-to-bottom garment fitting animation */}
-      {isGenerating && !isRegeneratingAvatar && (
+      {viewMode === "photo" && isGenerating && !isRegeneratingAvatar && (
         <AvatarWearScanOverlay
           itemLabel={
             outfitItems.length > 0
@@ -586,7 +854,7 @@ export function AvatarMannequinPanel({
       )}
 
       {/* Avatar regeneration overlay */}
-      {isRegeneratingAvatar && (
+      {viewMode === "photo" && isRegeneratingAvatar && (
         <div className="absolute inset-0 z-[30] flex flex-col items-center justify-center gap-3 bg-black/55 backdrop-blur-sm">
           <Loader2 className="h-8 w-8 text-white animate-spin" />
           <p className="text-sm font-medium text-white">Regenerating your avatar…</p>
@@ -597,7 +865,7 @@ export function AvatarMannequinPanel({
       )}
 
       {/* Preview navigation */}
-      {total > 1 && !isGenerating && (
+      {viewMode === "photo" && total > 1 && !isGenerating && (
         <>
           {hasPrev && (
             <button type="button" onClick={onPrev}
@@ -614,14 +882,10 @@ export function AvatarMannequinPanel({
         </>
       )}
 
-      {/* Swatches — bottom-left */}
+      {/* Swatches — bottom-left (only real try-ons / outfit items) */}
+      {viewMode === "photo" && outfitSwatches.length > 0 && (
       <div className="absolute bottom-5 left-5 z-[20] flex items-center gap-2">
-        {(hasGeneratedLooks
-          ? tryOnImages.map((tryOn, i) => ({ id: tryOn.id, thumb: tryOn.outfitProducts[0]?.imageUrl ?? tryOn.imageUrl, active: i === currentImageIndex, onClick: () => onSelectImage(i) }))
-          : outfitItems.length > 0
-            ? outfitItems.map((p, i) => ({ id: p.id, thumb: p.imageUrl, active: i === activeSwatchIndex, onClick: () => setActiveSwatchIndex(i) }))
-            : MOCK_OUTFIT_SWATCHES.map((s, i) => ({ id: s.id, thumb: s.imageUrl, active: i === activeSwatchIndex, onClick: () => setActiveSwatchIndex(i) }))
-        ).map((sw) => (
+        {outfitSwatches.map((sw) => (
           <button
             key={sw.id}
             type="button"
@@ -629,7 +893,7 @@ export function AvatarMannequinPanel({
             className={cn(
               "relative h-[52px] w-[52px] rounded-[12px] overflow-hidden border-2 transition-all duration-200",
               sw.active
-                ? "border-[#f76d01] shadow-[0_0_16px_rgba(247,109,1,0.6)]"
+                ? "border-[var(--color-brand)] shadow-[var(--shadow-glow)]"
                 : "border-white/25 opacity-70 hover:opacity-100 hover:border-white/50"
             )}
           >
@@ -637,6 +901,7 @@ export function AvatarMannequinPanel({
           </button>
         ))}
       </div>
+      )}
 
       {isEditOpen && (
         <EditModelStatsModal
@@ -662,13 +927,25 @@ export function AvatarMannequinPanel({
           className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 backdrop-blur-md p-6"
           onClick={() => setIsFullscreen(false)}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={imgSrc}
-            alt="Standing avatar in studio — fullscreen"
-            className="max-h-full max-w-full object-contain rounded-2xl shadow-[0_24px_80px_rgba(0,0,0,0.6)]"
-            onClick={(e) => e.stopPropagation()}
-          />
+          {hasFixedBackdrop ? (
+            <div
+              className="relative h-[85vh] max-h-full max-w-[90vw] aspect-[3/4] rounded-2xl shadow-[0_24px_80px_rgba(0,0,0,0.6)] overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={profile.backdropUrl!} alt="" className="absolute inset-0 h-full w-full object-cover" />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={imgSrc} alt="Standing avatar in studio — fullscreen" className="absolute inset-0 h-full w-full object-cover" />
+            </div>
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={imgSrc}
+              alt="Standing avatar in studio — fullscreen"
+              className="max-h-full max-w-full object-contain rounded-2xl shadow-[0_24px_80px_rgba(0,0,0,0.6)]"
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
           <button
             type="button"
             onClick={() => setIsFullscreen(false)}
@@ -686,15 +963,17 @@ export function AvatarMannequinPanel({
 // ─── Mobile-only compact avatar strip ───────────────────────────────────────
 interface MobileAvatarStripProps {
   imgSrc: string;
+  backdropUrl: string | null;
   onImageError: () => void;
   fit: ReturnType<typeof getProfileFitSummary>;
   profile: TryOnProfile;
-  sizeRows: { label: string; size: string }[];
+  sizeRows: { id: string; label: string; size: string }[];
   cartTotal: number;
   currency: string;
   justAddedAll: boolean;
   activeItems: ActiveLookItem[];
   cartItemIds: Set<string>;
+  pendingCartIds: Set<string>;
   isGenerating: boolean;
   isRegeneratingAvatar: boolean;
   hasGeneratedLooks: boolean;
@@ -709,6 +988,10 @@ interface MobileAvatarStripProps {
   handleAddAllToCart: () => void;
   lookLabel: string;
   onRegenerateAvatar: (patch: Partial<TryOnProfile>) => void;
+  viewMode: "photo" | "live";
+  onViewModeChange: (mode: "photo" | "live") => void;
+  realtime: ReturnType<typeof useRealtimeTryOn>;
+  liveProducts: Product[];
 }
 
 /** What sub-panel is open over the avatar on mobile. */
@@ -716,6 +999,7 @@ type MobilePanel = "details" | "edit" | "size-guide" | null;
 
 function MobileAvatarStrip({
   imgSrc,
+  backdropUrl,
   onImageError,
   fit,
   profile,
@@ -725,6 +1009,7 @@ function MobileAvatarStrip({
   justAddedAll,
   activeItems,
   cartItemIds,
+  pendingCartIds,
   isGenerating,
   isRegeneratingAvatar,
   hasGeneratedLooks,
@@ -738,7 +1023,13 @@ function MobileAvatarStrip({
   handleAddAllToCart,
   lookLabel,
   onRegenerateAvatar,
+  viewMode,
+  onViewModeChange,
+  realtime,
+  liveProducts,
 }: MobileAvatarStripProps) {
+  const theme = useWearableTheme();
+  const panelBg = PANEL_BG_BY_THEME[theme];
   const [panel, setPanel] = React.useState<MobilePanel>(null);
   const [editDraft, setEditDraft] = React.useState<TryOnProfile>(profile);
 
@@ -746,32 +1037,63 @@ function MobileAvatarStrip({
   React.useEffect(() => { setEditDraft(profile); }, [profile]);
 
   function handleSaveEdit() {
-    const { photoUrl: _p, avatarUrl: _a, ...measurements } = editDraft;
+    const {
+      photoUrl: _p,
+      photoBase64: _pb64,
+      photoMimeType: _pmt,
+      avatarUrl: _a,
+      backdropUrl: _bg,
+      ...measurements
+    } = editDraft;
     onRegenerateAvatar(measurements);
     setPanel(null);
   }
 
   return (
-    <div className="relative w-full h-full min-h-0 overflow-hidden bg-[#0d0b14]">
+    <div className="relative w-full h-full min-h-0 overflow-hidden" style={{ background: panelBg }}>
       {/* ── Avatar photo — object-cover fills the full frame; since the container is
            taller than a 2:3 image scaled to width, object-cover scales by height so
-           the full body (head → feet) is always visible, sides trimmed slightly. ── */}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={imgSrc}
-        alt="Avatar"
-        onError={onImageError}
-        className="absolute inset-0 w-full h-full object-cover object-center select-none"
-      />
+           the full body (head → feet) is always visible, sides trimmed slightly.
+           Real Persona Agent renders are subject-only cutouts, so their paired fixed
+           backdrop plate is layered underneath first. ── */}
+      {viewMode === "live" ? (
+        <div className="absolute inset-0 overflow-hidden">
+          <RealtimeTryOnOverlay
+            status={realtime.status}
+            stream={realtime.remoteStream}
+            remainingSeconds={realtime.remainingSeconds}
+            activeProductId={realtime.activeProductId}
+            errorMessage={realtime.errorMessage}
+            hasProducts={liveProducts.length > 0}
+            onStart={realtime.start}
+            onStop={() => realtime.stop("stop-button")}
+          />
+        </div>
+      ) : (
+        <>
+          {backdropUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={backdropUrl} alt="" className="absolute inset-0 w-full h-full object-cover object-center select-none" />
+          )}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={imgSrc}
+            alt="Avatar"
+            onError={onImageError}
+            className="absolute inset-0 w-full h-full object-cover object-center select-none"
+          />
+        </>
+      )}
 
       {/* ── Hotspot pins — absolute inset-0 matches the cover-filled image exactly ── */}
-      {!isGenerating && !isRegeneratingAvatar && (
+      {viewMode === "photo" && !isGenerating && !isRegeneratingAvatar && (
         <div className="absolute inset-0 z-[8] pointer-events-none">
           {activeItems.map((item) => (
             <GarmentHotspot
               key={item.product.id}
               item={item}
               inCart={cartItemIds.has(item.product.id)}
+              isPending={pendingCartIds.has(item.product.id)}
               onAddToCart={onAddToCart}
             />
           ))}
@@ -788,7 +1110,7 @@ function MobileAvatarStrip({
       />
 
       {/* ── Top row: Fit badge + Details button ── */}
-      <div className="absolute top-3 inset-x-3 z-[10] flex items-center justify-between">
+      {viewMode === "photo" && <div className="absolute top-3 inset-x-3 z-[10] flex items-center justify-between">
         <div className="flex items-center gap-1.5 rounded-full bg-black/50 backdrop-blur-md border border-white/[0.12] px-2.5 py-1">
           <div className="h-2 w-2 rounded-full" style={{
             background: fit.fitScore >= 90 ? "#22c55e" : fit.fitScore >= 75 ? "#f76d01" : "#ef4444",
@@ -804,9 +1126,31 @@ function MobileAvatarStrip({
           Details
           <ChevronDown className={cn("h-3 w-3 transition-transform", panel === "details" && "rotate-180")} />
         </button>
+      </div>}
+
+      {/* ── Left toolbar: Image ⇄ Live mode switch — same slot the "3D — coming soon"
+           control will live in later, mirrors the desktop toolbar's left rail. ── */}
+      <div className="absolute left-3 top-1/2 z-[16] flex -translate-y-1/2 flex-col items-center gap-1.5 rounded-full border border-white/[0.12] bg-black/50 p-1 shadow-[0_8px_28px_rgba(0,0,0,0.5)] backdrop-blur-2xl">
+        {(["photo", "live"] as const).map((mode) => (
+          <button
+            key={mode}
+            type="button"
+            title={mode === "photo" ? "Image" : "Live"}
+            onClick={() => onViewModeChange(mode)}
+            className={cn(
+              "flex h-8 w-8 items-center justify-center rounded-full transition-all",
+              viewMode === mode
+                ? "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-[var(--color-brand-contrast)]"
+                : "text-white/50 hover:text-white/90 hover:bg-white/[0.08]"
+            )}
+          >
+            {mode === "live" ? <Camera className="h-3.5 w-3.5" /> : <ImageIcon className="h-3.5 w-3.5" />}
+          </button>
+        ))}
       </div>
 
-      {/* ── Bottom row: swatches + cart — sits just above the gradient so feet stay clear ── */}
+      {/* ── Bottom row: swatches + cart — only when there is a real outfit / try-on ── */}
+      {viewMode === "photo" && (hasGeneratedLooks || activeItems.length > 0) && (
       <div className="absolute inset-x-0 bottom-2 z-[10] flex items-center justify-between px-3 gap-2">
         {/* Style swatches */}
         <div className="flex items-center gap-1.5 overflow-x-auto flex-1 scrollbar-none">
@@ -821,7 +1165,7 @@ function MobileAvatarStrip({
                 className={cn(
                   "h-8 w-8 shrink-0 rounded-[7px] overflow-hidden border-2 transition-all",
                   (isGenerated ? currentImageIndex : activeSwatchIndex) === idx
-                    ? "border-[#f76d01] scale-105" : "border-white/20 opacity-70"
+                    ? "border-[var(--color-brand)] scale-105" : "border-white/20 opacity-70"
                 )}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -831,17 +1175,34 @@ function MobileAvatarStrip({
           })}
         </div>
         {/* Cart pill */}
-        <button type="button" onClick={handleAddAllToCart}
-          className={cn(
-            "shrink-0 flex items-center gap-1.5 rounded-[10px] px-2.5 py-1.5 text-[11px] font-semibold transition-all",
-            "bg-gradient-to-r from-[#f76d01] to-[#e05500] text-white shadow-[0_3px_10px_rgba(247,109,1,0.45)]",
-            "hover:brightness-110 active:scale-[0.97]"
-          )}
-        >
-          {justAddedAll ? <Check className="h-3 w-3" /> : <ShoppingBag className="h-3 w-3" />}
-          {justAddedAll ? "Added" : `Cart · ${formatPrice(cartTotal, currency)}`}
-        </button>
+        {activeItems.length > 0 && (() => {
+          const anyPending = activeItems.some((item) => pendingCartIds.has(item.product.id));
+          return (
+            <button type="button" onClick={handleAddAllToCart} disabled={anyPending}
+              className={cn(
+                "shrink-0 flex items-center gap-1.5 rounded-[10px] px-2.5 py-1.5 text-[11px] font-semibold transition-all",
+                "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-white shadow-[var(--shadow-glow)]",
+                "hover:brightness-110 active:scale-[0.97] disabled:opacity-70"
+              )}
+            >
+              {anyPending ? <Loader2 className="h-3 w-3 animate-spin" /> : justAddedAll ? <Check className="h-3 w-3" /> : <ShoppingBag className="h-3 w-3" />}
+              {anyPending ? "Adding…" : justAddedAll ? "Added" : `Cart · ${formatPrice(cartTotal, currency)}`}
+            </button>
+          );
+        })()}
       </div>
+      )}
+
+      {viewMode === "live" && realtime.status === "live" && liveProducts.length > 0 && (
+        <LiveProductStack
+          products={liveProducts}
+          activeProductId={realtime.activeProductId}
+          cartItemIds={cartItemIds}
+          pendingCartIds={pendingCartIds}
+          onSelect={realtime.switchProduct}
+          onAddToCart={onAddToCart}
+        />
+      )}
 
       {/* ════════════════════════════════════════════════════════════════════
           INLINE PANELS — all use absolute inset-0 so they stay inside the
@@ -849,15 +1210,14 @@ function MobileAvatarStrip({
           ════════════════════════════════════════════════════════════════════ */}
 
       {/* ── Fit Analysis / Details ── */}
-      {panel === "details" && (
+      {viewMode === "photo" && panel === "details" && (
         <MobileInlinePanel title="Fit Analysis" onClose={() => setPanel(null)}>
           <div className="flex items-center gap-3 mb-4">
-            <div className="h-12 w-12 rounded-full border-2 border-[#f76d01] flex items-center justify-center shrink-0">
+            <div className="h-12 w-12 rounded-full border-2 border-[var(--color-brand)] flex items-center justify-center shrink-0">
               <span className="text-[15px] font-black text-white">{fit.fitScore}%</span>
             </div>
             <div>
               <p className="text-[12px] font-bold text-white">{fit.fitLabel}</p>
-              <p className="text-[11px] text-white/45">{fit.buildLabel}</p>
             </div>
           </div>
           <div className="space-y-2 mb-4">
@@ -865,7 +1225,7 @@ function MobileAvatarStrip({
               <div key={m.label} className="flex items-center gap-2">
                 <span className="w-20 text-[11px] text-white/45 shrink-0">{m.label}</span>
                 <div className="flex-1 h-1.5 rounded-full bg-white/[0.08]">
-                  <div className="h-full rounded-full" style={{ width: `${m.value}%`, background: "linear-gradient(90deg,#f76d01,#ff9a42)" }} />
+                  <div className="h-full rounded-full bg-[var(--color-brand)]" style={{ width: `${m.value}%` }} />
                 </div>
                 <span className="text-[11px] font-semibold text-white/70 w-7 text-right">{m.value}%</span>
               </div>
@@ -874,12 +1234,14 @@ function MobileAvatarStrip({
           <div className="h-px bg-white/[0.07] mb-4" />
           <div className="grid grid-cols-2 gap-x-4 gap-y-3 mb-5">
             {[
-              { label: "Height", value: formatHeightImperial(profile.heightCm) },
-              { label: "Weight", value: formatWeightImperial(profile.weightKg) },
-              { label: "Build", value: fit.buildLabel },
-              ...sizeRows.map((r) => ({ label: r.label, value: r.size })),
-            ].map(({ label, value }) => (
-              <div key={label} className="flex flex-col">
+              { id: "height", label: "Height", value: formatHeightCm(profile.heightCm) },
+              { id: "weight", label: "Weight", value: formatWeightKg(profile.weightKg) },
+              { id: "chest", label: "Chest", value: formatChestCm(profile.chestCm) },
+              { id: "waist", label: "Waist", value: formatWaistCm(profile.waistCm) },
+              { id: "shoe", label: "Shoe Size", value: formatShoeSizeEu(profile.shoeSizeEu) },
+              ...sizeRows.map((r) => ({ id: `size-${r.id}`, label: r.label, value: r.size })),
+            ].map(({ id, label, value }) => (
+              <div key={id} className="flex flex-col">
                 <span className="text-[10px] text-white/35 uppercase tracking-[0.12em]">{label}</span>
                 <span className="text-[12px] font-semibold text-white mt-0.5">{value}</span>
               </div>
@@ -899,7 +1261,7 @@ function MobileAvatarStrip({
       )}
 
       {/* ── Edit Stats ── */}
-      {panel === "edit" && (
+      {viewMode === "photo" && panel === "edit" && (
         <MobileInlinePanel title="Edit Model Stats" onClose={() => setPanel("details")}>
           <div className="grid grid-cols-2 gap-3 mb-4">
             {([
@@ -907,6 +1269,7 @@ function MobileAvatarStrip({
               { key: "weightKg", label: "Weight", unit: "kg" },
               { key: "chestCm",  label: "Chest",  unit: "cm" },
               { key: "waistCm",  label: "Waist",  unit: "cm" },
+              { key: "shoeSizeEu", label: "Shoe Size", unit: "EU" },
             ] as const).map(({ key, label, unit }) => (
               <label key={key} className="flex flex-col gap-1">
                 <span className="text-[10px] text-white/45 uppercase tracking-wide">{label}</span>
@@ -915,28 +1278,12 @@ function MobileAvatarStrip({
                     type="number"
                     value={editDraft[key] ?? ""}
                     onChange={(e) => setEditDraft((d) => ({ ...d, [key]: e.target.value ? Number(e.target.value) : null }))}
-                    className="w-full h-9 pl-3 pr-8 rounded-lg bg-white/[0.07] border border-white/[0.10] text-[13px] text-white focus:outline-none focus:border-[#f76d01] transition-colors"
+                    className="w-full h-9 pl-3 pr-8 rounded-lg bg-white/[0.07] border border-white/[0.10] text-[13px] text-white focus:outline-none focus:border-[var(--color-brand)] transition-colors"
                   />
                   <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-white/30">{unit}</span>
                 </div>
               </label>
             ))}
-          </div>
-          <div className="mb-5">
-            <span className="text-[10px] text-white/45 uppercase tracking-wide block mb-2">Body Shape</span>
-            <div className="flex flex-wrap gap-1.5">
-              {(["rectangle","hourglass","pear","apple","inverted-triangle"] as const).map((shape) => (
-                <button key={shape} type="button" onClick={() => setEditDraft((d) => ({ ...d, bodyShape: shape }))}
-                  className={cn(
-                    "text-[11px] rounded-full px-2.5 py-1 border transition-all",
-                    editDraft.bodyShape === shape
-                      ? "bg-gradient-to-r from-[#f76d01] to-[#c40000] text-white border-transparent"
-                      : "border-white/10 bg-white/[0.04] text-white/55 hover:border-white/25"
-                  )}>
-                  {BODY_SHAPE_LABELS[shape]}
-                </button>
-              ))}
-            </div>
           </div>
           <div className="flex gap-2">
             <button type="button" onClick={() => setPanel("details")}
@@ -946,7 +1293,7 @@ function MobileAvatarStrip({
             <button type="button" onClick={handleSaveEdit} disabled={isRegeneratingAvatar}
               className={cn(
                 "flex-1 h-9 rounded-[10px] text-[12px] font-semibold text-white flex items-center justify-center gap-1.5 transition-all",
-                "bg-gradient-to-r from-[#f76d01] to-[#c40000] shadow-[0_4px_12px_rgba(247,109,1,0.35)]",
+                "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] shadow-[var(--shadow-glow)]",
                 "disabled:opacity-60"
               )}>
               {isRegeneratingAvatar
@@ -958,7 +1305,7 @@ function MobileAvatarStrip({
       )}
 
       {/* ── Size Guide ── */}
-      {panel === "size-guide" && (
+      {viewMode === "photo" && panel === "size-guide" && (
         <MobileInlinePanel title="Size Guide" onClose={() => setPanel("details")}>
           {activeItems.length === 0 ? (
             <p className="text-[12px] text-white/40 text-center py-8">Add items to see size recommendations.</p>
@@ -966,6 +1313,7 @@ function MobileAvatarStrip({
             <div className="space-y-3">
               {activeItems.map((item) => {
                 const inCart = cartItemIds.has(item.product.id);
+                const isPending = pendingCartIds.has(item.product.id);
                 const sizeVariants = item.product.variants.filter((v) => v.type === "size");
                 const scale = sizeVariants.length > 0 ? sizeVariants.map((v) => v.label) : ["XS","S","M","L","XL"];
                 return (
@@ -978,13 +1326,13 @@ function MobileAvatarStrip({
                         <p className="text-[12px] font-semibold text-white leading-snug">{item.product.name}</p>
                         <p className="text-[11px] text-white/45 mt-0.5">{formatPrice(item.product.price, item.product.currency)}</p>
                       </div>
-                      <button type="button" onClick={() => onAddToCart(item.product)} disabled={inCart}
+                      <button type="button" onClick={() => onAddToCart(item.product)} disabled={inCart || isPending}
                         className={cn(
                           "h-7 shrink-0 px-2.5 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition-all",
-                          inCart ? "bg-white/10 text-white/50" : "bg-gradient-to-r from-[#f76d01] to-[#c40000] text-white"
+                          inCart ? "bg-white/10 text-white/50" : "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-white"
                         )}>
-                        {inCart ? <Check className="h-3 w-3" /> : <ShoppingBag className="h-3 w-3" />}
-                        {inCart ? "Added" : "Add"}
+                        {isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : inCart ? <Check className="h-3 w-3" /> : <ShoppingBag className="h-3 w-3" />}
+                        {isPending ? "Adding…" : inCart ? "Added" : "Add"}
                       </button>
                     </div>
                     <div className="flex items-center gap-1">
@@ -992,13 +1340,13 @@ function MobileAvatarStrip({
                         <div key={size} className={cn(
                           "flex-1 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold",
                           size === item.size
-                            ? "bg-gradient-to-r from-[#f76d01] to-[#ff8a2b] text-white"
+                            ? "bg-[var(--color-brand)] text-white"
                             : "bg-white/[0.05] text-white/35 border border-white/[0.06]"
                         )}>{size}</div>
                       ))}
                     </div>
                     <p className="text-[10px] text-white/30 mt-1.5">
-                      Recommended: <span className="text-[#f76d01] font-semibold">{item.size}</span>
+                      Recommended: <span className="text-[var(--color-brand)] font-semibold">{item.size}</span>
                     </p>
                   </div>
                 );
@@ -1009,14 +1357,14 @@ function MobileAvatarStrip({
       )}
 
       {/* ── Wear scan / regenerating overlays ── */}
-      {isGenerating && !isRegeneratingAvatar && (
+      {viewMode === "photo" && isGenerating && !isRegeneratingAvatar && (
         <AvatarWearScanOverlay itemLabel={
           outfitItems.length > 0
             ? outfitItems.map((p) => p.name).join(" · ")
             : activeItems.map((i) => i.product.name).join(" · ")
         } />
       )}
-      {isRegeneratingAvatar && (
+      {viewMode === "photo" && isRegeneratingAvatar && (
         <div className="absolute inset-0 z-[30] flex flex-col items-center justify-center gap-3 bg-black/55 backdrop-blur-sm">
           <Loader2 className="h-8 w-8 text-white animate-spin" />
           <p className="text-sm font-medium text-white">Regenerating…</p>

@@ -1,0 +1,143 @@
+import { NextRequest } from "next/server";
+import { getCurrentUser } from "@/modules/auth/lib/get-user";
+import { consumeImageGeneration } from "@/lib/db/image-generations";
+import { canGenerateImage, getAccountBillingContext } from "@/lib/billing/account";
+import { generateAvatarVariationsStream, DEFAULT_AVATAR_VARIATION_COUNT } from "@/lib/agents/persona-agent";
+
+export const maxDuration = 300;
+
+function sseLine(payload: unknown): string {
+  return `data: ${JSON.stringify(payload)}\n\n`;
+}
+
+/**
+ * Streams each avatar variation as SSE the moment it finishes generating, instead of one
+ * blocking JSON response after the whole (parallel) batch completes — see the embed
+ * counterpart (`/api/embed/persona/avatar`) and generateAvatarVariationsStream for why.
+ */
+export async function POST(req: NextRequest) {
+  const user = await getCurrentUser();
+  if (!user) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const billing = await getAccountBillingContext(user.id, "wearable");
+  if (!billing || !canGenerateImage(billing)) {
+    return Response.json({ error: "Your monthly image allowance and purchased credits are exhausted" }, { status: 402 });
+  }
+
+  const body = await req.json().catch(() => ({}));
+  const { photoBase64, photoMimeType, heightCm, weightKg, chestCm, waistCm, shoeSizeEu, count } = body;
+
+  if (typeof photoBase64 !== "string" || !photoBase64) {
+    return Response.json({ error: "A face photo is required" }, { status: 400 });
+  }
+  if (typeof photoMimeType !== "string" || !photoMimeType) {
+    return Response.json({ error: "Missing photo mime type" }, { status: 400 });
+  }
+  for (const [key, value] of Object.entries({ heightCm, weightKg, chestCm, waistCm, shoeSizeEu })) {
+    if (typeof value !== "number" || value <= 0) {
+      return Response.json({ error: `Invalid or missing measurement: ${key}` }, { status: 400 });
+    }
+  }
+
+  // Only request as many variations as the account can actually pay for. Callers may ask
+  // for fewer (e.g. a single-image regenerate) but never more than the default batch size.
+  const includedRemaining = Math.max(billing.tier.monthlyRenders - billing.imagesUsedThisCycle, 0);
+  const availableGenerations = includedRemaining + billing.user.credits;
+  const requestedCount = Math.min(
+    typeof count === "number" && count > 0 ? count : DEFAULT_AVATAR_VARIATION_COUNT,
+    DEFAULT_AVATAR_VARIATION_COUNT,
+    availableGenerations
+  );
+
+  const encoder = new TextEncoder();
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      let closed = false;
+
+      const safeEnqueue = (chunk: Uint8Array) => {
+        if (closed) return;
+        try {
+          controller.enqueue(chunk);
+        } catch {
+          closed = true;
+        }
+      };
+
+      const safeClose = () => {
+        if (closed) return;
+        closed = true;
+        try {
+          controller.close();
+        } catch {
+          // Already closed by the runtime / cancel().
+        }
+      };
+
+      const onAbort = () => {
+        closed = true;
+        try {
+          controller.close();
+        } catch {
+          // Already closed.
+        }
+      };
+      req.signal.addEventListener("abort", onAbort, { once: true });
+
+      let creditsRemaining = billing.user.credits;
+      let includedRemainingInStream = includedRemaining;
+      let successCount = 0;
+
+      try {
+        for await (const event of generateAvatarVariationsStream(
+          { photoBase64, photoMimeType, heightCm, weightKg, chestCm, waistCm, shoeSizeEu },
+          requestedCount
+        )) {
+          if (closed || req.signal.aborted) break;
+
+          if (event.type === "variation") {
+            const consumed = await consumeImageGeneration(
+              user.id,
+              "avatar",
+              billing.cycleStartIso,
+              billing.tier.monthlyRenders
+            );
+            if (consumed) {
+              if (includedRemainingInStream > 0) includedRemainingInStream -= 1;
+              else creditsRemaining = Math.max(creditsRemaining - 1, 0);
+              successCount += 1;
+              safeEnqueue(encoder.encode(sseLine({ type: "variation", variation: event.variation, creditsRemaining })));
+            } else break; // Race-condition guard — ran out mid-batch.
+          } else {
+            safeEnqueue(encoder.encode(sseLine({ type: "variation_error", label: event.label, message: event.message })));
+          }
+        }
+
+        if (successCount === 0 && !closed && !req.signal.aborted) {
+          safeEnqueue(
+            encoder.encode(sseLine({ type: "error", message: "Failed to generate any avatar variations. Please try again." }))
+          );
+        }
+      } catch (err) {
+        if (!closed && !req.signal.aborted) {
+          console.error("[agents/persona/avatar POST]", err);
+          safeEnqueue(encoder.encode(sseLine({ type: "error", message: "Avatar generation hit an unexpected error." })));
+        }
+      } finally {
+        req.signal.removeEventListener("abort", onAbort);
+        safeEnqueue(encoder.encode(sseLine({ type: "done", successCount, creditsRemaining })));
+        safeClose();
+      }
+
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-store",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}

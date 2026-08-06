@@ -27,32 +27,40 @@ import { WORKSPACE_MODE_LABELS } from "@/modules/workspaces/constants";
 import { PLATFORM_LABELS } from "@/modules/store/constants";
 import { useStoreConnectionStore } from "@/modules/store/store";
 import { MOCK_WEARABLE_CATEGORIES, MOCK_UNWEARABLE_CATEGORIES } from "@/lib/mock-api/catalog";
+import type { WorkspaceAnalyticsPayload } from "@/modules/analytics/types";
 import { cn } from "@/lib/utils/cn";
-
-// ── Deterministic per-workspace mock stats ─────────────────────────────────
-function wsStats(id: string) {
-  const seed = id.charCodeAt(id.length - 1) % 4;
-  const sessions      = [187, 312, 95,  248][seed];
-  const conversions   = [28,  47,  12,  39][seed];
-  const revenue       = [1840, 3210, 640, 2780][seed];
-  const agentActions  = [156, 289, 71, 214][seed]; // try-ons or chat messages
-  return {
-    sessions,
-    conversions,
-    rate: ((conversions / sessions) * 100).toFixed(1),
-    revenue,
-    agentActions,
-    avgDuration: ["2m 14s", "3m 08s", "1m 42s", "2m 51s"][seed],
-  };
-}
 
 interface Props { workspace: Workspace }
 
 export function WorkspaceOverview({ workspace }: Props) {
   const connection = useStoreConnectionStore((s) => s.connection);
   const selectedCategoryIds = useStoreConnectionStore((s) => s.selectedCategoryIds);
-  const stats = wsStats(workspace.id);
   const [syncing, setSyncing] = React.useState(false);
+
+  // Real, Persona-attributed 30-day summary — same endpoint the analytics page uses. Loads
+  // once per workspace; components below fall back to "—" while loading/absent rather than
+  // fabricating numbers (see the honest-placeholder convention in workspace-breakdown.tsx).
+  const [payload, setPayload] = React.useState<WorkspaceAnalyticsPayload | null>(null);
+  const [statsLoading, setStatsLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    let active = true;
+    setStatsLoading(true);
+    void (async () => {
+      try {
+        const res = await fetch(`/api/workspaces/${workspace.id}/analytics/summary?range=30d`);
+        if (!active) return;
+        if (res.ok) setPayload(await res.json());
+      } catch {
+        // Non-fatal — quick stats below render "—" instead.
+      } finally {
+        if (active) setStatsLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [workspace.id]);
 
   const categories = workspace.mode === "wearable" ? MOCK_WEARABLE_CATEGORIES : MOCK_UNWEARABLE_CATEGORIES;
   const activeCategories = categories.filter((c) => selectedCategoryIds.includes(c.id));
@@ -67,13 +75,28 @@ export function WorkspaceOverview({ workspace }: Props) {
     setSyncing(false);
   }
 
+  // "—" (not 0) whenever we don't have a real number yet — 0 would falsely imply "we checked
+  // and there was none" rather than "still loading" or "no data source for this metric".
+  const placeholder = statsLoading ? "…" : "—";
+  const sessions = payload ? payload.kpis.sessions.toLocaleString() : placeholder;
+  const conversions = payload ? (payload.funnel[1]?.value ?? 0).toLocaleString() : placeholder;
+  const revenue = payload ? `$${payload.kpis.cartValueAdded.toLocaleString()}` : placeholder;
+  const agentActionsValue =
+    workspace.mode === "wearable"
+      ? payload
+        ? payload.imagesGenerated.toLocaleString()
+        : placeholder
+      : payload?.assistantInsights
+        ? payload.assistantInsights.totalMessages.toLocaleString()
+        : placeholder;
+
   const quickStats = [
-    { label: "Sessions",      value: stats.sessions.toLocaleString(),       icon: <Users className="h-4 w-4" />,        color: "text-blue-500" },
-    { label: "Conversions",   value: stats.conversions.toLocaleString(),     icon: <ShoppingCart className="h-4 w-4" />, color: "text-[var(--color-brand)]" },
-    { label: "Revenue",       value: `$${stats.revenue.toLocaleString()}`,   icon: <TrendingUp className="h-4 w-4" />,   color: "text-emerald-500" },
+    { label: "Sessions",      value: sessions,     icon: <Users className="h-4 w-4" />,        color: "text-blue-500" },
+    { label: "Conversions",   value: conversions,  icon: <ShoppingCart className="h-4 w-4" />, color: "text-[var(--color-brand)]" },
+    { label: "Revenue",       value: revenue,      icon: <TrendingUp className="h-4 w-4" />,   color: "text-emerald-500" },
     {
       label: workspace.mode === "wearable" ? "Try-Ons" : "Chat Messages",
-      value: stats.agentActions.toLocaleString(),
+      value: agentActionsValue,
       icon: workspace.mode === "wearable"
         ? <Shirt className="h-4 w-4" />
         : <BotMessageSquare className="h-4 w-4" />,

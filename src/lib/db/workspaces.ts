@@ -1,21 +1,32 @@
 import { db } from "@/lib/supabase/server";
-import type { WorkspaceMode, WorkspaceStatus } from "@/modules/workspaces/types";
+import { defaultBrandingForMode } from "@/modules/workspaces/constants";
+import type { WorkspaceMode, WorkspaceStatus, WorkspaceBranding } from "@/modules/workspaces/types";
 
 export interface WorkspaceRow {
   id: string;
   name: string;
   mode: WorkspaceMode;
   status: WorkspaceStatus;
+  embedToken: string;
+  embedEnabled: boolean;
+  branding: WorkspaceBranding;
   createdAt: string;
   updatedAt: string;
 }
 
 function rowToWorkspace(row: Record<string, unknown>): WorkspaceRow {
+  const mode = row.mode as WorkspaceMode;
+  const branding = (row.branding as Partial<WorkspaceBranding> | null) ?? {};
   return {
     id: row.id as string,
     name: row.name as string,
-    mode: row.mode as WorkspaceMode,
+    mode,
     status: row.status as WorkspaceStatus,
+    embedToken: row.embed_token as string,
+    embedEnabled: (row.embed_enabled as boolean) ?? false,
+    // Merge over defaults so older rows (saved before a new branding field was added) still
+    // resolve to a complete, valid shape instead of leaving newer UI fields `undefined`.
+    branding: { ...defaultBrandingForMode(mode), ...branding },
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
   };
@@ -34,6 +45,18 @@ export async function getWorkspacesByOwner(ownerId: string): Promise<WorkspaceRo
   }
 
   return (data ?? []).map(rowToWorkspace);
+}
+
+export async function getWorkspaceByIdForOwner(id: string, ownerId: string): Promise<WorkspaceRow | null> {
+  const { data, error } = await db
+    .from("workspaces")
+    .select("*")
+    .eq("id", id)
+    .eq("owner_id", ownerId)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return rowToWorkspace(data);
 }
 
 export async function countWorkspacesByOwner(ownerId: string): Promise<number> {
@@ -60,6 +83,9 @@ export async function createWorkspace(input: CreateWorkspaceInput): Promise<Work
       name: input.name,
       mode: input.mode,
       status: input.status ?? "active",
+      branding: defaultBrandingForMode(input.mode),
+      // Column is NOT NULL with no DB default (see 0010_workspace_embed.sql) — must mint here.
+      embed_token: crypto.randomUUID().replace(/-/g, ""),
     })
     .select("*")
     .single();
@@ -76,6 +102,8 @@ export interface UpdateWorkspaceInput {
   name?: string;
   status?: WorkspaceStatus;
   mode?: WorkspaceMode;
+  embedEnabled?: boolean;
+  branding?: Partial<WorkspaceBranding>;
 }
 
 export async function updateWorkspace(
@@ -87,6 +115,15 @@ export async function updateWorkspace(
   if (patch.name !== undefined) dbPatch.name = patch.name;
   if (patch.status !== undefined) dbPatch.status = patch.status;
   if (patch.mode !== undefined) dbPatch.mode = patch.mode;
+  if (patch.embedEnabled !== undefined) dbPatch.embed_enabled = patch.embedEnabled;
+
+  if (patch.branding !== undefined) {
+    // Merge onto the existing stored branding rather than clobbering it, since the settings
+    // form can save partial patches (e.g. just the color) via the same PATCH endpoint.
+    const existing = await getWorkspaceByIdForOwner(id, ownerId);
+    const base = existing?.branding ?? defaultBrandingForMode(patch.mode ?? existing?.mode ?? "unwearable");
+    dbPatch.branding = { ...base, ...patch.branding };
+  }
 
   const { data, error } = await db
     .from("workspaces")
@@ -113,4 +150,55 @@ export async function deleteWorkspace(id: string, ownerId: string): Promise<bool
   }
 
   return true;
+}
+
+/** Public-safe resolution used by every unauthenticated `/api/embed/*` route: turns a
+ *  shopper-facing embed token into the merchant's `ownerId` plus just enough workspace
+ *  metadata to render the widget, without ever exposing the internal workspace id/owner
+ *  to the client. */
+export interface EmbedWorkspaceResolution {
+  workspaceId: string;
+  ownerId: string;
+  mode: WorkspaceMode;
+  embedEnabled: boolean;
+  branding: WorkspaceBranding;
+}
+
+export async function getWorkspaceByEmbedToken(token: string): Promise<EmbedWorkspaceResolution | null> {
+  if (!token) return null;
+
+  const { data, error } = await db
+    .from("workspaces")
+    .select("id, owner_id, mode, embed_enabled, branding")
+    .eq("embed_token", token)
+    .maybeSingle();
+
+  if (error || !data) return null;
+
+  return {
+    workspaceId: data.id as string,
+    ownerId: data.owner_id as string,
+    mode: data.mode as WorkspaceMode,
+    embedEnabled: (data.embed_enabled as boolean) ?? false,
+    branding: { ...defaultBrandingForMode(data.mode as WorkspaceMode), ...((data.branding as Partial<WorkspaceBranding> | null) ?? {}) },
+  };
+}
+
+/** Invalidates every already-deployed snippet for this workspace immediately — used by the
+ *  settings page's "Regenerate token" action, which warns the merchant about that before calling it. */
+export async function regenerateEmbedToken(id: string, ownerId: string): Promise<string | null> {
+  const { data, error } = await db
+    .from("workspaces")
+    .update({ embed_token: crypto.randomUUID().replace(/-/g, ""), updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("owner_id", ownerId)
+    .select("embed_token")
+    .single();
+
+  if (error || !data) {
+    console.error("[db/workspaces regenerateEmbedToken]", error);
+    return null;
+  }
+
+  return data.embed_token as string;
 }

@@ -3,17 +3,26 @@
 import * as React from "react";
 import { ArrowUp, ChevronDown, ChevronUp, GripVertical, MessageCircle } from "lucide-react";
 import type { UseTryOnAgentReturn } from "../hooks/use-try-on-agent";
+import type { Product } from "@/modules/shopping-agent/types";
 import { WearableChatMessage, WearableScanningIndicator, WearableTypingIndicator } from "./wearable-chat-message";
 import { AvatarMannequinPanel } from "./avatar-mannequin-panel";
+import { NoOpenAiKeyGate } from "./no-openai-key-gate";
 import { WEARABLE_QUICK_REPLIES } from "../mocks/responses";
-import { MOCK_WEARABLE_PRODUCTS } from "@/lib/mock-api/catalog";
 import { AgentOrb } from "@/components/ui/agent-orb";
+import { useVariantPicker } from "@/components/ui/variant-picker-popover";
 import { cn } from "@/lib/utils/cn";
 import type { PreviewViewportMode } from "./preview-viewport-toggle";
+import { useWearableTheme, type WearableTheme } from "../theme-context";
+import { useWearableBranding } from "../branding-context";
+import type { EmbedRuntimeConfig } from "../hooks/use-try-on-agent";
+
+const CHAT_PANEL_BG_BY_THEME: Record<WearableTheme, string> = { dark: "#0d0b14", light: "#f2f0f5" };
 
 interface TryOnAgentChatProps {
   agent: UseTryOnAgentReturn;
   viewportMode?: PreviewViewportMode;
+  embed?: EmbedRuntimeConfig;
+  workspaceId?: string;
 }
 
 // The avatar photo itself renders at a constant ~520px (fixed 780px-tall, 2:3 frame) so it
@@ -51,10 +60,14 @@ function useResizablePanel() {
   return { width, isDragging, onPointerDown, onPointerMove, onPointerUp };
 }
 
-export function TryOnAgentChat({ agent, viewportMode = "desktop" }: TryOnAgentChatProps) {
+export function TryOnAgentChat({ agent, viewportMode = "desktop", embed, workspaceId }: TryOnAgentChatProps) {
   const outfitItemIds = agent.outfitItems.map((o) => o.id);
   const resizer = useResizablePanel();
   const isMobile = viewportMode === "mobile";
+  // Picker for single-item "Add to Cart" clicks only — bulk actions ("Add all" in the avatar
+  // panel, bundle "Add all" in chat) call `agent.addToCart`/`agent.addBundleToCart` directly and
+  // keep today's auto-pick-first-in-stock-variant behavior, per the variant-selection plan.
+  const picker = useVariantPicker(agent.addToCart);
 
   const avatarPanelDesktop = (
     <AvatarMannequinPanel
@@ -66,24 +79,42 @@ export function TryOnAgentChat({ agent, viewportMode = "desktop" }: TryOnAgentCh
       isGenerating={agent.isGenerating}
       isRegeneratingAvatar={agent.isRegeneratingAvatar}
       cartItems={agent.cartItems}
+      pendingCartItemIds={agent.pendingCartItemIds}
       onPrev={agent.prevImage}
       onNext={agent.nextImage}
       onSelectImage={agent.selectImage}
       onRemoveFromOutfit={agent.removeFromOutfit}
       onRegenerateAvatar={agent.regenerateAvatar}
-      onAddToCart={agent.addToCart}
+      onAddToCart={picker.requestAddToCart}
+      onBulkAddToCart={agent.addToCart}
+      onChangeBackdrop={agent.changeBackdrop}
+      onUploadBackdrop={agent.uploadCustomBackdrop}
+      isUploadingBackdrop={agent.isUploadingBackdrop}
+      backdropUploadError={agent.backdropUploadError}
+      embed={embed}
+      workspaceId={workspaceId}
     />
   );
 
   if (isMobile) {
     return (
-      <MobileChatLayout agent={agent} outfitItemIds={outfitItemIds} />
+      <>
+        <MobileChatLayout
+          agent={agent}
+          outfitItemIds={outfitItemIds}
+          onAddToCart={picker.requestAddToCart}
+          onBulkAddToCart={agent.addToCart}
+          embed={embed}
+          workspaceId={workspaceId}
+        />
+        {picker.pickerElement}
+      </>
     );
   }
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden">
-      <StyleChatPanel agent={agent} outfitItemIds={outfitItemIds} />
+      <StyleChatPanel agent={agent} outfitItemIds={outfitItemIds} onAddToCart={picker.requestAddToCart} />
 
       {/* Drag handle to resize the avatar panel */}
       <div
@@ -113,6 +144,7 @@ export function TryOnAgentChat({ agent, viewportMode = "desktop" }: TryOnAgentCh
       <div style={{ width: resizer.width }} className="shrink-0 h-full min-h-0">
         {avatarPanelDesktop}
       </div>
+      {picker.pickerElement}
     </div>
   );
 }
@@ -121,19 +153,37 @@ interface StyleChatPanelProps {
   agent: UseTryOnAgentReturn;
   outfitItemIds: string[];
   compact?: boolean;
+  onAddToCart?: (product: Product) => void;
 }
 
-function StyleChatPanel({ agent, outfitItemIds, compact = false }: StyleChatPanelProps) {
+function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart }: StyleChatPanelProps) {
+  const handleAddToCart = onAddToCart ?? agent.addToCart;
+  const branding = useWearableBranding();
   const messagesRef = React.useRef<HTMLDivElement>(null);
   const cartItemIds = agent.cartItems.map((p) => p.id);
-  const canShowQuickReplies =
-    agent.intakeIndex === null && !agent.isScanning && !agent.isTyping && !agent.isGenerating;
+  // Quick replies are just a cold-start nudge — once the shopper has sent a real message,
+  // showing them again below every subsequent turn is clutter, not a shortcut.
+  const hasStartedChat = agent.messages.some((m) => m.role === "user");
+  const canShowQuickReplies = !hasStartedChat && !agent.isScanning && !agent.isTyping && !agent.isGenerating;
 
   React.useEffect(() => {
     const el = messagesRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [agent.messages, agent.isTyping, agent.isScanning]);
+
+  if (!agent.openAiKeyLoading && !agent.hasOpenAiKey) {
+    return (
+      <div className={cn(
+        "flex-1 flex flex-col min-w-0 min-h-0 h-full overflow-hidden backdrop-blur-xl",
+        compact
+          ? "rounded-none border-0 bg-[var(--color-surface-card)]"
+          : "rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)]"
+      )}>
+        <NoOpenAiKeyGate />
+      </div>
+    );
+  }
 
   return (
     <div className={cn(
@@ -144,11 +194,14 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false }: StyleChatPane
     )}>
       {/* Header */}
       <div className={cn("flex items-center gap-3 border-b border-[var(--color-border)] shrink-0", compact ? "px-3 py-3" : "px-5 py-4")}>
-        <AgentOrb mode="wearable" size="sm" animated />
+        {branding.logoUrl ? (
+          <img src={branding.logoUrl} alt="" className="h-8 w-8 rounded-full object-cover shrink-0 shadow-sm" />
+        ) : (
+          <AgentOrb mode="wearable" size="sm" animated />
+        )}
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-2">
-            <span className="text-base font-bold gradient-text-brand">Style</span>
-            <span className="text-base font-bold text-[var(--color-text-primary)]">Assistant</span>
+            <span className="text-base font-bold gradient-text-brand truncate">{branding.agentName}</span>
           </div>
           <div className="flex items-center gap-1.5 mt-0.5">
             <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-success)] animate-pulse-dot" />
@@ -162,9 +215,9 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false }: StyleChatPane
       {/* Messages — only this area scrolls as the conversation grows */}
       <div ref={messagesRef} className={cn("flex-1 overflow-y-auto space-y-4 min-h-0", compact ? "px-3 py-3" : "px-5 py-4")}>
         {agent.messages.map((msg, idx) => {
-          const msgProducts = MOCK_WEARABLE_PRODUCTS.filter((p) =>
-            (msg.productRecommendations ?? []).includes(p.id)
-          );
+          const msgProducts = (msg.productRecommendations ?? [])
+            .map((id) => agent.knownProducts[id])
+            .filter((p): p is NonNullable<typeof p> => !!p);
           return (
             <WearableChatMessage
               key={msg.id}
@@ -174,9 +227,11 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false }: StyleChatPane
               inlineProducts={msgProducts.length > 0 ? msgProducts : undefined}
               outfitItemIds={outfitItemIds}
               cartItemIds={cartItemIds}
+              pendingCartItemIds={agent.pendingCartItemIds}
               isGenerating={agent.isGenerating}
               onWearItem={agent.wearItem}
-              onAddToCart={agent.addToCart}
+              onAddToCart={handleAddToCart}
+              knownProducts={agent.knownProducts}
               onQuickOption={(label) => agent.sendMessage(label)}
               onRenderBundle={agent.wearBundle}
               onAddBundleToCart={agent.addBundleToCart}
@@ -184,7 +239,7 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false }: StyleChatPane
           );
         })}
         {agent.isTyping && <WearableTypingIndicator />}
-        {agent.isScanning && <WearableScanningIndicator stageIndex={agent.scanStageIndex} />}
+        {agent.isScanning && <WearableScanningIndicator stageIndex={agent.scanStageIndex} resultCount={agent.scanResultCount} />}
       </div>
 
       {/* Quick replies */}
@@ -233,16 +288,28 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false }: StyleChatPane
 interface MobileChatLayoutProps {
   agent: UseTryOnAgentReturn;
   outfitItemIds: string[];
+  onAddToCart?: (product: Product) => void;
+  onBulkAddToCart?: (product: Product) => void;
+  embed?: EmbedRuntimeConfig;
+  workspaceId?: string;
 }
 
 /** On mobile the avatar fills 100% of the phone frame and the chat panel
  *  floats as a collapsible bottom sheet so the full model body is always visible. */
-function MobileChatLayout({ agent, outfitItemIds }: MobileChatLayoutProps) {
+function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, embed, workspaceId }: MobileChatLayoutProps) {
+  const handleAddToCart = onAddToCart ?? agent.addToCart;
+  const handleBulkAddToCart = onBulkAddToCart ?? agent.addToCart;
+  const theme = useWearableTheme();
+  const branding = useWearableBranding();
+  const panelBg = CHAT_PANEL_BG_BY_THEME[theme];
   const [sheetExpanded, setSheetExpanded] = React.useState(false);
   const messagesRef = React.useRef<HTMLDivElement>(null);
   const cartItemIds = agent.cartItems.map((p) => p.id);
-  const canShowQuickReplies =
-    agent.intakeIndex === null && !agent.isScanning && !agent.isTyping && !agent.isGenerating;
+  // Quick replies are just a cold-start nudge — once the shopper has sent a real message,
+  // showing them again below every subsequent turn is clutter, not a shortcut.
+  const hasStartedChat = agent.messages.some((m) => m.role === "user");
+  const canShowQuickReplies = !hasStartedChat && !agent.isScanning && !agent.isTyping && !agent.isGenerating;
+  const showKeyGate = !agent.openAiKeyLoading && !agent.hasOpenAiKey;
 
   React.useEffect(() => {
     const el = messagesRef.current;
@@ -260,7 +327,7 @@ function MobileChatLayout({ agent, outfitItemIds }: MobileChatLayoutProps) {
   const SHEET_HANDLE_H = 72;
 
   return (
-    <div className="relative h-full min-h-0 overflow-hidden bg-[#0d0b14]">
+    <div className="relative h-full min-h-0 overflow-hidden" style={{ background: panelBg }}>
       {/* ── Layer 0: Avatar fills from top down to just above the sheet handle ──
            This guarantees feet are always visible regardless of sheet state. */}
       <div className="absolute inset-x-0 top-0" style={{ bottom: SHEET_HANDLE_H }}>
@@ -273,13 +340,21 @@ function MobileChatLayout({ agent, outfitItemIds }: MobileChatLayoutProps) {
           isGenerating={agent.isGenerating}
           isRegeneratingAvatar={agent.isRegeneratingAvatar}
           cartItems={agent.cartItems}
+          pendingCartItemIds={agent.pendingCartItemIds}
           onPrev={agent.prevImage}
           onNext={agent.nextImage}
           onSelectImage={agent.selectImage}
           onRemoveFromOutfit={agent.removeFromOutfit}
           onRegenerateAvatar={agent.regenerateAvatar}
-          onAddToCart={agent.addToCart}
+          onAddToCart={handleAddToCart}
+          onBulkAddToCart={handleBulkAddToCart}
+          onChangeBackdrop={agent.changeBackdrop}
+          onUploadBackdrop={agent.uploadCustomBackdrop}
+          isUploadingBackdrop={agent.isUploadingBackdrop}
+          backdropUploadError={agent.backdropUploadError}
           mobile
+          embed={embed}
+          workspaceId={workspaceId}
         />
       </div>
 
@@ -303,8 +378,12 @@ function MobileChatLayout({ agent, outfitItemIds }: MobileChatLayoutProps) {
           <div className="absolute left-1/2 top-2 -translate-x-1/2 h-1 w-10 rounded-full bg-white/20" />
 
           <div className="flex items-center gap-2 mt-1">
-            <MessageCircle className="h-4 w-4 text-[#f76d01]" />
-            <span className="text-[13px] font-semibold text-white">Style Assistant</span>
+            {branding.logoUrl ? (
+              <img src={branding.logoUrl} alt="" className="h-4 w-4 rounded-full object-cover shrink-0" />
+            ) : (
+              <MessageCircle className="h-4 w-4 text-[var(--color-brand)]" />
+            )}
+            <span className="text-[13px] font-semibold text-white truncate max-w-[160px]">{branding.agentName}</span>
             <span className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse-dot" />
           </div>
 
@@ -314,14 +393,16 @@ function MobileChatLayout({ agent, outfitItemIds }: MobileChatLayoutProps) {
         </button>
 
         {/* ── Messages + quick replies + input (only visible when expanded) ── */}
-        {sheetExpanded && (
+        {sheetExpanded && showKeyGate ? (
+          <NoOpenAiKeyGate compact />
+        ) : sheetExpanded && (
           <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
             {/* Messages */}
             <div ref={messagesRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-3 min-h-0">
               {agent.messages.map((msg, idx) => {
-                const msgProducts = MOCK_WEARABLE_PRODUCTS.filter((p) =>
-                  (msg.productRecommendations ?? []).includes(p.id)
-                );
+                const msgProducts = (msg.productRecommendations ?? [])
+                  .map((id) => agent.knownProducts[id])
+                  .filter((p): p is NonNullable<typeof p> => !!p);
                 return (
                   <WearableChatMessage
                     key={msg.id}
@@ -331,9 +412,11 @@ function MobileChatLayout({ agent, outfitItemIds }: MobileChatLayoutProps) {
                     inlineProducts={msgProducts.length > 0 ? msgProducts : undefined}
                     outfitItemIds={outfitItemIds}
                     cartItemIds={cartItemIds}
+                    pendingCartItemIds={agent.pendingCartItemIds}
                     isGenerating={agent.isGenerating}
                     onWearItem={agent.wearItem}
-                    onAddToCart={agent.addToCart}
+                    onAddToCart={handleAddToCart}
+                    knownProducts={agent.knownProducts}
                     onQuickOption={(label) => agent.sendMessage(label)}
                     onRenderBundle={agent.wearBundle}
                     onAddBundleToCart={agent.addBundleToCart}
@@ -341,7 +424,7 @@ function MobileChatLayout({ agent, outfitItemIds }: MobileChatLayoutProps) {
                 );
               })}
               {agent.isTyping && <WearableTypingIndicator />}
-              {agent.isScanning && <WearableScanningIndicator stageIndex={agent.scanStageIndex} />}
+              {agent.isScanning && <WearableScanningIndicator stageIndex={agent.scanStageIndex} resultCount={agent.scanResultCount} />}
             </div>
 
             {/* Quick replies */}
@@ -352,7 +435,7 @@ function MobileChatLayout({ agent, outfitItemIds }: MobileChatLayoutProps) {
                     key={qr.label}
                     type="button"
                     onClick={() => agent.sendMessage(qr.query)}
-                    className="text-[11px] rounded-full border border-white/[0.15] px-2.5 py-1 text-white/60 hover:border-[#f76d01]/60 hover:text-[#f76d01] transition-all"
+                    className="text-[11px] rounded-full border border-white/[0.15] px-2.5 py-1 text-white/60 hover:border-[var(--color-brand)]/60 hover:text-[var(--color-brand)] transition-all"
                   >
                     {qr.label}
                   </button>
@@ -363,7 +446,7 @@ function MobileChatLayout({ agent, outfitItemIds }: MobileChatLayoutProps) {
             {/* Input */}
             <div className="flex gap-2 shrink-0 px-3 py-3 border-t border-white/[0.06]">
               <input
-                className="flex-1 h-9 px-3 text-[13px] bg-white/[0.07] border border-white/[0.12] rounded-full text-white placeholder:text-white/30 focus:outline-none focus:border-[#f76d01]/60 transition-colors"
+                className="flex-1 h-9 px-3 text-[13px] bg-white/[0.07] border border-white/[0.12] rounded-full text-white placeholder:text-white/30 focus:outline-none focus:border-[var(--color-brand)]/60 transition-colors"
                 placeholder="Ask about style, sizing…"
                 value={agent.input}
                 onChange={(e) => agent.setInput(e.target.value)}

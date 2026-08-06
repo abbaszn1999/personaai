@@ -1,9 +1,21 @@
 import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
-import { updateWorkspace, deleteWorkspace } from "@/lib/db/workspaces";
-import type { WorkspaceMode, WorkspaceStatus } from "@/modules/workspaces/types";
+import { updateWorkspace, deleteWorkspace, type UpdateWorkspaceInput } from "@/lib/db/workspaces";
+import type { WorkspaceBranding } from "@/modules/workspaces/types";
 
 interface RouteParams { params: Promise<{ id: string }> }
+
+const BRANDING_KEYS: (keyof WorkspaceBranding)[] = [
+  "agentName",
+  "welcomeMessage",
+  "logoUrl",
+  "primaryColor",
+  "fontFamily",
+  "borderRadius",
+  "position",
+  "displayMode",
+  "theme",
+];
 
 export async function PATCH(req: NextRequest, { params }: RouteParams) {
   try {
@@ -14,11 +26,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     }
 
     const body = await req.json();
-    const patch: {
-      name?: string;
-      status?: WorkspaceStatus;
-      mode?: WorkspaceMode;
-    } = {};
+    const patch: UpdateWorkspaceInput = {};
 
     if (typeof body.name === "string" && body.name.trim().length >= 2) {
       patch.name = body.name.trim();
@@ -28,6 +36,18 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     }
     if (["wearable", "unwearable"].includes(body.mode)) {
       patch.mode = body.mode;
+    }
+    if (typeof body.embedEnabled === "boolean") {
+      patch.embedEnabled = body.embedEnabled;
+    }
+    if (body.branding && typeof body.branding === "object") {
+      const branding: Partial<WorkspaceBranding> = {};
+      for (const key of BRANDING_KEYS) {
+        if (body.branding[key] !== undefined) {
+          (branding as Record<string, unknown>)[key] = body.branding[key];
+        }
+      }
+      if (Object.keys(branding).length > 0) patch.branding = branding;
     }
 
     if (Object.keys(patch).length === 0) {

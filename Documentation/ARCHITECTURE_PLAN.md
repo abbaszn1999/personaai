@@ -75,9 +75,12 @@ src/
 │   │   ├── workspaces/               ← Workspace CRUD
 │   │   │   ├── route.ts
 │   │   │   └── [id]/route.ts
-│   │   ├── agents/                   ← LLM agent endpoints (NEW — streaming)
-│   │   │   ├── shopping/route.ts     ← POST — streaming chat response
-│   │   │   └── wearable/route.ts     ← POST — streaming try-on response
+│   │   ├── agents/                   ← LLM agent endpoints
+│   │   │   ├── shopping/route.ts     ← PLANNED — streaming chat response (unwearable mode, not built yet)
+│   │   │   ├── wearable/route.ts     ← PLANNED — streaming chat response (wearable mode, not built yet)
+│   │   │   └── persona/              ← REAL — Persona Agent image generation (see lib/agents/persona-agent.ts)
+│   │   │       ├── avatar/route.ts   ← POST — photo + measurements → 4 avatar variations
+│   │   │       └── try-on/route.ts   ← POST — avatar + garment image(s) → try-on render
 │   │   └── onboarding/
 │   │       └── complete/route.ts
 │   ├── layout.tsx
@@ -250,12 +253,21 @@ src/
 │       │   ├── try-on-preview-panel.tsx
 │       │   ├── profile-setup-gate.tsx
 │       │   ├── body-profile-form.tsx
+│       │   ├── avatar-generation-loading.tsx
+│       │   ├── avatar-variation-picker.tsx
+│       │   ├── avatar-mannequin-panel.tsx  ← composites the real subject-only cutout over its
+│       │   │                                  paired fixed backdrop plate (profile.backdropUrl)
+│       │   ├── edit-model-stats-modal.tsx
 │       │   └── wearable-chat-message.tsx
 │       │   (no outfit-builder-panel.tsx / preview-panel.tsx / product-selector.tsx /
 │       │    wearable-product-card.tsx — an earlier non-chat try-on UI, fully
 │       │    superseded by the try-on-agent-chat conversational flow above)
 │       ├── hooks/
-│       │   └── use-try-on-agent.ts   ← use-try-on.ts removed (superseded, see above)
+│       │   └── use-try-on-agent.ts   ← use-try-on.ts removed (superseded, see above). Avatar
+│       │                                generation and try-on rendering call the real Persona
+│       │                                Agent (POST /api/agents/persona/avatar and /try-on) —
+│       │                                MOCK_AVATAR_VARIATIONS / MOCK_TRY_ON_IMAGES only remain
+│       │                                as placeholder initial state, no longer used for results.
 │       ├── mocks/
 │       │   ├── products.ts
 │       │   └── responses.ts
@@ -284,7 +296,33 @@ src/
 │   │   ├── workspaces.ts             ← getWorkspacesByOwner, createWorkspace, etc.
 │   │   ├── users.ts                  ← getUserById, updateUser, etc.
 │   │   ├── sessions.ts               ← createSession, deleteSession, etc.
-│   │   └── notifications.ts          ← getNotificationPrefs, upsertPrefs
+│   │   ├── notifications.ts          ← getNotificationPrefs, upsertPrefs
+│   │   └── image-generations.ts      ← consumeImageCredit (RPC), getImageGenerationCount
+│   ├── ai/                           ← NEW — central AI-calling layer, no business logic
+│   │   ├── gemini.ts                 ← REAL — Nano Banana Pro (Gemini 3 Pro Image) Interactions
+│   │   │                                API client via @google/genai. generateGeminiImage(),
+│   │   │                                fetchImageAsBase64(). Model from GEMINI_IMAGE_MODEL env;
+│   │   │                                image size hardcoded to "2K" (fixed product decision).
+│   │   ├── background-removal.ts     ← REAL — sharp-based chroma-key stripBackgroundToTransparent().
+│   │   │                                Thresholds pixels near the fixed #FF00FF magenta constant
+│   │   │                                to transparent, re-encodes as PNG.
+│   │   └── openai.ts                 ← REAL, unused for now — Chat Completions client
+│   │                                    (generateChatCompletion), takes the caller's BYO key as a
+│   │                                    param. Written for the future chat agents below; not
+│   │                                    called by any UI yet.
+│   ├── agents/                       ← NEW — one file per agent (prompt-building + orchestration)
+│   │   ├── persona-agent.ts          ← REAL, wired end-to-end — image creation agent.
+│   │   │                                generateAvatarVariations() runs 4 parallel Gemini calls
+│   │   │                                (distinct outfit style per variation), each stripped to a
+│   │   │                                transparent cutout and paired 1:1 with a fixed backdrop
+│   │   │                                plate (public/avatars/backgrounds/backdrop-{1..4}.png).
+│   │   │                                generateTryOnImage() dresses the avatar in the given
+│   │   │                                garment reference image(s). PersonaAgentError wraps
+│   │   │                                Gemini failures with a user-facing message.
+│   │   ├── wearable-chat-agent.ts    ← STUB — chat agent for wearable mode (delegates to the
+│   │   │                                existing mock response generator; future real-OpenAI
+│   │   │                                wiring point via lib/ai/openai.ts + the account's BYO key)
+│   │   └── unwearable-chat-agent.ts  ← STUB — chat agent for unwearable mode (same pattern)
 │   ├── mock-api/                     ← Temporary mock data (deleted as features go real)
 │   │   └── catalog.ts                ← Still needed by categories/store features
 │   └── utils/
@@ -549,6 +587,133 @@ export async function deleteAllOtherSessions(currentSid: string, userId: string)
 export async function getNotificationPrefs(userId: string)
 export async function upsertNotificationPrefs(userId: string, prefs: NotificationPrefs)
 ```
+
+### `src/lib/db/image-generations.ts`
+```typescript
+export async function consumeImageCredit(userId: string, kind: "avatar" | "try_on"): Promise<boolean>
+export async function getImageGenerationCount(userId: string, sinceIso?: string): Promise<number>
+```
+`consumeImageCredit` calls the `consume_image_credit` Postgres RPC (below) — a single atomic
+"check credits, decrement, log" operation so concurrent requests can never double-spend the last
+credit. `getImageGenerationCount` is written for a future real-data usage-chart rewrite; the
+`/usage` page's chart stays on its existing mock for now, but `users.credits` itself is real.
+
+**`supabase/migrations/0009_image_generations.sql`** — adds `public.image_generations` (one row per
+successful avatar/try-on render: `user_id`, `kind`, `created_at`) and the `consume_image_credit(p_user_id, p_kind)`
+RPC function. `users.credits` (from `0001_users_sessions.sql`) keeps its default of `0` — no free
+starter allowance; credits are granted manually via the Supabase dashboard until real billing exists.
+
+---
+
+## AI Agents: `src/lib/ai/` + `src/lib/agents/`
+
+Two layers, matching the Shopify/WooCommerce client pattern above:
+- **`src/lib/ai/`** — raw provider callers only, no business logic: `gemini.ts` (real, used now) and
+  `openai.ts` (real, written now, not called by anything yet).
+- **`src/lib/agents/`** — one file per agent, owns prompt-building/orchestration: `persona-agent.ts`
+  (real, wired end-to-end into the wearable try-on flow), plus `wearable-chat-agent.ts` and
+  `unwearable-chat-agent.ts` (structural stubs that delegate to the existing mock response
+  generators — not yet consumed by any UI, ready for real OpenAI wiring in a future task).
+
+```mermaid
+flowchart TD
+    UI["use-try-on-agent.ts hook"] -->|"POST /api/agents/persona/avatar"| AvatarRoute["avatar route.ts"]
+    UI -->|"POST /api/agents/persona/try-on"| TryOnRoute["try-on route.ts"]
+    AvatarRoute --> PersonaAgent["lib/agents/persona-agent.ts"]
+    TryOnRoute --> PersonaAgent
+    PersonaAgent --> GeminiLib["lib/ai/gemini.ts"]
+    GeminiLib -->|"@google/genai SDK"| GeminiAPI["Gemini models.generateContent - Nano Banana Pro"]
+    PersonaAgent --> BgRemoval["lib/ai/background-removal.ts (sharp)"]
+    BgRemoval --> Backdrops["public/avatars/backgrounds/backdrop-1..4.png"]
+    AvatarRoute -->|"per successful image"| ConsumeCredit["consume_image_credit RPC"]
+    TryOnRoute -->|"per successful image"| ConsumeCredit
+    ConsumeCredit --> UsersTable["users.credits (-1)"]
+    ConsumeCredit --> GenerationsTable["image_generations log row"]
+
+    ChatUI["use-shopping-agent.ts / use-try-on-agent.ts chat"] -.future.-> WearableAgent["lib/agents/wearable-chat-agent.ts (stub)"]
+    ChatUI -.future.-> UnwearableAgent["lib/agents/unwearable-chat-agent.ts (stub)"]
+    WearableAgent -.future.-> OpenAiLib["lib/ai/openai.ts (written, unused)"]
+    UnwearableAgent -.future.-> OpenAiLib
+```
+
+### `src/lib/ai/gemini.ts` (real)
+`GeminiApiError extends Error`; `type GeminiImagePart = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string }`.
+`generateGeminiImage(input: GeminiImagePart[], opts?: { aspectRatio?: string })` calls
+`ai.models.generateContent({ model: GEMINI_IMAGE_MODEL env ?? "gemini-3-pro-image-preview", contents, config: { responseModalities: ["TEXT", "IMAGE"], imageConfig: { aspectRatio, imageSize: "2K" } } })`
+and extracts the first `inlineData` part from `response.candidates[0].content.parts`.
+Deliberately **not** the newer `ai.interactions.create` API — despite being documented and typed as
+supporting `response_format.delivery: "inline"` for images, that Beta API rejects it with a 400
+("Image delivery mode is not supported") in practice; `models.generateContent` is the same stable
+surface every official Nano Banana Pro example actually uses. `IMAGE_SIZE = "2K"` is a hardcoded
+constant in this file — a fixed "studio-grade" product decision, not env-tunable (note: Google's
+own model has a known issue where `imageSize: "2K"` can be silently ignored when reference images
+are attached, i.e. image-to-image calls — not something this app's code controls).
+`fetchImageAsBase64(url)` base64-encodes a remote image (e.g. a product photo) for use as a
+reference image.
+
+### `src/lib/ai/background-removal.ts` (real)
+`CHROMA_KEY_COLOR = { r: 255, g: 0, b: 255 }` (`#FF00FF` pure magenta) — the one fixed color every
+avatar/try-on prompt asks Gemini to render the subject against (chosen because it essentially never
+occurs in skin tones or clothing, unlike green). `stripBackgroundToTransparent(imageBase64, mimeType)`
+uses `sharp` to threshold pixels within a color-distance of that constant to transparent (feathered
+between an inner/outer threshold) and re-encodes as PNG — the only format that carries alpha.
+
+### `src/lib/ai/openai.ts` (real, unused for now)
+`OpenAiApiError extends Error`; `generateChatCompletion(apiKey, messages, opts?: { model? })` POSTs to
+`https://api.openai.com/v1/chat/completions` with `model: opts?.model ?? OPENAI_CHAT_MODEL env ?? "gpt-4o-mini"`.
+Takes the caller's already-decrypted BYO API key as a parameter (mirrors the Shopify/WordPress
+credential pattern) — never reads a platform-level OpenAI key. Not called by anything yet; the wiring
+point for the future real `wearable-chat-agent.ts` / `unwearable-chat-agent.ts`.
+
+### `src/lib/agents/persona-agent.ts` (real, wired end-to-end)
+`PersonaAgentError extends Error`. `DEFAULT_AVATAR_VARIATION_COUNT = 4` (hardcoded — matches the
+4-card "Choose your avatar" UI and the 4 fixed backdrop plates).
+
+- `generateAvatarVariations(input, count = DEFAULT_AVATAR_VARIATION_COUNT)` runs up to `count`
+  parallel `generateGeminiImage` calls via `Promise.allSettled` (one failed call doesn't sink the
+  batch), each with a different style-hint (tailored blazer / classic suit / relaxed casual /
+  elegant fitted) so the 4 results are genuinely dressed differently. Every prompt is built from one
+  strongly-worded template, in priority order: **(1) exact face match** to the reference photo, zero
+  beautification; **(2) precise body proportions** from the given height/weight/chest/waist/shoe-size
+  measurements, not a generic average body; **(3)** the fixed `#FF00FF` chroma backdrop. Aspect ratio
+  `3:4` (matches the backdrop plates below). Each result runs through `stripBackgroundToTransparent`
+  and pairs 1:1 with backdrop plate *i* (`backdrop-{i}.png`) by position in the batch. Returns only
+  the successful results, each with `imageUrl` as a `data:` URL of the isolated subject plus its
+  paired `backdropUrl`.
+- `generateTryOnImage({ avatarImageUrl, garmentImageUrls })` resolves the avatar (already a
+  subject-only `data:` URL) and each garment reference to base64, calls `generateGeminiImage` with
+  the same template plus a **(4) garment fidelity** requirement (exact color/pattern/fabric/silhouette,
+  face/body/pose unchanged), strips the background, and returns a subject-only `data:` URL — the
+  caller already knows which fixed backdrop this avatar is paired with, so it isn't re-decided here.
+- Wraps any `GeminiApiError` into `PersonaAgentError` with a user-facing message.
+
+**One-time backdrop setup** (`scripts/generate-backdrop-plates.mjs`, `npm run generate:backdrops`):
+the 4 existing `public/avatars/avatar-studio-*.png` files are full composited photos with the model
+already baked into the spiral-staircase scene — there's no clean "empty scene" version. This script
+runs each one through a single Gemini image-edit call ("remove the person entirely… naturally
+reconstruct the empty studio space… preserve the staircase, reflections, lighting exactly as
+elsewhere in the frame") and saves the 4 resulting empty plates to
+`public/avatars/backgrounds/backdrop-1.png` … `backdrop-4.png` (same `3:4` aspect ratio as the
+avatar/try-on generations, so the cutout and its backdrop line up when composited). One-off, run
+once during setup — does not touch `users.credits` or `image_generations`.
+
+### `src/lib/agents/wearable-chat-agent.ts` / `unwearable-chat-agent.ts` (structural stubs)
+`getWearableAgentReply(userMessage, context)` / `getUnwearableAgentReply(userMessage, context)`
+currently just delegate to the existing `getWearableMockResponse` / `getMockResponse` mock
+generators, unchanged. Not imported by any UI hook yet — pure scaffolding for real OpenAI wiring
+(via `generateChatCompletion` + the account's BYO key from `getOpenaiApiKeyEncrypted`/`decryptSecret`)
+in a future task.
+
+### `src/app/api/agents/persona/avatar/route.ts` and `.../try-on/route.ts` (real)
+Both: auth via `getCurrentUser()`; if `user.credits <= 0` → `402` immediately, no Gemini call.
+`avatar/route.ts` requests `min(count requested, DEFAULT_AVATAR_VARIATION_COUNT, user.credits)`
+variations (so a user with only 2 credits left still gets 2 options instead of a hard block; also
+lets `regenerateAvatar` request just 1). For each successfully generated image, calls
+`consumeImageCredit` (stops early if it ever returns `false` — a race-condition guard), then patches
+`session.profile.credits` and calls `session.save()` — the same pattern
+[`src/app/api/account/profile/route.ts`](../src/app/api/account/profile/route.ts) uses, so
+`useUser().credits` never shows a stale value. Catches `PersonaAgentError`/`GeminiApiError` → 400/502
+with `.message`; else 500.
 
 ---
 

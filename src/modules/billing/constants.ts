@@ -3,6 +3,11 @@ import type { WorkspaceMode } from "@/modules/workspaces/types";
 
 export const MONTHLY_INCLUDED_RENDERS = 5000;
 
+/** Decart bills by realtime session-seconds, not per-generation, so live camera try-on gets its
+ * own included allowance rather than sharing the render cap above. */
+export const MONTHLY_INCLUDED_LIVE_TRYON_SECONDS = 100 * 60;
+export const LIVE_TRYON_PRICE_PER_MINUTE_CENTS = 120;
+
 export const PLAN_TIERS: PlanTier[] = [
   {
     id: "fixed",
@@ -10,10 +15,12 @@ export const PLAN_TIERS: PlanTier[] = [
     priceLabel: "$2,000",
     priceSub: "/month flat fee",
     monthlyRenders: MONTHLY_INCLUDED_RENDERS,
-    description: "5,000 high-fidelity 2K renders included every month.",
+    monthlyLiveTryOnSeconds: MONTHLY_INCLUDED_LIVE_TRYON_SECONDS,
+    description: "5,000 high-fidelity 2K renders and 100 live try-on minutes included every month.",
     bestFor: "Ideal for established brands with high, predictable traffic who want to keep 100% of their driven sales revenue.",
     features: [
       "5,000 High-Fidelity 2K Renders / month",
+      "100 minutes of Live Camera Try-On / month",
       "Unlimited prompt & reference images",
       "Keep 100% of driven sales revenue",
       "Predictable flat monthly cost",
@@ -25,10 +32,12 @@ export const PLAN_TIERS: PlanTier[] = [
     priceLabel: "$500",
     priceSub: "/month base + 10% commission",
     monthlyRenders: MONTHLY_INCLUDED_RENDERS,
-    description: "5,000 high-fidelity 2K renders included, plus a 10% commission on direct conversions.",
+    monthlyLiveTryOnSeconds: MONTHLY_INCLUDED_LIVE_TRYON_SECONDS,
+    description: "5,000 high-fidelity 2K renders and 100 live try-on minutes included, plus a 10% commission on direct conversions.",
     bestFor: "Perfect for brands wanting a lower upfront entry cost while aligning Autommerce directly with active sales growth.",
     features: [
       "5,000 High-Fidelity 2K Renders / month",
+      "100 minutes of Live Camera Try-On / month",
       "Unlimited prompt & reference images",
       "Lower upfront monthly cost",
       "10% commission on direct conversions only",
@@ -44,6 +53,7 @@ export const UNWEARABLE_PLAN_TIERS: PlanTier[] = [
     priceLabel: "$1,500",
     priceSub: "/month flat fee",
     monthlyRenders: 0,
+    monthlyLiveTryOnSeconds: 0,
     description: "Unlimited AI shopping assistant usage — no image generation involved.",
     bestFor: "Ideal for established brands with high, predictable traffic who want to keep 100% of their driven sales revenue.",
     features: [
@@ -59,6 +69,7 @@ export const UNWEARABLE_PLAN_TIERS: PlanTier[] = [
     priceLabel: "$0",
     priceSub: "/month base + 10% commission",
     monthlyRenders: 0,
+    monthlyLiveTryOnSeconds: 0,
     description: "No base fee — Autommerce only earns a 10% commission on direct conversions.",
     bestFor: "Perfect for brands wanting zero upfront cost while aligning Autommerce directly with active sales growth.",
     features: [
@@ -74,6 +85,11 @@ export const UNWEARABLE_PLAN_TIERS: PlanTier[] = [
 /** Selects the commercial tier set for the given project mode — Wearable includes Nano Banana render costs, Unwearable is tool-usage only. */
 export function getPlanTiers(mode: WorkspaceMode): PlanTier[] {
   return mode === "unwearable" ? UNWEARABLE_PLAN_TIERS : PLAN_TIERS;
+}
+
+export function getPlanTier(mode: WorkspaceMode, tierId: string): PlanTier {
+  const tiers = getPlanTiers(mode);
+  return tiers.find((tier) => tier.id === tierId) ?? tiers[0];
 }
 
 export const CREDIT_BUNDLES: CreditBundle[] = [

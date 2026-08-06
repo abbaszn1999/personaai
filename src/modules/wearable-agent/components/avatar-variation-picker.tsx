@@ -61,6 +61,12 @@ export function AvatarVariationPicker({
                   : "border-[var(--color-border)] hover:border-[var(--color-wearable-from)]/60"
               )}
             >
+              {/* Real Persona Agent renders are subject-only cutouts on a transparent
+                  background — layer the paired fixed backdrop plate underneath so the card
+                  shows the actual studio scene instead of any un-keyed chroma-key residue. */}
+              {variation.backdropUrl && (
+                <Image src={variation.backdropUrl} alt="" fill className="object-cover object-top" unoptimized />
+              )}
               <Image
                 src={variation.imageUrl}
                 alt={variation.label}

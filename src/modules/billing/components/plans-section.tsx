@@ -12,7 +12,11 @@ interface PlansSectionProps {
 }
 
 export function PlansSection({ mode }: PlansSectionProps) {
-  const { activeTierId, tiers, switchTier } = useBilling(mode);
+  const { summary, tiers, switchTier, pendingAction, error } = useBilling();
+  const activeTierId = summary?.tierId ?? "fixed";
+  const hasPaidSubscription =
+    summary?.billing.accessMode === "stripe" &&
+    Boolean(summary.billing.subscriptionStatus);
   const infraNotes = getInfraNotes(mode);
 
   return (
@@ -27,11 +31,14 @@ export function PlansSection({ mode }: PlansSectionProps) {
           <PlanCard
             key={plan.id}
             plan={plan}
-            isActive={plan.id === activeTierId}
-            onSelect={() => switchTier(plan.id)}
+            isActive={hasPaidSubscription && plan.id === activeTierId}
+            loading={pendingAction === `plan:${plan.id}`}
+            disabled={pendingAction !== null}
+            onSelect={() => void switchTier(plan.id)}
           />
         ))}
       </div>
+      {error && <p className="mt-3 text-sm text-[var(--color-error)]">{error}</p>}
 
       <ul className="mt-5 space-y-1.5">
         {infraNotes.map((note) => (

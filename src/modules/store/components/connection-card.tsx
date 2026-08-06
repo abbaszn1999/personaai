@@ -35,7 +35,7 @@ export function ConnectionCard({
   onSync,
 }: ConnectionCardProps) {
   const lastSync = syncedAt
-    ? new Date(syncedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    ? new Date(syncedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })
     : connection.connectedAt
     ? new Date(connection.connectedAt).toLocaleDateString()
     : "Never";

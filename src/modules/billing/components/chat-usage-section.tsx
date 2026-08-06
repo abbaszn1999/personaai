@@ -7,10 +7,11 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
 import { MetricCard } from "@/components/ui/metric-card";
 import { useOpenaiApiKey } from "../hooks/use-openai-api-key";
-import { CHAT_MESSAGES_THIS_CYCLE } from "../mocks/chat-usage";
+import { useBilling } from "../hooks/use-billing";
 
 export function ChatUsageSection() {
   const { hasKey, loading } = useOpenaiApiKey();
+  const { summary, loading: usageLoading } = useBilling();
   const connected = !loading && hasKey;
 
   return (
@@ -33,7 +34,7 @@ export function ChatUsageSection() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <MetricCard
               label="Messages Sent This Cycle"
-              value={CHAT_MESSAGES_THIS_CYCLE.toLocaleString()}
+              value={usageLoading ? "—" : (summary?.chatMessagesThisCycle ?? 0).toLocaleString()}
               sub="Billed directly by OpenAI to your account"
               icon={<MessageCircle className="h-4 w-4" />}
               accent="wearable"

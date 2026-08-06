@@ -6,6 +6,8 @@ import { verifyPassword } from "@/modules/auth/lib/helpers";
 import { sessionOptions, type SessionData } from "@/modules/auth/lib/session";
 import { getPasswordHash, deleteUser } from "@/lib/db/users";
 import { deleteAllSessionsForUser } from "@/lib/db/sessions";
+import { getLatestBillingSubscription, getOrCreateBillingAccount } from "@/lib/db/billing";
+import { getStripe } from "@/lib/stripe/client";
 
 export async function DELETE(req: NextRequest) {
   try {
@@ -32,7 +34,21 @@ export async function DELETE(req: NextRequest) {
       }
     }
 
-    // Delete sessions + user (cascade)
+    // Cancel external billing before removing the local identity. Payment/order audit rows keep
+    // their Stripe identifiers with a null user_id; the one-to-one customer mapping cascades.
+    const [billingAccount, subscription] = await Promise.all([
+      getOrCreateBillingAccount(user.id),
+      getLatestBillingSubscription(user.id),
+    ]);
+    if (
+      billingAccount?.stripeCustomerId &&
+      subscription &&
+      ["active", "trialing", "past_due", "incomplete"].includes(subscription.status)
+    ) {
+      await getStripe().subscriptions.cancel(subscription.stripeSubscriptionId);
+    }
+
+    // Delete sessions + user (workspace/customer mapping cascades; audit rows are retained).
     await deleteAllSessionsForUser(user.id);
     await deleteUser(user.id);
 

@@ -27,6 +27,7 @@
   --color-brand-to:           #c40000;
   --color-brand:              #f76d01;
   --color-brand-strong:       #c40000;
+  --color-brand-contrast:     #17121d;
   --color-brand-light:        #ffe9d6;
 
   /* Accent — Autommerce purple */
@@ -338,6 +339,44 @@ h1, h2, h3, h4, h5, .font-display {
   --shadow-elevated:          0 8px 32px -6px rgb(0 0 0 / 0.55);
 }
 
+/* Escapes `.dashboard-theme` so a nested embed preview matches the public `/embed/[token]`
+ * surface tokens (light :root / .dark) instead of the dashboard's glass chrome. */
+.embed-preview-surface {
+  --color-surface-base:       #f7f6f9;
+  --color-surface-card:       #ffffff;
+  --color-surface-elevated:   #ffffff;
+  --color-surface-overlay:    rgba(255,255,255,0.85);
+  --color-border:             #e9e6ef;
+  --color-border-strong:      #d3ccdd;
+  --color-text-primary:       #17121d;
+  --color-text-secondary:     #524b5c;
+  --color-text-muted:         #918a9c;
+  --color-brand-light:        #ffe9d6;
+  --color-accent-light:       #ece4f3;
+  --color-success-light:      #d1fae5;
+  --color-error-light:        #ffe4e9;
+  --color-warning-light:      #fef3c7;
+  --color-info-light:         #dbeafe;
+  --shadow-card:              0 1px 3px 0 rgb(23 18 29 / 0.06), 0 1px 2px -1px rgb(23 18 29 / 0.04);
+  --shadow-elevated:          0 4px 16px -2px rgb(23 18 29 / 0.08), 0 2px 6px -2px rgb(23 18 29 / 0.04);
+}
+
+.embed-preview-surface.dark {
+  --color-surface-base:       #100a16;
+  --color-surface-card:       #191122;
+  --color-surface-elevated:   #221733;
+  --color-surface-overlay:    rgba(25,17,34,0.9);
+  --color-border:             #2c2140;
+  --color-border-strong:      #453458;
+  --color-text-primary:       #f4f0f8;
+  --color-text-secondary:     #b3a8bf;
+  --color-text-muted:         #6f6480;
+  --color-brand-light:        rgba(247,109,1,0.14);
+  --color-accent-light:       rgba(107,53,141,0.20);
+  --shadow-card:              0 4px 20px -4px rgb(0 0 0 / 0.45);
+  --shadow-elevated:          0 8px 32px -6px rgb(0 0 0 / 0.55);
+}
+
 .dashboard-theme .card-base,
 .dashboard-theme .card-elevated,
 .dashboard-theme .card-interactive {
@@ -370,9 +409,9 @@ h1, h2, h3, h4, h5, .font-display {
 }
 
 .panel-header {
-  background: rgba(255, 255, 255, 0.03);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: #17131f;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 

@@ -2,8 +2,7 @@
 
 import * as React from "react";
 import { Loader2, Sparkles, X } from "lucide-react";
-import type { BodyShape, TryOnProfile } from "../types";
-import { BODY_SHAPE_LABELS } from "../constants";
+import type { TryOnProfile } from "../types";
 import { cn } from "@/lib/utils/cn";
 
 interface EditModelStatsModalProps {
@@ -12,8 +11,6 @@ interface EditModelStatsModalProps {
   onClose: () => void;
   onRegenerate: (patch: Partial<TryOnProfile>) => void;
 }
-
-const BODY_SHAPES: BodyShape[] = ["rectangle", "hourglass", "pear", "apple", "inverted-triangle"];
 
 function FieldInput({
   label,
@@ -34,7 +31,7 @@ function FieldInput({
           type="number"
           value={value ?? ""}
           onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
-          className="w-full h-10 pl-3 pr-10 rounded-lg bg-white/[0.06] border border-white/10 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-[#f76d01] transition-colors"
+          className="w-full h-10 pl-3 pr-10 rounded-lg bg-white/[0.06] border border-white/10 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-[var(--color-brand)] transition-colors"
         />
         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-white/35">{unit}</span>
       </div>
@@ -55,7 +52,14 @@ export function EditModelStatsModal({
   }
 
   function handleSubmit() {
-    const { photoUrl: _photoUrl, avatarUrl: _avatarUrl, ...measurements } = draft;
+    const {
+      photoUrl: _photoUrl,
+      photoBase64: _photoBase64,
+      photoMimeType: _photoMimeType,
+      avatarUrl: _avatarUrl,
+      backdropUrl: _backdropUrl,
+      ...measurements
+    } = draft;
     onRegenerate(measurements);
   }
 
@@ -97,27 +101,7 @@ export function EditModelStatsModal({
             <FieldInput label="Weight" unit="kg" value={draft.weightKg} onChange={(v) => patch({ weightKg: v })} />
             <FieldInput label="Chest" unit="cm" value={draft.chestCm} onChange={(v) => patch({ chestCm: v })} />
             <FieldInput label="Waist" unit="cm" value={draft.waistCm} onChange={(v) => patch({ waistCm: v })} />
-          </div>
-
-          <div className="space-y-2">
-            <span className="text-[11px] font-medium text-white/50">Body Shape</span>
-            <div className="flex flex-wrap gap-2">
-              {BODY_SHAPES.map((shape) => (
-                <button
-                  key={shape}
-                  type="button"
-                  onClick={() => patch({ bodyShape: shape })}
-                  className={cn(
-                    "text-xs rounded-full px-3 py-1.5 border transition-all",
-                    draft.bodyShape === shape
-                      ? "gradient-wearable text-white border-transparent"
-                      : "border-white/10 bg-white/[0.04] text-white/60 hover:border-white/25"
-                  )}
-                >
-                  {BODY_SHAPE_LABELS[shape]}
-                </button>
-              ))}
-            </div>
+            <FieldInput label="Shoe Size" unit="EU" value={draft.shoeSizeEu} onChange={(v) => patch({ shoeSizeEu: v })} />
           </div>
         </div>
 
@@ -137,7 +121,7 @@ export function EditModelStatsModal({
             disabled={isRegenerating}
             className={cn(
               "flex-1 h-10 rounded-lg text-sm font-semibold text-white flex items-center justify-center gap-2 transition-all",
-              "bg-gradient-to-r from-[#f76d01] to-[#c40000] shadow-[0_4px_16px_rgba(247,109,1,0.4)]",
+              "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] shadow-[var(--shadow-glow)]",
               "hover:brightness-105 disabled:opacity-60"
             )}
           >

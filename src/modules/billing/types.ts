@@ -1,3 +1,5 @@
+import type { WorkspaceMode } from "@/modules/workspaces/types";
+
 export type PlanTierId = "fixed" | "hybrid";
 
 export interface PlanTier {
@@ -6,6 +8,7 @@ export interface PlanTier {
   priceLabel: string;
   priceSub: string;
   monthlyRenders: number;
+  monthlyLiveTryOnSeconds: number;
   description: string;
   bestFor: string;
   features: string[];
@@ -24,4 +27,45 @@ export interface CreditBundle {
 export interface UsagePoint {
   date: string;
   renders: number;
+}
+
+export interface LiveTryOnUsagePoint {
+  date: string;
+  seconds: number;
+}
+
+export interface BillingSummary {
+  mode: WorkspaceMode;
+  tierId: PlanTierId;
+  cycleStart: string;
+  cycleEnd: string;
+  billing: {
+    accessMode: "stripe" | "legacy_test";
+    entitlementStatus:
+      | "legacy_test"
+      | "active"
+      | "trialing"
+      | "past_due_grace"
+      | "past_due"
+      | "inactive";
+    entitled: boolean;
+    hasStripeCustomer: boolean;
+    subscriptionStatus: string | null;
+    cancelAtPeriodEnd: boolean;
+    currentPeriodEnd: string | null;
+  };
+  images: {
+    includedAllowance: number;
+    usedThisCycle: number;
+    includedRemaining: number;
+    creditsBalance: number;
+  };
+  liveTryOn: {
+    includedAllowanceSeconds: number;
+    usedThisCycleSeconds: number;
+    includedRemainingSeconds: number;
+    purchasedSecondsBalance: number;
+    pricePerMinuteCents: number;
+  };
+  chatMessagesThisCycle: number;
 }

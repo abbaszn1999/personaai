@@ -1,63 +1,66 @@
 import * as React from "react";
-import { DollarSign, ShoppingBag, TrendingUp, Users, Percent } from "lucide-react";
+import { ShoppingBag, DollarSign, Users, Percent, Tag } from "lucide-react";
 import { MetricCard } from "@/components/ui/metric-card";
-import type { DateRange } from "../mocks/analytics-data";
-import { ANALYTICS_SUMMARY } from "../mocks/analytics-data";
+import type { WorkspaceAnalyticsPayload } from "../types";
 
 interface KpiRowProps {
-  range: DateRange;
+  payload: WorkspaceAnalyticsPayload | null;
+  loading: boolean;
 }
 
-function formatRevenue(v: number) {
-  return v >= 1000
-    ? `$${(v / 1000).toFixed(1)}k`
-    : `$${v.toLocaleString()}`;
+function formatCurrency(v: number, currency: string) {
+  const symbol = currency === "USD" ? "$" : `${currency} `;
+  return v >= 1000 ? `${symbol}${(v / 1000).toFixed(1)}k` : `${symbol}${v.toLocaleString()}`;
 }
 
-export function KpiRow({ range }: KpiRowProps) {
-  const s = ANALYTICS_SUMMARY[range];
+/** 5 Persona-attributed cards — everything the widget itself directly caused. No Tool
+ *  Revenue/Orders/AOV/session→purchase Conversion Rate: those need store-wide WooCommerce
+ *  order data, which this page deliberately never touches (see analytics.ts). */
+export function KpiRow({ payload, loading }: KpiRowProps) {
+  const s = payload?.kpis;
+  const currency = s?.currency ?? "USD";
+  const placeholder = loading ? "…" : "—";
 
   return (
     <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
       <MetricCard
-        label="Tool Revenue"
-        value={formatRevenue(s.revenue)}
-        sub="Attributed to Persona AI"
-        icon={<DollarSign className="h-4 w-4" />}
+        label="Persona Sessions"
+        value={s ? s.sessions.toLocaleString() : placeholder}
+        sub="Widget opens via Persona"
+        icon={<Users className="h-4 w-4" />}
         accent="brand"
-        trend={{ value: s.trends.revenue, label: "vs prior period" }}
+        trend={s ? { value: s.trends.sessions, label: "vs prior period" } : undefined}
       />
       <MetricCard
-        label="Orders"
-        value={s.orders.toLocaleString()}
-        sub="Tool-assisted purchases"
+        label="Items Added to Cart"
+        value={s ? s.cartItemsAdded.toLocaleString() : placeholder}
+        sub="Via Persona add-to-cart"
         icon={<ShoppingBag className="h-4 w-4" />}
         accent="unwearable"
-        trend={{ value: s.trends.orders, label: "vs prior period" }}
+        trend={s ? { value: s.trends.cartItemsAdded, label: "vs prior period" } : undefined}
       />
       <MetricCard
-        label="Avg. Order Value"
-        value={`$${s.aov.toFixed(2)}`}
-        sub="Per tool-assisted order"
-        icon={<TrendingUp className="h-4 w-4" />}
+        label="Cart Value Added"
+        value={s ? formatCurrency(s.cartValueAdded, currency) : placeholder}
+        sub="Cart value added via Persona"
+        icon={<DollarSign className="h-4 w-4" />}
         accent="success"
-        trend={{ value: s.trends.aov, label: "vs prior period" }}
+        trend={s ? { value: s.trends.cartValueAdded, label: "vs prior period" } : undefined}
       />
       <MetricCard
-        label="Shopper Sessions"
-        value={s.sessions.toLocaleString()}
-        sub="Widget interactions"
-        icon={<Users className="h-4 w-4" />}
-        accent="wearable"
-        trend={{ value: s.trends.sessions, label: "vs prior period" }}
-      />
-      <MetricCard
-        label="Conversion Rate"
-        value={`${s.conversionRate}%`}
-        sub="Sessions → purchases"
+        label="Add-to-Cart Rate"
+        value={s ? `${s.addToCartRate}%` : placeholder}
+        sub="Sessions with a Persona add-to-cart"
         icon={<Percent className="h-4 w-4" />}
+        accent="wearable"
+        trend={s ? { value: s.trends.addToCartRate, label: "vs prior period" } : undefined}
+      />
+      <MetricCard
+        label="Avg. Cart Item Value"
+        value={s ? formatCurrency(s.avgCartItemValue, currency) : placeholder}
+        sub="Per item added via Persona"
+        icon={<Tag className="h-4 w-4" />}
         accent="brand"
-        trend={{ value: s.trends.conversionRate, label: "vs prior period" }}
       />
     </div>
   );

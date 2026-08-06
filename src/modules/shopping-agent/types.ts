@@ -1,4 +1,5 @@
 import type { WorkspaceMode } from "@/modules/workspaces/types";
+import type { GarmentCategory } from "@/modules/wearable-agent/utils/fit-metrics";
 
 export interface ProductCategory {
   id: string;
@@ -22,6 +23,11 @@ export interface Product {
   rating: number;
   reviewCount: number;
   inStock: boolean;
+  /** AI-classified garment slot (outerwear/top/bottom/shoes/dress/other), set once by
+   *  classifyGarmentSlots() the first time this product is seen. Undefined until then —
+   *  resolveGarmentSlot() falls back to keyword matching on `name` in that case. Travels
+   *  with the product through SSE events and client state so it's classified only once. */
+  garmentSlot?: GarmentCategory;
 }
 
 export interface ProductVariant {
@@ -56,6 +62,8 @@ export interface ChatMessage {
   content: string;
   timestamp: string;
   productRecommendations?: string[];
+  /** How closely productRecommendations matched the shopper's request (exact/partial/broad). */
+  catalogMatchType?: "exact" | "partial" | "broad" | "none";
   tryOnImage?: TryOnImageMessage;
   /** Chip-style quick-answer options rendered under this specific message (e.g. intake Q&A). */
   quickOptions?: string[];

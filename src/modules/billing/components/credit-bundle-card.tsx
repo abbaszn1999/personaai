@@ -8,10 +8,18 @@ import type { CreditBundle } from "../types";
 interface CreditBundleCardProps {
   bundle: CreditBundle;
   justPurchased: boolean;
+  loading?: boolean;
+  disabled?: boolean;
   onBuy: () => void;
 }
 
-export function CreditBundleCard({ bundle, justPurchased, onBuy }: CreditBundleCardProps) {
+export function CreditBundleCard({
+  bundle,
+  justPurchased,
+  loading = false,
+  disabled = false,
+  onBuy,
+}: CreditBundleCardProps) {
   return (
     <div
       className={cn(
@@ -40,7 +48,14 @@ export function CreditBundleCard({ bundle, justPurchased, onBuy }: CreditBundleC
         </p>
       </div>
 
-      <Button size="md" variant={justPurchased ? "secondary" : "primary"} onClick={onBuy} className="w-full">
+      <Button
+        size="md"
+        variant={justPurchased ? "secondary" : "primary"}
+        onClick={onBuy}
+        loading={loading}
+        disabled={disabled}
+        className="w-full"
+      >
         {justPurchased ? "Added to balance" : "Buy Credits"}
       </Button>
     </div>

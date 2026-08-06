@@ -8,6 +8,12 @@ interface PreviewViewportShellProps {
   mode: PreviewViewportMode;
   /** Card = centered onboarding widget; full = chat/agent fills the preview area. */
   layout?: "card" | "full";
+  /** True for a real embed (widget.js / `/embed/[token]`) rendering on an actual narrow device
+   *  — skips the fake phone-bezel chrome below (fixed 390px frame with notch bars), which only
+   *  makes sense as dashboard preview decoration. A real embed already sits inside the
+   *  shopper's actual device viewport, so `mode === "mobile"` just needs the real mobile
+   *  content layout at the widget's own size, same as the desktop branches below. */
+  frameless?: boolean;
   children: React.ReactNode;
   className?: string;
 }
@@ -19,10 +25,11 @@ const MOBILE_AGENT_HEIGHT = 812;
 export function PreviewViewportShell({
   mode,
   layout = "card",
+  frameless = false,
   children,
   className,
 }: PreviewViewportShellProps) {
-  if (mode === "mobile") {
+  if (mode === "mobile" && !frameless) {
     return (
       <div className="flex h-full min-h-0 items-start justify-center overflow-y-auto py-4 sidebar-scroll">
         <div className="shrink-0 px-2" style={{ width: MOBILE_WIDTH }}>

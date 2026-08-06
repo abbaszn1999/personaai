@@ -7,6 +7,10 @@ const PUBLIC_PATHS = [
   "/sign-up",
   "/forgot-password",
   "/api/auth",
+  // The embed token (not a session cookie) is the credential for these — a merchant's
+  // shopper never has, and shouldn't need, a Persona AI account.
+  "/embed/",
+  "/api/embed/",
 ];
 
 function isPublicPath(pathname: string): boolean {

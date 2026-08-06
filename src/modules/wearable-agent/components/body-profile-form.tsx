@@ -5,16 +5,11 @@ import { Upload, User } from "lucide-react";
 import Image from "next/image";
 import { Input } from "@/components/ui/input";
 import type { TryOnProfile } from "@/modules/wearable-agent/types";
-import { BODY_SHAPE_LABELS } from "@/modules/wearable-agent/constants";
-import type { BodyShape } from "@/modules/wearable-agent/types";
-import { cn } from "@/lib/utils/cn";
 
 interface BodyProfileFormProps {
   profile: TryOnProfile;
   onChange: (patch: Partial<TryOnProfile>) => void;
 }
-
-const BODY_SHAPES: BodyShape[] = ["rectangle", "hourglass", "pear", "apple", "inverted-triangle"];
 
 export function BodyProfileForm({ profile, onChange }: BodyProfileFormProps) {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -24,6 +19,15 @@ export function BodyProfileForm({ profile, onChange }: BodyProfileFormProps) {
     if (!file) return;
     const url = URL.createObjectURL(file);
     onChange({ photoUrl: url });
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : null;
+      const photoBase64 = result?.includes(",") ? result.split(",")[1] : result;
+      onChange({ photoBase64: photoBase64 ?? null, photoMimeType: file.type });
+    };
+    reader.readAsDataURL(file);
+
     e.target.value = "";
   }
 
@@ -100,27 +104,13 @@ export function BodyProfileForm({ profile, onChange }: BodyProfileFormProps) {
           value={profile.waistCm ?? ""}
           onChange={(e) => onChange({ waistCm: Number(e.target.value) || null })}
         />
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <span className="text-sm font-medium text-[var(--color-text-secondary)]">Body Shape</span>
-        <div className="flex flex-wrap gap-2">
-          {BODY_SHAPES.map((shape) => (
-            <button
-              key={shape}
-              type="button"
-              onClick={() => onChange({ bodyShape: shape })}
-              className={cn(
-                "text-xs rounded-full px-3 py-1.5 border transition-all",
-                profile.bodyShape === shape
-                  ? "gradient-wearable text-white border-transparent"
-                  : "border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-wearable-from)]"
-              )}
-            >
-              {BODY_SHAPE_LABELS[shape]}
-            </button>
-          ))}
-        </div>
+        <Input
+          label="Shoe Size (EU)"
+          type="number"
+          placeholder="e.g. 42"
+          value={profile.shoeSizeEu ?? ""}
+          onChange={(e) => onChange({ shoeSizeEu: Number(e.target.value) || null })}
+        />
       </div>
     </div>
   );

@@ -51,7 +51,7 @@ export function SizeGuideModal({ lookLabel, items, cartItemIds, onAddToCart, onC
           ) : (
             items.map((item) => {
               const inCart = cartItemIds.has(item.product.id);
-              const category = getProductSizeLabel(item.product.name);
+              const category = getProductSizeLabel(item.product);
               const sizeVariants = item.product.variants.filter((v) => v.type === "size");
               const scale = sizeVariants.length > 0 ? sizeVariants.map((v) => v.label) : SIZE_SCALE;
 
@@ -76,7 +76,7 @@ export function SizeGuideModal({ lookLabel, items, cartItemIds, onAddToCart, onC
                         "h-8 self-start px-3 rounded-lg text-[11px] font-semibold flex items-center gap-1.5 shrink-0 transition-all",
                         inCart
                           ? "bg-white/10 text-white/60"
-                          : "bg-gradient-to-r from-[#f76d01] to-[#c40000] text-white hover:brightness-105"
+                          : "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-white hover:brightness-105"
                       )}
                     >
                       {inCart ? <Check className="h-3 w-3" /> : <ShoppingBag className="h-3 w-3" />}
@@ -94,7 +94,7 @@ export function SizeGuideModal({ lookLabel, items, cartItemIds, onAddToCart, onC
                           className={cn(
                             "flex-1 h-8 rounded-lg flex items-center justify-center text-[11px] font-bold transition-all",
                             isRecommended
-                              ? "bg-gradient-to-r from-[#f76d01] to-[#ff8a2b] text-white shadow-[0_2px_10px_rgba(247,109,1,0.4)]"
+                              ? "bg-[var(--color-brand)] text-white shadow-[var(--shadow-glow)]"
                               : "bg-white/[0.05] text-white/40 border border-white/[0.06]"
                           )}
                         >
@@ -104,7 +104,7 @@ export function SizeGuideModal({ lookLabel, items, cartItemIds, onAddToCart, onC
                     })}
                   </div>
                   <p className="text-[10px] text-white/35 mt-1.5">
-                    Recommended: <span className="text-[#f76d01] font-semibold">{item.size}</span> based on your body profile
+                    Recommended: <span className="text-[var(--color-brand)] font-semibold">{item.size}</span> based on your body profile
                   </p>
                 </div>
               );

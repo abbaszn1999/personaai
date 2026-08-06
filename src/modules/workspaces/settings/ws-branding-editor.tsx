@@ -9,27 +9,22 @@ import {
   Info,
   Monitor,
   MousePointer,
+  RefreshCw,
   Upload,
   X,
-  MessageCircle,
-  Send,
-  Minimize2,
-  ShoppingBag,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { BRAND_COLOR_PRESETS } from "@/modules/settings/mocks/defaults";
-import type { Workspace } from "@/modules/workspaces/types";
+import type { Workspace, WorkspaceBranding, WorkspaceTheme } from "@/modules/workspaces/types";
+import { useWorkspaceStore } from "@/modules/workspaces/store";
 import { cn } from "@/lib/utils/cn";
+import { FontPicker } from "./font-picker";
+import { fontFamilyCssValue, loadGoogleFont } from "@/lib/fonts/google-fonts";
+import { resolveBrandCssVars } from "@/lib/branding/resolve-brand-vars";
+import { BrandingAgentPreview } from "./branding-agent-preview";
 
 /* ── Constants ─────────────────────────────────────────────────────────── */
-
-const FONT_OPTIONS = [
-  { value: "Inter",     label: "Inter" },
-  { value: "Poppins",   label: "Poppins" },
-  { value: "DM Sans",   label: "DM Sans" },
-  { value: "system-ui", label: "System default" },
-];
 
 const RADIUS_OPTIONS = [
   { value: "4px",   label: "Sharp" },
@@ -42,18 +37,15 @@ const POSITION_OPTIONS = [
   { value: "bottom-left",  label: "Bottom-left" },
 ];
 
+const THEME_OPTIONS: { value: WorkspaceTheme; label: string }[] = [
+  { value: "dark",  label: "Dark" },
+  { value: "light", label: "Light" },
+];
+
 type DisplayMode = "floating" | "fullpage";
 
-interface BrandingState {
-  agentName: string;
-  welcomeMessage: string;
-  logoUrl: string | null;
-  primaryColor: string;
+interface BrandingFormState extends WorkspaceBranding {
   hexInput: string;
-  fontFamily: string;
-  borderRadius: string;
-  position: string;
-  displayMode: DisplayMode;
 }
 
 /* ── Main component ─────────────────────────────────────────────────────── */
@@ -62,26 +54,45 @@ interface Props { workspace: Workspace }
 
 export function WsBrandingEditor({ workspace }: Props) {
   const isWearable = workspace.mode === "wearable";
+  const updateWorkspaceInStore = useWorkspaceStore((s) => s.updateWorkspace);
 
-  const [form, setForm] = React.useState<BrandingState>({
-    agentName: "Maya",
-    welcomeMessage: "Hi! How can I help you today?",
-    logoUrl: null,
-    primaryColor: "#f76d01",
-    hexInput: "#f76d01",
-    fontFamily: "Inter",
-    borderRadius: "12px",
-    position: "bottom-right",
-    // wearable is always full-page; unwearable defaults to floating
-    displayMode: isWearable ? "fullpage" : "floating",
+  const [form, setForm] = React.useState<BrandingFormState>({
+    ...workspace.branding,
+    hexInput: workspace.branding.primaryColor,
   });
+  const [embedEnabled, setEmbedEnabled] = React.useState(workspace.embedEnabled);
+  const [embedToken, setEmbedToken] = React.useState(workspace.embedToken);
 
   const [saved, setSaved]   = React.useState(false);
   const [saving, setSaving] = React.useState(false);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
   const [copied, setCopied] = React.useState(false);
-  const [widgetOpen, setWidgetOpen] = React.useState(true);
+  const [regenerating, setRegenerating] = React.useState(false);
+  const [logoError, setLogoError] = React.useState<string | null>(null);
+  const logoInputRef = React.useRef<HTMLInputElement>(null);
 
-  function update(patch: Partial<BrandingState>) {
+  const MAX_LOGO_BYTES = 2 * 1024 * 1024;
+
+  function handleLogoFile(file: File | undefined) {
+    if (!file) return;
+    setLogoError(null);
+    if (!/^image\/(png|jpeg|jpg|svg\+xml|webp)$/.test(file.type)) {
+      setLogoError("Please upload a PNG, JPG, WEBP, or SVG image");
+      return;
+    }
+    if (file.size > MAX_LOGO_BYTES) {
+      setLogoError("Logo must be under 2 MB");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") update({ logoUrl: reader.result });
+    };
+    reader.onerror = () => setLogoError("Failed to read that file — please try again");
+    reader.readAsDataURL(file);
+  }
+
+  function update(patch: Partial<BrandingFormState>) {
     setForm((f) => ({ ...f, ...patch }));
   }
 
@@ -96,18 +107,53 @@ export function WsBrandingEditor({ workspace }: Props) {
 
   async function handleSave() {
     setSaving(true);
-    await new Promise((r) => setTimeout(r, 700));
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setSaveError(null);
+    try {
+      const { hexInput, ...branding } = form;
+      void hexInput;
+      const res = await fetch(`/api/workspaces/${workspace.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ branding, embedEnabled }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSaveError(data.error || "Failed to save changes");
+        return;
+      }
+      updateWorkspaceInStore(workspace.id, { branding: data.workspace.branding, embedEnabled: data.workspace.embedEnabled });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch {
+      setSaveError("Network error — please try again");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRegenerateToken() {
+    if (!window.confirm("Regenerating the embed token immediately breaks every snippet already deployed on your site until you replace it with the new one. Continue?")) {
+      return;
+    }
+    setRegenerating(true);
+    try {
+      const res = await fetch(`/api/workspaces/${workspace.id}/regenerate-embed-token`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.embedToken) {
+        setEmbedToken(data.embedToken);
+        updateWorkspaceInStore(workspace.id, { embedToken: data.embedToken });
+      }
+    } finally {
+      setRegenerating(false);
+    }
   }
 
   // wearable always forces fullpage in the snippet
   const effectiveMode: DisplayMode = isWearable ? "fullpage" : form.displayMode;
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
 
-  const snippet = effectiveMode === "floating"
-    ? `<script src="https://shopagent.io/widget.js?workspace=${workspace.id}&color=${encodeURIComponent(form.primaryColor)}&font=${encodeURIComponent(form.fontFamily)}" async></script>`
-    : `<script src="https://shopagent.io/widget.js?workspace=${workspace.id}&mode=fullpage&color=${encodeURIComponent(form.primaryColor)}&font=${encodeURIComponent(form.fontFamily)}" async></script>`;
+  const snippet = `<script src="${origin}/widget.js?w=${embedToken}" async></script>`;
+  const previewUrl = `/embed/${embedToken}`;
 
   async function handleCopy() {
     await navigator.clipboard.writeText(snippet).catch(() => {});
@@ -117,6 +163,15 @@ export function WsBrandingEditor({ workspace }: Props) {
 
   // Position control is only relevant for floating mode on unwearable workspaces
   const showPosition = !isWearable && form.displayMode === "floating";
+
+  React.useEffect(() => {
+    loadGoogleFont(form.fontFamily);
+  }, [form.fontFamily]);
+
+  const brandStyle: React.CSSProperties = {
+    ...resolveBrandCssVars(form.primaryColor),
+    fontFamily: fontFamilyCssValue(form.fontFamily),
+  };
 
   return (
     <div className="flex gap-6 h-full min-h-[calc(100vh-140px)]">
@@ -142,17 +197,29 @@ export function WsBrandingEditor({ workspace }: Props) {
             {/* Logo */}
             <div>
               <label className="text-sm font-medium text-[var(--color-text-secondary)] block mb-1.5">Logo</label>
+              <input
+                ref={logoInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                className="hidden"
+                onChange={(e) => handleLogoFile(e.target.files?.[0])}
+              />
               {form.logoUrl ? (
                 <div className="flex items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--color-border)] px-4 py-2.5">
-                  <div
-                    className="h-8 w-8 rounded-lg flex items-center justify-center text-white text-sm font-bold shrink-0"
-                    style={{ background: form.primaryColor }}
-                  >
-                    {form.agentName.charAt(0).toUpperCase()}
-                  </div>
+                  <img
+                    src={form.logoUrl}
+                    alt="Logo"
+                    className="h-8 w-8 rounded-lg object-cover shrink-0"
+                  />
                   <p className="flex-1 text-sm text-[var(--color-success)]">Logo uploaded ✓</p>
                   <button
-                    onClick={() => update({ logoUrl: null })}
+                    onClick={() => logoInputRef.current?.click()}
+                    className="text-xs font-medium text-[var(--color-brand)] hover:underline shrink-0"
+                  >
+                    Replace
+                  </button>
+                  <button
+                    onClick={() => { update({ logoUrl: null }); setLogoError(null); }}
                     className="h-5 w-5 rounded-full hover:bg-red-50 flex items-center justify-center text-[var(--color-text-muted)] hover:text-red-500 transition-colors"
                   >
                     <X className="h-3 w-3" />
@@ -161,15 +228,16 @@ export function WsBrandingEditor({ workspace }: Props) {
               ) : (
                 <div
                   className="flex items-center gap-3 rounded-[var(--radius-lg)] border-2 border-dashed border-[var(--color-border)] px-4 py-2.5 cursor-pointer hover:border-[var(--color-brand)] hover:bg-[var(--color-brand-light)] transition-colors"
-                  onClick={() => update({ logoUrl: "/mock-logo.png" })}
+                  onClick={() => logoInputRef.current?.click()}
                 >
                   <Upload className="h-4 w-4 text-[var(--color-text-muted)]" />
                   <div>
                     <p className="text-sm text-[var(--color-text-secondary)]">Upload logo</p>
-                    <p className="text-xs text-[var(--color-text-muted)]">PNG or SVG, max 2 MB</p>
+                    <p className="text-xs text-[var(--color-text-muted)]">PNG, JPG, WEBP or SVG, max 2 MB</p>
                   </div>
                 </div>
               )}
+              {logoError && <p className="mt-1.5 text-xs text-red-500">{logoError}</p>}
             </div>
           </ControlGroup>
 
@@ -218,13 +286,7 @@ export function WsBrandingEditor({ workspace }: Props) {
             {/* Font */}
             <div className="flex flex-col gap-1.5">
               <label className="text-sm font-medium text-[var(--color-text-secondary)]">Font Family</label>
-              <select
-                value={form.fontFamily}
-                onChange={(e) => update({ fontFamily: e.target.value })}
-                className="h-9 px-3 text-sm bg-[var(--color-surface-card)] border border-[var(--color-border)] rounded-[var(--radius-md)] text-[var(--color-text-primary)] focus:outline-none focus:border-[var(--color-brand)]"
-              >
-                {FONT_OPTIONS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
-              </select>
+              <FontPicker value={form.fontFamily} onChange={(fontFamily) => update({ fontFamily })} />
             </div>
 
             {/* Corner style */}
@@ -247,6 +309,30 @@ export function WsBrandingEditor({ workspace }: Props) {
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Preview theme */}
+            <div>
+              <label className="text-sm font-medium text-[var(--color-text-secondary)] block mb-2">Theme</label>
+              <div className="flex gap-2">
+                {THEME_OPTIONS.map((t) => (
+                  <button
+                    key={t.value}
+                    onClick={() => update({ theme: t.value })}
+                    className={cn(
+                      "flex-1 py-2 text-xs font-semibold rounded-[var(--radius-md)] border transition-all",
+                      form.theme === t.value
+                        ? "border-[var(--color-brand)] bg-[var(--color-brand-light)] text-[var(--color-brand)]"
+                        : "border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-brand)]/50"
+                    )}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-[var(--color-text-muted)] mt-1.5">
+                Sets a single consistent tone across the whole embed instead of mixing panels.
+              </p>
             </div>
 
             {/* Widget Position — only for floating unwearable */}
@@ -275,6 +361,28 @@ export function WsBrandingEditor({ workspace }: Props) {
 
           {/* Embed */}
           <ControlGroup title="Embed Code">
+            {/* Enable/disable the public embed — the token in the snippet only works while this is on */}
+            <div className="flex items-center justify-between rounded-[var(--radius-lg)] border border-[var(--color-border)] px-3 py-2.5">
+              <div>
+                <p className="text-sm font-medium text-[var(--color-text-primary)]">Enable public embed</p>
+                <p className="text-xs text-[var(--color-text-muted)]">Turn off to immediately stop the snippet from working</p>
+              </div>
+              <button
+                onClick={() => setEmbedEnabled((v) => !v)}
+                className={cn(
+                  "relative h-6 w-11 rounded-full transition-colors shrink-0",
+                  embedEnabled ? "bg-[var(--color-brand)]" : "bg-[var(--color-border-strong)]"
+                )}
+              >
+                <span
+                  className={cn(
+                    "absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                    embedEnabled && "translate-x-5"
+                  )}
+                />
+              </button>
+            </div>
+
             {/* Display mode — only for unwearable (shopping assistant) */}
             {isWearable ? (
               <div className="flex items-start gap-2.5 rounded-[var(--radius-lg)] bg-[var(--color-surface-base)] border border-[var(--color-border)] px-3 py-2.5">
@@ -324,19 +432,32 @@ export function WsBrandingEditor({ workspace }: Props) {
               </button>
             </div>
             <p className="text-xs text-[var(--color-text-muted)]">
-              Paste before <code>&lt;/body&gt;</code>. Theme is baked in automatically.
+              Paste before <code>&lt;/body&gt;</code>. Add a <code>data-target=&quot;#el&quot;</code> attribute to mount it into a specific container instead of right after the script tag.
             </p>
 
-            <Link href={`/workspaces/${workspace.id}/embed`} target="_blank">
-              <Button variant="secondary" size="sm" className="w-full gap-1.5">
-                <Eye className="h-3.5 w-3.5" />
-                Preview as Customer
+            <div className="flex gap-2">
+              <Link href={previewUrl} target="_blank" className="flex-1">
+                <Button variant="secondary" size="sm" className="w-full gap-1.5">
+                  <Eye className="h-3.5 w-3.5" />
+                  Preview as Customer
+                </Button>
+              </Link>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="gap-1.5"
+                loading={regenerating}
+                onClick={handleRegenerateToken}
+                title="Regenerate embed token — invalidates every deployed snippet"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
               </Button>
-            </Link>
+            </div>
           </ControlGroup>
 
           {/* Save */}
-          <div className="flex justify-end pb-4">
+          <div className="flex items-center justify-end gap-3 pb-4">
+            {saveError && <p className="text-xs text-red-500">{saveError}</p>}
             <Button size="sm" loading={saving} onClick={handleSave}>
               {saved ? <><Check className="h-3.5 w-3.5" /> Saved</> : "Save Changes"}
             </Button>
@@ -344,11 +465,11 @@ export function WsBrandingEditor({ workspace }: Props) {
         </div>
       </div>
 
-      {/* ── Right: Live preview ──────────────────────────────────────── */}
+      {/* ── Right: Visual branding preview (not a live agent) ── */}
       <div className="flex-1 min-w-0 flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <p className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-widest">Live Preview</p>
-          <span className="text-xs text-[var(--color-text-muted)]">Updates as you type</span>
+          <span className="text-xs text-[var(--color-text-muted)]">Visual only — updates as you type</span>
         </div>
 
         {/* Mock browser shell */}
@@ -363,280 +484,25 @@ export function WsBrandingEditor({ workspace }: Props) {
             </div>
           </div>
 
-          {/* Page body */}
-          <div className="relative flex-1 overflow-hidden">
-            {/* Faint product grid background */}
-            <div className="p-6 grid grid-cols-3 gap-4 opacity-[0.12] pointer-events-none select-none">
-              {Array.from({ length: 9 }).map((_, i) => (
-                <div key={i} className="rounded-lg bg-[var(--color-text-muted)] aspect-[3/4]" />
-              ))}
-            </div>
-
-            {/* ── Floating widget (unwearable only) ── */}
-            {effectiveMode === "floating" && (
-              <>
-                {!widgetOpen && (
-                  <button
-                    onClick={() => setWidgetOpen(true)}
-                    className={cn(
-                      "absolute bottom-5 flex items-center gap-2 shadow-xl px-4 py-2.5 transition-all",
-                      form.position === "bottom-right" ? "right-5" : "left-5"
-                    )}
-                    style={{ background: form.primaryColor, borderRadius: form.borderRadius, fontFamily: form.fontFamily }}
-                  >
-                    <MessageCircle className="h-4 w-4 text-white" />
-                    <span className="text-white text-sm font-semibold">{form.agentName}</span>
-                  </button>
-                )}
-
-                {widgetOpen && (
-                  <div
-                    className={cn(
-                      "absolute bottom-5 w-72 shadow-2xl overflow-hidden flex flex-col",
-                      form.position === "bottom-right" ? "right-5" : "left-5"
-                    )}
-                    style={{ borderRadius: form.borderRadius, fontFamily: form.fontFamily, height: "360px" }}
-                  >
-                    {/* Header */}
-                    <div
-                      className="flex items-center justify-between px-4 py-3 shrink-0"
-                      style={{ background: form.primaryColor }}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className="h-7 w-7 rounded-full bg-white/25 flex items-center justify-center text-white text-xs font-bold shrink-0">
-                          {form.agentName.charAt(0)}
-                        </div>
-                        <div>
-                          <p className="text-white text-sm font-semibold leading-none">{form.agentName}</p>
-                          <div className="flex items-center gap-1 mt-0.5">
-                            <span className="h-1.5 w-1.5 rounded-full bg-green-300" />
-                            <span className="text-white/70 text-[10px]">Online</span>
-                          </div>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => setWidgetOpen(false)}
-                        className="h-6 w-6 rounded-full bg-white/20 flex items-center justify-center hover:bg-white/30 transition-colors"
-                      >
-                        <Minimize2 className="h-3 w-3 text-white" />
-                      </button>
-                    </div>
-
-                    {/* Messages */}
-                    <div className="flex-1 bg-white p-3 overflow-hidden space-y-2">
-                      <MockAgentBubble
-                        initial={form.agentName.charAt(0)}
-                        color={form.primaryColor}
-                        radius={form.borderRadius}
-                        text={form.welcomeMessage}
-                      />
-                      <MockUserBubble color={form.primaryColor} radius={form.borderRadius} text="Can you show me some options?" />
-                      <MockAgentBubble
-                        initial={form.agentName.charAt(0)}
-                        color={form.primaryColor}
-                        radius={form.borderRadius}
-                        text="Of course! Here are my top picks for you:"
-                      />
-                      <MiniProductRow color={form.primaryColor} radius={form.borderRadius} />
-                    </div>
-
-                    {/* Input */}
-                    <div className="bg-white border-t border-gray-100 px-3 py-2.5 flex items-center gap-2 shrink-0">
-                      <div className="flex-1 h-7 bg-gray-100 rounded-full px-3 text-[10px] text-gray-400 flex items-center">
-                        Type a message…
-                      </div>
-                      <div
-                        className="h-7 w-7 rounded-full flex items-center justify-center shrink-0"
-                        style={{ background: form.primaryColor }}
-                      >
-                        <Send className="h-3 w-3 text-white" />
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </>
+          <div
+            className={cn(
+              "embed-preview-surface relative flex-1 overflow-hidden",
+              form.theme === "dark" && "dark",
+              effectiveMode === "fullpage" && "bg-[var(--color-surface-base)] p-4"
             )}
-
-            {/* ── Full-page widget (wearable always; unwearable when fullpage selected) ── */}
-            {effectiveMode === "fullpage" && (
-              <div
-                className="absolute inset-4 flex flex-col overflow-hidden shadow-lg"
-                style={{ borderRadius: form.borderRadius, fontFamily: form.fontFamily }}
-              >
-                {/* Header */}
-                <div
-                  className="flex items-center justify-between px-5 py-3.5 shrink-0"
-                  style={{ background: form.primaryColor }}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <div className="h-8 w-8 rounded-full bg-white/25 flex items-center justify-center text-white text-sm font-bold shrink-0">
-                      {form.agentName.charAt(0)}
-                    </div>
-                    <div>
-                      <p className="text-white font-semibold text-sm leading-none">{form.agentName}</p>
-                      <div className="flex items-center gap-1 mt-0.5">
-                        <span className="h-1.5 w-1.5 rounded-full bg-green-300" />
-                        <span className="text-white/70 text-[10px]">Online</span>
-                      </div>
-                    </div>
-                  </div>
-                  <Minimize2 className="h-4 w-4 text-white/50" />
-                </div>
-
-                {/* Messages area */}
-                <div className="flex-1 bg-white px-4 py-4 overflow-hidden space-y-3">
-                  <MockAgentBubble
-                    initial={form.agentName.charAt(0)}
-                    color={form.primaryColor}
-                    radius={form.borderRadius}
-                    text={form.welcomeMessage}
-                    large
-                  />
-                  <MockUserBubble
-                    color={form.primaryColor}
-                    radius={form.borderRadius}
-                    text={isWearable ? "I want to try on that red jacket." : "Can you show me some options?"}
-                    large
-                  />
-                  <MockAgentBubble
-                    initial={form.agentName.charAt(0)}
-                    color={form.primaryColor}
-                    radius={form.borderRadius}
-                    text={isWearable ? "Great choice! I'll generate a try-on image with that jacket for you." : "Of course! Here are my top picks for you:"}
-                    large
-                  />
-                  {!isWearable && (
-                    <MiniProductRow color={form.primaryColor} radius={form.borderRadius} large />
-                  )}
-                  {isWearable && (
-                    <TryOnImagePlaceholder color={form.primaryColor} radius={form.borderRadius} />
-                  )}
-                </div>
-
-                {/* Input */}
-                <div className="bg-white border-t border-gray-100 px-4 py-3 flex items-center gap-3 shrink-0">
-                  <div className="flex-1 h-8 bg-gray-100 rounded-full px-4 text-xs text-gray-400 flex items-center">
-                    {isWearable ? "Ask about sizing, style, or try an outfit…" : "Ask about products, prices, delivery…"}
-                  </div>
-                  <div
-                    className="h-8 w-8 rounded-full flex items-center justify-center shrink-0"
-                    style={{ background: form.primaryColor }}
-                  >
-                    <Send className="h-3.5 w-3.5 text-white" />
-                  </div>
-                </div>
-              </div>
-            )}
+            style={brandStyle}
+          >
+            <BrandingAgentPreview
+              mode={workspace.mode}
+              displayMode={effectiveMode}
+              agentName={form.agentName}
+              welcomeMessage={form.welcomeMessage}
+              logoUrl={form.logoUrl}
+              primaryColor={form.primaryColor}
+              borderRadius={form.borderRadius}
+              position={form.position}
+            />
           </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ── Sub-components for mock messages ────────────────────────────────────── */
-
-interface BubbleProps {
-  initial: string;
-  color: string;
-  radius: string;
-  text: string;
-  large?: boolean;
-}
-
-function MockAgentBubble({ initial, color, radius, text, large }: BubbleProps) {
-  return (
-    <div className="flex items-start gap-2">
-      <div
-        className={cn(
-          "flex items-center justify-center text-white font-bold shrink-0 mt-0.5",
-          large ? "h-7 w-7 text-xs" : "h-5 w-5 text-[9px]"
-        )}
-        style={{ background: color, borderRadius: radius === "999px" ? "999px" : "8px" }}
-      >
-        {initial}
-      </div>
-      <div
-        className={cn(
-          "bg-gray-100 text-gray-800 max-w-[75%]",
-          large ? "text-xs px-3 py-2" : "text-[10px] px-2.5 py-1.5"
-        )}
-        style={{ borderRadius: radius }}
-      >
-        {text}
-      </div>
-    </div>
-  );
-}
-
-function MockUserBubble({ color, radius, text, large }: Omit<BubbleProps, "initial">) {
-  return (
-    <div className="flex justify-end">
-      <div
-        className={cn(
-          "text-white max-w-[70%]",
-          large ? "text-xs px-3 py-2" : "text-[10px] px-2.5 py-1.5"
-        )}
-        style={{ background: color, borderRadius: radius }}
-      >
-        {text}
-      </div>
-    </div>
-  );
-}
-
-function MiniProductRow({ color, radius, large }: { color: string; radius: string; large?: boolean }) {
-  const items = [
-    { name: "Classic Sneakers", price: "$89" },
-    { name: "Slim Chinos", price: "$65" },
-  ];
-  return (
-    <div className="flex gap-2 pl-7">
-      {items.map((item) => (
-        <div
-          key={item.name}
-          className={cn(
-            "bg-gray-50 border border-gray-200 flex flex-col gap-1",
-            large ? "p-2 w-28" : "p-1.5 w-20"
-          )}
-          style={{ borderRadius: radius }}
-        >
-          <div className="w-full aspect-square bg-gray-200 rounded" />
-          <p className={cn("font-medium text-gray-700 truncate", large ? "text-[10px]" : "text-[8px]")}>{item.name}</p>
-          <div className="flex items-center justify-between">
-            <p className={cn("text-gray-500", large ? "text-[10px]" : "text-[8px]")}>{item.price}</p>
-            <div
-              className="h-4 w-4 rounded flex items-center justify-center"
-              style={{ background: color }}
-            >
-              <ShoppingBag className="h-2.5 w-2.5 text-white" />
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function TryOnImagePlaceholder({ color, radius }: { color: string; radius: string }) {
-  return (
-    <div className="flex gap-3 pl-7 items-start">
-      <div
-        className="w-28 aspect-[2/3] border-2 flex flex-col items-center justify-center gap-1 shrink-0"
-        style={{ borderColor: color, borderRadius: radius }}
-      >
-        <div className="h-10 w-10 rounded-full bg-gray-200" />
-        <div className="h-16 w-10 bg-gray-200 rounded" />
-        <p className="text-[8px] text-gray-400 mt-1">Try-on preview</p>
-      </div>
-      <div className="space-y-1 pt-1">
-        <p className="text-[9px] font-semibold text-gray-700">Red Knit Jacket</p>
-        <p className="text-[9px] text-gray-500">Size: M · Recommended ✓</p>
-        <div
-          className="text-[9px] text-white px-2 py-1 inline-block"
-          style={{ background: color, borderRadius: radius }}
-        >
-          Add to cart
         </div>
       </div>
     </div>

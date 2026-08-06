@@ -17,6 +17,8 @@ import {
   ChevronsRight,
   User,
   Gauge,
+  ImageIcon,
+  Clock3,
 } from "lucide-react";
 import { LogoMark } from "@/components/brand/logo";
 import { SidebarNavItem } from "./sidebar/sidebar-nav-item";
@@ -211,6 +213,9 @@ export function AppSidebar() {
 
         {/* ── Account footer ───────────────────────────────────────── */}
         <div className={cn("shrink-0 border-t border-[var(--color-sidebar-border)]", collapsed ? "p-2" : "p-2.5")}>
+          {active?.mode === "wearable" && (
+            <SidebarUsageBalance workspaceId={active.id} collapsed={collapsed} />
+          )}
           {!collapsed && (
             <p className="px-3 pb-2 text-[10px] font-bold text-[var(--color-sidebar-text-muted)] uppercase tracking-widest">
               Account
@@ -236,6 +241,143 @@ export function AppSidebar() {
         </div>
       </motion.aside>
     </TooltipProvider>
+  );
+}
+
+interface SidebarUsageSummary {
+  images: {
+    includedRemaining: number;
+    creditsBalance: number;
+  };
+  liveTryOn: {
+    includedRemainingSeconds: number;
+    purchasedSecondsBalance: number;
+  };
+}
+
+function SidebarUsageBalance({ workspaceId, collapsed }: { workspaceId: string; collapsed: boolean }) {
+  const [usage, setUsage] = React.useState<SidebarUsageSummary | null>(null);
+
+  const load = React.useCallback(async () => {
+    try {
+      const response = await fetch(
+        `/api/account/billing-summary?workspaceId=${encodeURIComponent(workspaceId)}`,
+        { cache: "no-store" }
+      );
+      if (!response.ok) return;
+      setUsage((await response.json()) as SidebarUsageSummary);
+    } catch {
+      // The persistent sidebar should remain usable if usage data is temporarily unavailable.
+    }
+  }, [workspaceId]);
+
+  React.useEffect(() => {
+    const initial = window.setTimeout(() => void load(), 0);
+    const interval = window.setInterval(() => void load(), 30_000);
+    const refresh = () => void load();
+    window.addEventListener("focus", refresh);
+    window.addEventListener("autommerce:usage-changed", refresh);
+    return () => {
+      window.clearTimeout(initial);
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("autommerce:usage-changed", refresh);
+    };
+  }, [load]);
+
+  const imagesRemaining = usage
+    ? usage.images.includedRemaining + usage.images.creditsBalance
+    : null;
+  const secondsRemaining = usage
+    ? usage.liveTryOn.includedRemainingSeconds + usage.liveTryOn.purchasedSecondsBalance
+    : null;
+  const minutesRemaining = secondsRemaining === null ? null : Math.ceil(secondsRemaining / 60);
+
+  if (collapsed) {
+    return (
+      <div className="mb-2 flex flex-col gap-1">
+        <SidebarUsageItem
+          collapsed
+          icon={<ImageIcon className="h-3.5 w-3.5" />}
+          value={imagesRemaining === null ? "—" : imagesRemaining.toLocaleString()}
+          tooltip={`${imagesRemaining?.toLocaleString() ?? "—"} images remaining`}
+        />
+        <SidebarUsageItem
+          collapsed
+          icon={<Clock3 className="h-3.5 w-3.5" />}
+          value={minutesRemaining === null ? "—" : `${minutesRemaining}m`}
+          tooltip={`${minutesRemaining ?? "—"} live try-on minutes remaining`}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <Link
+      href="/usage"
+      className="mb-2 block rounded-[var(--radius-xl)] border border-[var(--color-sidebar-border)] bg-[var(--color-sidebar-surface)] p-2.5 transition-colors hover:bg-[var(--color-sidebar-surface-hover)]"
+    >
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-sidebar-text-muted)]">
+          Remaining usage
+        </span>
+        <Gauge className="h-3.5 w-3.5 text-[var(--color-sidebar-text-muted)]" />
+      </div>
+      <div className="grid grid-cols-2 gap-1.5">
+        <SidebarUsageItem
+          icon={<ImageIcon className="h-3.5 w-3.5" />}
+          value={imagesRemaining === null ? "—" : imagesRemaining.toLocaleString()}
+          label="Images"
+        />
+        <SidebarUsageItem
+          icon={<Clock3 className="h-3.5 w-3.5" />}
+          value={minutesRemaining === null ? "—" : `${minutesRemaining}m`}
+          label="Live"
+        />
+      </div>
+    </Link>
+  );
+}
+
+function SidebarUsageItem({
+  icon,
+  value,
+  label,
+  collapsed = false,
+  tooltip,
+}: {
+  icon: React.ReactNode;
+  value: string;
+  label?: string;
+  collapsed?: boolean;
+  tooltip?: string;
+}) {
+  const content = (
+    <span
+      className={cn(
+        "flex items-center rounded-[var(--radius-md)] bg-[rgba(255,255,255,0.055)] text-[var(--color-sidebar-text)]",
+        collapsed ? "h-9 flex-col justify-center gap-0 px-1" : "gap-1.5 px-2 py-1.5"
+      )}
+    >
+      <span className="text-[var(--color-brand)]">{icon}</span>
+      <span className={cn("font-bold leading-none", collapsed ? "text-[8px]" : "text-[11px]")}>{value}</span>
+      {!collapsed && label && (
+        <span className="text-[9px] text-[var(--color-sidebar-text-muted)]">{label}</span>
+      )}
+    </span>
+  );
+
+  if (!collapsed) return content;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{content}</TooltipTrigger>
+      <TooltipContent
+        side="right"
+        className="bg-[var(--color-sidebar-bg)] border-[var(--color-sidebar-border)] text-[var(--color-sidebar-text)]"
+      >
+        {tooltip}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -282,8 +424,8 @@ function SidebarAccountCard({
   const displayName = user
     ? [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email
     : "My Account";
-  const tier = user?.subscriptionTier ?? "free";
-  const tierLabel = tier === "free" ? "Free" : tier.charAt(0).toUpperCase() + tier.slice(1);
+  const tier = user?.subscriptionTier ?? "fixed";
+  const tierLabel = tier.charAt(0).toUpperCase() + tier.slice(1);
 
   const trigger = (
     <button

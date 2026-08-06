@@ -65,7 +65,7 @@ export function CatalogSyncPanel({
       <div className="flex items-center justify-between">
         <p className="text-xs text-[var(--color-text-muted)]">
           {syncedAt
-            ? `Last synced at ${new Date(syncedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+            ? `Last synced at ${new Date(syncedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`
             : "Not synced yet"}
         </p>
         <Button variant="secondary" size="sm" loading={isSyncing} onClick={onSync}>

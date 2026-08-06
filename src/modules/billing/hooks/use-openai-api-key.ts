@@ -26,16 +26,20 @@ async function fetchApiKeyStatus(): Promise<{ hasKey: boolean; maskedKey: string
  * The raw key is only ever sent up (PUT), never fetched back down — the API
  * only returns whether a key is set and a masked preview like "sk-...ab12".
  */
-export function useOpenaiApiKey() {
+export function useOpenaiApiKey(enabled: boolean = true) {
   const [state, setState] = React.useState<OpenaiApiKeyState>({
     hasKey: false,
     maskedKey: null,
-    loading: true,
+    loading: enabled,
     saving: false,
     error: null,
   });
 
   React.useEffect(() => {
+    // Skipped for the embedded (no-login) try-on page — there's no shopper session for
+    // `/api/account/api-key` to check, and a relative fetch there would hit the merchant's
+    // own site origin instead of this app's.
+    if (!enabled) return;
     let active = true;
     async function load() {
       const result = await fetchApiKeyStatus();
@@ -46,7 +50,7 @@ export function useOpenaiApiKey() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [enabled]);
 
   async function reload() {
     setState((s) => ({ ...s, loading: true }));

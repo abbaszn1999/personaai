@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Image from "next/image";
-import { Check, Plus, ShoppingBag } from "lucide-react";
+import { Check, Loader2, Plus, ShoppingBag } from "lucide-react";
 import type { Product } from "@/modules/shopping-agent/types";
 import { formatPrice } from "@/modules/shopping-agent/constants";
 import { cn } from "@/lib/utils/cn";
@@ -16,10 +16,11 @@ export interface ActiveLookItem {
 interface GarmentHotspotProps {
   item: ActiveLookItem;
   inCart: boolean;
+  isPending?: boolean;
   onAddToCart: (product: Product) => void;
 }
 
-export function GarmentHotspot({ item, inCart, onAddToCart }: GarmentHotspotProps) {
+export function GarmentHotspot({ item, inCart, isPending = false, onAddToCart }: GarmentHotspotProps) {
   const [isOpen, setIsOpen] = React.useState(false);
   const closeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -56,7 +57,7 @@ export function GarmentHotspot({ item, inCart, onAddToCart }: GarmentHotspotProp
         <span
           className={cn(
             "relative h-4 w-4 rounded-full border-2 border-white shadow-[0_0_0_3px_rgba(0,0,0,0.3)] transition-colors",
-            inCart ? "bg-[#10b981]" : "bg-[#f76d01] group-hover:bg-[#ff8a2b]"
+            inCart ? "bg-[#10b981]" : "bg-[var(--color-brand)] group-hover:brightness-110"
           )}
         />
         {/* "+" badge */}
@@ -89,7 +90,7 @@ export function GarmentHotspot({ item, inCart, onAddToCart }: GarmentHotspotProp
                 <span className="text-[12px] font-bold text-white">
                   {formatPrice(item.product.price, item.product.currency)}
                 </span>
-                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#f76d01]/20 text-[#f76d01]">
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[var(--color-brand)]/20 text-[var(--color-brand)]">
                   Size {item.size}
                 </span>
               </div>
@@ -99,15 +100,21 @@ export function GarmentHotspot({ item, inCart, onAddToCart }: GarmentHotspotProp
           <button
             type="button"
             onClick={() => { onAddToCart(item.product); setIsOpen(false); }}
-            disabled={inCart}
+            disabled={inCart || isPending}
             className={cn(
               "mt-2.5 w-full h-9 rounded-lg text-[12px] font-semibold flex items-center justify-center gap-1.5 transition-all",
               inCart
                 ? "bg-white/10 text-white/60 cursor-default"
-                : "bg-gradient-to-r from-[#f76d01] to-[#e85d04] text-white hover:brightness-110 active:scale-[0.97]"
+                : "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-white hover:brightness-110 active:scale-[0.97]"
             )}
           >
-            {inCart ? <><Check className="h-3.5 w-3.5" /> Added to Cart</> : <><ShoppingBag className="h-3.5 w-3.5" /> Add to Cart</>}
+            {isPending ? (
+              <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Adding…</>
+            ) : inCart ? (
+              <><Check className="h-3.5 w-3.5" /> Added to Cart</>
+            ) : (
+              <><ShoppingBag className="h-3.5 w-3.5" /> Add to Cart</>
+            )}
           </button>
         </div>
       )}

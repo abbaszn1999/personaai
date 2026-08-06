@@ -8,10 +8,12 @@ import type { PlanTier } from "../types";
 interface PlanCardProps {
   plan: PlanTier;
   isActive: boolean;
+  loading?: boolean;
+  disabled?: boolean;
   onSelect: () => void;
 }
 
-export function PlanCard({ plan, isActive, onSelect }: PlanCardProps) {
+export function PlanCard({ plan, isActive, loading = false, disabled = false, onSelect }: PlanCardProps) {
   return (
     <div
       className={cn(
@@ -51,7 +53,8 @@ export function PlanCard({ plan, isActive, onSelect }: PlanCardProps) {
         <Button
           size="md"
           variant={isActive ? "secondary" : "primary"}
-          disabled={isActive || plan.isContactOnly}
+          disabled={isActive || plan.isContactOnly || disabled}
+          loading={loading}
           onClick={plan.isContactOnly ? undefined : onSelect}
           className="w-full"
         >

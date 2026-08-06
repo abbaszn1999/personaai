@@ -16,8 +16,8 @@ import {
 import type { ChatMessage as ChatMessageType } from "@/modules/shopping-agent/types";
 import type { BundleSuggestion, Product } from "@/modules/shopping-agent/types";
 import { formatPrice } from "@/modules/shopping-agent/constants";
-import { MOCK_WEARABLE_PRODUCTS } from "@/lib/mock-api/catalog";
 import { SCAN_STAGES } from "../mocks/responses";
+import { useWearableBranding } from "../branding-context";
 import { cn } from "@/lib/utils/cn";
 
 interface WearableChatMessageProps {
@@ -27,7 +27,11 @@ interface WearableChatMessageProps {
   inlineProducts?: Product[];
   outfitItemIds?: string[];
   cartItemIds?: string[];
+  pendingCartItemIds?: string[];
   isGenerating?: boolean;
+  /** The live product cache — bundles only carry product ids, so this resolves them to
+   *  the actual products the agent found via search_catalog earlier in the conversation. */
+  knownProducts?: Record<string, Product>;
   onWearItem?: (product: Product) => void;
   onAddToCart?: (product: Product) => void;
   onQuickOption?: (label: string) => void;
@@ -37,7 +41,7 @@ interface WearableChatMessageProps {
 
 function formatTime(iso: string): string {
   try {
-    return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return new Date(iso).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
   } catch {
     return "";
   }
@@ -50,7 +54,9 @@ export function WearableChatMessage({
   inlineProducts,
   outfitItemIds = [],
   cartItemIds = [],
+  pendingCartItemIds = [],
   isGenerating = false,
+  knownProducts = {},
   onWearItem,
   onAddToCart,
   onQuickOption,
@@ -58,13 +64,22 @@ export function WearableChatMessage({
   onAddBundleToCart,
 }: WearableChatMessageProps) {
   const isUser = message.role === "user";
+  const branding = useWearableBranding();
 
   return (
     <div className={cn("flex items-start gap-2.5 animate-fade-in", isUser ? "flex-row-reverse" : "flex-row")}>
       {!isUser ? (
-        <div className="h-8 w-8 rounded-full gradient-wearable flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
-          <Shirt className="h-4 w-4 text-white" />
-        </div>
+        branding.logoUrl ? (
+          <img
+            src={branding.logoUrl}
+            alt=""
+            className="h-8 w-8 rounded-full object-cover shrink-0 mt-0.5 shadow-sm"
+          />
+        ) : (
+          <div className="h-8 w-8 rounded-full gradient-wearable flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
+            <Shirt className="h-4 w-4 text-white" />
+          </div>
+        )
       ) : userPhotoUrl ? (
         <div className="relative h-8 w-8 rounded-full overflow-hidden shrink-0 mt-0.5 border-2 border-[var(--color-wearable-from)]/40">
           <Image src={userPhotoUrl} alt="You" fill className="object-cover" unoptimized />
@@ -107,19 +122,32 @@ export function WearableChatMessage({
         )}
 
         {inlineProducts && inlineProducts.length > 0 && (
-          <InlineProductScroller>
-            {inlineProducts.map((product) => (
-              <InlineSuggestionCard
-                key={product.id}
-                product={product}
-                isWorn={outfitItemIds.includes(product.id)}
-                inCart={cartItemIds.includes(product.id)}
-                isGenerating={isGenerating}
-                onWear={() => onWearItem?.(product)}
-                onAddToCart={() => onAddToCart?.(product)}
-              />
-            ))}
-          </InlineProductScroller>
+          <div className="space-y-1.5 w-full mt-1">
+            {message.catalogMatchType === "broad" && (
+              <p className="text-[10px] text-[var(--color-text-muted)] px-0.5">
+                General browse — not an exact match for your request
+              </p>
+            )}
+            {message.catalogMatchType === "partial" && (
+              <p className="text-[10px] text-[var(--color-text-muted)] px-0.5">
+                Close matches from related results
+              </p>
+            )}
+            <InlineProductScroller>
+              {inlineProducts.map((product) => (
+                <InlineSuggestionCard
+                  key={product.id}
+                  product={product}
+                  isWorn={outfitItemIds.includes(product.id)}
+                  inCart={cartItemIds.includes(product.id)}
+                  isPending={pendingCartItemIds.includes(product.id)}
+                  isGenerating={isGenerating}
+                  onWear={() => onWearItem?.(product)}
+                  onAddToCart={() => onAddToCart?.(product)}
+                />
+              ))}
+            </InlineProductScroller>
+          </div>
         )}
 
         {message.bundles && message.bundles.length > 0 && (
@@ -130,7 +158,9 @@ export function WearableChatMessage({
                 bundle={bundle}
                 index={i}
                 cartItemIds={cartItemIds}
+                pendingCartItemIds={pendingCartItemIds}
                 isGenerating={isGenerating}
+                knownProducts={knownProducts}
                 onRender={() => onRenderBundle?.(bundle.productIds)}
                 onAddAllToCart={() => onAddBundleToCart?.(bundle.productIds)}
               />
@@ -223,12 +253,13 @@ interface InlineSuggestionCardProps {
   product: Product;
   isWorn: boolean;
   inCart: boolean;
+  isPending?: boolean;
   isGenerating: boolean;
   onWear: () => void;
   onAddToCart: () => void;
 }
 
-export function InlineSuggestionCard({ product, isWorn, inCart, isGenerating, onWear, onAddToCart }: InlineSuggestionCardProps) {
+export function InlineSuggestionCard({ product, isWorn, inCart, isPending = false, isGenerating, onWear, onAddToCart }: InlineSuggestionCardProps) {
   // Disable while anything is rendering (avoid overlapping requests) or once it's already on the avatar.
   const wearDisabled = !product.inStock || isGenerating || isWorn;
   const wearBusy = isGenerating && isWorn;
@@ -260,12 +291,14 @@ export function InlineSuggestionCard({ product, isWorn, inCart, isGenerating, on
       <div className="p-2.5 space-y-2">
         <div>
           <p className="text-xs font-semibold text-[var(--color-text-primary)] line-clamp-1">{product.name}</p>
-          <div className="flex items-center gap-1 mt-0.5">
-            <Star className="h-2.5 w-2.5 text-amber-400 fill-current" />
-            <span className="text-[10px] text-[var(--color-text-muted)]">
-              {product.rating} ({product.reviewCount})
-            </span>
-          </div>
+          {product.reviewCount > 0 && (
+            <div className="flex items-center gap-1 mt-0.5">
+              <Star className="h-2.5 w-2.5 text-amber-400 fill-current" />
+              <span className="text-[10px] text-[var(--color-text-muted)]">
+                {product.rating} ({product.reviewCount})
+              </span>
+            </div>
+          )}
         </div>
         <span className="block text-xs font-bold text-[var(--color-text-primary)]">
           {formatPrice(product.price, product.currency)}
@@ -274,7 +307,7 @@ export function InlineSuggestionCard({ product, isWorn, inCart, isGenerating, on
           <button
             type="button"
             onClick={onAddToCart}
-            disabled={inCart || !product.inStock}
+            disabled={inCart || isPending || !product.inStock}
             title="Add to cart"
             className={cn(
               "flex-1 flex items-center justify-center gap-1 text-[10px] font-semibold px-2 py-1.5 rounded-full transition-all",
@@ -285,7 +318,11 @@ export function InlineSuggestionCard({ product, isWorn, inCart, isGenerating, on
                   : "bg-[var(--color-surface-base)] text-[var(--color-text-muted)] cursor-not-allowed"
             )}
           >
-            {inCart ? (
+            {isPending ? (
+              <>
+                <Loader2 className="h-2.5 w-2.5 animate-spin" /> Adding…
+              </>
+            ) : inCart ? (
               <>
                 <CheckCircle2 className="h-2.5 w-2.5" /> Added
               </>
@@ -331,14 +368,16 @@ interface BundleSuggestionCardProps {
   bundle: BundleSuggestion;
   index: number;
   cartItemIds: string[];
+  pendingCartItemIds?: string[];
   isGenerating: boolean;
+  knownProducts: Record<string, Product>;
   onRender: () => void;
   onAddAllToCart: () => void;
 }
 
-function BundleSuggestionCard({ bundle, index, cartItemIds, isGenerating, onRender, onAddAllToCart }: BundleSuggestionCardProps) {
+function BundleSuggestionCard({ bundle, index, cartItemIds, pendingCartItemIds = [], isGenerating, knownProducts, onRender, onAddAllToCart }: BundleSuggestionCardProps) {
   const products = bundle.productIds
-    .map((id) => MOCK_WEARABLE_PRODUCTS.find((p) => p.id === id))
+    .map((id) => knownProducts[id])
     .filter((p): p is Product => !!p);
 
   if (products.length === 0) return null;
@@ -346,6 +385,7 @@ function BundleSuggestionCard({ bundle, index, cartItemIds, isGenerating, onRend
   const total = products.reduce((sum, p) => sum + p.price, 0);
   const currency = products[0]?.currency ?? "USD";
   const allInCart = products.every((p) => cartItemIds.includes(p.id));
+  const anyPending = products.some((p) => pendingCartItemIds.includes(p.id));
 
   return (
     <div className="w-full max-w-[320px] rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] overflow-hidden">
@@ -370,7 +410,7 @@ function BundleSuggestionCard({ bundle, index, cartItemIds, isGenerating, onRend
           <button
             type="button"
             onClick={onAddAllToCart}
-            disabled={allInCart}
+            disabled={allInCart || anyPending}
             className={cn(
               "flex-1 flex items-center justify-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-full transition-all",
               allInCart
@@ -378,7 +418,11 @@ function BundleSuggestionCard({ bundle, index, cartItemIds, isGenerating, onRend
                 : "border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-brand)] hover:text-[var(--color-brand)]"
             )}
           >
-            {allInCart ? (
+            {anyPending ? (
+              <>
+                <Loader2 className="h-3 w-3 animate-spin" /> Adding…
+              </>
+            ) : allInCart ? (
               <>
                 <CheckCircle2 className="h-3 w-3" /> Added
               </>
@@ -517,8 +561,17 @@ function BundleItemMosaic({ products, bundleIndex }: { products: Product[]; bund
   );
 }
 
-/** Shown in the chat feed while the agent "scans the catalog" for personalized picks. */
-export function WearableScanningIndicator({ stageIndex }: { stageIndex: number }) {
+/** Shown in the chat feed while the agent "scans the catalog" for personalized picks.
+ *  `resultCount`, once the search_catalog tool call actually resolves, replaces the last
+ *  cosmetic stage with the real number of matches found instead of a generic label. */
+export function WearableScanningIndicator({
+  stageIndex,
+  resultCount,
+}: {
+  stageIndex: number;
+  resultCount?: number | null;
+}) {
+  const lastStageIndex = SCAN_STAGES.length - 1;
   return (
     <div className="flex items-start gap-2.5 animate-fade-in">
       <div className="h-8 w-8 rounded-full gradient-wearable flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
@@ -545,7 +598,9 @@ export function WearableScanningIndicator({ stageIndex }: { stageIndex: number }
                   i <= stageIndex ? "text-[var(--color-text-secondary)]" : "text-[var(--color-text-muted)]"
                 )}
               >
-                {label}
+                {i === lastStageIndex && typeof resultCount === "number"
+                  ? `Found ${resultCount} matching item${resultCount === 1 ? "" : "s"}…`
+                  : label}
               </span>
             </div>
           ))}

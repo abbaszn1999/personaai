@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils/cn";
 interface ProfileSetupGateProps {
   profile: TryOnProfile;
   profileComplete: boolean;
+  error?: string | null;
   onUpdate: (patch: Partial<TryOnProfile>) => void;
   onContinue: () => void;
 }
@@ -17,6 +18,7 @@ interface ProfileSetupGateProps {
 export function ProfileSetupGate({
   profile,
   profileComplete,
+  error,
   onUpdate,
   onContinue,
 }: ProfileSetupGateProps) {
@@ -42,6 +44,12 @@ export function ProfileSetupGate({
       <div className="rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-base)]/50 p-6">
         <BodyProfileForm profile={profile} onChange={onUpdate} />
       </div>
+
+      {error && (
+        <div className="rounded-[var(--radius-lg)] border border-[var(--color-danger)]/30 bg-[var(--color-danger)]/10 px-4 py-3 text-center text-sm text-[var(--color-danger)]">
+          {error}
+        </div>
+      )}
 
       <div className="flex flex-col items-center gap-2">
         <Button

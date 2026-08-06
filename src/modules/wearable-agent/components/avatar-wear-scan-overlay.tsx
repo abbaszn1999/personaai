@@ -12,15 +12,25 @@ const WEAR_SCAN_STAGES = [
   "Rendering on avatar…",
 ] as const;
 
-const SCAN_DURATION_MS = 2400;
+// One-way sweep duration — the beam bounces top→bottom→top continuously at this pace for
+// as long as the overlay is mounted, since the real render call can take anywhere from a
+// few seconds to well over a minute and a single one-shot pass would just freeze partway
+// through a long wait.
+const SWEEP_DURATION_MS = 2200;
 
 interface AvatarWearScanOverlayProps {
   itemLabel?: string;
 }
 
-/** Full-panel top→bottom scan animation shown while a garment is being fitted onto the avatar. */
+// Brand-derived translucent tints — `--color-brand` is overridden per-merchant on the embed
+// mount root (see resolveBrandCssVars), so the whole scan HUD recolors with their palette.
+const brandAlpha = (pct: number) => `color-mix(in srgb, var(--color-brand) ${pct}%, transparent)`;
+
+/** Full-panel scan animation shown while a garment is being fitted onto the avatar — the
+ *  beam sweeps down then back up on a loop for as long as fitting is in progress, rather
+ *  than a single top→bottom pass that finishes and sits idle while the real render continues. */
 export function AvatarWearScanOverlay({ itemLabel }: AvatarWearScanOverlayProps) {
-  const [progress, setProgress] = React.useState(0);
+  const [beamPosition, setBeamPosition] = React.useState(0);
   const [stageIndex, setStageIndex] = React.useState(0);
 
   React.useEffect(() => {
@@ -29,17 +39,15 @@ export function AvatarWearScanOverlay({ itemLabel }: AvatarWearScanOverlayProps)
 
     function tick(now: number) {
       const elapsed = now - start;
-      const ratio = Math.min(1, elapsed / SCAN_DURATION_MS);
-      setProgress(ratio * 100);
-      setStageIndex(
-        Math.min(
-          WEAR_SCAN_STAGES.length - 1,
-          Math.floor(ratio * WEAR_SCAN_STAGES.length)
-        )
-      );
-      if (ratio < 1) {
-        frame = requestAnimationFrame(tick);
-      }
+
+      // Triangle wave: 0 → 1 over one sweep, then 1 → 0 over the next — repeats forever.
+      const cyclePos = (elapsed % (SWEEP_DURATION_MS * 2)) / SWEEP_DURATION_MS;
+      const ratio = cyclePos <= 1 ? cyclePos : 2 - cyclePos;
+      setBeamPosition(ratio * 100);
+
+      setStageIndex(Math.floor(elapsed / SWEEP_DURATION_MS) % WEAR_SCAN_STAGES.length);
+
+      frame = requestAnimationFrame(tick);
     }
 
     frame = requestAnimationFrame(tick);
@@ -55,38 +63,46 @@ export function AvatarWearScanOverlay({ itemLabel }: AvatarWearScanOverlayProps)
       <div
         className="absolute inset-0 opacity-[0.18]"
         style={{
-          backgroundImage:
-            "linear-gradient(rgba(247,109,1,0.55) 1px, transparent 1px), linear-gradient(90deg, rgba(247,109,1,0.55) 1px, transparent 1px)",
+          backgroundImage: `linear-gradient(${brandAlpha(55)} 1px, transparent 1px), linear-gradient(90deg, ${brandAlpha(55)} 1px, transparent 1px)`,
           backgroundSize: "28px 28px",
         }}
       />
 
       {/* Scanned region — everything above the beam gets a warm tint */}
       <div
-        className="absolute inset-x-0 top-0 bg-gradient-to-b from-[rgba(247,109,1,0.14)] via-[rgba(247,109,1,0.06)] to-transparent"
-        style={{ height: `${progress}%` }}
+        className="absolute inset-x-0 top-0"
+        style={{
+          height: `${beamPosition}%`,
+          background: `linear-gradient(to bottom, ${brandAlpha(14)}, ${brandAlpha(6)}, transparent)`,
+        }}
       />
 
       {/* Main scan beam */}
       <div
         className="absolute inset-x-0"
-        style={{ top: `calc(${progress}% - 1px)` }}
+        style={{ top: `calc(${beamPosition}% - 1px)` }}
       >
-        <div className="h-[2px] w-full bg-gradient-to-r from-transparent via-[#ff8a2b] to-transparent shadow-[0_0_18px_6px_rgba(247,109,1,0.75)]" />
-        <div className="h-16 w-full -mt-8 bg-gradient-to-b from-[rgba(247,109,1,0.35)] to-transparent blur-sm" />
+        <div
+          className="h-[2px] w-full bg-gradient-to-r from-transparent via-[var(--color-brand)] to-transparent"
+          style={{ boxShadow: `0 0 18px 6px ${brandAlpha(75)}` }}
+        />
+        <div
+          className="h-16 w-full -mt-8 blur-sm"
+          style={{ background: `linear-gradient(to bottom, ${brandAlpha(35)}, transparent)` }}
+        />
       </div>
 
       {/* Corner brackets — HUD frame */}
-      <div className="absolute top-6 left-6 h-10 w-10 border-t-2 border-l-2 border-[#f76d01]/70 rounded-tl-sm" />
-      <div className="absolute top-6 right-[268px] h-10 w-10 border-t-2 border-r-2 border-[#f76d01]/70 rounded-tr-sm" />
-      <div className="absolute bottom-6 left-6 h-10 w-10 border-b-2 border-l-2 border-[#f76d01]/70 rounded-bl-sm" />
-      <div className="absolute bottom-6 right-[268px] h-10 w-10 border-b-2 border-r-2 border-[#f76d01]/70 rounded-br-sm" />
+      <div className="absolute top-6 left-6 h-10 w-10 border-t-2 border-l-2 border-[var(--color-brand)]/70 rounded-tl-sm" />
+      <div className="absolute top-6 right-[268px] h-10 w-10 border-t-2 border-r-2 border-[var(--color-brand)]/70 rounded-tr-sm" />
+      <div className="absolute bottom-6 left-6 h-10 w-10 border-b-2 border-l-2 border-[var(--color-brand)]/70 rounded-bl-sm" />
+      <div className="absolute bottom-6 right-[268px] h-10 w-10 border-b-2 border-r-2 border-[var(--color-brand)]/70 rounded-br-sm" />
 
       {/* Status card — top-left */}
       <div className="absolute top-8 left-10 z-[31] max-w-[280px] rounded-2xl border border-white/10 bg-[rgba(10,8,14,0.78)] backdrop-blur-xl px-4 py-3 shadow-[0_12px_40px_rgba(0,0,0,0.45)]">
         <div className="flex items-center gap-2 mb-2">
-          <div className="h-7 w-7 rounded-full bg-[#f76d01]/20 flex items-center justify-center">
-            <ScanLine className="h-3.5 w-3.5 text-[#f76d01]" />
+          <div className="h-7 w-7 rounded-full bg-[var(--color-brand)]/20 flex items-center justify-center">
+            <ScanLine className="h-3.5 w-3.5 text-[var(--color-brand)]" />
           </div>
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/45">
@@ -100,35 +116,37 @@ export function AvatarWearScanOverlay({ itemLabel }: AvatarWearScanOverlayProps)
 
         {itemLabel && (
           <div className="flex items-center gap-1.5 mb-2.5 text-[11px] text-white/70">
-            <Shirt className="h-3 w-3 text-[#f76d01] shrink-0" />
+            <Shirt className="h-3 w-3 text-[var(--color-brand)] shrink-0" />
             <span className="line-clamp-1">{itemLabel}</span>
           </div>
         )}
 
-        <p className="text-[11px] text-[#f76d01] font-medium mb-2">
+        <p className="text-[11px] text-[var(--color-brand)] font-medium mb-2">
           {WEAR_SCAN_STAGES[stageIndex]}
         </p>
 
-        {/* Progress bar */}
+        {/* Sweep meter — pulses with the beam rather than a literal % since the real
+            render has no fixed completion time and could take well past one sweep. */}
         <div className="h-1 rounded-full bg-white/10 overflow-hidden">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-[#f76d01] to-[#ff8a2b] transition-[width] duration-100 ease-linear"
-            style={{ width: `${progress}%` }}
+            className="h-full rounded-full bg-[var(--color-brand)] transition-[width] duration-100 ease-linear"
+            style={{ width: `${beamPosition}%` }}
           />
         </div>
-        <p className="mt-1.5 text-right text-[10px] font-bold text-white/50 tabular-nums">
-          {Math.round(progress)}%
+        <p className="mt-1.5 flex items-center justify-end gap-1 text-[10px] font-bold text-white/50">
+          <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-brand)] animate-pulse-dot" />
+          Scanning…
         </p>
       </div>
 
-      {/* Vertical tick marks on the scan path */}
+      {/* Vertical tick marks on the scan path — light up as the beam sweeps past each one */}
       <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-px bg-gradient-to-b from-transparent via-white/10 to-transparent" />
       {[20, 40, 60, 80].map((tick) => (
         <div
           key={tick}
           className={cn(
             "absolute left-1/2 -translate-x-1/2 h-px w-8 bg-white/20 transition-opacity duration-300",
-            progress >= tick ? "opacity-100" : "opacity-30"
+            beamPosition >= tick ? "opacity-100" : "opacity-30"
           )}
           style={{ top: `${tick}%` }}
         />

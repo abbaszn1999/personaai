@@ -38,6 +38,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       lang="en"
       data-scroll-behavior="smooth"
       className={`${displayFont.variable} ${bodyFont.variable} ${geistMono.variable} h-full`}
+      // Some browser extensions (recorders, dictation tools, etc.) inject attributes
+      // into <html> before React hydrates. That's a benign, expected mismatch outside
+      // our control — suppress the warning instead of trying to "fix" third-party DOM.
+      suppressHydrationWarning
     >
       <body className="h-full bg-mesh">{children}</body>
     </html>

@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import { AlertTriangle, Coins } from "lucide-react";
 import { SettingsSection } from "@/components/ui/settings-section";
 import { CreditBundleCard } from "./credit-bundle-card";
@@ -7,7 +8,14 @@ import { useBilling } from "../hooks/use-billing";
 import { CREDIT_BUNDLES } from "../constants";
 
 export function CreditBundlesSection() {
-  const { isOverCap, lastPurchasedBundleId, purchaseBundle } = useBilling();
+  const { summary, purchaseCreditBundle, pendingAction, error } = useBilling();
+  const [lastPurchasedBundleId, setLastPurchasedBundleId] = React.useState<string | null>(null);
+  const isOverCap = !!summary && summary.images.usedThisCycle >= summary.images.includedAllowance;
+
+  async function purchase(bundleId: string) {
+    const ok = await purchaseCreditBundle(bundleId);
+    if (ok) setLastPurchasedBundleId(bundleId);
+  }
 
   return (
     <SettingsSection
@@ -31,10 +39,16 @@ export function CreditBundlesSection() {
             key={bundle.id}
             bundle={bundle}
             justPurchased={lastPurchasedBundleId === bundle.id}
-            onBuy={() => purchaseBundle(bundle.id)}
+            loading={pendingAction === `credits:${bundle.id}`}
+            disabled={pendingAction !== null}
+            onBuy={() => void purchase(bundle.id)}
           />
         ))}
       </div>
+      <p className="mt-3 text-xs text-[var(--color-text-muted)]">
+        Secure checkout is handled by Stripe. Credits are added only after payment is confirmed.
+      </p>
+      {error && <p className="mt-2 text-sm text-[var(--color-error)]">{error}</p>}
     </SettingsSection>
   );
 }

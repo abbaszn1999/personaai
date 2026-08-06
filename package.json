@@ -2,18 +2,29 @@
   "name": "persona-ai",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@10.17.1",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/build-widget.mjs && next build",
+    "build:widget": "node scripts/build-widget.mjs",
     "start": "next start",
     "lint": "eslint",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "db:link": "dotenv -e .env.local -- supabase link --project-ref $SUPABASE_PROJECT_REF",
     "db:push": "dotenv -e .env.local -- supabase db push",
     "db:pull": "dotenv -e .env.local -- supabase db pull",
     "db:types": "dotenv -e .env.local -- supabase gen types typescript --linked > src/lib/supabase/database.types.ts",
-    "db:projects": "dotenv -e .env.local -- supabase projects list"
+    "db:projects": "dotenv -e .env.local -- supabase projects list",
+    "setup:stripe": "dotenv -e .env.local -- node scripts/setup-stripe-catalog.mjs",
+    "generate:backdrops": "dotenv -e .env.local -- node scripts/generate-backdrop-plates.mjs"
   },
   "dependencies": {
+    "@decartai/sdk": "^0.1.17",
+    "@google/genai": "^2.10.0",
     "@radix-ui/react-avatar": "^1.2.1",
     "@radix-ui/react-dialog": "^1.1.18",
     "@radix-ui/react-dropdown-menu": "^2.1.19",
@@ -37,6 +48,8 @@
     "react-dom": "19.2.4",
     "recharts": "^3.9.1",
     "resend": "^6.16.0",
+    "sharp": "^0.35.3",
+    "stripe": "^22.4.0",
     "tailwind-merge": "^3.6.0",
     "zustand": "^5.0.14"
   },
@@ -47,10 +60,12 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "dotenv-cli": "^11.0.0",
+    "esbuild": "^0.28.1",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
     "supabase": "^2.109.0",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }

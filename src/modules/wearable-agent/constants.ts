@@ -1,13 +1,3 @@
-import type { AvatarVariation, BodyShape } from "./types";
-
-export const BODY_SHAPE_LABELS: Record<BodyShape, string> = {
-  rectangle: "Rectangle",
-  hourglass: "Hourglass",
-  pear: "Pear",
-  apple: "Apple",
-  "inverted-triangle": "Inverted Triangle",
-};
-
 export const AVATAR_GENERATION_STAGES = [
   { label: "Analyzing your face photo", progress: 18 },
   { label: "Mapping body measurements", progress: 42 },
@@ -16,63 +6,28 @@ export const AVATAR_GENERATION_STAGES = [
   { label: "Almost ready…", progress: 100 },
 ] as const;
 
-/**
- * Full-body studio photographs used as standing avatars.
- * Each image is a complete studio shot (architectural backdrop + lighting +
- * model) so it can be dropped in as a single cohesive "stage" background,
- * matching a real photography-studio try-on experience.
- */
-export const MOCK_AVATAR_VARIATIONS: AvatarVariation[] = [
-  {
-    id: "av-1",
-    label: "Brown Blazer",
-    imageUrl: "/avatars/avatar-studio-male-1.png",
-  },
-  {
-    id: "av-2",
-    label: "Navy Suit",
-    imageUrl: "/avatars/avatar-studio-male-2.png",
-  },
-  {
-    id: "av-3",
-    label: "Beige Tailored",
-    imageUrl: "/avatars/avatar-studio-female-1.png",
-  },
-  {
-    id: "av-4",
-    label: "Black Midi",
-    imageUrl: "/avatars/avatar-studio-female-2.png",
-  },
+/** Default standing mannequin — used only as an image-error fallback when a real avatar URL fails.
+ *  `let`, not `const`: `setWearableAssetOrigin` below rewrites it in place for widget.js, and every
+ *  consumer reads the live ES module binding rather than a snapshotted copy. */
+export let DEFAULT_MANNEQUIN_IMAGE = "/avatars/avatar-studio-male-1.png";
+
+/** The 4 fixed studio backdrop plates — same photos paired 1:1 with the generated avatar
+ *  styles (see persona-agent backdropPathForIndex), offered here as swappable choices. */
+export const STUDIO_BACKDROPS: { id: string; label: string; url: string }[] = [
+  { id: "backdrop-1", label: "Arched Studio", url: "/avatars/backgrounds/backdrop-1.png" },
+  { id: "backdrop-2", label: "Loft Studio", url: "/avatars/backgrounds/backdrop-2.png" },
+  { id: "backdrop-3", label: "Runway Studio", url: "/avatars/backgrounds/backdrop-3.png" },
+  { id: "backdrop-4", label: "White Studio", url: "/avatars/backgrounds/backdrop-4.png" },
 ];
 
-/** Default standing mannequin — full studio photo shown before onboarding completes. */
-export const DEFAULT_MANNEQUIN_IMAGE = "/avatars/avatar-studio-male-1.png";
-
-/**
- * Maps a body shape to the closest-matching studio avatar variation, used to
- * simulate "regenerating" the mannequin after the shopper edits their stats.
- */
-export function pickAvatarForBodyShape(bodyShape: BodyShape | null): string {
-  if (!bodyShape) return DEFAULT_MANNEQUIN_IMAGE;
-  const map: Record<BodyShape, string> = {
-    rectangle: MOCK_AVATAR_VARIATIONS[1].imageUrl,
-    hourglass: MOCK_AVATAR_VARIATIONS[3].imageUrl,
-    pear: MOCK_AVATAR_VARIATIONS[2].imageUrl,
-    apple: MOCK_AVATAR_VARIATIONS[0].imageUrl,
-    "inverted-triangle": MOCK_AVATAR_VARIATIONS[1].imageUrl,
-  };
-  return map[bodyShape];
+/** Called once by widget.js's bootstrap when running inside a merchant's page via Shadow
+ *  DOM, where these root-relative `/avatars/...` paths would otherwise resolve against the
+ *  host page's origin instead of ours. No-op for the dashboard and the same-origin
+ *  `/embed/[token]` page, where relative paths already resolve correctly. */
+export function setWearableAssetOrigin(origin: string): void {
+  if (!origin) return;
+  DEFAULT_MANNEQUIN_IMAGE = `${origin}${DEFAULT_MANNEQUIN_IMAGE}`;
+  for (const bg of STUDIO_BACKDROPS) {
+    bg.url = `${origin}${bg.url}`;
+  }
 }
-
-/** Demo outfit swatches shown before items are added (matches the default look). */
-export const MOCK_OUTFIT_SWATCHES = [
-  { id: "sw-brown", label: "Brown", imageUrl: "/avatars/avatar-studio-male-1.png" },
-  { id: "sw-navy", label: "Navy", imageUrl: "/avatars/avatar-studio-male-2.png" },
-  { id: "sw-beige", label: "Beige", imageUrl: "/avatars/avatar-studio-female-1.png" },
-] as const;
-
-export const DEMO_SIZE_RECOMMENDATIONS = [
-  { label: "Blazer", size: "M" },
-  { label: "Shirt", size: "M" },
-  { label: "Pant", size: "32" },
-] as const;

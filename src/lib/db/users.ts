@@ -20,6 +20,7 @@ export interface UserRow {
   notification_preferences: Record<string, unknown> | null;
   openai_api_key_encrypted: string | null;
   credits: number;
+  live_tryon_seconds_balance: number;
   subscription_tier: string;
   workspace_limit: number;
   created_at: string;
@@ -258,4 +259,41 @@ export async function getOpenaiApiKeyEncrypted(id: string): Promise<string | nul
 
   if (error || !data) return null;
   return data.openai_api_key_encrypted ?? null;
+}
+
+export async function updateSubscriptionTier(id: string, tier: string): Promise<boolean> {
+  const { error } = await db
+    .from("users")
+    .update({ subscription_tier: tier, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) {
+    console.error("[db/users updateSubscriptionTier]", error);
+    return false;
+  }
+  return true;
+}
+
+export async function addImageCredits(id: string, credits: number): Promise<number | null> {
+  const { data, error } = await db.rpc("add_image_credits", {
+    p_user_id: id,
+    p_credits: credits,
+  });
+  if (error) {
+    console.error("[db/users addImageCredits]", error);
+    return null;
+  }
+  return typeof data === "number" ? data : null;
+}
+
+export async function addLiveTryOnMinutes(id: string, minutes: number): Promise<number | null> {
+  const seconds = Math.round(minutes * 60);
+  const { data, error } = await db.rpc("add_live_tryon_seconds", {
+    p_user_id: id,
+    p_seconds: seconds,
+  });
+  if (error) {
+    console.error("[db/users addLiveTryOnMinutes]", error);
+    return null;
+  }
+  return typeof data === "number" ? data : null;
 }
