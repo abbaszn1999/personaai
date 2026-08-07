@@ -442,8 +442,14 @@ export function AvatarMannequinPanel({
             activeProductId={realtime.activeProductId}
             errorMessage={realtime.errorMessage}
             hasProducts={liveProducts.length > 0}
+            facingMode={realtime.facingMode}
+            isRecording={realtime.isRecording}
+            recordingSeconds={realtime.recordingSeconds}
             onStart={realtime.start}
             onStop={() => realtime.stop("stop-button")}
+            onFlipCamera={realtime.flipCamera}
+            onStartRecording={realtime.startRecording}
+            onStopRecording={realtime.stopRecording}
           />
         </div>
       ) : hasFixedBackdrop ? (
@@ -1065,8 +1071,14 @@ function MobileAvatarStrip({
             activeProductId={realtime.activeProductId}
             errorMessage={realtime.errorMessage}
             hasProducts={liveProducts.length > 0}
+            facingMode={realtime.facingMode}
+            isRecording={realtime.isRecording}
+            recordingSeconds={realtime.recordingSeconds}
             onStart={realtime.start}
             onStop={() => realtime.stop("stop-button")}
+            onFlipCamera={realtime.flipCamera}
+            onStartRecording={realtime.startRecording}
+            onStopRecording={realtime.stopRecording}
           />
         </div>
       ) : (

@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Camera, Loader2, Play, RotateCcw, Square } from "lucide-react";
-import type { RealtimeTryOnStatus } from "../hooks/use-realtime-tryon";
+import { Camera, Loader2, Play, RotateCcw, Square, SwitchCamera } from "lucide-react";
+import type { CameraFacingMode, RealtimeTryOnStatus } from "../hooks/use-realtime-tryon";
+import { cn } from "@/lib/utils/cn";
 
 interface RealtimeTryOnOverlayProps {
   status: RealtimeTryOnStatus;
@@ -11,8 +12,14 @@ interface RealtimeTryOnOverlayProps {
   activeProductId: string | null;
   errorMessage: string | null;
   hasProducts: boolean;
+  facingMode: CameraFacingMode;
+  isRecording: boolean;
+  recordingSeconds: number;
   onStart: () => void;
   onStop: () => void;
+  onFlipCamera: () => void;
+  onStartRecording: () => void;
+  onStopRecording: () => void;
 }
 
 function formatRemaining(seconds: number) {
@@ -27,8 +34,14 @@ export function RealtimeTryOnOverlay({
   activeProductId,
   errorMessage,
   hasProducts,
+  facingMode,
+  isRecording,
+  recordingSeconds,
   onStart,
   onStop,
+  onFlipCamera,
+  onStartRecording,
+  onStopRecording,
 }: RealtimeTryOnOverlayProps) {
   const videoRef = React.useRef<HTMLVideoElement>(null);
 
@@ -109,6 +122,13 @@ export function RealtimeTryOnOverlay({
             Live
             <span className="text-white/50">{formatRemaining(remainingSeconds)}</span>
           </div>
+          {isRecording && (
+            <div className="absolute left-4 top-12 flex items-center gap-1.5 rounded-full border border-red-400/30 bg-red-500/20 px-3 py-1.5 text-[11px] font-semibold text-white backdrop-blur-xl">
+              <span className="h-1.5 w-1.5 rounded-[2px] bg-red-500" />
+              REC
+              <span className="text-white/70">{formatRemaining(recordingSeconds)}</span>
+            </div>
+          )}
           {!activeProductId && (
             <div className="absolute inset-0 flex items-center justify-center p-8 pointer-events-none">
               <div className="rounded-2xl border border-white/15 bg-black/55 px-5 py-3 text-center text-sm font-medium text-white shadow-xl backdrop-blur-xl">
@@ -126,15 +146,46 @@ export function RealtimeTryOnOverlay({
       )}
 
       {(status === "requesting-permission" || status === "connecting" || status === "live") && (
-        <button
-          type="button"
-          onClick={onStop}
-          className="absolute right-4 top-4 z-20 inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-black/55 px-3 py-1.5 text-[11px] font-semibold text-white shadow-lg backdrop-blur-xl transition-colors hover:bg-red-500/85"
-          aria-label="Stop live try-on"
-        >
-          <Square className="h-3 w-3 fill-current" />
-          Stop Live
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={onStop}
+            className="absolute right-4 top-4 z-20 inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-black/55 px-3 py-1.5 text-[11px] font-semibold text-white shadow-lg backdrop-blur-xl transition-colors hover:bg-red-500/85"
+            aria-label="Stop live try-on"
+          >
+            <Square className="h-3 w-3 fill-current" />
+            Stop Live
+          </button>
+          {status === "live" && (
+            <button
+              type="button"
+              onClick={isRecording ? onStopRecording : onStartRecording}
+              className={cn(
+                "absolute right-4 top-14 z-20 inline-flex h-8 w-8 items-center justify-center rounded-full border shadow-lg backdrop-blur-xl transition-colors active:scale-90",
+                isRecording
+                  ? "border-red-400/40 bg-red-500 hover:brightness-110"
+                  : "border-white/15 bg-black/55 hover:bg-white/15"
+              )}
+              aria-label={isRecording ? "Stop recording" : "Record video"}
+              title={isRecording ? "Stop recording" : "Record video"}
+            >
+              {isRecording ? (
+                <span className="h-2.5 w-2.5 rounded-[2px] bg-white" />
+              ) : (
+                <span className="h-3.5 w-3.5 rounded-full bg-red-500 ring-2 ring-white/70" />
+              )}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onFlipCamera}
+            className="absolute right-4 top-24 z-20 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/15 bg-black/55 text-white shadow-lg backdrop-blur-xl transition-colors hover:bg-white/15 active:scale-90"
+            aria-label={facingMode === "user" ? "Switch to rear camera" : "Switch to front camera"}
+            title={facingMode === "user" ? "Switch to rear camera" : "Switch to front camera"}
+          >
+            <SwitchCamera className="h-3.5 w-3.5" />
+          </button>
+        </>
       )}
     </div>
   );
