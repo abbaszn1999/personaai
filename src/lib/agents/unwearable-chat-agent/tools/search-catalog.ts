@@ -1,4 +1,4 @@
-import type { ToolDefinition } from "@/lib/ai/openai";
+import type { ToolDefinition } from "@/lib/ai/gemini-chat";
 import { searchCatalog, CatalogSearchError } from "@/lib/catalog/search-catalog";
 import { parseBudgetMax } from "@/lib/recommendations";
 import { selectTopProducts } from "../skills/select-products";
@@ -71,7 +71,7 @@ export async function handleSearchCatalog(
       query,
       categoryId,
       limit,
-      apiKey: context.openaiApiKey,
+      apiKey: context.geminiApiKey,
       intake: runtime.intake,
       matchType,
       categories: context.categories,

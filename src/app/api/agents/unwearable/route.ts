@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
-import { getOpenaiApiKeyEncrypted } from "@/lib/db/users";
+import { getGeminiApiKeyEncrypted } from "@/lib/db/users";
 import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
 import { decryptSecret } from "@/lib/utils/crypto";
 import { runUnwearableChatAgent, type UnwearableChatContext, type IntakeState } from "@/lib/agents/unwearable-chat-agent";
@@ -32,20 +32,20 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const encryptedKey = await getOpenaiApiKeyEncrypted(user.id);
+  const encryptedKey = await getGeminiApiKeyEncrypted(user.id);
   if (!encryptedKey) {
     return Response.json(
-      { error: "Add your OpenAI API key in Account Settings to chat with the Shopping Assistant.", code: "missing_openai_key" },
+      { error: "Add your Gemini API key in Account Settings to chat with the Shopping Assistant.", code: "missing_api_key" },
       { status: 400 }
     );
   }
 
-  let openaiApiKey: string;
+  let geminiApiKey: string;
   try {
-    openaiApiKey = decryptSecret(encryptedKey);
+    geminiApiKey = decryptSecret(encryptedKey);
   } catch {
     return Response.json(
-      { error: "Your saved OpenAI API key couldn't be read — please re-enter it in Account Settings.", code: "missing_openai_key" },
+      { error: "Your saved Gemini API key couldn't be read — please re-enter it in Account Settings.", code: "missing_api_key" },
       { status: 400 }
     );
   }
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
 
   const context: UnwearableChatContext = {
     userId: user.id,
-    openaiApiKey,
+    geminiApiKey,
     knownProducts,
     intake,
     storeProductCount: connection?.productCount ?? 0,

@@ -3,9 +3,11 @@
 import * as React from "react";
 import type { ChatMessage } from "@/modules/shopping-agent/types";
 import type { AvatarVariation, OnboardingPhase, TryOnProfile } from "@/modules/wearable-agent/types";
-import type { Product } from "@/modules/shopping-agent/types";
-import type { IntakeState, WearableAgentEvent } from "@/lib/agents/wearable-chat-agent";
-import { useOpenaiApiKey } from "@/modules/billing/hooks/use-openai-api-key";
+import type { BundleSuggestion, Product } from "@/modules/shopping-agent/types";
+import type { IntakeState, WearableAgentEvent } from "@/lib/agents/wearable/persona";
+import type { BundleState } from "@/lib/retrieval/types";
+import { mergeRetrievalState, type RetrievalState } from "../utils/retrieval-state";
+import { useGeminiApiKey } from "@/modules/billing/hooks/use-gemini-api-key";
 import { AVATAR_GENERATION_STAGES } from "../constants";
 import { INITIAL_WEARABLE_MESSAGE, SCAN_STAGE_DURATION_MS, SCAN_STAGES } from "../mocks/responses";
 import {
@@ -46,6 +48,9 @@ interface PersistedEmbedState {
   tryOnImages: GeneratedTryOn[];
   currentImageIndex: number;
   selectedAvatarId: string | null;
+  /** The pinned product survives a reload for the same reason the messages do — the shopper can
+   *  see it, so losing it silently reads as the widget forgetting what they were discussing. */
+  selectedAnchor: Product | null;
 }
 
 interface TryOnApiResponse {
@@ -175,6 +180,9 @@ export interface GeneratedTryOn {
   createdAt: string;
 }
 
+/** `thinking` covers the opening stretch before any tool has run, which is short. */
+export type TypingStage = "thinking" | "searching" | "composing";
+
 interface TryOnAgentState {
   profile: TryOnProfile;
   onboardingPhase: OnboardingPhase;
@@ -190,6 +198,10 @@ interface TryOnAgentState {
   outfitItems: Product[];
   input: string;
   isTyping: boolean;
+  /** What the agent is actually doing behind the typing indicator, so a turn that takes half a
+   *  minute says which half it is in rather than showing the same three dots throughout. Driven
+   *  entirely by real events — never a timer. */
+  typingStage: TypingStage;
   isGenerating: boolean;
   isRegeneratingAvatar: boolean;
   tryOnImages: GeneratedTryOn[];
@@ -211,6 +223,15 @@ interface TryOnAgentState {
    *  id — replaces the static mock catalog as the source of truth for anything the chat
    *  references (inline suggestion cards, bundles, "wear it"/"add to cart" resolution). */
   knownProducts: Record<string, Product>;
+  /** The product the shopper picked with Select, shown pinned above the composer. Distinct from
+   *  the server's own inferred anchor, which is never surfaced: this one they chose and can see,
+   *  so it has to survive turns that resolve no anchor of their own. */
+  selectedAnchor: Product | null;
+  /** The outfit the shopper picked with "Discuss this bundle". Held as rendering state, not only
+   *  in `retrievalStateRef`, because pinning a whole outfit has to be as visible as pinning a
+   *  single product is — a control that changes what the next answer is about while leaving the
+   *  screen identical is indistinguishable from a dead button. */
+  discussedBundle: BundleSuggestion | null;
   isUploadingBackdrop: boolean;
   /** Set when a custom backdrop upload fails — cleared on the next attempt. */
   backdropUploadError: string | null;
@@ -263,6 +284,22 @@ function parseSseChunk<T>(buffer: string): { events: T[]; rest: string } {
 /** SSE events emitted by `/api/agents/persona/avatar` and `/api/embed/persona/avatar` — see
  *  generateAvatarVariationsStream for why these stream in one at a time instead of arriving
  *  as one big JSON response. */
+/**
+ * The events that put something on screen the shopper can read. Everything else a turn emits is
+ * bookkeeping, and treating it as an arrival is what made the chat look dead mid-turn.
+ *
+ * `product_recommendations` and `bundle` are in here even though both arrive after the closing
+ * text has already cleared the indicator — they are genuinely visible, and a turn that ever
+ * yields one without text should still end the wait.
+ */
+const SHOPPER_VISIBLE_EVENTS = new Set<WearableAgentEvent["type"]>([
+  "text",
+  "bundle",
+  "product_recommendations",
+  "try_on",
+  "error",
+]);
+
 type AvatarStreamEvent =
   | { type: "variation"; variation: AvatarVariation; creditsRemaining: number }
   | { type: "variation_error"; label: string; message: string }
@@ -272,7 +309,7 @@ type AvatarStreamEvent =
 export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: string, workspaceId?: string) {
   // The embedded page has no shopper login, so there's no `/api/account/api-key` to check —
   // the server already guarantees the merchant has one configured before enabling the embed.
-  const openaiKey = useOpenaiApiKey(!embed);
+  const geminiKey = useGeminiApiKey(!embed);
 
   const persisted = embed ? loadEmbedState<PersistedEmbedState>(embed.embedToken) : null;
 
@@ -290,6 +327,7 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
     outfitItems: persisted?.outfitItems ?? [],
     input: "",
     isTyping: false,
+    typingStage: "thinking",
     isGenerating: false,
     isRegeneratingAvatar: false,
     tryOnImages: persisted?.tryOnImages ?? [],
@@ -301,6 +339,8 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
     scanStageIndex: 0,
     scanResultCount: null,
     knownProducts: persisted?.knownProducts ?? {},
+    selectedAnchor: persisted?.selectedAnchor ?? null,
+    discussedBundle: null,
     isUploadingBackdrop: false,
     backdropUploadError: null,
     cartSyncError: null,
@@ -334,6 +374,14 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
   const intakeAnswersRef = React.useRef<IntakeState>(state.intakeAnswers);
   const knownProductsRef = React.useRef<Record<string, Product>>(state.knownProducts);
   const messagesRef = React.useRef<ChatMessage[]>(state.messages);
+  /** Retrieval's cross-turn memory, echoed straight back to the server next turn. A ref rather
+   *  than state: nothing renders from it, and it must be current the moment a turn starts. */
+  const retrievalStateRef = React.useRef<RetrievalState>({
+    anchorId: persisted?.selectedAnchor?.id ?? null,
+    anchorPinned: persisted?.selectedAnchor != null,
+    bundleState: null,
+    shownProductIds: [],
+  });
   // Serializes every real-cart mutation (across separate "Add to Cart" clicks, not just
   // products within one click) so they never hit the store's cart endpoint concurrently — see
   // syncProductsToRealCart for why that matters.
@@ -382,6 +430,7 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
       tryOnImages: state.tryOnImages,
       currentImageIndex: state.currentImageIndex,
       selectedAvatarId: state.selectedAvatarId,
+      selectedAnchor: state.selectedAnchor,
     };
     saveEmbedState(embed.embedToken, snapshot);
   }, [
@@ -393,6 +442,7 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
     state.cartItems,
     state.intakeAnswers,
     state.knownProducts,
+    state.selectedAnchor,
     state.tryOnImages,
     state.currentImageIndex,
     state.selectedAvatarId,
@@ -419,6 +469,7 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
       tryOnImages: state.tryOnImages,
       currentImageIndex: state.currentImageIndex,
       selectedAvatarId: state.selectedAvatarId,
+      selectedAnchor: state.selectedAnchor,
     });
   }
 
@@ -841,12 +892,12 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
     }
   }
 
-  /** Starts (or keeps running) the same cosmetic stage progression the old mock "scanning"
-   *  sequence used, but now driven by an actually in-flight search_catalog tool call rather
-   *  than a fixed timer — stops the instant real text starts streaming back. */
-  function startScanTicker() {
+  /** Runs only for the server's explicit `activity: "bundle"` signal. Unlike the old behavior,
+   * a generic search_catalog tool start cannot trigger this because that tool also handles
+   * question-only intake turns where no catalog retrieval occurs. */
+  function startBundleProgressTicker() {
     if (scanTimerRef.current) return;
-    setState((s) => ({ ...s, isScanning: true, scanStageIndex: 0, scanResultCount: null }));
+    setState((s) => ({ ...s, isTyping: false, isScanning: true, scanStageIndex: 0, scanResultCount: null }));
     scanTimerRef.current = setInterval(() => {
       setState((s) => ({ ...s, scanStageIndex: Math.min(s.scanStageIndex + 1, SCAN_STAGES.length - 1) }));
     }, SCAN_STAGE_DURATION_MS);
@@ -855,10 +906,14 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
   /** Sends one turn to the real Wearable Chat Agent and streams the response, applying each
    *  SSE event to local state as it arrives — replaces the old keyword-matched mock reply. */
   async function streamChatTurn(history: ChatMessage[]) {
-    setState((s) => ({ ...s, isTyping: true }));
+    setState((s) => ({ ...s, isTyping: true, typingStage: "thinking" }));
 
     const profile = profileRef.current;
     let assistantMessageId: string | null = null;
+    // Retrieval may determine the allowed answers before the persona has written the question.
+    // Hold them until the first text arrives; rendering them immediately creates the empty
+    // assistant bubble seen during intake-only turns.
+    let pendingQuickOptions: string[] | null = null;
     let sawAnyEvent = false;
 
     const ensureAssistantMessage = () => {
@@ -907,7 +962,7 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
         content: m.content,
         timestamp: m.timestamp,
         productRecommendations: m.productRecommendations,
-        catalogMatchType: m.catalogMatchType,
+        retrievalNote: m.retrievalNote,
         bundles: m.bundles,
         quickOptions: m.quickOptions,
         // Drop try-on image bytes — the model only needs the text; the UI already has the image.
@@ -959,8 +1014,11 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
             ...(shouldSendAvatar ? { avatarUrl } : {}),
           },
           outfitItems: slimProducts(outfitRef.current),
-          knownProducts: slimProducts(Object.values(knownProductsRef.current)),
+          // Ids only. The catalog is indexed server-side now, so echoing whole product objects
+          // back every turn just grows the request body with data the server already holds.
+          knownProductIds: Object.keys(knownProductsRef.current),
           intake: intakeAnswersRef.current,
+          retrievalState: retrievalStateRef.current,
         }),
       });
 
@@ -987,16 +1045,32 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
 
         for (const event of events) {
           sawAnyEvent = true;
-          setState((s) => (s.isTyping ? { ...s, isTyping: false } : s));
+          // Only a result the shopper can actually see ends the wait. Most events in a turn —
+          // retrieved products, retrieval state, intake — change nothing on screen, and clearing
+          // the indicator on those left the chat visibly dead from the moment retrieval finished
+          // until the closing copy arrived, which on a product turn is two more model calls and
+          // the longest part of the turn.
+          if (SHOPPER_VISIBLE_EVENTS.has(event.type)) {
+            setState((s) => (s.isTyping ? { ...s, isTyping: false } : s));
+          }
 
           switch (event.type) {
             case "tool": {
-              if (event.tool === "search_catalog" && event.status === "start") {
-                startScanTicker();
+              if (event.activity === "bundle" && event.status === "start") {
+                startBundleProgressTicker();
+              } else if (event.activity === "bundle" && event.status === "end") {
+                stopScanTicker();
+                setState((s) => ({ ...s, isTyping: true, isScanning: false, typingStage: "composing" }));
               } else if (event.tool === "try_on" && event.status === "start") {
                 setState((s) => ({ ...s, isGenerating: true }));
               } else if (event.tool === "update_measurements" && event.status === "start") {
                 setState((s) => ({ ...s, isRegeneratingAvatar: true }));
+              } else if (event.tool === "search_catalog") {
+                // `search_catalog` is the persona's orchestration tool: it can legitimately
+                // resolve to a clarifying question rather than a catalog read, so the label says
+                // what is being done, not what it will find. Once it returns, whatever it
+                // returned, the model is writing the reply.
+                setState((s) => ({ ...s, typingStage: event.status === "start" ? "searching" : "composing" }));
               }
               break;
             }
@@ -1009,10 +1083,18 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
               stopScanTicker();
               setState((s) => ({ ...s, isScanning: false }));
               ensureAssistantMessage();
+              const quickOptions = pendingQuickOptions;
+              pendingQuickOptions = null;
               setState((s) => ({
                 ...s,
                 messages: s.messages.map((m) =>
-                  m.id === assistantMessageId ? { ...m, content: m.content + event.delta } : m
+                  m.id === assistantMessageId
+                    ? {
+                        ...m,
+                        content: m.content + event.delta,
+                        ...(quickOptions ? { quickOptions } : {}),
+                      }
+                    : m
                 ),
               }));
               break;
@@ -1022,20 +1104,37 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
                 // Merge across multiple search buckets (jackets + shoes) instead of letting
                 // the last event overwrite the first — that was why only one category showed.
                 productRecommendations: event.productIds,
-                catalogMatchType: event.matchType,
+                retrievalNote: event.note,
               });
+              break;
+            }
+            case "quick_options": {
+              pendingQuickOptions = event.options;
+              break;
+            }
+            case "retrieval_state": {
+              // Cross-turn memory without a server session: what the conversation is about,
+              // how far a bundle has got, and what's already been shown.
+              //
+              // Merged rather than replaced, because of the anchor. A turn that resolves no
+              // anchor of its own reports null, and taking that literally would silently discard
+              // a selection the shopper made by clicking and can still see pinned above the
+              // composer. The pin only moves when the server actually resolved a different
+              // product — which it does when they name one outright.
+              applyRetrievalState(event.anchorId, event.bundleState, event.shownProductIds);
               break;
             }
             case "bundle": {
               mergeKnownProducts(event.products);
               ensureAssistantMessage();
+              const incomingIds = new Set(event.bundles.map((b) => b.id));
               setState((s) => ({
                 ...s,
                 messages: s.messages.map((m) =>
                   m.id === assistantMessageId
                     ? {
                         ...m,
-                        bundles: [...(m.bundles ?? []).filter((b) => b.id !== event.bundle.id), event.bundle],
+                        bundles: [...(m.bundles ?? []).filter((b) => !incomingIds.has(b.id)), ...event.bundles],
                       }
                     : m
                 ),
@@ -1140,7 +1239,7 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
       }
     } finally {
       stopScanTicker();
-      setState((s) => ({ ...s, isTyping: false, isScanning: false }));
+      setState((s) => ({ ...s, isTyping: false, isScanning: false, typingStage: "thinking" }));
     }
   }
 
@@ -1413,6 +1512,84 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
     syncProductsToRealCart([product], variantId);
   }
 
+  /** Applies one turn's retrieval state, keeping the pinned bar in step with it. */
+  function applyRetrievalState(anchorId: string | null, bundleState: BundleState | null, shownProductIds: string[]) {
+    const previous = retrievalStateRef.current;
+    const next = mergeRetrievalState(previous, { anchorId, bundleState, shownProductIds });
+    retrievalStateRef.current = next;
+
+    // The server moved off the pinned product, which it only does when the shopper named a
+    // different one outright. Follow it, so the pinned bar never describes one item while the
+    // conversation is about another. Left alone if the product isn't known yet — a stale label
+    // beats a blank one.
+    if (previous.anchorPinned && next.anchorId !== null && next.anchorId !== previous.anchorId) {
+      const moved = knownProductsRef.current[next.anchorId];
+      if (moved) setState((s) => ({ ...s, selectedAnchor: moved }));
+    }
+  }
+
+  /**
+   * Pins a product as what the conversation is about, from the Select control on its card.
+   *
+   * Clears any discussed outfit: one subject at a time. Both pins feed the same next request, so
+   * leaving both set would send an outfit and a single item as competing subjects and put two
+   * "Discussing" bars on screen at once.
+   */
+  function selectItem(product: Product) {
+    retrievalStateRef.current = {
+      ...retrievalStateRef.current,
+      anchorId: product.id,
+      anchorPinned: true,
+      bundleState: clearDiscussed(retrievalStateRef.current.bundleState),
+    };
+    setState((s) => ({ ...s, selectedAnchor: product, discussedBundle: null }));
+  }
+
+  function clearAnchor() {
+    retrievalStateRef.current = {
+      ...retrievalStateRef.current,
+      anchorId: null,
+      anchorPinned: false,
+    };
+    setState((s) => ({ ...s, selectedAnchor: null }));
+  }
+
+  /** Drops only the discussed items, leaving the rest of the bundle state (scope, locked) alone —
+   *  un-pinning an outfit is not the same as abandoning the bundle being built. */
+  function clearDiscussed(bundleState: BundleState | null): BundleState | null {
+    return bundleState ? { ...bundleState, discussed: null } : null;
+  }
+
+  /** Pins every item of one presented outfit at once — see "Discuss this bundle". No per-item
+   *  click: the next message can name any item in it ("does the jacket run small?") or ask to
+   *  swap one ("replace the pants"), both resolved server-side against this list. */
+  function discussBundle(bundle: BundleSuggestion) {
+    const current = retrievalStateRef.current.bundleState;
+    const discussed = bundle.items.map((item) => ({
+      externalId: item.productId,
+      category: item.category ?? "other",
+      price: item.price,
+    }));
+    retrievalStateRef.current = {
+      ...retrievalStateRef.current,
+      // The outfit replaces a single pinned product as the subject — see `selectItem`.
+      anchorId: null,
+      anchorPinned: false,
+      bundleState: current
+        ? { ...current, discussed }
+        : { scope: [], locked: {}, discussed },
+    };
+    setState((s) => ({ ...s, discussedBundle: bundle, selectedAnchor: null }));
+  }
+
+  function clearDiscussedBundle() {
+    retrievalStateRef.current = {
+      ...retrievalStateRef.current,
+      bundleState: clearDiscussed(retrievalStateRef.current.bundleState),
+    };
+    setState((s) => ({ ...s, discussedBundle: null }));
+  }
+
   const profileComplete = isProfileComplete(state.profile);
   const currentTryOn = state.tryOnImages[state.currentImageIndex] ?? null;
 
@@ -1439,11 +1616,15 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
     nextImage,
     selectImage,
     addToCart,
+    selectItem,
+    clearAnchor,
+    discussBundle,
+    clearDiscussedBundle,
     profileComplete,
     // The embedded page has no shopper login/API-key concept — the server already guarantees
     // the merchant has a key configured before its embed can be enabled at all.
-    hasOpenAiKey: embed ? true : openaiKey.hasKey,
-    openAiKeyLoading: embed ? false : openaiKey.loading,
+    hasApiKey: embed ? true : geminiKey.hasKey,
+    apiKeyLoading: embed ? false : geminiKey.loading,
   };
 }
 

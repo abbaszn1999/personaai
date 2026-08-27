@@ -1,5 +1,6 @@
 import type { StoreCategory } from "@/modules/store/types";
 import type { Product, ProductVariant } from "@/modules/shopping-agent/types";
+import type { CatalogPageOptions, RawCatalogProduct, VariantOptionGroups } from "@/lib/catalog/sync-types";
 import { isCacheDisabled } from "@/lib/utils/disable-cache";
 
 const API_VERSION = "2024-10";
@@ -532,6 +533,419 @@ export async function searchShopifyProducts(
 
   const priced = input.maxPrice ? mapped.filter((p) => p.price <= input.maxPrice!) : mapped;
   return { results: priced.slice(0, limit), throttleStatus };
+}
+
+// ─── Full-catalog listing (indexing, not search) ──────────────────────────────
+
+interface ShopifyCatalogVariantNode {
+  id: string;
+  title: string;
+  sku: string | null;
+  price: string;
+  availableForSale: boolean;
+  selectedOptions: Array<{ name: string; value: string }>;
+}
+
+interface ShopifyCatalogProductNode {
+  id: string;
+  handle: string;
+  title: string;
+  descriptionHtml: string;
+  vendor: string | null;
+  productType: string | null;
+  status: string;
+  updatedAt: string;
+  totalInventory: number;
+  featuredImage: { url: string } | null;
+  images: { nodes: Array<{ url: string }> };
+  priceRangeV2: { minVariantPrice: { amount: string; currencyCode: string } };
+  variants: { nodes: ShopifyCatalogVariantNode[] };
+  collections: { nodes: Array<{ id: string; title: string }> };
+}
+
+/** A superset of the search query's fields — indexing needs vendor, handle, the merchant's
+ *  own product type, real variant ids and the update timestamp, none of which the card-shaped
+ *  `Product` carries. */
+const CATALOG_PRODUCT_FIELDS = `
+  id
+  handle
+  title
+  descriptionHtml
+  vendor
+  productType
+  status
+  updatedAt
+  totalInventory
+  featuredImage { url }
+  images(first: 5) { nodes { url } }
+  priceRangeV2 { minVariantPrice { amount currencyCode } }
+  variants(first: 50) {
+    nodes { id title sku price availableForSale selectedOptions { name value } }
+  }
+  collections(first: 10) { nodes { id title } }
+`;
+
+const CATALOG_LIST_QUERY = `
+  query ListCatalog($query: String!, $first: Int!, $after: String) {
+    products(first: $first, after: $after, query: $query, sortKey: ID) {
+      nodes { ${CATALOG_PRODUCT_FIELDS} }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+`;
+
+/**
+ * Products of one collection.
+ *
+ * A separate query because `products(query:)` has no collection predicate — collection
+ * membership is only reachable by descending from the collection itself. The nested connection
+ * paginates independently, so the cursor here is not interchangeable with the one above.
+ */
+const COLLECTION_PRODUCTS_QUERY = `
+  query ListCollectionProducts($id: ID!, $first: Int!, $after: String) {
+    collection(id: $id) {
+      products(first: $first, after: $after) {
+        nodes { ${CATALOG_PRODUCT_FIELDS} }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+  }
+`;
+
+function toVariantOptionGroups(nodes: ShopifyCatalogVariantNode[]): VariantOptionGroups {
+  const groups: VariantOptionGroups = {};
+
+  for (const variant of nodes) {
+    for (const option of variant.selectedOptions) {
+      const bucket = (groups[option.name] ??= []);
+      if (!bucket.some((entry) => entry.label === option.value)) {
+        bucket.push({ id: variant.id, label: option.value });
+      }
+    }
+  }
+
+  return groups;
+}
+
+function mapShopifyCatalogNode(node: ShopifyCatalogProductNode, domain: string): RawCatalogProduct {
+  const images = node.images.nodes.map((image) => image.url);
+  const featured = node.featuredImage?.url ?? images[0] ?? null;
+
+  return {
+    externalId: node.id,
+    // The handle is stable across renames, which the numeric id is too — but the handle also
+    // survives a product being recreated during a catalog re-import.
+    productGroupId: node.handle || bareShopifyId(node.id),
+    sku: node.variants.nodes[0]?.sku ?? null,
+    title: node.title,
+    description: stripHtml(node.descriptionHtml),
+    brand: node.vendor?.trim() || null,
+    // Product type first — the merchant's own classification, and a better fit for a garment
+    // slot guess than a marketing collection like "Summer Sale" — but every collection follows
+    // too, kept for reference. Filtering itself runs on `sourceCategoryIds`, not this list.
+    rawCategories: [node.productType?.trim(), ...node.collections.nodes.map((c) => c.title)].filter(
+      (label): label is string => Boolean(label)
+    ),
+    // Bare ids, matching what `getShopifyCollections` stores against the merchant's selection.
+    // GraphQL returns global ids here, so leaving them qualified would make every scope check
+    // compare `gid://shopify/Collection/123` against `123` and never overlap.
+    sourceCategoryIds: node.collections.nodes.map((collection) => bareShopifyId(collection.id)),
+    price: Number(node.priceRangeV2.minVariantPrice.amount) || null,
+    currency: node.priceRangeV2.minVariantPrice.currencyCode,
+    inStock: node.totalInventory > 0,
+    productUrl: node.handle ? `https://${domain}/products/${node.handle}` : null,
+    imageUrl: featured,
+    images,
+    variantOptions: toVariantOptionGroups(node.variants.nodes),
+    updatedAt: node.updatedAt,
+  };
+}
+
+/**
+ * Pulls one page of the full catalog for indexing.
+ *
+ * Paged by the caller rather than looping internally, so a 200,000-SKU store is walked as a
+ * stream of bounded batches instead of being assembled in memory. Sorted by ID because
+ * relevance ordering is meaningless here and a stable sort key keeps cursors valid across a
+ * long walk.
+ */
+export async function listShopifyCatalogPage(
+  domain: string,
+  accessToken: string,
+  options: CatalogPageOptions & { cursor?: string },
+  signal?: AbortSignal
+): Promise<{ products: RawCatalogProduct[]; nextCursor: string | null; throttleStatus?: ShopifyThrottleStatus }> {
+  // One collection per request: membership is only reachable by descending from a collection, and
+  // there is no union form. The caller walks them one at a time.
+  if (options.categoryIds?.length) {
+    return listShopifyCollectionPage(domain, accessToken, options.categoryIds[0], options, signal);
+  }
+
+  const filters = ["status:active"];
+  if (options.updatedAfter) {
+    // Shopify's search syntax takes an ISO timestamp here, which is what makes an incremental
+    // reconcile cheap: only the changed slice comes back.
+    filters.push(`updated_at:>'${options.updatedAfter}'`);
+  }
+
+  const { data, throttleStatus } = await shopifyGraphqlFetch<{ products: { nodes: ShopifyCatalogProductNode[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } }>(
+    domain,
+    accessToken,
+    CATALOG_LIST_QUERY,
+    {
+      query: filters.join(" AND "),
+      first: Math.min(options.pageSize ?? SHOPIFY_PAGE_SIZE, SHOPIFY_PAGE_SIZE),
+      after: options.cursor,
+    },
+    signal
+  );
+
+  return {
+    products: data.products.nodes.map((node) => mapShopifyCatalogNode(node, domain)),
+    nextCursor: data.products.pageInfo.hasNextPage ? data.products.pageInfo.endCursor : null,
+    throttleStatus,
+  };
+}
+
+/**
+ * One page of a collection's products.
+ *
+ * The nested connection takes no search predicate, so `status` and `updatedAt` are filtered here
+ * instead of by the API. That makes the page size a request for raw rows rather than for matches
+ * — a page can come back partly filtered out while more still exist, which is why paging keys off
+ * `hasNextPage` and never off how many products this returns.
+ */
+async function listShopifyCollectionPage(
+  domain: string,
+  accessToken: string,
+  collectionId: string,
+  options: CatalogPageOptions & { cursor?: string },
+  signal?: AbortSignal
+): Promise<{ products: RawCatalogProduct[]; nextCursor: string | null; throttleStatus?: ShopifyThrottleStatus }> {
+  const { data, throttleStatus } = await shopifyGraphqlFetch<{
+    collection: { products: { nodes: ShopifyCatalogProductNode[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } } | null;
+  }>(
+    domain,
+    accessToken,
+    COLLECTION_PRODUCTS_QUERY,
+    {
+      id: toCollectionGid(collectionId),
+      first: Math.min(options.pageSize ?? SHOPIFY_PAGE_SIZE, SHOPIFY_PAGE_SIZE),
+      after: options.cursor,
+    },
+    signal
+  );
+
+  // A collection deleted in the store admin since the merchant selected it.
+  if (!data.collection) {
+    return { products: [], nextCursor: null, throttleStatus };
+  }
+
+  const since = options.updatedAfter ? Date.parse(options.updatedAfter) : null;
+  const nodes = data.collection.products.nodes.filter((node) => {
+    if (node.status !== "ACTIVE") return false;
+    if (since === null) return true;
+    return Date.parse(node.updatedAt) > since;
+  });
+
+  return {
+    products: nodes.map((node) => mapShopifyCatalogNode(node, domain)),
+    nextCursor: data.collection.products.pageInfo.hasNextPage
+      ? data.collection.products.pageInfo.endCursor
+      : null,
+    throttleStatus,
+  };
+}
+
+/** `getShopifyCollections` reads the REST endpoints, which return bare numeric ids, while the
+ *  GraphQL collection query takes a global id. Already-qualified ids pass through so a caller
+ *  can hand over either form. */
+function toCollectionGid(id: string): string {
+  return id.startsWith("gid://") ? id : `gid://shopify/Collection/${id}`;
+}
+
+const HYDRATE_QUERY = `
+  query HydrateProducts($ids: [ID!]!) {
+    nodes(ids: $ids) {
+      ... on Product {
+        id
+        totalInventory
+        priceRangeV2 { minVariantPrice { amount currencyCode } }
+      }
+    }
+  }
+`;
+
+export interface LiveProductFacts {
+  externalId: string;
+  price: number | null;
+  currency: string | null;
+  inStock: boolean;
+}
+
+/** Re-reads price and stock for the handful of products actually about to be shown. A stored
+ *  price can be minutes stale, and a shopper being quoted the wrong number is worse than the
+ *  round trip. */
+export async function hydrateShopifyProducts(
+  domain: string,
+  accessToken: string,
+  externalIds: string[],
+  signal?: AbortSignal
+): Promise<LiveProductFacts[]> {
+  if (externalIds.length === 0) return [];
+
+  const { data } = await shopifyGraphqlFetch<{
+    nodes: Array<{
+      id: string;
+      totalInventory: number;
+      priceRangeV2: { minVariantPrice: { amount: string; currencyCode: string } };
+    } | null>;
+  }>(domain, accessToken, HYDRATE_QUERY, { ids: externalIds }, signal);
+
+  return (data.nodes ?? [])
+    .filter((node): node is NonNullable<(typeof data.nodes)[number]> => node !== null)
+    .map((node) => ({
+      externalId: node.id,
+      price: Number(node.priceRangeV2.minVariantPrice.amount) || null,
+      currency: node.priceRangeV2.minVariantPrice.currencyCode,
+      inStock: node.totalInventory > 0,
+    }));
+}
+
+// ─── Webhooks ─────────────────────────────────────────────────────────────────
+
+interface ShopifyRestProductPayload {
+  id: number;
+  handle?: string;
+  title: string;
+  body_html?: string | null;
+  vendor?: string | null;
+  product_type?: string | null;
+  status?: string;
+  updated_at?: string;
+  image?: { src: string } | null;
+  images?: Array<{ src: string }>;
+  variants?: Array<{
+    id: number;
+    sku?: string | null;
+    price?: string;
+    inventory_quantity?: number;
+    option1?: string | null;
+    option2?: string | null;
+    option3?: string | null;
+  }>;
+  options?: Array<{ name: string; position: number; values: string[] }>;
+}
+
+/**
+ * Maps a webhook payload, which arrives in the REST shape rather than the GraphQL one the
+ * catalog walk uses. Same destination, different source format — worth stating, because the
+ * two shapes differ enough (`body_html` vs `descriptionHtml`, numeric vs GID ids) that reusing
+ * either mapper for the other feed would silently produce half-empty rows.
+ */
+export function mapShopifyWebhookProduct(payload: unknown, domain: string): RawCatalogProduct | null {
+  const product = payload as ShopifyRestProductPayload;
+  if (!product?.id || !product.title) return null;
+
+  const images = (product.images ?? []).map((image) => image.src).filter(Boolean);
+  const featured = product.image?.src ?? images[0] ?? null;
+
+  const variantOptions: VariantOptionGroups = {};
+  for (const option of product.options ?? []) {
+    const key = `option${option.position}` as "option1" | "option2" | "option3";
+    const seen = new Set<string>();
+    const values: Array<{ id: string; label: string }> = [];
+
+    for (const variant of product.variants ?? []) {
+      const value = variant[key];
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
+      values.push({ id: `gid://shopify/ProductVariant/${variant.id}`, label: value });
+    }
+
+    if (values.length > 0) variantOptions[option.name] = values;
+  }
+
+  return {
+    // The walk stores GraphQL GIDs, so the webhook has to produce the same id or every update
+    // would insert a duplicate row alongside the one it meant to replace.
+    externalId: `gid://shopify/Product/${product.id}`,
+    productGroupId: product.handle || String(product.id),
+    sku: product.variants?.[0]?.sku ?? null,
+    title: product.title,
+    description: product.body_html ? stripHtml(product.body_html) : null,
+    brand: product.vendor?.trim() || null,
+    rawCategories: product.product_type?.trim() ? [product.product_type.trim()] : [],
+    // Shopify's product webhook payload carries no collection membership, so scope can't be
+    // decided from the payload. The caller falls back to what the row already recorded, and a
+    // brand-new product waits for the next collection walk rather than being indexed blind.
+    sourceCategoryIds: [],
+    price: product.variants?.[0]?.price ? Number(product.variants[0].price) : null,
+    currency: null,
+    inStock: (product.variants ?? []).some((v) => (v.inventory_quantity ?? 0) > 0),
+    productUrl: product.handle ? `https://${domain}/products/${product.handle}` : null,
+    imageUrl: featured,
+    images,
+    variantOptions,
+    updatedAt: product.updated_at ?? null,
+  };
+}
+
+const PRODUCT_WEBHOOK_TOPICS = ["products/create", "products/update", "products/delete"];
+
+interface ShopifyWebhookRecord {
+  id: number;
+  topic: string;
+  address: string;
+}
+
+/**
+ * Subscribes the app to product changes, skipping topics already registered so reconnecting a
+ * store doesn't accumulate duplicate subscriptions (and duplicate deliveries) each time.
+ *
+ * Webhooks created this way are signed with the app's own client secret, which is why nothing
+ * extra needs storing to verify them later.
+ */
+export async function registerShopifyWebhooks(
+  domain: string,
+  accessToken: string,
+  callbackUrl: string
+): Promise<{ registered: string[] }> {
+  const existing = await shopifyFetch<{ webhooks: ShopifyWebhookRecord[] }>(
+    domain,
+    accessToken,
+    "/webhooks.json?limit=250"
+  ).catch(() => ({ webhooks: [] as ShopifyWebhookRecord[] }));
+
+  const already = new Set(
+    (existing.webhooks ?? []).filter((hook) => hook.address === callbackUrl).map((hook) => hook.topic)
+  );
+
+  const registered: string[] = [];
+
+  for (const topic of PRODUCT_WEBHOOK_TOPICS) {
+    if (already.has(topic)) continue;
+
+    const res = await fetch(`https://${domain}/admin/api/${API_VERSION}/webhooks.json`, {
+      method: "POST",
+      headers: {
+        "X-Shopify-Access-Token": accessToken,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ webhook: { topic, address: callbackUrl, format: "json" } }),
+      cache: "no-store",
+    });
+
+    if (res.ok) {
+      registered.push(topic);
+    } else {
+      // Non-fatal. Without webhooks the catalog is refreshed by the reconcile schedule
+      // instead of instantly, which is a degradation rather than a broken connection.
+      console.error(`[shopify registerShopifyWebhooks] ${topic} failed (${res.status})`);
+    }
+  }
+
+  return { registered };
 }
 
 const ADD_TO_CART_LOOKUP_TIMEOUT_MS = 12_000;

@@ -7,7 +7,7 @@ import { rankProducts } from "@/lib/recommendations/rank-products";
 import { selectBundleItems } from "@/lib/recommendations/select-bundle";
 import { recommendSizeForProduct } from "@/lib/recommendations/size-for-product";
 import type { Product } from "@/modules/shopping-agent/types";
-import type { WearableChatProfileContext } from "@/lib/agents/wearable-chat-agent/types";
+import type { WearableChatProfileContext } from "@/lib/agents/wearable/persona/types";
 
 function makeProduct(overrides: Partial<Product> & Pick<Product, "id" | "name">): Product {
   return {

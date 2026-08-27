@@ -1,0 +1,106 @@
+[
+  {
+    "id": "women",
+    "name": "Women",
+    "slug": "women",
+    "parentId": null,
+    "productCount": 1966,
+    "mode": "wearable"
+  },
+  {
+    "id": "men",
+    "name": "Men",
+    "slug": "men",
+    "parentId": null,
+    "productCount": 666,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids",
+    "name": "Kids",
+    "slug": "kids",
+    "parentId": null,
+    "productCount": 1348,
+    "mode": "wearable"
+  },
+  {
+    "id": "women-accessories",
+    "name": "Women / Accessories",
+    "slug": "women-accessories",
+    "parentId": "women",
+    "productCount": 152,
+    "mode": "wearable"
+  },
+  {
+    "id": "women-clothing",
+    "name": "Women / Clothing",
+    "slug": "women-clothing",
+    "parentId": "women",
+    "productCount": 1813,
+    "mode": "wearable"
+  },
+  {
+    "id": "women-lingerie-and-sleepwear",
+    "name": "Women / Lingerie & Sleepwear",
+    "slug": "women-lingerie-and-sleepwear",
+    "parentId": "women",
+    "productCount": 1,
+    "mode": "wearable"
+  },
+  {
+    "id": "men-accessories",
+    "name": "Men / Accessories",
+    "slug": "men-accessories",
+    "parentId": "men",
+    "productCount": 60,
+    "mode": "wearable"
+  },
+  {
+    "id": "men-clothing",
+    "name": "Men / Clothing",
+    "slug": "men-clothing",
+    "parentId": "men",
+    "productCount": 604,
+    "mode": "wearable"
+  },
+  {
+    "id": "men-underwear-and-sleepwear",
+    "name": "Men / Underwear & Sleepwear",
+    "slug": "men-underwear-and-sleepwear",
+    "parentId": "men",
+    "productCount": 2,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-accessories",
+    "name": "Kids / Accessories",
+    "slug": "kids-accessories",
+    "parentId": "kids",
+    "productCount": 75,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-clothing",
+    "name": "Kids / Clothing",
+    "slug": "kids-clothing",
+    "parentId": "kids",
+    "productCount": 1022,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-newborn-essentials",
+    "name": "Kids / Newborn Essentials",
+    "slug": "kids-newborn-essentials",
+    "parentId": "kids",
+    "productCount": 251,
+    "mode": "wearable"
+  },
+  {
+    "id": "shoes-and-bags",
+    "name": "Shoes & Bags",
+    "slug": "shoes-and-bags",
+    "parentId": null,
+    "productCount": 2046,
+    "mode": "wearable"
+  }
+]

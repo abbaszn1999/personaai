@@ -10,6 +10,7 @@ import { useWorkspaceStore } from "@/modules/workspaces/store";
 import { WORKSPACE_MODE_LABELS } from "@/modules/workspaces/constants";
 import { fontFamilyCssValue, loadGoogleFont } from "@/lib/fonts/google-fonts";
 import { resolveBrandCssVars } from "@/lib/branding/resolve-brand-vars";
+import { CatalogReadyGate } from "@/modules/store/components/catalog-ready-gate";
 import { cn } from "@/lib/utils/cn";
 
 interface Props { params: Promise<{ id: string }> }
@@ -64,16 +65,20 @@ export default function EmbedPreviewPage({ params }: Props) {
         }}
       >
         {ws.mode === "wearable" ? (
-          <TryOnLayout
-            workspaceId={id}
-            theme={ws.branding.theme}
-            branding={{
-              agentName: ws.branding.agentName,
-              welcomeMessage: ws.branding.welcomeMessage,
-              logoUrl: ws.branding.logoUrl,
-              borderRadius: ws.branding.borderRadius,
-            }}
-          />
+          // Gated for wearable only: the unwearable assistant below searches the store API live
+          // and has no index to wait on.
+          <CatalogReadyGate label="The customer preview">
+            <TryOnLayout
+              workspaceId={id}
+              theme={ws.branding.theme}
+              branding={{
+                agentName: ws.branding.agentName,
+                welcomeMessage: ws.branding.welcomeMessage,
+                logoUrl: ws.branding.logoUrl,
+                borderRadius: ws.branding.borderRadius,
+              }}
+            />
+          </CatalogReadyGate>
         ) : (
           <ChatInterface
             workspaceId={id}

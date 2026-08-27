@@ -10,6 +10,7 @@ import {
 } from "@/modules/wearable-agent/components/preview-viewport-toggle";
 import { Badge } from "@/components/ui/badge";
 import { useWorkspaceStore } from "@/modules/workspaces/store";
+import { CatalogReadyGate } from "@/modules/store/components/catalog-ready-gate";
 
 interface Props { params: Promise<{ id: string }> }
 
@@ -40,7 +41,11 @@ export default function TryOnPage({ params }: Props) {
         }
       />
       <div className="flex-1 min-h-0 overflow-hidden px-6 pb-6">
-        <TryOnLayout viewportMode={viewportMode} workspaceId={id} />
+        {/* Wearable retrieval reads the indexed catalog, so a preview before indexing finishes
+            would demo an agent that finds nothing. */}
+        <CatalogReadyGate label="The preview">
+          <TryOnLayout viewportMode={viewportMode} workspaceId={id} />
+        </CatalogReadyGate>
       </div>
     </div>
   );

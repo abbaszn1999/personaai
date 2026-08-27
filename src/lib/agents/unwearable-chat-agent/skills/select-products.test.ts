@@ -3,7 +3,7 @@ import type { Product } from "@/modules/shopping-agent/types";
 
 const createChatCompletion = vi.fn();
 
-vi.mock("@/lib/ai/openai", () => ({
+vi.mock("@/lib/ai/gemini-chat", () => ({
   createChatCompletion: (...args: unknown[]) => createChatCompletion(...args),
 }));
 

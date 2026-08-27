@@ -1,4 +1,4 @@
-import { createChatCompletion, type ChatCompletionMessage } from "@/lib/ai/openai";
+import { createChatCompletion, type ChatCompletionMessage } from "@/lib/ai/gemini-chat";
 import type { BundleSuggestion, ChatMessage, Product } from "@/modules/shopping-agent/types";
 import { buildSystemPrompt } from "./prompt";
 import { buildSolutionKitFromSearches } from "./skills/solution-kit";
@@ -120,7 +120,7 @@ export async function* runUnwearableChatAgent(
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const allowTools = round < MAX_TOOL_ROUNDS - 1;
 
-      const { content, toolCalls } = await createChatCompletion(context.openaiApiKey, messages, {
+      const { content, toolCalls } = await createChatCompletion(context.geminiApiKey, messages, {
         tools: allowTools ? UNWEARABLE_AGENT_TOOLS : undefined,
       });
 
@@ -157,7 +157,7 @@ export async function* runUnwearableChatAgent(
   if (plan.bundleProducts.length > 0 || plan.alternativeIds.length > 0) {
     try {
       const aligned = await createChatCompletion(
-        context.openaiApiKey,
+        context.geminiApiKey,
         [
           ...messages,
           { role: "assistant", content: finalContent },

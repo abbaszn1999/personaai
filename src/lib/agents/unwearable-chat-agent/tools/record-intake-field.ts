@@ -1,4 +1,4 @@
-import type { ToolDefinition } from "@/lib/ai/openai";
+import type { ToolDefinition } from "@/lib/ai/gemini-chat";
 import type { IntakeField, ToolRuntimeState, UnwearableAgentEvent, UnwearableChatContext } from "../types";
 
 const VALID_FIELDS: IntakeField[] = ["useCase", "budget", "priority"];

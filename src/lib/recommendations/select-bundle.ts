@@ -1,6 +1,6 @@
 import type { BundleSuggestion, Product } from "@/modules/shopping-agent/types";
 import { resolveGarmentSlot, type GarmentCategory } from "@/modules/wearable-agent/utils/fit-metrics";
-import type { IntakeState } from "@/lib/agents/wearable-chat-agent/types";
+import type { IntakeState } from "@/lib/agents/wearable/persona/types";
 import { parseBudgetMax } from "./parse-budget";
 import { rankProducts } from "./rank-products";
 import type { RankingContext, ScoredProduct } from "./types";
@@ -115,5 +115,6 @@ export function buildBundleSuggestion(
     id: `bundle-${Date.now()}`,
     label,
     productIds: products.map((p) => p.id),
+    items: products.map((p) => ({ productId: p.id, category: p.categoryId || null, price: p.price })),
   };
 }

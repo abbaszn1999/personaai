@@ -1,9 +1,10 @@
 import { NextRequest } from "next/server";
-import { getOpenaiApiKeyEncrypted, getUserById } from "@/lib/db/users";
-import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
+import { getGeminiApiKeyEncrypted, getUserById } from "@/lib/db/users";
 import { decryptSecret } from "@/lib/utils/crypto";
-import { runWearableChatAgent, type WearableChatContext, type IntakeState } from "@/lib/agents/wearable-chat-agent";
-import { getWearableAvatar, rememberWearableAvatar } from "@/lib/agents/wearable-chat-agent/avatar-cache";
+import { runWearableChatAgent, type WearableChatContext, type IntakeState } from "@/lib/agents/wearable/persona";
+import { buildWearableChatContext } from "@/lib/agents/wearable/persona/context";
+import type { BundleState } from "@/lib/retrieval/types";
+import { getWearableAvatar, rememberWearableAvatar } from "@/lib/agents/wearable/persona/avatar-cache";
 import { resolveEmbedRequest } from "@/lib/embed/resolve";
 import { embedOptions, EMBED_CORS_HEADERS } from "@/lib/embed/cors";
 import type { ChatMessage, Product } from "@/modules/shopping-agent/types";
@@ -30,8 +31,15 @@ interface EmbedWearableRequestBody {
     isCustomAvatar?: boolean;
   };
   outfitItems?: Product[];
-  knownProducts?: Product[];
+  /** Ids only — the server rehydrates them from the indexed catalog. */
+  knownProductIds?: string[];
   intake?: IntakeState;
+  retrievalState?: {
+    anchorId?: string | null;
+    anchorPinned?: boolean;
+    bundleState?: BundleState | null;
+    shownProductIds?: string[];
+  };
 }
 
 function sseLine(payload: unknown): string {
@@ -64,20 +72,20 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const encryptedKey = await getOpenaiApiKeyEncrypted(workspace.ownerId);
+  const encryptedKey = await getGeminiApiKeyEncrypted(workspace.ownerId);
   if (!encryptedKey) {
     return Response.json(
-      { error: "This store hasn't finished setting up its style assistant yet.", code: "missing_openai_key" },
+      { error: "This store hasn't finished setting up its style assistant yet.", code: "missing_api_key" },
       { status: 400, headers: EMBED_CORS_HEADERS }
     );
   }
 
-  let openaiApiKey: string;
+  let geminiApiKey: string;
   try {
-    openaiApiKey = decryptSecret(encryptedKey);
+    geminiApiKey = decryptSecret(encryptedKey);
   } catch {
     return Response.json(
-      { error: "This store's style assistant is temporarily unavailable.", code: "missing_openai_key" },
+      { error: "This store's style assistant is temporarily unavailable.", code: "missing_api_key" },
       { status: 400, headers: EMBED_CORS_HEADERS }
     );
   }
@@ -85,8 +93,9 @@ export async function POST(req: NextRequest) {
   const history = Array.isArray(body.messages) ? body.messages : [];
   const profileInput = body.profile ?? {};
   const outfitItems = Array.isArray(body.outfitItems) ? body.outfitItems : [];
-  const knownProducts = Array.isArray(body.knownProducts) ? body.knownProducts : [];
+  const knownProductIds = Array.isArray(body.knownProductIds) ? body.knownProductIds : [];
   const intake = body.intake ?? {};
+  const retrievalState = body.retrievalState ?? {};
 
   if (profileInput.avatarUrl || profileInput.photoBase64) {
     rememberWearableAvatar(avatarCacheKey, {
@@ -97,14 +106,12 @@ export async function POST(req: NextRequest) {
   }
   const cached = getWearableAvatar(avatarCacheKey);
 
-  const connection = await getStoreConnectionByOwner(workspace.ownerId);
-  const activeCategories = connection
-    ? connection.categories.filter((c) => connection.selectedCategoryIds.includes(c.id))
-    : [];
-
-  const context: WearableChatContext = {
-    userId: workspace.ownerId,
-    openaiApiKey,
+  const context: WearableChatContext = await buildWearableChatContext({
+    ownerId: workspace.ownerId,
+    // The browser-generated session id already used to key the avatar cache — a stable
+    // per-shopper id without requiring shopper login, exactly what ACS's visitorId wants.
+    visitorId: sessionId,
+    geminiApiKey,
     creditsRemaining: billing.user.credits,
     profile: {
       heightCm: profileInput.heightCm ?? null,
@@ -117,12 +124,12 @@ export async function POST(req: NextRequest) {
       avatarUrl: profileInput.avatarUrl ?? cached?.avatarUrl ?? null,
       isCustomAvatar: profileInput.isCustomAvatar ?? false,
     },
+    history,
     outfitItems,
-    knownProducts,
+    knownProductIds,
     intake,
-    storeProductCount: connection?.productCount ?? 0,
-    categories: activeCategories,
-  };
+    retrievalState,
+  });
 
   const encoder = new TextEncoder();
 

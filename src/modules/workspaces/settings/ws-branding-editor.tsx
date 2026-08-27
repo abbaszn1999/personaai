@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { BRAND_COLOR_PRESETS } from "@/modules/settings/mocks/defaults";
 import type { Workspace, WorkspaceBranding, WorkspaceTheme } from "@/modules/workspaces/types";
 import { useWorkspaceStore } from "@/modules/workspaces/store";
+import { CatalogReadyGate } from "@/modules/store/components/catalog-ready-gate";
 import { cn } from "@/lib/utils/cn";
 import { FontPicker } from "./font-picker";
 import { fontFamilyCssValue, loadGoogleFont } from "@/lib/fonts/google-fonts";
@@ -418,41 +419,47 @@ export function WsBrandingEditor({ workspace }: Props) {
               </div>
             )}
 
-            {/* Snippet */}
-            <div className="relative rounded-[var(--radius-lg)] bg-[var(--color-surface-base)] border border-[var(--color-border)] p-3 pr-10 font-mono text-xs text-[var(--color-text-secondary)] break-all leading-relaxed">
-              {snippet}
-              <button
-                onClick={handleCopy}
-                className="absolute top-2.5 right-2.5 h-6 w-6 flex items-center justify-center rounded border border-[var(--color-border)] bg-[var(--color-surface-card)] hover:border-[var(--color-brand)] transition-colors"
-                title="Copy"
-              >
-                {copied
-                  ? <Check className="h-3 w-3 text-[var(--color-success)]" />
-                  : <Copy className="h-3 w-3 text-[var(--color-text-muted)]" />}
-              </button>
-            </div>
-            <p className="text-xs text-[var(--color-text-muted)]">
-              Paste before <code>&lt;/body&gt;</code>. Add a <code>data-target=&quot;#el&quot;</code> attribute to mount it into a specific container instead of right after the script tag.
-            </p>
+            {/* Snippet — withheld until the catalog is indexed on wearable workspaces, since
+                deploying it early puts a live agent in front of shoppers with nothing to find.
+                Appearance controls above stay editable so the wait isn't dead time. */}
+            <CatalogReadyGate variant="inline" label="The embed snippet" enabled={isWearable}>
+              <div className="space-y-3">
+                <div className="relative rounded-[var(--radius-lg)] bg-[var(--color-surface-base)] border border-[var(--color-border)] p-3 pr-10 font-mono text-xs text-[var(--color-text-secondary)] break-all leading-relaxed">
+                  {snippet}
+                  <button
+                    onClick={handleCopy}
+                    className="absolute top-2.5 right-2.5 h-6 w-6 flex items-center justify-center rounded border border-[var(--color-border)] bg-[var(--color-surface-card)] hover:border-[var(--color-brand)] transition-colors"
+                    title="Copy"
+                  >
+                    {copied
+                      ? <Check className="h-3 w-3 text-[var(--color-success)]" />
+                      : <Copy className="h-3 w-3 text-[var(--color-text-muted)]" />}
+                  </button>
+                </div>
+                <p className="text-xs text-[var(--color-text-muted)]">
+                  Paste before <code>&lt;/body&gt;</code>. Add a <code>data-target=&quot;#el&quot;</code> attribute to mount it into a specific container instead of right after the script tag.
+                </p>
 
-            <div className="flex gap-2">
-              <Link href={previewUrl} target="_blank" className="flex-1">
-                <Button variant="secondary" size="sm" className="w-full gap-1.5">
-                  <Eye className="h-3.5 w-3.5" />
-                  Preview as Customer
-                </Button>
-              </Link>
-              <Button
-                variant="secondary"
-                size="sm"
-                className="gap-1.5"
-                loading={regenerating}
-                onClick={handleRegenerateToken}
-                title="Regenerate embed token — invalidates every deployed snippet"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-              </Button>
-            </div>
+                <div className="flex gap-2">
+                  <Link href={previewUrl} target="_blank" className="flex-1">
+                    <Button variant="secondary" size="sm" className="w-full gap-1.5">
+                      <Eye className="h-3.5 w-3.5" />
+                      Preview as Customer
+                    </Button>
+                  </Link>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="gap-1.5"
+                    loading={regenerating}
+                    onClick={handleRegenerateToken}
+                    title="Regenerate embed token — invalidates every deployed snippet"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+            </CatalogReadyGate>
           </ControlGroup>
 
           {/* Save */}

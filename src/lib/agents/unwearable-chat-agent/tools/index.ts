@@ -1,4 +1,4 @@
-import type { ToolCall, ToolDefinition } from "@/lib/ai/openai";
+import type { ToolCall, ToolDefinition } from "@/lib/ai/gemini-chat";
 import { addToCartTool, handleAddToCart } from "./add-to-cart";
 import { recordIntakeFieldTool, handleRecordIntakeField } from "./record-intake-field";
 import { searchCatalogTool, handleSearchCatalog } from "./search-catalog";

@@ -1,4 +1,4 @@
-import { createChatCompletion, type ChatCompletionMessage, type ToolDefinition } from "@/lib/ai/openai";
+import { createChatCompletion, type ChatCompletionMessage, type ToolDefinition } from "@/lib/ai/gemini-chat";
 import type { Product } from "@/modules/shopping-agent/types";
 import type { CatalogMatchType } from "@/lib/catalog/search-catalog";
 import type { StoreCategory } from "@/modules/store/types";

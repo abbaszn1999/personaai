@@ -3,11 +3,12 @@ import { cookies } from "next/headers";
 import { getIronSession } from "iron-session";
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { sessionOptions, type SessionData } from "@/modules/auth/lib/session";
-import { getOpenaiApiKeyEncrypted } from "@/lib/db/users";
-import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
+import { getGeminiApiKeyEncrypted } from "@/lib/db/users";
+import type { BundleState } from "@/lib/retrieval/types";
 import { decryptSecret } from "@/lib/utils/crypto";
-import { runWearableChatAgent, type WearableChatContext, type IntakeState } from "@/lib/agents/wearable-chat-agent";
-import { getWearableAvatar, rememberWearableAvatar } from "@/lib/agents/wearable-chat-agent/avatar-cache";
+import { runWearableChatAgent, type WearableChatContext, type IntakeState } from "@/lib/agents/wearable/persona";
+import { buildWearableChatContext } from "@/lib/agents/wearable/persona/context";
+import { getWearableAvatar, rememberWearableAvatar } from "@/lib/agents/wearable/persona/avatar-cache";
 import type { ChatMessage, Product } from "@/modules/shopping-agent/types";
 import { canUsePaidPlatform, getAccountBillingContext } from "@/lib/billing/account";
 
@@ -28,8 +29,17 @@ interface WearableChatRequestBody {
     isCustomAvatar?: boolean;
   };
   outfitItems?: Product[];
-  knownProducts?: Product[];
+  /** Ids only. The server rehydrates them from `catalog_products`, so a long conversation
+   *  doesn't carry the whole product list back and forth on every turn. */
+  knownProductIds?: string[];
   intake?: IntakeState;
+  /** Retrieval state the client received on the previous turn and echoes back. */
+  retrievalState?: {
+    anchorId?: string | null;
+    anchorPinned?: boolean;
+    bundleState?: BundleState | null;
+    shownProductIds?: string[];
+  };
 }
 
 function sseLine(payload: unknown): string {
@@ -49,20 +59,20 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const encryptedKey = await getOpenaiApiKeyEncrypted(user.id);
+  const encryptedKey = await getGeminiApiKeyEncrypted(user.id);
   if (!encryptedKey) {
     return Response.json(
-      { error: "Add your OpenAI API key in Account Settings to chat with the Style Assistant.", code: "missing_openai_key" },
+      { error: "Add your Gemini API key in Account Settings to chat with the Style Assistant.", code: "missing_api_key" },
       { status: 400 }
     );
   }
 
-  let openaiApiKey: string;
+  let geminiApiKey: string;
   try {
-    openaiApiKey = decryptSecret(encryptedKey);
+    geminiApiKey = decryptSecret(encryptedKey);
   } catch {
     return Response.json(
-      { error: "Your saved OpenAI API key couldn't be read — please re-enter it in Account Settings.", code: "missing_openai_key" },
+      { error: "Your saved Gemini API key couldn't be read — please re-enter it in Account Settings.", code: "missing_api_key" },
       { status: 400 }
     );
   }
@@ -71,8 +81,9 @@ export async function POST(req: NextRequest) {
   const history = Array.isArray(body.messages) ? body.messages : [];
   const profileInput = body.profile ?? {};
   const outfitItems = Array.isArray(body.outfitItems) ? body.outfitItems : [];
-  const knownProducts = Array.isArray(body.knownProducts) ? body.knownProducts : [];
+  const knownProductIds = Array.isArray(body.knownProductIds) ? body.knownProductIds : [];
   const intake = body.intake ?? {};
+  const retrievalState = body.retrievalState ?? {};
 
   // Cache any newly provided avatar/photo so later turns stay under the body-size limit.
   if (profileInput.avatarUrl || profileInput.photoBase64) {
@@ -84,14 +95,14 @@ export async function POST(req: NextRequest) {
   }
   const cached = getWearableAvatar(user.id);
 
-  const connection = await getStoreConnectionByOwner(user.id);
-  const activeCategories = connection
-    ? connection.categories.filter((c) => connection.selectedCategoryIds.includes(c.id))
-    : [];
-
-  const context: WearableChatContext = {
-    userId: user.id,
-    openaiApiKey,
+  const context: WearableChatContext = await buildWearableChatContext({
+    ownerId: user.id,
+    // The dashboard's chat preview is the merchant's own authenticated account, not an anonymous
+    // shopper session — the account id is already stable and unique, so there's no need for a
+    // separate per-tab id here the way the embed surface needs one (see dashboardSessionIdRef's
+    // comment client-side, which is used for chat-event logging only, not this).
+    visitorId: user.id,
+    geminiApiKey,
     creditsRemaining: billing.user.credits,
     profile: {
       heightCm: profileInput.heightCm ?? null,
@@ -104,12 +115,12 @@ export async function POST(req: NextRequest) {
       avatarUrl: profileInput.avatarUrl ?? cached?.avatarUrl ?? null,
       isCustomAvatar: profileInput.isCustomAvatar ?? false,
     },
+    history,
     outfitItems,
-    knownProducts,
+    knownProductIds,
     intake,
-    storeProductCount: connection?.productCount ?? 0,
-    categories: activeCategories,
-  };
+    retrievalState,
+  });
 
   const encoder = new TextEncoder();
   let latestCreditsRemaining = billing.user.credits;

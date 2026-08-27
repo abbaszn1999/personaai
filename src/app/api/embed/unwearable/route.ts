@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getOpenaiApiKeyEncrypted, getUserById } from "@/lib/db/users";
+import { getGeminiApiKeyEncrypted, getUserById } from "@/lib/db/users";
 import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
 import { decryptSecret } from "@/lib/utils/crypto";
 import { runUnwearableChatAgent, type UnwearableChatContext, type IntakeState } from "@/lib/agents/unwearable-chat-agent";
@@ -47,20 +47,20 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const encryptedKey = await getOpenaiApiKeyEncrypted(workspace.ownerId);
+  const encryptedKey = await getGeminiApiKeyEncrypted(workspace.ownerId);
   if (!encryptedKey) {
     return Response.json(
-      { error: "This store hasn't finished setting up its shopping assistant yet.", code: "missing_openai_key" },
+      { error: "This store hasn't finished setting up its shopping assistant yet.", code: "missing_api_key" },
       { status: 400, headers: EMBED_CORS_HEADERS }
     );
   }
 
-  let openaiApiKey: string;
+  let geminiApiKey: string;
   try {
-    openaiApiKey = decryptSecret(encryptedKey);
+    geminiApiKey = decryptSecret(encryptedKey);
   } catch {
     return Response.json(
-      { error: "This store's shopping assistant is temporarily unavailable.", code: "missing_openai_key" },
+      { error: "This store's shopping assistant is temporarily unavailable.", code: "missing_api_key" },
       { status: 400, headers: EMBED_CORS_HEADERS }
     );
   }
@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
 
   const context: UnwearableChatContext = {
     userId: workspace.ownerId,
-    openaiApiKey,
+    geminiApiKey,
     knownProducts,
     intake,
     storeProductCount: connection?.productCount ?? 0,

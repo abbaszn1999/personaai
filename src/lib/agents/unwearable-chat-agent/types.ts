@@ -10,7 +10,7 @@ export type IntakeState = Partial<Record<IntakeField, string>>;
  *  chat turn. Mirrors WearableChatContext minus everything body/avatar/try-on specific. */
 export interface UnwearableChatContext {
   userId: string;
-  openaiApiKey: string;
+  geminiApiKey: string;
   /** The client's accumulated live-product cache from earlier turns, so the model can
    *  reference products found in previous searches without re-searching. */
   knownProducts: Product[];

@@ -59,5 +59,6 @@ export function buildSolutionKitFromSearches(
     id: `kit-${Date.now()}`,
     label,
     productIds: picked.map((p) => p.id),
+    items: picked.map((p) => ({ productId: p.id, category: p.categoryId || null, price: p.price })),
   };
 }

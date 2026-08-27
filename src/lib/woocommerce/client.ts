@@ -1,5 +1,6 @@
 import type { StoreCategory } from "@/modules/store/types";
 import type { Product, ProductVariant } from "@/modules/shopping-agent/types";
+import type { CatalogPageOptions, RawCatalogProduct, VariantOptionGroups } from "@/lib/catalog/sync-types";
 import { createTimeoutSignal } from "@/lib/catalog/timeout";
 
 const API_BASE = "/wp-json/wc/v3";
@@ -117,11 +118,18 @@ interface WooCommerceCategory {
   id: number;
   name: string;
   count: number;
+  /** 0 for a top-level term. */
+  parent: number;
 }
 
 /**
  * Fetches product categories and their product counts, paginating through WooCommerce's
  * 100-per-page limit so large catalogs aren't silently truncated.
+ *
+ * `count` is already subtree-inclusive here — a parent reports its descendants' products too — so
+ * it is passed through untouched. Adding descendants on top would double every parent whose
+ * products all live in its children, which is the common shape, and the selection UI spends that
+ * number as a cost estimate.
  */
 export async function getWordPressCategories(
   siteUrl: string,
@@ -143,8 +151,9 @@ export async function getWordPressCategories(
     for (const category of data) {
       all.push({
         id: String(category.id),
-        name: category.name,
+        name: decodeHtmlEntities(category.name),
         productCount: category.count ?? 0,
+        parentId: category.parent ? String(category.parent) : null,
       });
     }
 
@@ -155,6 +164,19 @@ export async function getWordPressCategories(
   }
 
   return all;
+}
+
+/** WordPress returns taxonomy names HTML-escaped, so "Shoes & Bags" arrives as "Shoes &amp;
+ *  Bags". React escapes on render rather than decoding, so the entity would otherwise be shown
+ *  literally in the category the merchant is picking. */
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;|&apos;/g, "'")
+    .replace(/&nbsp;/g, " ");
 }
 
 // ─── Live catalog search (REST API filters) ───────────────────────────────────
@@ -239,6 +261,216 @@ function mapWooProduct(product: WooCommerceProduct): Product | null {
     reviewCount: 0,
     inStock,
   };
+}
+
+// ─── Full-catalog listing (indexing, not search) ──────────────────────────────
+
+interface WooCatalogProduct extends WooCommerceProduct {
+  sku: string;
+  permalink: string;
+  date_modified_gmt: string;
+  type: string;
+  brands?: Array<{ name: string }>;
+}
+
+function toWooVariantOptionGroups(attributes: WooCommerceProductAttribute[]): VariantOptionGroups {
+  const groups: VariantOptionGroups = {};
+
+  for (const attribute of attributes) {
+    if (attribute.options.length === 0) continue;
+    // WooCommerce's product list endpoint reports attribute options, not variation ids —
+    // resolving a real variation id needs a per-product request, which is what
+    // `resolveAddToCartItemId` already does lazily at add-to-cart time. Storing the option
+    // label as the id here keeps the shape honest rather than implying an id we don't have.
+    groups[attribute.name] = attribute.options.map((option) => ({ id: option, label: option }));
+  }
+
+  return groups;
+}
+
+function mapWooCatalogProduct(product: WooCatalogProduct): RawCatalogProduct {
+  const images = product.images.map((image) => image.src).filter(Boolean);
+
+  return {
+    externalId: String(product.id),
+    productGroupId: String(product.id),
+    sku: product.sku?.trim() || null,
+    title: product.name,
+    description: stripHtml(product.description || product.short_description),
+    brand: product.brands?.[0]?.name?.trim() || null,
+    rawCategories: product.categories.map((category) => category.name),
+    sourceCategoryIds: product.categories.map((category) => String(category.id)),
+    price: Number(product.price) || null,
+    currency: WOOCOMMERCE_DEFAULT_CURRENCY,
+    inStock: product.stock_status === "instock",
+    productUrl: product.permalink || null,
+    imageUrl: images[0] ?? null,
+    images,
+    variantOptions: toWooVariantOptionGroups(product.attributes),
+    // WooCommerce reports this in GMT without a zone marker, so it needs one to parse as UTC.
+    updatedAt: product.date_modified_gmt ? `${product.date_modified_gmt}Z` : null,
+  };
+}
+
+/**
+ * Pulls one page of the full catalog for indexing. Paged by the caller so a large store is
+ * walked as bounded batches rather than assembled in memory.
+ */
+export async function listWooCatalogPage(
+  siteUrl: string,
+  username: string,
+  appPassword: string,
+  options: CatalogPageOptions & { page: number },
+  signal?: AbortSignal
+): Promise<{ products: RawCatalogProduct[]; hasMore: boolean }> {
+  const perPage = Math.min(options.pageSize ?? WOO_PAGE_SIZE, WOO_PAGE_SIZE);
+  const params = new URLSearchParams({
+    per_page: String(perPage),
+    page: String(options.page),
+    status: "publish",
+    orderby: "id",
+    order: "asc",
+  });
+
+  // Woo's own incremental filter — the reconcile cursor, so a scheduled pass costs one page
+  // rather than a full walk when nothing much has changed.
+  if (options.updatedAfter) params.set("modified_after", options.updatedAfter);
+
+  // A union across the listed terms, each product returned once however many it belongs to, and
+  // descendants are included — asking for a parent returns its children's products too.
+  if (options.categoryIds?.length) params.set("category", options.categoryIds.join(","));
+
+  const { data } = await wooFetch<WooCatalogProduct[]>(
+    siteUrl,
+    username,
+    appPassword,
+    `/products?${params.toString()}`,
+    signal
+  );
+
+  return {
+    products: data.map(mapWooCatalogProduct),
+    hasMore: data.length === perPage,
+  };
+}
+
+export interface LiveWooProductFacts {
+  externalId: string;
+  price: number | null;
+  currency: string | null;
+  inStock: boolean;
+}
+
+/** Re-reads price and stock for the products about to be shown, in one request rather than
+ *  one per product. */
+export async function hydrateWooProducts(
+  siteUrl: string,
+  username: string,
+  appPassword: string,
+  externalIds: string[],
+  signal?: AbortSignal
+): Promise<LiveWooProductFacts[]> {
+  if (externalIds.length === 0) return [];
+
+  const params = new URLSearchParams({
+    include: externalIds.join(","),
+    per_page: String(Math.min(externalIds.length, WOO_PAGE_SIZE)),
+  });
+
+  const { data } = await wooFetch<Array<{ id: number; price: string; stock_status: string }>>(
+    siteUrl,
+    username,
+    appPassword,
+    `/products?${params.toString()}`,
+    signal
+  );
+
+  return data.map((product) => ({
+    externalId: String(product.id),
+    price: Number(product.price) || null,
+    currency: WOOCOMMERCE_DEFAULT_CURRENCY,
+    inStock: product.stock_status === "instock",
+  }));
+}
+
+/** WooCommerce webhooks deliver the same product object the REST list endpoint returns, so
+ *  the two feeds share one mapper — unlike Shopify, where they differ. */
+export function mapWooWebhookProduct(payload: unknown): RawCatalogProduct | null {
+  const product = payload as WooCatalogProduct;
+  if (!product?.id || !product.name) return null;
+  return mapWooCatalogProduct({
+    ...product,
+    images: product.images ?? [],
+    categories: product.categories ?? [],
+    tags: product.tags ?? [],
+    attributes: product.attributes ?? [],
+  });
+}
+
+const WOO_WEBHOOK_TOPICS = ["product.created", "product.updated", "product.deleted"];
+
+interface WooWebhookRecord {
+  id: number;
+  topic: string;
+  delivery_url: string;
+  status: string;
+}
+
+/**
+ * Subscribes to product changes, skipping topics already pointed at this callback so a
+ * reconnect doesn't stack duplicate subscriptions.
+ *
+ * Unlike Shopify, WooCommerce signs with a per-webhook secret of our choosing rather than an
+ * existing credential, so the caller passes one it can re-derive at verification time.
+ */
+export async function registerWooWebhooks(
+  siteUrl: string,
+  username: string,
+  appPassword: string,
+  callbackUrl: string,
+  secret: string
+): Promise<{ registered: string[] }> {
+  const existing = await wooFetch<WooWebhookRecord[]>(
+    siteUrl,
+    username,
+    appPassword,
+    "/webhooks?per_page=100"
+  ).catch(() => ({ data: [] as WooWebhookRecord[], headers: new Headers() }));
+
+  const already = new Set(
+    (existing.data ?? []).filter((hook) => hook.delivery_url === callbackUrl).map((hook) => hook.topic)
+  );
+
+  const registered: string[] = [];
+
+  for (const topic of WOO_WEBHOOK_TOPICS) {
+    if (already.has(topic)) continue;
+
+    const res = await fetch(`${siteUrl}${API_BASE}/webhooks`, {
+      method: "POST",
+      headers: {
+        Authorization: buildAuthHeader(username, appPassword),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: `Catalog sync — ${topic}`,
+        topic,
+        delivery_url: callbackUrl,
+        secret,
+        status: "active",
+      }),
+      cache: "no-store",
+    });
+
+    if (res.ok) {
+      registered.push(topic);
+    } else {
+      // Non-fatal — the reconcile schedule still catches the change, just not instantly.
+      console.error(`[woocommerce registerWooWebhooks] ${topic} failed (${res.status})`);
+    }
+  }
+
+  return { registered };
 }
 
 // ─── Real add-to-cart item resolution ─────────────────────────────────────────

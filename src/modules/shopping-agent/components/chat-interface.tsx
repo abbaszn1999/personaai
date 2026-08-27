@@ -18,7 +18,7 @@ import { useShoppingAgent } from "../hooks/use-shopping-agent";
 import { AgentOrb } from "@/components/ui/agent-orb";
 import { useVariantPicker } from "@/components/ui/variant-picker-popover";
 import { SolutionBoard } from "./solution-board";
-import { NoOpenAiKeyGate } from "@/modules/wearable-agent/components/no-openai-key-gate";
+import { NoApiKeyGate } from "@/modules/wearable-agent/components/no-api-key-gate";
 import { cn } from "@/lib/utils/cn";
 import { formatPrice } from "../constants";
 import type { ChatMessage, Product } from "../types";
@@ -89,10 +89,10 @@ export function ChatInterface({ viewportMode = "desktop", embed, branding, works
 
   // Dashboard-only BYO-key gate — embeds never hit this (the server already guarantees the
   // merchant's key exists before enabling the embed).
-  if (!embed && !agent.openAiKeyLoading && !agent.hasOpenAiKey) {
+  if (!embed && !agent.apiKeyLoading && !agent.hasApiKey) {
     return (
       <div className="flex h-full min-h-0 items-center justify-center rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)]">
-        <NoOpenAiKeyGate />
+        <NoApiKeyGate />
       </div>
     );
   }

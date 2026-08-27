@@ -149,7 +149,9 @@ function buildRequestBody(
     input,
     // Stateless by design — this app resends the full turn history itself on every request
     // and never persists conversations server-side, so there's nothing for OpenAI to retain.
-    store: false,
+    // Defaults to `false`; set OPENAI_STORE_LOGS=true locally to see requests in the OpenAI
+    // dashboard's Logs while debugging — no deploy env var needed since it's opt-in.
+    store: process.env.OPENAI_STORE_LOGS === "true",
     ...extra,
   };
   if (instructions) body.instructions = instructions;

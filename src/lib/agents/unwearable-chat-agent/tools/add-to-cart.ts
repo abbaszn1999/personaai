@@ -1,4 +1,4 @@
-import type { ToolDefinition } from "@/lib/ai/openai";
+import type { ToolDefinition } from "@/lib/ai/gemini-chat";
 import type { ToolRuntimeState, UnwearableAgentEvent, UnwearableChatContext } from "../types";
 
 export const addToCartTool: ToolDefinition = {

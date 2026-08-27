@@ -18,7 +18,7 @@ type SectionId = "profile" | "api-keys" | "billing" | "notifications" | "danger"
 
 const NAV_ITEMS: PanelNavItem[] = [
   { id: "profile",       label: "Profile",             description: "Name, avatar & connected accounts", icon: <User className="h-4 w-4" /> },
-  { id: "api-keys",      label: "API Keys",             description: "OpenAI key for chat agent",  icon: <KeySquare className="h-4 w-4" /> },
+  { id: "api-keys",      label: "API Keys",             description: "Gemini key for chat agent",  icon: <KeySquare className="h-4 w-4" /> },
   { id: "notifications", label: "Notifications",        description: "Email alert preferences",    icon: <Bell className="h-4 w-4" /> },
   { id: "billing",       label: "Billing",              description: "Plans & credits",            icon: <CreditCard className="h-4 w-4" /> },
   { id: "danger",        label: "Danger Zone",          description: "Irreversible actions",       icon: <AlertTriangle className="h-4 w-4" />, danger: true },

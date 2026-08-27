@@ -4,10 +4,10 @@ import * as React from "react";
 import { KeySquare, Eye, EyeOff, Check } from "lucide-react";
 import { SettingsSection } from "@/components/ui/settings-section";
 import { Button } from "@/components/ui/button";
-import { useOpenaiApiKey } from "../hooks/use-openai-api-key";
+import { useGeminiApiKey } from "../hooks/use-gemini-api-key";
 
 export function ApiKeySection() {
-  const { hasKey, maskedKey, loading, saving, error, save } = useOpenaiApiKey();
+  const { hasKey, maskedKey, loading, saving, error, warning, save } = useGeminiApiKey();
   const [draft, setDraft] = React.useState("");
   const [revealed, setRevealed] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
@@ -24,16 +24,17 @@ export function ApiKeySection() {
 
   return (
     <SettingsSection
-      title="OpenAI API Key"
-      description="Your conversational shopping assistant runs on your own OpenAI account"
+      title="Gemini API Key"
+      description="Your conversational shopping assistant runs on your own Google Gemini account"
       icon={<KeySquare className="h-4 w-4" />}
       accent="brand"
     >
       <div className="space-y-4">
         <p className="text-xs text-[var(--color-text-muted)] max-w-xl">
-          The chat agent uses <span className="font-medium text-[var(--color-text-secondary)]">your own OpenAI API key</span>,
-          so you control text chat volume and cost directly with OpenAI. This is separate from your
-          image generation credits, which are managed natively by Autommerce under your plan.
+          The chat agent uses <span className="font-medium text-[var(--color-text-secondary)]">your own Gemini API key</span>,
+          so you control text chat volume and cost directly with Google. Use a key with billing
+          enabled — free-tier keys are rate limited well below real store traffic. This is separate
+          from your image generation credits, which are managed natively by Autommerce under your plan.
         </p>
 
         <div className="flex items-center gap-2 max-w-md">
@@ -42,7 +43,7 @@ export function ApiKeySection() {
               type={revealed ? "text" : "password"}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              placeholder={hasKey ? "Enter a new key to replace the saved one" : "sk-..."}
+              placeholder={hasKey ? "Enter a new key to replace the saved one" : "AIza..."}
               className="w-full h-10 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-base)] px-3 pr-10 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand)]"
             />
             <button
@@ -61,6 +62,10 @@ export function ApiKeySection() {
 
         {error && (
           <p className="text-sm text-[var(--color-error)] bg-[var(--color-error-light)] rounded-[var(--radius-md)] px-3 py-2">{error}</p>
+        )}
+
+        {warning && (
+          <p className="text-sm text-[var(--color-warning)] bg-[var(--color-warning-light)] rounded-[var(--radius-md)] px-3 py-2">{warning}</p>
         )}
 
         <p className="text-xs text-[var(--color-text-muted)]">

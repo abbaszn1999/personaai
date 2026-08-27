@@ -11,6 +11,12 @@ const PUBLIC_PATHS = [
   // shopper never has, and shouldn't need, a Persona AI account.
   "/embed/",
   "/api/embed/",
+  // Machine callers with no session to present: pg_cron reaches the catalog jobs via
+  // pg_net, and Shopify/WooCommerce post product changes here. Both carry their own
+  // credential (a shared secret and an HMAC signature respectively) and verify it
+  // themselves, so a session redirect here would silently stall catalog indexing.
+  "/api/internal/",
+  "/api/webhooks/",
 ];
 
 function isPublicPath(pathname: string): boolean {

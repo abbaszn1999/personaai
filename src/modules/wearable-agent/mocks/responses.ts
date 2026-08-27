@@ -19,13 +19,16 @@ export const WEARABLE_QUICK_REPLIES: WearableQuickReply[] = [
   { label: "What's trending?",      query: "What's trending right now?" },
 ];
 
-/** Labels cycled through while a search_catalog tool call is in flight, so the shopper sees
- *  a concrete sense of progress instead of a generic spinner. */
+/**
+ * Labels cycled only while the server explicitly reports a complete-bundle build in flight.
+ *
+ * These are the real pipeline phases, not labels attached to every search_catalog tool call.
+ */
 export const SCAN_STAGES = [
-  "Scanning the catalog…",
-  "Matching your style profile…",
-  "Filtering by budget…",
-  "Ranking best fits for your body type…",
+  "Finding options for every piece…",
+  "Allocating your budget across categories…",
+  "Styling coordinated complete looks…",
+  "Preparing your bundle cards…",
 ] as const;
 
 export const SCAN_STAGE_DURATION_MS = 650;

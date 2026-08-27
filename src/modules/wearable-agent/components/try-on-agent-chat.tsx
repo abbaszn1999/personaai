@@ -4,9 +4,9 @@ import * as React from "react";
 import { ArrowUp, ChevronDown, ChevronUp, GripVertical, MessageCircle } from "lucide-react";
 import type { UseTryOnAgentReturn } from "../hooks/use-try-on-agent";
 import type { Product } from "@/modules/shopping-agent/types";
-import { WearableChatMessage, WearableScanningIndicator, WearableTypingIndicator } from "./wearable-chat-message";
+import { PinnedAnchorBar, PinnedBundleBar, WearableChatMessage, WearableScanningIndicator, WearableTypingIndicator } from "./wearable-chat-message";
 import { AvatarMannequinPanel } from "./avatar-mannequin-panel";
-import { NoOpenAiKeyGate } from "./no-openai-key-gate";
+import { NoApiKeyGate } from "./no-api-key-gate";
 import { WEARABLE_QUICK_REPLIES } from "../mocks/responses";
 import { AgentOrb } from "@/components/ui/agent-orb";
 import { useVariantPicker } from "@/components/ui/variant-picker-popover";
@@ -172,7 +172,7 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart }: 
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [agent.messages, agent.isTyping, agent.isScanning]);
 
-  if (!agent.openAiKeyLoading && !agent.hasOpenAiKey) {
+  if (!agent.apiKeyLoading && !agent.hasApiKey) {
     return (
       <div className={cn(
         "flex-1 flex flex-col min-w-0 min-h-0 h-full overflow-hidden backdrop-blur-xl",
@@ -180,7 +180,7 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart }: 
           ? "rounded-none border-0 bg-[var(--color-surface-card)]"
           : "rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)]"
       )}>
-        <NoOpenAiKeyGate />
+        <NoApiKeyGate />
       </div>
     );
   }
@@ -232,13 +232,17 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart }: 
               onWearItem={agent.wearItem}
               onAddToCart={handleAddToCart}
               knownProducts={agent.knownProducts}
+              selectedAnchorId={agent.selectedAnchor?.id ?? null}
+              onSelectItem={agent.selectItem}
               onQuickOption={(label) => agent.sendMessage(label)}
               onRenderBundle={agent.wearBundle}
               onAddBundleToCart={agent.addBundleToCart}
+              onDiscussBundle={agent.discussBundle}
+              discussedBundleId={agent.discussedBundle?.id ?? null}
             />
           );
         })}
-        {agent.isTyping && <WearableTypingIndicator />}
+        {agent.isTyping && <WearableTypingIndicator stage={agent.typingStage} />}
         {agent.isScanning && <WearableScanningIndicator stageIndex={agent.scanStageIndex} resultCount={agent.scanResultCount} />}
       </div>
 
@@ -255,6 +259,23 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart }: 
               {qr.label}
             </button>
           ))}
+        </div>
+      )}
+
+      {/* Pinned anchor — a single product and a whole outfit are mutually exclusive subjects,
+          so at most one of these ever renders. */}
+      {agent.selectedAnchor && (
+        <div className={cn("shrink-0", compact ? "px-3 pb-2" : "px-5 pb-2")}>
+          <PinnedAnchorBar product={agent.selectedAnchor} onClear={agent.clearAnchor} />
+        </div>
+      )}
+      {agent.discussedBundle && (
+        <div className={cn("shrink-0", compact ? "px-3 pb-2" : "px-5 pb-2")}>
+          <PinnedBundleBar
+            bundle={agent.discussedBundle}
+            knownProducts={agent.knownProducts}
+            onClear={agent.clearDiscussedBundle}
+          />
         </div>
       )}
 
@@ -309,7 +330,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
   // showing them again below every subsequent turn is clutter, not a shortcut.
   const hasStartedChat = agent.messages.some((m) => m.role === "user");
   const canShowQuickReplies = !hasStartedChat && !agent.isScanning && !agent.isTyping && !agent.isGenerating;
-  const showKeyGate = !agent.openAiKeyLoading && !agent.hasOpenAiKey;
+  const showKeyGate = !agent.apiKeyLoading && !agent.hasApiKey;
 
   React.useEffect(() => {
     const el = messagesRef.current;
@@ -394,7 +415,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
 
         {/* ── Messages + quick replies + input (only visible when expanded) ── */}
         {sheetExpanded && showKeyGate ? (
-          <NoOpenAiKeyGate compact />
+          <NoApiKeyGate compact />
         ) : sheetExpanded && (
           <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
             {/* Messages */}
@@ -417,13 +438,17 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
                     onWearItem={agent.wearItem}
                     onAddToCart={handleAddToCart}
                     knownProducts={agent.knownProducts}
+                    selectedAnchorId={agent.selectedAnchor?.id ?? null}
+                    onSelectItem={agent.selectItem}
                     onQuickOption={(label) => agent.sendMessage(label)}
                     onRenderBundle={agent.wearBundle}
                     onAddBundleToCart={agent.addBundleToCart}
+                    onDiscussBundle={agent.discussBundle}
+                    discussedBundleId={agent.discussedBundle?.id ?? null}
                   />
                 );
               })}
-              {agent.isTyping && <WearableTypingIndicator />}
+              {agent.isTyping && <WearableTypingIndicator stage={agent.typingStage} />}
               {agent.isScanning && <WearableScanningIndicator stageIndex={agent.scanStageIndex} resultCount={agent.scanResultCount} />}
             </div>
 
@@ -440,6 +465,23 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
                     {qr.label}
                   </button>
                 ))}
+              </div>
+            )}
+
+            {/* Pinned anchor — mutually exclusive with the pinned outfit below. */}
+            {agent.selectedAnchor && (
+              <div className="shrink-0 px-3 pb-1.5">
+                <PinnedAnchorBar product={agent.selectedAnchor} onClear={agent.clearAnchor} tone="dark" />
+              </div>
+            )}
+            {agent.discussedBundle && (
+              <div className="shrink-0 px-3 pb-1.5">
+                <PinnedBundleBar
+                  bundle={agent.discussedBundle}
+                  knownProducts={agent.knownProducts}
+                  onClear={agent.clearDiscussedBundle}
+                  tone="dark"
+                />
               </div>
             )}
 

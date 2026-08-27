@@ -1,7 +1,7 @@
 import type { Product } from "@/modules/shopping-agent/types";
 import type { TryOnProfile } from "@/modules/wearable-agent/types";
 import { recommendSize, resolveGarmentSlot } from "@/modules/wearable-agent/utils/fit-metrics";
-import type { WearableChatProfileContext } from "@/lib/agents/wearable-chat-agent/types";
+import type { WearableChatProfileContext } from "@/lib/agents/wearable/persona/types";
 
 function toFitMetricsProfile(profile: WearableChatProfileContext): TryOnProfile {
   return {

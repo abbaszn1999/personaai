@@ -3,7 +3,7 @@
 import * as React from "react";
 import type { ChatMessage, Product } from "@/modules/shopping-agent/types";
 import type { IntakeState, UnwearableAgentEvent } from "@/lib/agents/unwearable-chat-agent";
-import { useOpenaiApiKey } from "@/modules/billing/hooks/use-openai-api-key";
+import { useGeminiApiKey } from "@/modules/billing/hooks/use-gemini-api-key";
 import { parseBudgetMax } from "@/lib/recommendations";
 import { getOrCreateEmbedSessionId, loadEmbedState, saveEmbedState } from "@/lib/embed/client/embed-storage";
 import type { EmbedRuntimeConfig } from "@/lib/embed/client/types";
@@ -93,8 +93,8 @@ export interface UseShoppingAgentReturn {
   // Quick option handler (same as sendMessage but from chip)
   onQuickOption: (label: string) => void;
   // Dashboard-only BYO-key gating (always "has key" in embeds — server enforces it there)
-  hasOpenAiKey: boolean;
-  openAiKeyLoading: boolean;
+  hasApiKey: boolean;
+  apiKeyLoading: boolean;
 }
 
 /**
@@ -109,7 +109,7 @@ export function useShoppingAgent(
 ): UseShoppingAgentReturn {
   // The embedded page has no shopper login, so there's no `/api/account/api-key` to check —
   // the server already guarantees the merchant has one configured before enabling the embed.
-  const openaiKey = useOpenaiApiKey(!embed);
+  const geminiKey = useGeminiApiKey(!embed);
 
   const persisted = embed ? loadEmbedState<PersistedEmbedState>(embed.embedToken) : null;
 
@@ -686,7 +686,7 @@ export function useShoppingAgent(
     topic: state.intakeAnswers.useCase ?? null,
     budget: budgetMax,
     onQuickOption: sendMessage,
-    hasOpenAiKey: embed ? true : openaiKey.hasKey,
-    openAiKeyLoading: embed ? false : openaiKey.loading,
+    hasApiKey: embed ? true : geminiKey.hasKey,
+    apiKeyLoading: embed ? false : geminiKey.loading,
   };
 }

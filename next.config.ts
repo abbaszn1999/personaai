@@ -10,6 +10,13 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "32mb",
     },
   },
+  // The wearable agents read their prompts from `skills/*.md` at runtime (see load-skill.ts).
+  // Tracing can't infer that from a `readFileSync` on a composed path, so the files have to be
+  // named explicitly or a standalone build ships without them and every turn throws ENOENT.
+  outputFileTracingIncludes: {
+    "/api/agents/wearable": ["./src/lib/agents/wearable/**/*.md"],
+    "/api/embed/wearable": ["./src/lib/agents/wearable/**/*.md"],
+  },
 };
 
 export default nextConfig;
