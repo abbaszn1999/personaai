@@ -40,6 +40,10 @@ export async function buildQueryStatement(input: BuildStatementInput): Promise<s
     `Shopper's request: ${input.query}`,
   ].filter(Boolean);
 
+  console.log(
+    `[persona build_statement] category=${input.targetCategory ?? "n/a"} styleGuide=${input.styleGuide ? `present (${input.styleGuide.length} chars)` : "absent"}`
+  );
+
   try {
     const response = await createChatCompletion(
       input.apiKey,

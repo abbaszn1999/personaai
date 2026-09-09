@@ -187,6 +187,97 @@ describe("buildFieldRows", () => {
     expect(buildFieldRows(emptyOption).some((r) => r.label === "Fit")).toBe(false);
   });
 
+  // The whole point of Stage 1 being editable: these assert the table agrees with the indexer,
+  // which routes through the same `resolveOptionRole`. A regression here means a merchant sees a
+  // destination that isn't where their data actually goes.
+  describe("with merchant option-role overrides", () => {
+    const UNRECOGNIZED_GROUP: MappingPreviewSample = {
+      raw: {
+        ...(FULLY_POPULATED.raw as Record<string, unknown>),
+        variantOptions: { Talla: [{ id: "1", label: "M" }, { id: "2", label: "L" }] },
+      },
+      mapped: { ...(FULLY_POPULATED.mapped as Record<string, unknown>) },
+    };
+
+    it("leaves an unrecognized group in the opt_* catch-all with no override", () => {
+      const rows = buildFieldRows(UNRECOGNIZED_GROUP);
+
+      expect(rows.find((r) => r.label === "Talla")?.acsPath).toBe("attributes.opt_talla");
+      // The Size row still renders, but empty — nothing the store sent reached it.
+      expect(rows.find((r) => r.label === "Size")?.storeValue).toBe("—");
+    });
+
+    it("moves a reassigned group onto the real field's row", () => {
+      const rows = buildFieldRows(UNRECOGNIZED_GROUP, { talla: "size" });
+
+      const size = rows.find((r) => r.label === "Size");
+      expect(size?.storeValue).toBe("M, L");
+      // Names the merchant's own group rather than a guess at what a size group is called.
+      expect(size?.storePath).toBe('variantOptions["Talla"]');
+      // And it is no longer duplicated as a custom attribute row.
+      expect(rows.some((r) => r.label === "Talla")).toBe(false);
+    });
+
+    it("keys overrides case-insensitively, matching the indexer's normalization", () => {
+      const rows = buildFieldRows(
+        {
+          raw: {
+            ...(FULLY_POPULATED.raw as Record<string, unknown>),
+            variantOptions: { " SHADE ": [{ id: "1", label: "Navy" }] },
+          },
+          mapped: {},
+        },
+        { shade: "color" }
+      );
+
+      expect(rows.find((r) => r.label === "Color")?.storeValue).toBe("Navy");
+    });
+
+    it("shows an ignored group as explicitly not sent rather than dropping the row", () => {
+      const rows = buildFieldRows(UNRECOGNIZED_GROUP, { talla: "ignore" });
+
+      const ignored = rows.find((r) => r.label === "Talla");
+      expect(ignored?.notSent).toBe(true);
+      expect(ignored?.acsValue).toBe("Not sent to search");
+    });
+
+    it("lets a group override the platform's own brand field", () => {
+      const rows = buildFieldRows(
+        {
+          raw: {
+            ...(FULLY_POPULATED.raw as Record<string, unknown>),
+            brand: "Acme",
+            variantOptions: { Manufacturer: [{ id: "1", label: "Real Brand" }] },
+          },
+          mapped: {},
+        },
+        { manufacturer: "brand" }
+      );
+
+      expect(rows.find((r) => r.label === "Brand")?.storeValue).toBe("Real Brand");
+    });
+
+    it("merges two groups pointed at the same field", () => {
+      const rows = buildFieldRows(
+        {
+          raw: {
+            ...(FULLY_POPULATED.raw as Record<string, unknown>),
+            variantOptions: {
+              Colour: [{ id: "1", label: "Navy" }],
+              Shade: [{ id: "2", label: "Ecru" }],
+            },
+          },
+          mapped: {},
+        },
+        { shade: "color" }
+      );
+
+      const color = rows.find((r) => r.label === "Color");
+      expect(color?.storeValue).toBe("Navy, Ecru");
+      expect(color?.storePath).toBe('variantOptions["Colour"], variantOptions["Shade"]');
+    });
+  });
+
   it("does not throw on malformed raw/mapped payloads", () => {
     const malformed = { raw: null, mapped: undefined } as unknown as MappingPreviewSample;
     expect(() => buildFieldRows(malformed)).not.toThrow();

@@ -25,6 +25,11 @@ vi.mock("@/lib/catalog/acs/sync", () => ({
   syncProductsToAcs: (...args: unknown[]) => syncProductsToAcs(...args),
 }));
 
+const deleteProduct = vi.fn();
+vi.mock("@/lib/catalog/acs/client", () => ({
+  deleteProduct: (...args: unknown[]) => deleteProduct(...args),
+}));
+
 const getStoreConnectionById = vi.fn();
 const updateCatalogSyncState = vi.fn();
 const listConnectionsBySyncStatus = vi.fn();
@@ -37,11 +42,12 @@ vi.mock("@/lib/db/store-connections", () => ({
 
 const { drainCatalogQueue, mergeSourceCategories, settleFinishedRuns } = await import("./process-queue");
 
-const CONNECTION_ID = "conn-1";
+const CONNECTION_ID = "11111111-1111-1111-1111-111111111111";
 
 const connection = {
   id: CONNECTION_ID,
   platform: "shopify",
+  status: "connected",
   selectedCategoryIds: ["10"],
   categories: [{ id: "10", name: "Men", productCount: 5, parentId: null }],
   catalogSyncTotal: 10,
@@ -94,6 +100,7 @@ beforeEach(() => {
   getCatalogQueueDepth.mockReset().mockResolvedValue(0);
   fetchExistingAcsSourceCategoryIds.mockReset().mockResolvedValue([]);
   syncProductsToAcs.mockReset().mockResolvedValue(true);
+  deleteProduct.mockReset().mockResolvedValue(true);
   getStoreConnectionById.mockReset().mockResolvedValue(connection);
   updateCatalogSyncState.mockReset().mockResolvedValue(true);
   listConnectionsBySyncStatus.mockReset().mockResolvedValue([]);
@@ -166,6 +173,35 @@ describe("drainCatalogQueue — a failed category read", () => {
 
     const imported = syncProductsToAcs.mock.calls[0][0] as { sourceCategoryIds: string[] }[];
     expect(imported[0].sourceCategoryIds.sort()).toEqual(["10", "20"]);
+  });
+});
+
+describe("drainCatalogQueue — disconnect races", () => {
+  it("does not import a batch when the connection is removed during preparation", async () => {
+    getStoreConnectionById
+      .mockResolvedValueOnce(connection)
+      .mockResolvedValueOnce(null);
+    queueOnce([message(1, "p-1")]);
+
+    const result = await drainCatalogQueue();
+
+    expect(syncProductsToAcs).not.toHaveBeenCalled();
+    expect(ackCatalogMessages).toHaveBeenCalledWith([1]);
+    expect(result).toMatchObject({ indexed: 0, orphaned: 1 });
+  });
+
+  it("removes products imported in the final disconnect race window", async () => {
+    getStoreConnectionById
+      .mockResolvedValueOnce(connection)
+      .mockResolvedValueOnce(connection)
+      .mockResolvedValueOnce(null);
+    queueOnce([message(1, "p-1")]);
+
+    const result = await drainCatalogQueue();
+
+    expect(syncProductsToAcs).toHaveBeenCalledOnce();
+    expect(deleteProduct).toHaveBeenCalledWith(`${CONNECTION_ID}_p-1`);
+    expect(result).toMatchObject({ indexed: 0, orphaned: 1 });
   });
 });
 

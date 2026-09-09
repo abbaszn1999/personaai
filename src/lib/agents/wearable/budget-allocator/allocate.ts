@@ -87,6 +87,10 @@ async function requestBudgetShares(
     styleGuide: input.styleGuide ? styleGuideLine(input.styleGuide) : "",
   });
 
+  console.log(
+    `[budget-allocator] styleGuide=${input.styleGuide ? `present (${input.styleGuide.length} chars)` : "absent"} categories=${categories.join(",")}`
+  );
+
   try {
     const ai = getGeminiClient(input.apiKey);
     const response = await ai.models.generateContent({

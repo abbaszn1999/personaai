@@ -41,6 +41,7 @@ export function useStoreConnect() {
     syncedAt,
     isConnecting,
     isSyncing,
+    isDisconnecting,
     connectError,
     syncError,
     connect: connectStore,
@@ -93,7 +94,7 @@ export function useStoreConnect() {
   }
 
   async function disconnect() {
-    await disconnectStore();
+    return disconnectStore();
   }
 
   async function syncNow() {
@@ -107,6 +108,7 @@ export function useStoreConnect() {
     updateForm,
     isConnecting,
     isSyncing,
+    isDisconnecting,
     connectError,
     syncError,
     canConnect,

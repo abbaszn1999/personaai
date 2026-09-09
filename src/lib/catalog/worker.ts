@@ -1,4 +1,5 @@
 import { getCatalogQueueDepth } from "@/lib/db/catalog-queue";
+import { runSizingJobPass } from "@/lib/sizing/jobs";
 import { runCatalogEnqueuePass } from "./jobs";
 import { drainCatalogQueue, settleFinishedRuns } from "./process-queue";
 
@@ -66,6 +67,11 @@ export async function runCatalogTick(): Promise<number> {
   for (const { connectionId, enqueued } of started) {
     console.log(`[catalog worker] enqueued ${enqueued} product(s) for ${connectionId}`);
   }
+
+  // Size-intelligence runs ride the same loop rather than getting their own. Both are "background
+  // work for a merchant's catalog", both have to survive a request ending, and one driver means one
+  // place where scheduling can be wrong. A sizing pass is a cheap no-op when nothing is queued.
+  await runSizingJobPass();
 
   // Checked before draining so an idle install does one cheap count instead of a queue read
   // plus the whole batch machinery.

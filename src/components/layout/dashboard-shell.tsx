@@ -26,7 +26,11 @@ export function DashboardShell({ children }: DashboardShellProps) {
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#0a0810] p-2 gap-2">
-      <AppSidebar />
+      <React.Suspense
+        fallback={<aside className="h-full w-[272px] shrink-0 rounded-[var(--radius-2xl)] sidebar-panel" />}
+      >
+        <AppSidebar />
+      </React.Suspense>
       <div className="dashboard-theme flex flex-1 flex-col overflow-hidden rounded-[var(--radius-2xl)] content-panel min-w-0">
         <main className="flex-1 overflow-y-auto sidebar-scroll">{children}</main>
       </div>

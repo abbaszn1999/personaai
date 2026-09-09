@@ -3,11 +3,12 @@ import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner, recordAcsMappingApproval } from "@/lib/db/store-connections";
 import { buildMappingPreview } from "@/lib/catalog/acs/preview";
 import { MAPPER_VERSION } from "@/lib/catalog/acs/map-product";
+import { hasApprovedCurrentMapping } from "@/lib/catalog/acs/field-overrides";
 
 /**
- * The one-time mapping preview: 5 real products from the merchant's own store, run through the
- * exact mapper the real backfill uses, for the merchant to see and approve before any import
- * happens. See the plan's "New requirement: merchant-approved mapping preview during setup".
+ * Backs Setup Stage 1: 5 real products from the merchant's own store, run through the exact mapper
+ * the real index uses — including their own option-group overrides — for them to review and approve
+ * before anything is indexed.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -30,10 +31,9 @@ export async function GET(req: NextRequest) {
 
     return Response.json({
       mapperVersion: MAPPER_VERSION,
-      // Already-approved, current-version merchants don't need to see this again — the client
-      // uses this to skip straight past the modal rather than re-showing it on every save.
-      alreadyApproved:
-        connection.acsMappingApprovedAt !== null && connection.acsMapperVersionApproved === MAPPER_VERSION,
+      // Shared predicate, so this can't disagree with the gate that actually blocks indexing —
+      // it used to be an inline version-only copy that ignored override drift entirely.
+      alreadyApproved: hasApprovedCurrentMapping(connection, MAPPER_VERSION),
       samples,
     });
   } catch (err) {
@@ -42,8 +42,8 @@ export async function GET(req: NextRequest) {
   }
 }
 
-/** Records the merchant's one-time approval. Never re-shown after this unless the mapper's
- *  version changes, per `recordAcsMappingApproval`. */
+/** Records the merchant's approval of the mapping currently shown in Stage 1. Re-required if the
+ *  mapper version changes or they edit an option-group role, per `recordAcsMappingApproval`. */
 export async function POST() {
   try {
     const user = await getCurrentUser();

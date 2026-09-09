@@ -44,6 +44,7 @@ const COLUMNS = [
   "Sale price",
   "Categories",
   "Tags",
+  "Brands",
   "Images",
   "Parent",
   "Attribute 1 name",
@@ -60,17 +61,26 @@ function emptyRow() {
   return Object.fromEntries(COLUMNS.map((c) => [c, ""]));
 }
 
+/** Walks the full parentId chain (Department > root > real subcategory, e.g.
+ *  "Women" > "Women / Clothing" > "Dresses" — up to 3 levels deep since
+ *  scrape-abc-catalog.mjs now discovers real subcategories) into a single
+ *  WooCommerce hierarchy path. Root/subcategory names carry a "{Dept} / {Child}"
+ *  label for display elsewhere (see CATEGORY_ROOTS) — drop that redundant
+ *  leading "{Dept} / " prefix on every level but the first, so the path reads
+ *  "Women > Accessories > Belts", not "Women > Women / Accessories > Belts". */
 function categoryPath(categoryId, categoriesById) {
-  const cat = categoriesById.get(categoryId);
-  if (!cat) return "";
-  const parent = cat.parentId ? categoriesById.get(cat.parentId) : null;
-  if (!parent) return cat.name;
-  // Child category names carry a "{Dept} / {Child}" label for display elsewhere
-  // (see scrape-abc-catalog.mjs's CATEGORY_ROOTS) — drop the redundant prefix so
-  // the WooCommerce hierarchy path reads "Women > Accessories", not
-  // "Women > Women / Accessories".
-  const leaf = cat.name.includes(" / ") ? cat.name.split(" / ").slice(1).join(" / ") : cat.name;
-  return `${parent.name} > ${leaf}`;
+  const chain = [];
+  const seen = new Set();
+  let current = categoriesById.get(categoryId);
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    chain.unshift(current);
+    current = current.parentId ? categoriesById.get(current.parentId) : null;
+  }
+  if (!chain.length) return "";
+  return chain
+    .map((cat, i) => (i > 0 && cat.name.includes(" / ") ? cat.name.split(" / ").slice(1).join(" / ") : cat.name))
+    .join(" > ");
 }
 
 /** WooCommerce's importer treats "Parent" (for variations) and SKUs as plain
@@ -100,6 +110,11 @@ function buildRowsForProduct(product, categoriesById) {
     "Sold individually?": "0",
     Categories: categories,
     Tags: (product.tags ?? []).join(", "),
+    // WooCommerce's built-in CSV importer recognizes "Brands" as its own column heading
+    // (same auto-mapping treatment as Categories/Tags) — see the "Product brands" doc on
+    // woocommerce.com. This is the taxonomy the app's own WooCommerce client reads back via
+    // the REST API's `brands` field (see src/lib/woocommerce/client.ts).
+    Brands: product.brand ?? "",
     Images: images,
   };
 

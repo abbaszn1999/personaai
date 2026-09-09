@@ -117,6 +117,8 @@ export async function getWordPressProductCount(
 interface WooCommerceCategory {
   id: number;
   name: string;
+  /** Unique per store, and the only thing separating same-named sibling terms. */
+  slug: string;
   count: number;
   /** 0 for a top-level term. */
   parent: number;
@@ -152,6 +154,10 @@ export async function getWordPressCategories(
       all.push({
         id: String(category.id),
         name: decodeHtmlEntities(category.name),
+        // A store can and does carry several sibling terms with the same display name — this
+        // merchant has ten called "Accessories" under Women. The slug is unique, so it is the only
+        // thing that tells the merchant which of them a row is asking about.
+        handle: category.slug,
         productCount: category.count ?? 0,
         parentId: category.parent ? String(category.parent) : null,
       });
@@ -352,6 +358,37 @@ export async function listWooCatalogPage(
     products: data.map(mapWooCatalogProduct),
     hasMore: data.length === perPage,
   };
+}
+
+/**
+ * How many products a catalog page filter matches, without reading any of them.
+ *
+ * `X-WP-Total` reports the total for the filter that produced it, so asking for a single row of the
+ * same query the walk uses is the whole count. That matters for the category filter specifically:
+ * it is a union that returns each product once however many of the listed terms it sits on, so this
+ * is a genuine deduplicated total rather than a sum of per-category counts that double-counts
+ * anything filed in two places.
+ */
+export async function countWooCatalogProducts(
+  siteUrl: string,
+  username: string,
+  appPassword: string,
+  options: Pick<CatalogPageOptions, "categoryIds" | "updatedAfter"> = {},
+  signal?: AbortSignal
+): Promise<number> {
+  const params = new URLSearchParams({ per_page: "1", status: "publish" });
+  if (options.updatedAfter) params.set("modified_after", options.updatedAfter);
+  if (options.categoryIds?.length) params.set("category", options.categoryIds.join(","));
+
+  const { headers } = await wooFetch<WooCatalogProduct[]>(
+    siteUrl,
+    username,
+    appPassword,
+    `/products?${params.toString()}`,
+    signal
+  );
+
+  return Number(headers.get("x-wp-total") ?? 0);
 }
 
 export interface LiveWooProductFacts {

@@ -1,5 +1,5 @@
 import type { CatalogCandidate, CatalogFacets, CategoryPath } from "@/lib/retrieval/types";
-import { deleteProduct, getProduct, markOutOfStock, searchProducts, searchProductsRaw } from "./client";
+import { deleteProduct, getProduct, listProducts, markOutOfStock, searchProducts, searchProductsRaw } from "./client";
 import { isAcsConfigured } from "./config";
 import { buildAcsProductId, escapeFilterLiteral, merchantFilterClause } from "./isolation";
 import { toCandidate, toCandidateFromProduct } from "./search-adapter";
@@ -236,56 +236,40 @@ export async function pruneOutOfScopeAcsProducts(connectionId: string, newScope:
 export async function deleteAllAcsProductsForConnection(connectionId: string): Promise<number> {
   if (!isAcsConfigured()) return 0;
 
+  // ProductService.ListProducts reads the catalog's source of truth. SearchService was previously
+  // used here, but its eventual consistency made a successful disconnect capable of missing
+  // recently imported products. The deterministic id prefix is the primary ownership check;
+  // merchant_id also covers any legacy products that did not use that id convention.
+  const ids = new Set<string>();
+  const seenTokens = new Set<string>();
+  let pageToken: string | undefined;
+
+  do {
+    const response = await listProducts(pageToken);
+    for (const product of response.products ?? []) {
+      const merchantIds = product.attributes?.merchant_id?.text ?? [];
+      if (product.id.startsWith(`${connectionId}_`) || merchantIds.includes(connectionId)) {
+        ids.add(product.id);
+      }
+    }
+
+    pageToken = response.nextPageToken;
+    if (pageToken && seenTokens.has(pageToken)) {
+      throw new Error("ACS ListProducts returned a repeated page token");
+    }
+    if (pageToken) seenTokens.add(pageToken);
+  } while (pageToken);
+
   let deleted = 0;
+  for (const batch of chunk([...ids], DELETE_CONCURRENCY)) {
+    const removed = await Promise.allSettled(batch.map((id) => deleteProduct(id)));
+    deleted += removed.filter((result) => result.status === "fulfilled" && result.value).length;
 
-  try {
-    const filter = merchantFilterClause(connectionId);
-
-    // Every id is collected before the first delete, rather than deleting each page as it
-    // arrives. `pruneOutOfScopeAcsProducts` can delete-as-it-reads because its patch clears
-    // `IN_STOCK`, a condition its own filter tests, so the result set provably shrinks each
-    // pass. Deletion has no such feedback: ACS's search index lags it, so a re-read returns the
-    // products just removed, and the loop either never terminates or dies on the first 404.
-    const ids: string[] = [];
-    let pageToken: string | undefined;
-
-    // Safety cap, same order of magnitude as the other bulk loops in this module.
-    for (let page = 0; page < 50; page++) {
-      const response = await searchProductsRaw(filter, {
-        visitorId: SYSTEM_VISITOR_ID,
-        query: "",
-        pageSize: 100,
-        pageToken,
-      });
-
-      for (const item of response.results ?? []) ids.push(item.id);
-
-      pageToken = response.nextPageToken;
-      if (!pageToken) break;
-    }
-
-    for (const batch of chunk(ids, DELETE_CONCURRENCY)) {
-      // `allSettled` rather than `all`: a rejection mid-batch would otherwise discard the results
-      // of everything that succeeded alongside it, and the count is the only signal the caller
-      // logs. The first failure still ends the sweep — it is thrown below — but by then `deleted`
-      // holds a true number instead of an undercount.
-      const removed = await Promise.allSettled(batch.map((id) => deleteProduct(id)));
-      deleted += removed.filter((result) => result.status === "fulfilled" && result.value).length;
-
-      const failure = removed.find((result) => result.status === "rejected");
-      if (failure) throw failure.reason;
-    }
-
-    return deleted;
-  } catch (err) {
-    // Never thrown past this point — the connection row is already gone by the time the caller
-    // runs this (see the DELETE route), so a failure here must not be reported as the disconnect
-    // itself having failed. Leftover ACS products are a cleanup gap to notice in logs, not a
-    // reason to block the merchant from disconnecting. The partial count is reported rather than
-    // zero, so the log says how far the sweep actually got before giving up.
-    console.error("[acs/catalog-reads deleteAllAcsProductsForConnection]", connectionId, err);
-    return deleted;
+    const failure = removed.find((result) => result.status === "rejected");
+    if (failure) throw failure.reason;
   }
+
+  return deleted;
 }
 
 /** Read-only existence + membership check, used by the sync paths to decide whether an

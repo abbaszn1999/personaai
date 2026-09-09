@@ -44,6 +44,16 @@
   --color-brand-lavender:     #c8a8d2;
   --color-brand-wine:         #79081d;
 
+  /* The five parent sizing categories. One hue each, and the hues have to stay telling apart from
+   * each other rather than harmonising, because the whole point of the color is to let a merchant
+   * scan a column of eighty rows and see a wrong mapping without reading it. Tokens rather than
+   * literals so the dark surfaces can lift them — see `.store-theme`. */
+  --color-parent-tops:        #6b358d;
+  --color-parent-outerwear:   #0891b2;
+  --color-parent-bottoms:     #10b981;
+  --color-parent-dresses:     #c026d3;
+  --color-parent-footwear:    #f59e0b;
+
   /* Status */
   --color-success:            #10b981;
   --color-success-light:      #d1fae5;
@@ -51,6 +61,10 @@
   --color-warning-light:      #fef3c7;
   --color-error:              #e11d48;
   --color-error-light:        #ffe4e9;
+  /* Kept dark enough to carry white text (4.70:1), for the rare fill that has to shout — the
+   * destructive button, the danger section header. Themes that lighten `--color-error` for dark
+   * surfaces must leave this one alone, or the label on top stops being readable. */
+  --color-error-solid:        #e11d48;
   --color-info:               #3b82f6;
   --color-info-light:         #dbeafe;
 
@@ -339,6 +353,77 @@ h1, h2, h3, h4, h5, .font-display {
   --shadow-elevated:          0 8px 32px -6px rgb(0 0 0 / 0.55);
 }
 
+/* ─── Store surface: dark-adapted semantic palette ───────────────────────── *
+ * `.dashboard-theme` only ever overrode the `-light` washes, so the semantic hues underneath were
+ * still the light-mode values being painted onto a near-black surface. Measured against the
+ * effective card surface (#1d1b24), `--color-error` came out at 3.62:1 and `--color-brand-strong`
+ * at 2.71:1 — both below the 4.5:1 AA floor — while mean OKLCh chroma sat at 0.188, far enough
+ * above ~0.13 for the colors to visibly vibrate.
+ *
+ * These values keep every hue family but lift lightness and cut chroma ~32% (mean 0.128), which
+ * puts each one above 7:1 as small text. Scoped to the store pages for now rather than applied to
+ * `.dashboard-theme`, so the rest of the product is untouched until this is proven here.
+ *
+ * Two rules hold this together and are worth keeping:
+ *   1. Saturated brand color lives in gradients and decoration only. `.gradient-*` reads
+ *      `--color-brand-from/to`, which are deliberately NOT overridden — the logo and icon tiles
+ *      keep the true orange→red. Anything rendering text or an icon glyph uses the lifted tints.
+ *   2. A selected chip is a tinted fill with colored text, never a saturated block with white on
+ *      it. White on the old `--color-warning` measured 2.15:1; a full-strength fill also puts a
+ *      high-luminance block on a dark page, which is most of what read as "harsh".
+ * -------------------------------------------------------------------------- */
+.store-theme {
+  --color-success:            #7fd1ae;
+  --color-warning:            #e3b567;
+  --color-error:              #f79098;
+  --color-info:               #8ab4f8;
+  --color-brand:              #ff9248;
+  --color-brand-strong:       #ff7a5c;
+
+  /* Washes rebuilt on the new hues rather than the old saturated ones. */
+  --color-brand-light:        rgba(255, 146, 72, 0.13);
+  --color-success-light:      rgba(127, 209, 174, 0.12);
+  --color-warning-light:      rgba(227, 181, 103, 0.12);
+  --color-error-light:        rgba(247, 144, 152, 0.12);
+  --color-info-light:         rgba(138, 180, 248, 0.12);
+
+  /* Selected state for filter chips and tabs — see rule 2 above. */
+  --color-success-fill-strong: rgba(127, 209, 174, 0.24);
+  --color-warning-fill-strong: rgba(227, 181, 103, 0.24);
+  /* Rose and blue are the lightest of the four, so their fills run thinner to keep the label
+   * comfortably above 4.5:1 rather than scraping it. */
+  --color-error-fill-strong:   rgba(247, 144, 152, 0.19);
+  --color-info-fill-strong:    rgba(138, 180, 248, 0.19);
+  --color-neutral-fill-strong: rgba(255, 255, 255, 0.13);
+
+  --color-success-border:     rgba(127, 209, 174, 0.34);
+  --color-warning-border:     rgba(227, 181, 103, 0.34);
+  --color-error-border:       rgba(247, 144, 152, 0.34);
+  --color-info-border:        rgba(138, 180, 248, 0.34);
+
+  /* Sticky action bars need a genuinely opaque fill — a translucent one lets the table scroll
+   * through it and turns the buttons into mush. This is the one surface the store pages own. */
+  --color-surface-sticky:     #1c1428;
+
+  /* The five parent accents, lifted by the same rule as the semantic hues above. The light-mode
+   * values are mid-tone fills meant for white, and on this surface they bottomed out — the darkest,
+   * `tops` at #6b358d, measured 2.05:1 against the card, which is unreadable and was exactly what
+   * the open dropdown looked like. These keep each hue's identity but raise lightness far enough to
+   * clear 7:1 as small text (`tops` is now 7.7:1), and stay separable from one another: violet, sky,
+   * pink, amber. Mint and amber deliberately match `--color-success` and `--color-warning`, since
+   * a second near-identical green or yellow in the same table would read as a distinction that
+   * isn't there. */
+  --color-parent-tops:        #b9a3f0;
+  --color-parent-outerwear:   #6fc9e8;
+  --color-parent-bottoms:     #7fd1ae;
+  --color-parent-dresses:     #ef9fd7;
+  --color-parent-footwear:    #e3b567;
+
+  /* The old glow put a 45%-alpha saturated orange halo under every icon tile and stepper node. */
+  --shadow-glow:              0 6px 18px -6px rgb(247 109 1 / 0.28), 0 2px 6px -2px rgb(196 0 0 / 0.16);
+  --color-sidebar-active-glow: 0 0 16px -6px rgb(247 109 1 / 0.34), 0 0 6px -2px rgb(196 0 0 / 0.20);
+}
+
 /* Escapes `.dashboard-theme` so a nested embed preview matches the public `/embed/[token]`
  * surface tokens (light :root / .dark) instead of the dashboard's glass chrome. */
 .embed-preview-surface {
@@ -509,11 +594,20 @@ h1, h2, h3, h4, h5, .font-display {
   50%      { transform: translateY(-8px); }
 }
 
+/* Progress with no known total. Used by the catalog scan, whose end isn't knowable until the walk
+   finishes — a category product count double-counts anything filed in two collections, so any
+   percentage would be invented. */
+@keyframes indeterminate {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(300%); }
+}
+
 .animate-fade-in      { animation: fade-in 0.35s ease both; }
 .animate-slide-right  { animation: slide-in-right 0.3s ease both; }
 .animate-pulse-dot    { animation: pulse-dot 1.4s ease-in-out infinite; }
 .animate-spin-slow    { animation: spin-slow 3s linear infinite; }
 .animate-float        { animation: float-slow 6s ease-in-out infinite; }
+.animate-indeterminate { animation: indeterminate 1.6s ease-in-out infinite; }
 
 .animate-gradient {
   background-size: 200% 200%;

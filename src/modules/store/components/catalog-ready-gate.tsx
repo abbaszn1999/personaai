@@ -114,7 +114,7 @@ export function CatalogReadyGate({
       >
         {state === "no-store" && "Connect your store first"}
         {state === "indexing" && "Preparing your catalog"}
-               {state === "not-indexed" && "Choose your categories"}
+        {state === "not-indexed" && "Finish store setup"}
       </h3>
 
       <p className="mt-1.5 text-sm text-[var(--color-text-muted)] max-w-sm">
@@ -123,8 +123,8 @@ export function CatalogReadyGate({
           (catalogSync.total > 0
             ? `${catalogSync.progress.toLocaleString()} of ${catalogSync.total.toLocaleString()} products ready. ${label.toLowerCase()} unlocks automatically when this finishes — you can close this page and come back.`
             : `Counting your catalog. ${label} unlocks automatically when indexing finishes.`)}
-               {state === "not-indexed" &&
-                 `Choose which categories your agent should sell from, and we'll index just those. ${label.toLowerCase()} unlocks once that finishes.`}
+        {state === "not-indexed" &&
+          `Work through Store — Setup to review your field mapping and build the index. ${label.toLowerCase()} unlocks once that finishes.`}
       </p>
 
       {state === "indexing" && catalogSync.total > 0 && (
@@ -141,9 +141,11 @@ export function CatalogReadyGate({
 
       {state !== "indexing" && (
         <div className="mt-5">
-          <Link href="/store">
+          {/* Deep-linked, because "go to /store" lands on Connection — which is already done in the
+              not-indexed case, leaving the merchant to work out that the next step is Setup. */}
+          <Link href={state === "no-store" ? "/store?section=connection" : "/store?section=setup"}>
             <Button size="sm" variant={variant === "page" ? "primary" : "secondary"}>
-                     {state === "no-store" ? "Connect a store" : "Choose categories"}
+              {state === "no-store" ? "Connect a store" : "Open setup"}
             </Button>
           </Link>
         </div>

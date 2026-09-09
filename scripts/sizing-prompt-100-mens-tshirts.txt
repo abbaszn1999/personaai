@@ -1,0 +1,1436 @@
+You are a garment sizing analyst. For each product in the input batch below, determine what body measurements each of its stocked sizes actually fits.
+
+For every product:
+1. Read the title, description, attributes, and category to work out (internally — this is not part of the output) the brand, if a real, named brand is stated or clearly implied, and any fit descriptor (slim / regular / relaxed / oversized / etc). Use both to inform step 3, even though neither is reported in the output.
+2. If you identified a real brand, you may use web search to find that brand's own published size chart for this garment type. Only do this when you can name the actual brand — never search on a guessed or inferred brand name.
+3. For each size label the product actually stocks (given in "sizes"), output measurement ranges using this priority, and record which one you used as "source":
+   a. "merchant_chart" — an explicit size chart or measurement table given in the product's own description/attributes.
+   b. "brand_chart_web" — a chart you found via web search for the identified brand, for this garment type. Include the URL you used.
+   c. "standard_table" — a generic size standard for this garment type and stated (or visually implied) gender, adjusted for any fit descriptor you found (e.g. shift an "oversized" or "relaxed" garment's chest range upward relative to a regular fit of the same label).
+   d. "inferred" — you had no chart and no usable standard to anchor to; state your best estimate and mark confidence "low".
+4. A size label is not always a size. If a label is a garment type, a language artifact, or "one size" / "os" / "unique", set "type" accordingly instead of forcing it into a measurement range.
+5. Only fill measurement fields that are actually determined by this garment type. A t-shirt's fit is governed by chest (and loosely height/weight for length); waist and shoe size do not apply to it — set those fields to null with "not_applicable" rather than inventing a number.
+6. Never state a brand-specific measurement you did not find a source for. If you are guessing, say so via "inferred" and "low" confidence — do not let an inferred number look identical to a sourced one.
+7. Output strictly one entry per product per stocked size, matching the JSON schema exactly. Every product in the input must appear exactly once in the output, in the same order.
+
+=== JSON SCHEMA YOUR OUTPUT MUST MATCH EXACTLY ===
+{
+  "type": "json_schema",
+  "name": "sizing_batch",
+  "strict": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "products": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "external_id": {
+              "type": "string"
+            },
+            "garment_type": {
+              "type": "string"
+            },
+            "sizes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "measured_size",
+                      "one_size",
+                      "not_a_size"
+                    ]
+                  },
+                  "chest_cm": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "properties": {
+                      "min": {
+                        "type": "number"
+                      },
+                      "max": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "min",
+                      "max"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "waist_cm": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "properties": {
+                      "min": {
+                        "type": "number"
+                      },
+                      "max": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "min",
+                      "max"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "height_cm": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "properties": {
+                      "min": {
+                        "type": "number"
+                      },
+                      "max": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "min",
+                      "max"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "weight_kg": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "properties": {
+                      "min": {
+                        "type": "number"
+                      },
+                      "max": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "min",
+                      "max"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "shoe_size_eu": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "properties": {
+                      "min": {
+                        "type": "number"
+                      },
+                      "max": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "min",
+                      "max"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "merchant_chart",
+                      "brand_chart_web",
+                      "standard_table",
+                      "inferred",
+                      "not_applicable"
+                    ]
+                  },
+                  "source_url": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "confidence": {
+                    "type": "string",
+                    "enum": [
+                      "high",
+                      "medium",
+                      "low"
+                    ]
+                  }
+                },
+                "required": [
+                  "label",
+                  "type",
+                  "chest_cm",
+                  "waist_cm",
+                  "height_cm",
+                  "weight_kg",
+                  "shoe_size_eu",
+                  "source",
+                  "source_url",
+                  "confidence"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "external_id",
+            "garment_type",
+            "sizes"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": [
+      "products"
+    ],
+    "additionalProperties": false
+  }
+}
+
+=== PRODUCT BATCH (100 men's t-shirts) — return one entry per product, in this order ===
+[
+  {
+    "external_id": "ABC-145471",
+    "title": "Waffle-Knit Oversized T-Shirt",
+    "description": "Textured waffle fabrication Classic crew neck and short sleeves Curved hem Silicone KARL LAGERFELD JEANS logo patch at the chest Composition: 100% Organic Cotton Material: Jersey Made in: Turkey Product code: B1M170822IE Textured waffle fabrication Classic crew neck and short sleeves Curved hem Silicone KARL LAGERFELD JEANS logo patch at the chest Composition: 100% Organic Cotton Material: Jersey Made in: Turkey Product code: B1M170822IE",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE",
+      "XXLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-124534",
+    "title": "Ikonik Embroidered Crewneck Short Sleeve T-Shirt",
+    "description": "KARL LAGERFELD — Ikonik Embroidered Crewneck Short Sleeve T-Shirt. Available in Black, White. KARL LAGERFELD — Ikonik Embroidered Crewneck Short Sleeve T-Shirt. Available in Black, White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "MEDIUM",
+      "LARGE",
+      "XLARGE",
+      "XXLARGE",
+      "XXXL",
+      "SMALL"
+    ]
+  },
+  {
+    "external_id": "ABC-124492",
+    "title": "Monogram Block Typography T-Shirt",
+    "description": "KARL LAGERFELD — Monogram Block Typography T-Shirt. Available in White, Black. KARL LAGERFELD — Monogram Block Typography T-Shirt. Available in White, Black.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "LARGE",
+      "XSMALL",
+      "MEDIUM"
+    ]
+  },
+  {
+    "external_id": "ABC-143719",
+    "title": "Mesh Round Neck Short Sleeve T-Shirt",
+    "description": "There's no need for logos or screen printing. The t-shirt is reinvented with an embossed knit that gives khaki an unprecedented style. - Men's khaki knit T-shirt - Round neck, short sleeves - Exclusive IKKS fantasy embossing - Straight cut, hip length There's no need for logos or screen printing. The t-shirt is reinvented with an embossed knit that gives khaki an unprecedented style. - Men's khaki knit T-shirt - Round neck, short sleeves - Exclusive IKKS fantasy embossing - Straight cut, hip len",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XLARGE",
+      "XXLARGE",
+      "LARGE",
+      "MEDIUM"
+    ]
+  },
+  {
+    "external_id": "ABC-143715",
+    "title": "Cotton Round Neck T-Shirt With Pocket Design",
+    "description": "A T-shirt, a story. Your story. On the pocket, the drawing of a house like a totem. The starting point for a look that's connected to what matters. - Men's chalk-colored flamed cotton T-shirt - Round neck, short sleeves - One chest patch pocket, visual house print - Straight cut, hip length A T-shirt, a story. Your story. On the pocket, the drawing of a house like a totem. The starting point for a look that's connected to what matters. - Men's chalk-colored flamed cotton T-shirt - Round neck, sh",
+    "category": "Men > Clothing",
+    "sizes": [
+      "LARGE",
+      "XXLARGE",
+      "MEDIUM",
+      "XLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-143703",
+    "title": "Round Neck Patch Pocket Short Sleeve T-Shirt",
+    "description": "This t-shirt has everything for him. A piece that lasts through the seasons and adapts to every situation. The best weapon for a daily life that's not afraid to face reality. - Men's cotton T-shirt - Round neck, short sleeves - One double-entry patch pocket - Straight cut, hip length This t-shirt has everything for him. A piece that lasts through the seasons and adapts to every situation. The best weapon for a daily life that's not afraid to face reality. - Men's cotton T-shirt - Round neck, sho",
+    "category": "Men > Clothing",
+    "sizes": [
+      "MEDIUM",
+      "LARGE",
+      "XLARGE",
+      "XXLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-143254",
+    "title": "Logo Trim Cotton Jersey T-Shirt",
+    "description": "This T-shirt features our logo at the neckline to evoke a cool, contemporary vibe. Its cut in a classic fit from cotton jersey for a silky-soft feel and is easy to style with either sweats or jeans.  T-shirt  Cotton jersey  100% cotton  Machine wash  Imported  Model is 62\"/187 cm wearing size M  Style # CS652SN19P This T-shirt features our logo at the neckline to evoke a cool, contemporary vibe. Its cut in a classic fit from cotton jersey for a silky-soft feel and is easy to style with",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "XXLARGE",
+      "LARGE",
+      "MEDIUM",
+      "XLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-142990",
+    "title": "Jacquard Knit Short Sleeve T-Shirt",
+    "description": "The model is 188 cm tall and wears size L To find the correct size for you, please consult the Size Guide. Composition: 100% Cotton WASHING: Hand wash | Do not use chlorine bleach | Do not dry clean | Wash inside out | Do not rub during washing | Do not soak the garment in water DRYING: Do not tumble dry | Dry flat IRONING: Do not iron | Iron at a maximum temperature of 110°C | Do not iron decorations | Iron with a cloth between the iron and the garment The model is 188 cm tall and wears size L ",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE",
+      "XXLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-142981",
+    "title": "Crewneck Knit T-shirt with Contrast Stripe and Pocket",
+    "description": "The model is 187 cm tall and wears size L To find the correct size for you, please consult the Size Guide. Composition: 100% Cotton WASHING: Hand wash | Do not use chlorine bleach | Do not dry clean | Wash inside out | Do not rub during washing | Do not soak the garment in water DRYING: Do not tumble dry | Dry flat IRONING: Do not iron | Iron at a maximum temperature of 110°C | Do not iron decorations | Iron with a cloth between the iron and the garment The model is 187 cm tall and wears size L ",
+    "category": "Men > Clothing",
+    "sizes": [
+      "MEDIUM",
+      "LARGE",
+      "XLARGE",
+      "SMALL",
+      "XXLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-142852",
+    "title": "Raging Bull Print Short Sleeve T-Shirt",
+    "description": "Mostly Heard Rarely Seen 8 BIT — Raging Bull Print Short Sleeve T-Shirt. Available in Black. Mostly Heard Rarely Seen 8 BIT — Raging Bull Print Short Sleeve T-Shirt. Available in Black.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "XLARGE",
+      "LARGE",
+      "XXLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-142847",
+    "title": "Turbo Print Short Sleeve Cotton T-Shirt",
+    "description": "Mostly Heard Rarely Seen 8 BIT — Turbo Print Short Sleeve Cotton T-Shirt. Available in Black. Mostly Heard Rarely Seen 8 BIT — Turbo Print Short Sleeve Cotton T-Shirt. Available in Black.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "LARGE",
+      "MEDIUM"
+    ]
+  },
+  {
+    "external_id": "ABC-142842",
+    "title": "Black Dadcore Print Short Sleeve T-Shirt",
+    "description": "Mostly Heard Rarely Seen 8 BIT — Black Dadcore Print Short Sleeve T-Shirt. Available in White. Mostly Heard Rarely Seen 8 BIT — Black Dadcore Print Short Sleeve T-Shirt. Available in White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE",
+      "XXLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-141888",
+    "title": "White Short Sleeve T-Shirt with Multi-Logo Sticker Graphic Back Print",
+    "description": "blue banana — White Short Sleeve T-Shirt with Multi-Logo Sticker Graphic Back Print. Available in White. blue banana — White Short Sleeve T-Shirt with Multi-Logo Sticker Graphic Back Print. Available in White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XLARGE",
+      "SMALL",
+      "LARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-141881",
+    "title": "White Reef Short Sleeve T-Shirt with Contrast Blue 'X' Embroidery",
+    "description": "blue banana — White Reef Short Sleeve T-Shirt with Contrast Blue 'X' Embroidery. Available in White. blue banana — White Reef Short Sleeve T-Shirt with Contrast Blue 'X' Embroidery. Available in White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XSMALL",
+      "SMALL",
+      "MEDIUM",
+      "LARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-141876",
+    "title": "Olive Green Reef Short Sleeve T-Shirt with Contrast Lime 'X' Embroidery",
+    "description": "blue banana — Olive Green Reef Short Sleeve T-Shirt with Contrast Lime 'X' Embroidery. Available in Olive Green. blue banana — Olive Green Reef Short Sleeve T-Shirt with Contrast Lime 'X' Embroidery. Available in Olive Green.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XSMALL",
+      "XLARGE",
+      "SMALL",
+      "LARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-141872",
+    "title": "White Mountain Graphic T-Shirt with Back Print",
+    "description": "blue banana — White Mountain Graphic T-Shirt with Back Print. Available in White. blue banana — White Mountain Graphic T-Shirt with Back Print. Available in White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XSMALL",
+      "SMALL",
+      "MEDIUM",
+      "LARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-141863",
+    "title": "White Note Short Sleeve T-shirt",
+    "description": "blue banana — White Note Short Sleeve T-shirt. Available in White. blue banana — White Note Short Sleeve T-shirt. Available in White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE",
+      "XXLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-141859",
+    "title": "Yellow \"X\" Graphic Crewneck Short Sleeve T-shirt",
+    "description": "blue banana — Yellow \"X\" Graphic Crewneck Short Sleeve T-shirt. Available in Lt Yellow. blue banana — Yellow \"X\" Graphic Crewneck Short Sleeve T-shirt. Available in Lt Yellow.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "XLARGE",
+      "LARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-141858",
+    "title": "White \"X\" Graphic Crewneck Short Sleeve T-shirt",
+    "description": "blue banana — White \"X\" Graphic Crewneck Short Sleeve T-shirt. Available in White. blue banana — White \"X\" Graphic Crewneck Short Sleeve T-shirt. Available in White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XLARGE",
+      "MEDIUM"
+    ]
+  },
+  {
+    "external_id": "ABC-141850",
+    "title": "Anthracite Classic Box \"X\" Logo Graphic T-Shirt",
+    "description": "blue banana — Anthracite Classic Box \"X\" Logo Graphic T-Shirt. Available in Antracite. blue banana — Anthracite Classic Box \"X\" Logo Graphic T-Shirt. Available in Antracite.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "XLARGE",
+      "XXLARGE",
+      "LARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-141848",
+    "title": "Olive Green \"X\" Graphic Crewneck Short Sleeve T-shirt",
+    "description": "blue banana — Olive Green \"X\" Graphic Crewneck Short Sleeve T-shirt. Available in Olive Green. blue banana — Olive Green \"X\" Graphic Crewneck Short Sleeve T-shirt. Available in Olive Green.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XLARGE",
+      "XXLARGE",
+      "SMALL"
+    ]
+  },
+  {
+    "external_id": "ABC-141841",
+    "title": "White \"All Terrain Garments\" Back Graphic Logo T-Shirt",
+    "description": "blue banana — White \"All Terrain Garments\" Back Graphic Logo T-Shirt. Available in White. blue banana — White \"All Terrain Garments\" Back Graphic Logo T-Shirt. Available in White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XSMALL",
+      "SMALL",
+      "LARGE",
+      "MEDIUM"
+    ]
+  },
+  {
+    "external_id": "ABC-141836",
+    "title": "Green \"All Terrain Garments\" Back Graphic Logo T-Shirt",
+    "description": "blue banana — Green \"All Terrain Garments\" Back Graphic Logo T-Shirt. Available in Olive Green. blue banana — Green \"All Terrain Garments\" Back Graphic Logo T-Shirt. Available in Olive Green.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XSMALL",
+      "SMALL",
+      "XLARGE",
+      "MEDIUM",
+      "LARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-141832",
+    "title": "White Movement T-Shirt with Yellow Script Logo Front and Back Print",
+    "description": "blue banana — White Movement T-Shirt with Yellow Script Logo Front and Back Print. Available in White. blue banana — White Movement T-Shirt with Yellow Script Logo Front and Back Print. Available in White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XSMALL",
+      "SMALL",
+      "MEDIUM",
+      "LARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-141824",
+    "title": "White Gravity Graphic T-Shirt with Multi-Colored Geometric Back Print",
+    "description": "blue banana — White Gravity Graphic T-Shirt with Multi-Colored Geometric Back Print. Available in White. blue banana — White Gravity Graphic T-Shirt with Multi-Colored Geometric Back Print. Available in White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XSMALL",
+      "SMALL",
+      "MEDIUM",
+      "LARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-141811",
+    "title": "Off-white Cavern Graphic T-Shirt with Pink Cartoon Character Back Print",
+    "description": "blue banana — Off-white Cavern Graphic T-Shirt with Pink Cartoon Character Back Print. Available in Offwhite. blue banana — Off-white Cavern Graphic T-Shirt with Pink Cartoon Character Back Print. Available in Offwhite.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "LARGE",
+      "XLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-141806",
+    "title": "Navy Cavern Graphic T-Shirt with Pink Cartoon Character Back Print",
+    "description": "blue banana — Navy Cavern Graphic T-Shirt with Pink Cartoon Character Back Print. Available in Navy. blue banana — Navy Cavern Graphic T-Shirt with Pink Cartoon Character Back Print. Available in Navy.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "XLARGE",
+      "XXLARGE",
+      "MEDIUM",
+      "LARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-141796",
+    "title": "Navy Core Short Sleeve T-Shirt with White Logo and Graphic Back Print",
+    "description": "blue banana — Navy Core Short Sleeve T-Shirt with White Logo and Graphic Back Print. Available in Navy. blue banana — Navy Core Short Sleeve T-Shirt with White Logo and Graphic Back Print. Available in Navy.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XSMALL",
+      "SMALL",
+      "MEDIUM",
+      "XLARGE",
+      "LARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-141791",
+    "title": "Khaki \"X\" Graphic Crewneck Short Sleeve T-shirt",
+    "description": "blue banana — Khaki \"X\" Graphic Crewneck Short Sleeve T-shirt. Available in Khaki. blue banana — Khaki \"X\" Graphic Crewneck Short Sleeve T-shirt. Available in Khaki.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "XLARGE",
+      "XXLARGE",
+      "MEDIUM",
+      "LARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-141787",
+    "title": "White Bonfire Crewneck Short Sleeve T-shirt with Embroidered Detailing",
+    "description": "blue banana — White Bonfire Crewneck Short Sleeve T-shirt with Embroidered Detailing. Available in White. blue banana — White Bonfire Crewneck Short Sleeve T-shirt with Embroidered Detailing. Available in White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "XSMALL",
+      "MEDIUM",
+      "LARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-141786",
+    "title": "Anthracite Bonfire Crewneck Short Sleeve T-shirt with Embroidered Detailing",
+    "description": "blue banana — Anthracite Bonfire Crewneck Short Sleeve T-shirt with Embroidered Detailing. Available in Antracite. blue banana — Anthracite Bonfire Crewneck Short Sleeve T-shirt with Embroidered Detailing. Available in Antracite.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XXLARGE",
+      "XSMALL",
+      "SMALL"
+    ]
+  },
+  {
+    "external_id": "ABC-141776",
+    "title": "Frost Bonfire Crewneck Short Sleeve T-shirt with Embroidered Detailing",
+    "description": "blue banana — Frost Bonfire Crewneck Short Sleeve T-shirt with Embroidered Detailing. Available in Frost. blue banana — Frost Bonfire Crewneck Short Sleeve T-shirt with Embroidered Detailing. Available in Frost.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "XLARGE",
+      "XSMALL"
+    ]
+  },
+  {
+    "external_id": "ABC-141772",
+    "title": "White Artist T-Shirt with Wave Graphic and 'Art Department' Back Print",
+    "description": "blue banana — White Artist T-Shirt with Wave Graphic and 'Art Department' Back Print. Available in White. blue banana — White Artist T-Shirt with Wave Graphic and 'Art Department' Back Print. Available in White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "LARGE",
+      "XLARGE",
+      "MEDIUM"
+    ]
+  },
+  {
+    "external_id": "ABC-141767",
+    "title": "Mist Artist T-Shirt with Wave Graphic and 'Art Department' Back Print",
+    "description": "blue banana — Mist Artist T-Shirt with Wave Graphic and 'Art Department' Back Print. Available in Mist. blue banana — Mist Artist T-Shirt with Wave Graphic and 'Art Department' Back Print. Available in Mist.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE",
+      "XXLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-141766",
+    "title": "White Amsterdam \"X\" Graphic Crewneck Short Sleeve T-shirt",
+    "description": "blue banana — White Amsterdam \"X\" Graphic Crewneck Short Sleeve T-shirt. Available in White. blue banana — White Amsterdam \"X\" Graphic Crewneck Short Sleeve T-shirt. Available in White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XXLARGE",
+      "XLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-141757",
+    "title": "Navy Amsterdam \"X\" Graphic Crewneck Short Sleeve T-shirt",
+    "description": "blue banana — Navy Amsterdam \"X\" Graphic Crewneck Short Sleeve T-shirt. Available in Navy. blue banana — Navy Amsterdam \"X\" Graphic Crewneck Short Sleeve T-shirt. Available in Navy.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "XLARGE",
+      "LARGE",
+      "XXLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-141744",
+    "title": "Ice Blue Classic Woven \"X\" Graphic Crewneck Short Sleeve T-shirt",
+    "description": "blue banana — Ice Blue Classic Woven \"X\" Graphic Crewneck Short Sleeve T-shirt. Available in Ice Blue. blue banana — Ice Blue Classic Woven \"X\" Graphic Crewneck Short Sleeve T-shirt. Available in Ice Blue.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE",
+      "XXLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-141739",
+    "title": "White Classic Woven \"X\" Graphic Crewneck Short Sleeve T-shirt",
+    "description": "blue banana — White Classic Woven \"X\" Graphic Crewneck Short Sleeve T-shirt. Available in White. blue banana — White Classic Woven \"X\" Graphic Crewneck Short Sleeve T-shirt. Available in White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XLARGE",
+      "SMALL",
+      "MEDIUM",
+      "LARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-141570",
+    "title": "Classic Fit Peaks Long Sleeve T-Shirt",
+    "description": "HACKETT LONDON — Classic Fit Peaks Long Sleeve T-Shirt. Available in 595navy. HACKETT LONDON — Classic Fit Peaks Long Sleeve T-Shirt. Available in 595navy.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "41",
+      "42",
+      "43",
+      "44",
+      "45",
+      "40",
+      "46"
+    ]
+  },
+  {
+    "external_id": "ABC-139647",
+    "title": "Short-Sleeved Crew Neck T-Shirt",
+    "description": "Short-sleeved crew neck T-shirt - Two-tone patch pocket on the chest - Pocket tone-on-tone graphic Short-sleeved crew neck T-shirt - Two-tone patch pocket on the chest - Pocket tone-on-tone graphic",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE",
+      "XXLARGE",
+      "XXXL"
+    ]
+  },
+  {
+    "external_id": "ABC-139621",
+    "title": "Short-Sleeved Knit T-Shirt with Contrasting Trim",
+    "description": "IZAC — Short-Sleeved Knit T-Shirt with Contrasting Trim. Available in Lt Grey. IZAC — Short-Sleeved Knit T-Shirt with Contrasting Trim. Available in Lt Grey.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "XLARGE",
+      "LARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-137756",
+    "title": "Essential Crew Neck Short Sleeve T-Shirt",
+    "description": "Calvin Klein Jeans — Essential Crew Neck Short Sleeve T-Shirt. Available in Cfm French Blue, Vfl Wild Green. Calvin Klein Jeans — Essential Crew Neck Short Sleeve T-Shirt. Available in Cfm French Blue, Vfl Wild Green.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XXLARGE",
+      "LARGE",
+      "MEDIUM",
+      "XLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-137376",
+    "title": "Regular Fit Mercerized Cotton Logo T-Shirt",
+    "description": "The model is 188 cm tall and wears size L. Composition 100% cotton Color dark blue The model is 188 cm tall and wears size L. Composition 100% cotton Color dark blue",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE",
+      "XXLARGE",
+      "XXXL"
+    ]
+  },
+  {
+    "external_id": "ABC-137276",
+    "title": "Regular Fit Textured Short Sleeve Knit T-shirt",
+    "description": "The model is 180 cm tall and wears size L. Composition 100% cotton The model is 180 cm tall and wears size L. Composition 100% cotton",
+    "category": "Men > Clothing",
+    "sizes": [
+      "MEDIUM",
+      "LARGE",
+      "XLARGE",
+      "SMALL",
+      "XXLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-137064",
+    "title": "Logo Embroidery Jersey Crew Neck T-Shirt",
+    "description": "Tommy Hilfiger — Logo Embroidery Jersey Crew Neck T-Shirt. Available in Bds Black. Tommy Hilfiger — Logo Embroidery Jersey Crew Neck T-Shirt. Available in Bds Black.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "MEDIUM",
+      "LARGE",
+      "SMALL"
+    ]
+  },
+  {
+    "external_id": "ABC-136897",
+    "title": "Script Logo  Short Sleeve T-Shirt",
+    "description": "Tommy Jeans — Script Logo Short Sleeve T-Shirt. Available in Bds Black, Ab9 Gentle Gold, C1g Darknightnavy. Tommy Jeans — Script Logo Short Sleeve T-Shirt. Available in Bds Black, Ab9 Gentle Gold, C1g Darknightnavy.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "LARGE",
+      "MEDIUM",
+      "XLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-136509",
+    "title": "Fisher Piqué Short Sleeve T-Shirt",
+    "description": "T-shirt in Regular Fit in piqué quality round neckline short sleeves with double-stitched cuffs clean hem finish T-shirt in Regular Fit in piqué quality round neckline short sleeves with double-stitched cuffs clean hem finish",
+    "category": "Men > Clothing",
+    "sizes": [
+      "LARGE",
+      "MEDIUM",
+      "XLARGE",
+      "XXLARGE",
+      "SMALL"
+    ]
+  },
+  {
+    "external_id": "ABC-135922",
+    "title": "Crewneck Short - Sleeve Knit T-shirt",
+    "description": "KARL LAGERFELD — Crewneck Short - Sleeve Knit T-shirt. Available in Dksand, Midnightblue. KARL LAGERFELD — Crewneck Short - Sleeve Knit T-shirt. Available in Dksand, Midnightblue.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE",
+      "XXLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-132602",
+    "title": "Chest Logo Short Sleeve T-Shirt",
+    "description": "KARL LAGERFELD JEANS — Chest Logo Short Sleeve T-Shirt. Available in 2mv Pale Khaki, 999black. KARL LAGERFELD JEANS — Chest Logo Short Sleeve T-Shirt. Available in 2mv Pale Khaki, 999black.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "LARGE",
+      "MEDIUM",
+      "SMALL",
+      "XLARGE",
+      "XXLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-132584",
+    "title": "Allover Logo Tape Graphic Short Sleeve T-Shirt",
+    "description": "KARL LAGERFELD JEANS — Allover Logo Tape Graphic Short Sleeve T-Shirt. Available in 999black. KARL LAGERFELD JEANS — Allover Logo Tape Graphic Short Sleeve T-Shirt. Available in 999black.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "LARGE",
+      "MEDIUM",
+      "SMALL",
+      "XLARGE",
+      "XXLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-132569",
+    "title": "Square Logo Patch Short Sleeve Cotton T-Shirt",
+    "description": "KARL LAGERFELD JEANS — Square Logo Patch Short Sleeve Cotton T-Shirt. Available in 100 White. KARL LAGERFELD JEANS — Square Logo Patch Short Sleeve Cotton T-Shirt. Available in 100 White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "LARGE",
+      "MEDIUM",
+      "XLARGE",
+      "SMALL",
+      "XXLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-131453",
+    "title": "Cotton-Linen Knitted Short Sleeve T-Shirt",
+    "description": "HACKETT LONDON — Cotton-Linen Knitted Short Sleeve T-Shirt. Available in 816 Natural Beige. HACKETT LONDON — Cotton-Linen Knitted Short Sleeve T-Shirt. Available in 816 Natural Beige.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE",
+      "XXLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-131063",
+    "title": "Classic Fit Short Sleeve Travel T-Shirt",
+    "description": "HACKETT LONDON — Classic Fit Short Sleeve Travel T-Shirt. Available in 802optic White, 584old Navy, 726stone Green. HACKETT LONDON — Classic Fit Short Sleeve Travel T-Shirt. Available in 802optic White, 584old Navy, 726stone Green.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "MEDIUM",
+      "LARGE",
+      "XLARGE",
+      "XXLARGE",
+      "SMALL",
+      "XXXL"
+    ]
+  },
+  {
+    "external_id": "ABC-127857",
+    "title": "Relaxed Fit Monogram Short Sleeve T-Shirt",
+    "description": "Calvin Klein — Relaxed Fit Monogram Short Sleeve T-Shirt. Available in Ub1 Black, Yaf Bright White. Calvin Klein — Relaxed Fit Monogram Short Sleeve T-Shirt. Available in Ub1 Black, Yaf Bright White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "MEDIUM",
+      "XLARGE",
+      "LARGE",
+      "SMALL"
+    ]
+  },
+  {
+    "external_id": "ABC-127770",
+    "title": "Arch Logo Relaxed Fit Short Sleeve T-Shirt",
+    "description": "Calvin Klein Jeans — Arch Logo Relaxed Fit Short Sleeve T-Shirt. Available in 2jx Oatmeal. Calvin Klein Jeans — Arch Logo Relaxed Fit Short Sleeve T-Shirt. Available in 2jx Oatmeal.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "LARGE",
+      "XLARGE",
+      "MEDIUM",
+      "XXLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-127637",
+    "title": "Waffle Stitch Monogram Short Sleeve T-Shirt",
+    "description": "Calvin Klein Jeans — Waffle Stitch Monogram Short Sleeve T-Shirt. Available in Mun Overcast, Ldy Dustolive. Calvin Klein Jeans — Waffle Stitch Monogram Short Sleeve T-Shirt. Available in Mun Overcast, Ldy Dustolive.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-126857",
+    "title": "Cotton Jacquard Flag Short Sleeve T-shirt",
+    "description": "Tommy Hilfiger — Cotton Jacquard Flag Short Sleeve T-shirt. Available in Dcc Carbon Navy. Tommy Hilfiger — Cotton Jacquard Flag Short Sleeve T-shirt. Available in Dcc Carbon Navy.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "MEDIUM",
+      "LARGE",
+      "SMALL"
+    ]
+  },
+  {
+    "external_id": "ABC-126789",
+    "title": "TH Flag Crew Neck Short Sleeve T-Shirt",
+    "description": "Tommy Hilfiger — TH Flag Crew Neck Short Sleeve T-Shirt. Available in Dcc Carbonnavy, C4u Blue Orbit, Mbn Nocturnal Green. Tommy Hilfiger — TH Flag Crew Neck Short Sleeve T-Shirt. Available in Dcc Carbonnavy, C4u Blue Orbit, Mbn Nocturnal Green.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "LARGE",
+      "SMALL",
+      "MEDIUM",
+      "XLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-126593",
+    "title": "Classic Logo Crew Neck T-Shirt",
+    "description": "Tommy Jeans — Classic Logo Crew Neck T-Shirt. Available in Sev Faded Sun Kiss. Tommy Jeans — Classic Logo Crew Neck T-Shirt. Available in Sev Faded Sun Kiss.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "LARGE",
+      "SMALL"
+    ]
+  },
+  {
+    "external_id": "ABC-126569",
+    "title": "Circular Back Logo Relaxed T-Shirt",
+    "description": "Tommy Jeans — Circular Back Logo Relaxed T-Shirt. Available in Ybh Ancienwhite, Mbl Shadow Pine, Pke Limestone Dust. Tommy Jeans — Circular Back Logo Relaxed T-Shirt. Available in Ybh Ancienwhite, Mbl Shadow Pine, Pke Limestone Dust.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "LARGE",
+      "MEDIUM",
+      "SMALL",
+      "XLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-126537",
+    "title": "Signature Logo Embroidery Crew Neck T-Shirt",
+    "description": "Tommy Jeans — Signature Logo Embroidery Crew Neck T-Shirt. Available in Bds Black, Ybl Ecru. Tommy Jeans — Signature Logo Embroidery Crew Neck T-Shirt. Available in Bds Black, Ybl Ecru.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "LARGE",
+      "XLARGE",
+      "MEDIUM",
+      "SMALL"
+    ]
+  },
+  {
+    "external_id": "ABC-124524",
+    "title": "Script Logo Short Sleeve T-Shirt",
+    "description": "KARL LAGERFELD — Script Logo Short Sleeve T-Shirt. Available in Dk Sand. KARL LAGERFELD — Script Logo Short Sleeve T-Shirt. Available in Dk Sand.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE",
+      "XSMALL"
+    ]
+  },
+  {
+    "external_id": "ABC-124045",
+    "title": "Striped Chest Knit Short Sleeve T-Shirt",
+    "description": "KARL LAGERFELD — Striped Chest Knit Short Sleeve T-Shirt. Available in Black. KARL LAGERFELD — Striped Chest Knit Short Sleeve T-Shirt. Available in Black.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "MEDIUM",
+      "LARGE",
+      "XLARGE",
+      "XXLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-123093",
+    "title": "Relaxed Fit Short Sleeve T-shirt with \"bad andy warhol\" Print",
+    "description": "Études Studio — Relaxed Fit Short Sleeve T-shirt with \"bad andy warhol\" Print. Available in Antracite. Études Studio — Relaxed Fit Short Sleeve T-shirt with \"bad andy warhol\" Print. Available in Antracite.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XSMALL",
+      "SMALL",
+      "MEDIUM",
+      "LARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-119881",
+    "title": "3D Monogram Back-Graphic Short Sleeve T-Shirt",
+    "description": "Composition 100% cotton organic Color white Collection Spring 2026 Item code B1M17067 Fit Regular Fit Index KJ261M0000120010XXL Brands Karl Lagerfeld Jeans Composition 100% cotton organic Color white Collection Spring 2026 Item code B1M17067 Fit Regular Fit Index KJ261M0000120010XXL Brands Karl Lagerfeld Jeans",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "XXLARGE",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-119872",
+    "title": "Cotton Short Sleeve T-shirt with Graffiti Logo Print",
+    "description": "Classic crew neck Short sleeves Statement graffiti KARL LAGERFELD JEANS artwork at the chest Composition: 100% Organic Cotton Material: Jersey Made in: China Product code: B1M17065100 Classic crew neck Short sleeves Statement graffiti KARL LAGERFELD JEANS artwork at the chest Composition: 100% Organic Cotton Material: Jersey Made in: China Product code: B1M17065100",
+    "category": "Men > Clothing",
+    "sizes": [
+      "MEDIUM",
+      "XLARGE",
+      "XXLARGE",
+      "SMALL",
+      "LARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-119780",
+    "title": "Black Vintage Crew Neck T-Shirt",
+    "description": "Daily Paper — Black Vintage Crew Neck T-Shirt. Available in Black. Daily Paper — Black Vintage Crew Neck T-Shirt. Available in Black.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XSMALL",
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-119768",
+    "title": "Nouvean Navy Dias Washed Short Sleeve T-Shirt",
+    "description": "Daily Paper — Nouvean Navy Dias Washed Short Sleeve T-Shirt. Available in Navy. Daily Paper — Nouvean Navy Dias Washed Short Sleeve T-Shirt. Available in Navy.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XSMALL",
+      "SMALL",
+      "MEDIUM",
+      "LARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-119762",
+    "title": "Kalamata Orbit Embroidery Cotton Short Sleeve T-Shirt",
+    "description": "Daily Paper — Kalamata Orbit Embroidery Cotton Short Sleeve T-Shirt. Available in Kalamata. Daily Paper — Kalamata Orbit Embroidery Cotton Short Sleeve T-Shirt. Available in Kalamata.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XSMALL",
+      "SMALL",
+      "MEDIUM"
+    ]
+  },
+  {
+    "external_id": "ABC-119718",
+    "title": "Black Chain Shield Short Sleeve T-Shirt",
+    "description": "Daily Paper — Black Chain Shield Short Sleeve T-Shirt. Available in Black. Daily Paper — Black Chain Shield Short Sleeve T-Shirt. Available in Black.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XSMALL",
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-119712",
+    "title": "Green Dias Sticker Short Sleeve T-Shirt",
+    "description": "Daily Paper — Green Dias Sticker Short Sleeve T-Shirt. Available in Green. Daily Paper — Green Dias Sticker Short Sleeve T-Shirt. Available in Green.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XSMALL",
+      "SMALL",
+      "MEDIUM",
+      "LARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-119682",
+    "title": "White Air Freshener Short Sleeve T-Shirt",
+    "description": "Daily Paper — White Air Freshener Short Sleeve T-Shirt. Available in White. Daily Paper — White Air Freshener Short Sleeve T-Shirt. Available in White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XSMALL",
+      "SMALL",
+      "LARGE",
+      "XLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-119665",
+    "title": "Off White Raglan Stacked Dias Washed Jersey T-Shirt",
+    "description": "Daily Paper — Off White Raglan Stacked Dias Washed Jersey T-Shirt. Available in Offwhite. Daily Paper — Off White Raglan Stacked Dias Washed Jersey T-Shirt. Available in Offwhite.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-119652",
+    "title": "Cotton Black Shield Evolution Short Sleeve T-Shirt",
+    "description": "Daily Paper — Cotton Black Shield Evolution Short Sleeve T-Shirt. Available in Black. Daily Paper — Cotton Black Shield Evolution Short Sleeve T-Shirt. Available in Black.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XSMALL",
+      "LARGE",
+      "XLARGE",
+      "MEDIUM"
+    ]
+  },
+  {
+    "external_id": "ABC-119646",
+    "title": "Cotton Snake Shield Short Sleeve T-Shirt",
+    "description": "Daily Paper — Cotton Snake Shield Short Sleeve T-Shirt. Available in White. Daily Paper — Cotton Snake Shield Short Sleeve T-Shirt. Available in White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XSMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-119634",
+    "title": "Dias Regular Fit Short Sleeve Black T-Shirt",
+    "description": "Daily Paper — Dias Regular Fit Short Sleeve Black T-Shirt. Available in Black. Daily Paper — Dias Regular Fit Short Sleeve Black T-Shirt. Available in Black.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XSMALL",
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-119628",
+    "title": "Dias Regular Fit Short Sleeve White T-Shirt",
+    "description": "Daily Paper — Dias Regular Fit Short Sleeve White T-Shirt. Available in White. Daily Paper — Dias Regular Fit Short Sleeve White T-Shirt. Available in White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XSMALL",
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-119619",
+    "title": "Beware My Income Short Sleeve T-Shirt",
+    "description": "Market Studios — Beware My Income Short Sleeve T-Shirt. Available in Black, White. Market Studios — Beware My Income Short Sleeve T-Shirt. Available in Black, White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "MEDIUM",
+      "XXLARGE",
+      "SMALL",
+      "LARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-119593",
+    "title": "Making It Rain Bear Short Sleeve T-Shirt",
+    "description": "Market Studios — Making It Rain Bear Short Sleeve T-Shirt. Available in Black, Green, White. Market Studios — Making It Rain Bear Short Sleeve T-Shirt. Available in Black, Green, White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "XLARGE",
+      "MEDIUM",
+      "LARGE",
+      "XXLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-119583",
+    "title": "Call My Plug Short Sleeve T-Shirt",
+    "description": "Market Studios — Call My Plug Short Sleeve T-Shirt. Available in Black, White. Market Studios — Call My Plug Short Sleeve T-Shirt. Available in Black, White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "XXLARGE",
+      "MEDIUM",
+      "LARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-119573",
+    "title": "Smiley Bonsai Tree Short Sleeve T-Shirt",
+    "description": "Market Studios — Smiley Bonsai Tree Short Sleeve T-Shirt. Available in White. Market Studios — Smiley Bonsai Tree Short Sleeve T-Shirt. Available in White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-119552",
+    "title": "Airbrush Call My Lawyer Short Sleeve T-Shirt",
+    "description": "Market Studios — Airbrush Call My Lawyer Short Sleeve T-Shirt. Available in Black. Market Studios — Airbrush Call My Lawyer Short Sleeve T-Shirt. Available in Black.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "XXLARGE",
+      "MEDIUM",
+      "LARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-119537",
+    "title": "Lowrider Bear Short Sleeve T-Shirt",
+    "description": "Market Studios — Lowrider Bear Short Sleeve T-Shirt. Available in White. Market Studios — Lowrider Bear Short Sleeve T-Shirt. Available in White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-119532",
+    "title": "Black Lab Arc Short Sleeve T-Shirt",
+    "description": "Market Studios — Black Lab Arc Short Sleeve T-Shirt. Available in Black. Market Studios — Black Lab Arc Short Sleeve T-Shirt. Available in Black.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "XLARGE",
+      "XXLARGE",
+      "LARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-119510",
+    "title": "Have A Nice Race Short Sleeve T-Shirt",
+    "description": "Market Studios — Have A Nice Race Short Sleeve T-Shirt. Available in White. Market Studios — Have A Nice Race Short Sleeve T-Shirt. Available in White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM"
+    ]
+  },
+  {
+    "external_id": "ABC-119485",
+    "title": "Walking And Talking Lawyer Short Sleeve T-Shirt",
+    "description": "Market Studios — Walking And Talking Lawyer Short Sleeve T-Shirt. Available in Green, White. Market Studios — Walking And Talking Lawyer Short Sleeve T-Shirt. Available in Green, White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XXLARGE",
+      "XLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-119445",
+    "title": "Yellow Panther Short Sleeve T-Shirt",
+    "description": "Market Studios — Yellow Panther Short Sleeve T-Shirt. Available in Black. Market Studios — Yellow Panther Short Sleeve T-Shirt. Available in Black.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "XXLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-119435",
+    "title": "Smiley Mood Short Sleeve T-Shirt",
+    "description": "Market Studios — Smiley Mood Short Sleeve T-Shirt. Available in Green, White. Market Studios — Smiley Mood Short Sleeve T-Shirt. Available in Green, White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE",
+      "XXLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-119425",
+    "title": "Eight Ball Short SleeveT-Shirt",
+    "description": "Market Studios — Eight Ball Short SleeveT-Shirt. Available in Green, White. Market Studios — Eight Ball Short SleeveT-Shirt. Available in Green, White.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE",
+      "XXLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-118118",
+    "title": "Regular Fit Printed Pocket Short Sleeve T-shirt",
+    "description": "Calvin Klein — Regular Fit Printed Pocket Short Sleeve T-shirt. Available in Ub1, Yaa Brilliantwhite. Calvin Klein — Regular Fit Printed Pocket Short Sleeve T-shirt. Available in Ub1, Yaa Brilliantwhite.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "LARGE",
+      "XLARGE",
+      "XXLARGE",
+      "MEDIUM"
+    ]
+  },
+  {
+    "external_id": "ABC-118139",
+    "title": "Relaxed Fit Cotton Short Sleeve T-shirt",
+    "description": "Calvin Klein Jeans — Relaxed Fit Cotton Short Sleeve T-shirt. Available in Ub1. Calvin Klein Jeans — Relaxed Fit Cotton Short Sleeve T-shirt. Available in Ub1.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "XLARGE",
+      "XSMALL"
+    ]
+  },
+  {
+    "external_id": "ABC-118028",
+    "title": "Long Sleeve Waffle Badge Crew Neck T-shirt",
+    "description": "Calvin Klein Jeans — Long Sleeve Waffle Badge Crew Neck T-shirt. Available in Wfw Maritime Blue. Calvin Klein Jeans — Long Sleeve Waffle Badge Crew Neck T-shirt. Available in Wfw Maritime Blue.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE",
+      "XXLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-118013",
+    "title": "Logo Badge Short Sleeve T-shirt",
+    "description": "Calvin Klein — Logo Badge Short Sleeve T-shirt. Available in Wfw Maritime Blue. Calvin Klein — Logo Badge Short Sleeve T-shirt. Available in Wfw Maritime Blue.",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-117668",
+    "title": "Washed Textured Sateen Utility Trousers",
+    "description": "For that lived-in look, turn to our garment-dyed range. The colour is applied after the clothes have been constructed for a vintage appearance. An elevated take on utility-inspired styles, these trousers are crafted from pure slub cotton sateen with a garment-dyed finish. Highlights  Pure slub cotton sateen  Garment dyed  Zip with button closure  Two side angled patch pockets  One coin pocket  Two back buttoned flap pockets  Tommy Hilfiger logo label on back  Tommy Hilfiger branding Shap",
+    "category": "Men > Clothing",
+    "sizes": [
+      "3436",
+      "3430",
+      "3431",
+      "3432",
+      "3433",
+      "3434",
+      "3438"
+    ]
+  },
+  {
+    "external_id": "ABC-117595",
+    "title": "Textured Washed Sateen Utility Shirt Jacket",
+    "description": "For that lived-in look, turn to our garment-dyed range. The colour is applied after the clothes have been constructed for a vintage appearance. Embrace utility-informed style with this shirt jacket, crafted from garment-dyed, slub cotton sateen that combines a washed look with a subtle sheen. Highlights  Pure slub cotton sateen  Garment dyed  Semi-spread collar  Two chest buttoned flap patch pockets  Two-button cuffs  Tommy Hilfiger logo tab on pocket  Tommy Hilfiger branding Shape & fit ",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE",
+      "XXLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-117515",
+    "title": "Mesh Detail Classic Short Sleeve Polo T-Shirt",
+    "description": "- -",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "LARGE",
+      "MEDIUM",
+      "XXLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-117217",
+    "title": "Tonal Tommy Badge Long Sleeve T-Shirt",
+    "description": "This long-sleeved tee is made from airy cotton-blend jersey, styled with a neat crew neckline and a vintage-look tonal Tommy badge. Highlights  Cotton blend jersey  Crew neck  Tonal Tommy badge on chest  Tommy Jeans branding Shape & fit  Regular fit  Long sleeves  Our first model is 1.86m and wears size M  Our second model is 1.9m and wears size 3XL Composition & care  60% cotton, 40% polyester This long-sleeved tee is made from airy cotton-blend jersey, styled with a neat crew neckline",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE",
+      "XXLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-117125",
+    "title": "Cotton Short Sleeve T-shirt with Iconic Branding",
+    "description": "- -",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE",
+      "XSMALL"
+    ]
+  },
+  {
+    "external_id": "ABC-117120",
+    "title": "90s Bills Short Sleeve T-shirt",
+    "description": "- -",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "XLARGE",
+      "XXLARGE"
+    ]
+  },
+  {
+    "external_id": "ABC-117113",
+    "title": "90s Classic Tonal Logo T-Shirt",
+    "description": "Celebrate the '90s revival in this pure cotton jersey T-shirt with a textured tonal logo and ever-present Tommy badge. Highlights  Pure cotton jersey  Crew neck  Tommy Jeans tonal NYC logo embroidery on chest  Tommy badge on back  Tommy Jeans branding Shape & fit  Regular fit  Our model is 1.86m and wears size M Composition & care  100% cotton Celebrate the '90s revival in this pure cotton jersey T-shirt with a textured tonal logo and ever-present Tommy badge. Highlights  Pure cotton je",
+    "category": "Men > Clothing",
+    "sizes": [
+      "SMALL",
+      "XSMALL"
+    ]
+  }
+]

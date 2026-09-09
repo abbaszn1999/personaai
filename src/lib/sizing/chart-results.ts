@@ -1,0 +1,291 @@
+import type { SizingChartRow } from "@/lib/db/sizing-charts";
+import type { SizeChartRow } from "./chart-schema";
+import type { BrandType, ResearchStatus, SizingCoverageRow } from "@/lib/db/sizing-coverage";
+import {
+  assessChart,
+  chartTable,
+  CHART_CONFIDENCE_PERCENT,
+  hasBlockingQualityIssue,
+  type ChartQualityFlag,
+} from "./chart-review";
+import { isSizingCategory, UNKNOWN_BRAND_KEY, type Audience } from "./keys";
+
+/**
+ * Joins what the store carries (`sizing_coverage`) against what research produced
+ * (`sizing_charts`) into Stage 4's review surface.
+ *
+ * Coverage is the driving side, not charts: the screen's job is to account for **every**
+ * (brand x sizing category) the store needs, and listing charts alone would show six successes and
+ * silently omit the forty-five pairs still waiting on one. Every coverage row therefore comes back
+ * either as a chart or as a gap with a reason.
+ *
+ * Pure, so the whole join is testable without a database, and declared with its own interfaces per
+ * this directory's convention — the client's mirror of these shapes lives in
+ * `modules/store/sizing/server-types.ts`.
+ */
+
+export interface ResearchedChartResult {
+  id: string;
+  brand: string;
+  brandKey: string;
+  sizingCategory: string;
+  /** Doc Part 5. Which of the brand's chart lines this is — `Men`, `Women Petite`. What Phase 5's
+   *  dropdown offers, and what tells a brand's several charts for one parent apart. */
+  variantName: string;
+  /** Who the source table was published for, read off the brand's own guide page. */
+  audience: Audience;
+  /** The table's verbatim heading, so a merchant looking at three Tommy tops charts can tell the
+   *  mainline one from the Tommy Jeans one without opening all three. */
+  sourceTitle: string;
+  skuCount: number;
+  region: string;
+  confidence: number;
+  lastUpdated: string;
+  sourceUrl: string | null;
+  provenance: "research" | "manual" | "merchant";
+  shared: boolean;
+  headers: string[];
+  rows: Record<string, string>[];
+  /** The stored measurement rows behind `rows`, which are display strings. Sent so doc Part 6's
+   *  Make Template can fork a merchant-owned copy without re-parsing `96-104` back out of the
+   *  formatted table it just rendered. */
+  chartRows: SizeChartRow[];
+  quality: ChartQualityFlag[];
+  /**
+   * Whether a merchant should look at this chart before it drives recommendations.
+   *
+   * Decided here rather than in the component so there is exactly one bar in the system. The UI
+   * used to keep its own `REVIEW_THRESHOLD = 90` while research skipped re-searching anything above
+   * 0.75, which left every chart in between both trusted and distrusted depending on which module
+   * you asked.
+   */
+  needsReview: boolean;
+}
+
+export interface ChartGapResult {
+  id: string;
+  brandKey: string;
+  brandName: string;
+  brandType: BrandType;
+  sizingCategory: string;
+  skuCount: number;
+  storeCategoryPaths: string[][];
+  researchStatus: ResearchStatus;
+  researchNote: string | null;
+  reason: string;
+  sampleSkus: { sku: string | null; title: string; imageUrl: string | null }[];
+}
+
+export interface ChartResults {
+  charts: ResearchedChartResult[];
+  notFound: ChartGapResult[];
+  noBrand: ChartGapResult[];
+  totals: {
+    chartsFound: number;
+    brandsCharted: number;
+    chartedSkus: number;
+    pairsNeeded: number;
+    gapSkus: number;
+  };
+  researched: boolean;
+}
+
+function lookupKey(brandKey: string, sizingCategory: string): string {
+  return `${brandKey}|${sizingCategory}`;
+}
+
+/**
+ * Indexes charts by (brand, category), preferring a store's own row over the shared one.
+ *
+ * One-to-**many**: a brand publishes a men's table and a women's one, and often several fit lines
+ * per audience, so a single coverage pair legitimately stands behind a handful of charts. The
+ * screen shows all of them; picking the one a given product resolves against is a later decision
+ * that needs the product, which this join does not have.
+ *
+ * Within a key, charts are deduplicated on the variant name with a store's own row winning: the same
+ * precedence the resolver uses. A merchant who hand-corrected a chart must see their own numbers
+ * here, or the review screen would show them the shared chart they deliberately overrode. Keyed on
+ * the variant since doc Part 5, matching `sizing_charts`' own index — on the old `(audience, source
+ * title)` a merchant's forked copy sat *beside* the researched row instead of replacing it.
+ */
+function indexCharts(charts: SizingChartRow[]): Map<string, SizingChartRow[]> {
+  const byKey = new Map<string, Map<string, SizingChartRow>>();
+
+  for (const chart of charts) {
+    const key = lookupKey(chart.brandKey, chart.sizingCategory);
+    let variants = byKey.get(key);
+    if (!variants) {
+      variants = new Map();
+      byKey.set(key, variants);
+    }
+
+    const existing = variants.get(chart.variantName);
+    if (!existing || (existing.connectionId === null && chart.connectionId !== null)) {
+      variants.set(chart.variantName, chart);
+    }
+  }
+
+  return new Map(
+    [...byKey].map(([key, variants]) => [
+      key,
+      [...variants.values()].sort((a, b) => a.variantName.localeCompare(b.variantName)),
+    ])
+  );
+}
+
+/**
+ * One phrase explaining why a row has no chart, resolved from both the brand's routing and what
+ * research actually concluded — the two carry different halves of the answer.
+ *
+ * `researched` disambiguates the `pending` status, which means two different things: nothing has run
+ * yet, or a pass ran before this store started recording per-row reasons. Reading the second as the
+ * first would tell a merchant to start research they have already paid for.
+ */
+function gapReason(row: SizingCoverageRow, researched: boolean): string {
+  if (row.brandKey === UNKNOWN_BRAND_KEY || row.brandType === "none") {
+    return "No brand on these products — needs a chart per category";
+  }
+  if (row.brandType === "private") {
+    return "Private label — no public chart exists to find";
+  }
+  if (row.brandType === "unclassified") {
+    return "Brand not classified yet — not routed to research";
+  }
+
+  switch (row.researchStatus) {
+    case "not_found":
+      return "No official size guide found for this brand";
+    case "not_covered":
+      return "Guide found, but it does not cover this category";
+    case "failed":
+      return "Research failed — can be retried";
+    case "found":
+      // Recorded as found with no chart to show for it: a write that failed after the status was
+      // set, or a chart deleted since. Surfaced rather than smoothed over, since it means the two
+      // tables disagree.
+      return "Recorded as found, but no chart is stored";
+    case "pending":
+    default:
+      return researched ? "Researched, but no reason was recorded — re-run to see why" : "Not researched yet";
+  }
+}
+
+function toGap(row: SizingCoverageRow, researched: boolean): ChartGapResult {
+  const unbranded = row.brandKey === UNKNOWN_BRAND_KEY;
+  return {
+    id: row.id,
+    brandKey: row.brandKey,
+    brandName: unbranded ? "No brand" : (row.brandName ?? row.brandKey),
+    brandType: row.brandType,
+    sizingCategory: row.sizingCategory,
+    skuCount: row.skuCount,
+    storeCategoryPaths: row.storeCategoryPaths,
+    researchStatus: row.researchStatus,
+    researchNote: row.researchNote,
+    reason: gapReason(row, researched),
+    sampleSkus: row.sampleSkus.map((sample) => ({
+      sku: sample.sku,
+      title: sample.title,
+      imageUrl: sample.imageUrl ?? null,
+    })),
+  };
+}
+
+export function buildChartResults(coverage: SizingCoverageRow[], charts: SizingChartRow[]): ChartResults {
+  const byKey = indexCharts(charts);
+
+  // A stored chart is itself proof a pass ran, so it counts alongside a recorded status. Without
+  // that, a store whose charts predate the reason columns reads as "never researched" while showing
+  // the charts research produced.
+  const researched = charts.length > 0 || coverage.some((row) => row.researchStatus !== "pending");
+
+  const results: ResearchedChartResult[] = [];
+  const notFound: ChartGapResult[] = [];
+  const noBrand: ChartGapResult[] = [];
+  const chartedBrands = new Set<string>();
+  let chartedPairs = 0;
+  let chartedSkus = 0;
+  let gapSkus = 0;
+
+  for (const row of coverage) {
+    // A key this build no longer recognises means the group vocabulary changed under stored rows. It
+    // cannot be rendered (there is no measurement set to build columns from) and it is not a gap a
+    // merchant can fill either, so it is left out rather than shown as a fillable row.
+    if (!isSizingCategory(row.sizingCategory)) continue;
+    const group = row.sizingCategory;
+
+    const charts = byKey.get(lookupKey(row.brandKey, row.sizingCategory)) ?? [];
+
+    if (charts.length === 0) {
+      const gap = toGap(row, researched);
+      gapSkus += row.skuCount;
+      if (row.brandKey === UNKNOWN_BRAND_KEY || row.brandType === "none") noBrand.push(gap);
+      else notFound.push(gap);
+      continue;
+    }
+
+    chartedBrands.add(row.brandKey);
+    chartedPairs += 1;
+    chartedSkus += row.skuCount;
+
+    for (const chart of charts) {
+      const { headers, rows } = chartTable(chart.chartRows, group);
+      const quality = assessChart({ rows: chart.chartRows, group, sourceUrl: chart.sourceUrl });
+      const confidence = Math.round((chart.confidence ?? 0) * 100);
+
+      results.push({
+        id: chart.id,
+        brand: row.brandName ?? row.brandKey,
+        brandKey: row.brandKey,
+        sizingCategory: row.sizingCategory,
+        variantName: chart.variantName,
+        audience: chart.audience,
+        sourceTitle: chart.sourceTitle,
+        skuCount: row.skuCount,
+        region: chart.region ?? "—",
+        // Stored 0-1, displayed 0-100. Rounded rather than truncated so 0.949 doesn't read as 94.
+        confidence,
+        lastUpdated: chart.updatedAt.slice(0, 10),
+        sourceUrl: chart.sourceUrl,
+        provenance: chart.provenance,
+        shared: chart.connectionId === null,
+        headers,
+        rows,
+        chartRows: chart.chartRows,
+        quality,
+        needsReview: confidence < CHART_CONFIDENCE_PERCENT || hasBlockingQualityIssue(quality),
+      });
+    }
+  }
+
+  const bySkuDesc = <T extends { skuCount: number }>(a: T, b: T) => b.skuCount - a.skuCount;
+  // Charts sort by the pair's size first so the brands that matter lead, then by category and
+  // variant so one brand+parent's several variants stay adjacent — that grouping is what doc Part 5
+  // asks the screen to show, and interleaving them with another parent's would hide it.
+  results.sort(
+    (a, b) =>
+      b.skuCount - a.skuCount ||
+      a.brandKey.localeCompare(b.brandKey) ||
+      a.sizingCategory.localeCompare(b.sizingCategory) ||
+      a.variantName.localeCompare(b.variantName)
+  );
+  notFound.sort(bySkuDesc);
+  noBrand.sort(bySkuDesc);
+
+  return {
+    charts: results,
+    notFound,
+    noBrand,
+    totals: {
+      chartsFound: results.length,
+      brandsCharted: chartedBrands.size,
+      chartedSkus,
+      // Pairs, not charts: this counts what the store needs covered, and one pair can be covered by
+      // several published tables. Adding `results.length` here would make the denominator grow every
+      // time research found *more*, which reads as the coverage getting worse.
+      pairsNeeded: chartedPairs + notFound.length + noBrand.length,
+      gapSkus,
+    },
+    researched,
+  };
+}

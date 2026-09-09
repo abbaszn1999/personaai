@@ -89,6 +89,11 @@ export interface AcsOperation {
   };
 }
 
+export interface AcsListProductsResponse {
+  products?: AcsProduct[];
+  nextPageToken?: string;
+}
+
 export interface AcsSearchRequest {
   placement: string;
   visitorId: string;

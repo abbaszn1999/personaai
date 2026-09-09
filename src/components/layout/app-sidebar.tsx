@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard,
@@ -19,9 +19,13 @@ import {
   Gauge,
   ImageIcon,
   Clock3,
+  ListTree,
+  Ruler,
+  SlidersHorizontal,
 } from "lucide-react";
 import { LogoMark } from "@/components/brand/logo";
 import { SidebarNavItem } from "./sidebar/sidebar-nav-item";
+import { SidebarNavGroup } from "./sidebar/sidebar-nav-group";
 import { SidebarPreviewCta } from "./sidebar/sidebar-preview-cta";
 import { SidebarWorkspaceCard } from "./sidebar/sidebar-workspace-card";
 import {
@@ -75,6 +79,7 @@ function useSidebarCollapsed() {
 
 export function AppSidebar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { workspaces, activeWorkspaceId } = useWorkspaceStore();
   const connection = useStoreConnectionStore((s) => s.connection);
   const active = workspaces.find((w) => w.id === activeWorkspaceId);
@@ -104,8 +109,46 @@ export function AppSidebar() {
       : `/workspaces/${active.id}/assistant`
     : "#";
 
-  const accountNav = [
-    { label: "Store", href: "/store", icon: <Plug className="h-4 w-4" /> },
+  const storeSection = searchParams.get("section") ?? "connection";
+  const storeActive = pathname === "/store";
+  const storeChildren = [
+    {
+      label: "Connection",
+      href: "/store?section=connection",
+      icon: <Plug className="h-3.5 w-3.5" />,
+      active: storeActive && storeSection === "connection",
+    },
+    {
+      label: "Categories",
+      href: "/store?section=categories",
+      icon: <ListTree className="h-3.5 w-3.5" />,
+      active: storeActive && storeSection === "categories",
+      disabled: !connection,
+    },
+    // Setup ends by building the index, so there is no separate Catalog Sync tab above it — having
+    // one let a merchant index before the sizing pipeline had produced anything to index.
+    {
+      label: "Setup",
+      href: "/store?section=setup",
+      icon: <Ruler className="h-3.5 w-3.5" />,
+      active: storeActive && storeSection === "setup",
+      disabled: !connection,
+    },
+    {
+      label: "Size Filter",
+      href: "/store?section=sizefilter",
+      icon: <SlidersHorizontal className="h-3.5 w-3.5" />,
+      active: storeActive && storeSection === "sizefilter",
+      disabled: !connection,
+    },
+    // Style Guide sits last so the tabs above it read as the setup pipeline, in order.
+    {
+      label: "Style Guide",
+      href: "/store?section=style",
+      icon: <Palette className="h-3.5 w-3.5" />,
+      active: storeActive && storeSection === "style",
+      disabled: !connection,
+    },
   ];
 
   return (
@@ -184,6 +227,14 @@ export function AppSidebar() {
                     collapsed={collapsed}
                   />
                 ))}
+                <SidebarNavGroup
+                  label="Store"
+                  href="/store?section=connection"
+                  icon={<Plug className="h-4 w-4" />}
+                  active={storeActive}
+                  collapsed={collapsed}
+                  children={storeChildren}
+                />
 
                 <div className={cn("pt-3", collapsed ? "px-0" : "px-0.5")}>
                   {!collapsed && (
@@ -222,16 +273,6 @@ export function AppSidebar() {
             </p>
           )}
           <div className={cn("space-y-1", !collapsed && "sidebar-glass rounded-[var(--radius-xl)] p-2")}>
-            {accountNav.map((item) => (
-              <SidebarNavItem
-                key={item.href}
-                href={item.href}
-                label={item.label}
-                icon={item.icon}
-                active={isActive(item.href)}
-                collapsed={collapsed}
-              />
-            ))}
             <SidebarAccountCard
               collapsed={collapsed}
               storeName={connection?.storeName ?? null}

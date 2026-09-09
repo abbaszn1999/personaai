@@ -168,9 +168,18 @@ export async function selectBundles(input: SelectBundlesInput): Promise<StyledBu
   );
 
   const parts: Part[] = [{ text: buildVisionPrompt(input) }];
+  let attachedImages = 0;
   for (const image of images) {
-    if (image) parts.push({ inlineData: image });
+    if (image) {
+      parts.push({ inlineData: image });
+      attachedImages++;
+    }
   }
+
+  console.log(
+    `[stylist selectBundles] styleGuide=${input.styleGuide ? `present (${input.styleGuide.length} chars)` : "absent"} ` +
+      `candidates=${labelled.length} imagesRequested=${imageUrls.length} imagesAttached=${attachedImages}`
+  );
 
   try {
     const ai = getGeminiClient(input.apiKey);

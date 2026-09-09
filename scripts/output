@@ -1,0 +1,7063 @@
+{
+  "products": [
+    {
+      "external_id": "ABC-145471",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 116,
+            "max": 121
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 121,
+            "max": 126
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-124534",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXXL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 116,
+            "max": 121
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-124492",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XSMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 86,
+            "max": 91
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-143719",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://www.ikks.com/en/men%E2%80%99s-black-short-sleeved-crew-neck-t-shirt/M210053-02.html",
+          "confidence": "high"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 112,
+            "max": 112
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://www.ikks.com/en/men%E2%80%99s-black-short-sleeved-crew-neck-t-shirt/M210053-02.html",
+          "confidence": "high"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 100,
+            "max": 100
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://www.ikks.com/en/men%E2%80%99s-black-short-sleeved-crew-neck-t-shirt/M210053-02.html",
+          "confidence": "high"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 94,
+            "max": 94
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://www.ikks.com/en/men%E2%80%99s-black-short-sleeved-crew-neck-t-shirt/M210053-02.html",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-143715",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-143703",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-143254",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-142990",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-142981",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-142852",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-142847",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-142842",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-141888",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-141881",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XSMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 86,
+            "max": 91
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-141876",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XSMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 86,
+            "max": 91
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-141872",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XSMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 86,
+            "max": 91
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-141863",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-141859",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-141858",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-141850",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-141848",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-141841",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XSMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 86,
+            "max": 91
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-141836",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XSMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 86,
+            "max": 91
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-141832",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XSMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 86,
+            "max": 91
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-141824",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XSMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 86,
+            "max": 91
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-141811",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-141806",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-141796",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XSMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 86,
+            "max": 91
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-141791",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-141787",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XSMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 86,
+            "max": 91
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-141786",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XSMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 86,
+            "max": 91
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-141776",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XSMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 86,
+            "max": 91
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-141772",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-141767",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-141766",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-141757",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-141744",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-141739",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-141570",
+      "garment_type": "long_sleeve_t_shirt",
+      "sizes": [
+        {
+          "label": "41",
+          "type": "not_a_size",
+          "chest_cm": null,
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "not_applicable",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "42",
+          "type": "not_a_size",
+          "chest_cm": null,
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "not_applicable",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "43",
+          "type": "not_a_size",
+          "chest_cm": null,
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "not_applicable",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "44",
+          "type": "not_a_size",
+          "chest_cm": null,
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "not_applicable",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "45",
+          "type": "not_a_size",
+          "chest_cm": null,
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "not_applicable",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "40",
+          "type": "not_a_size",
+          "chest_cm": null,
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "not_applicable",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "46",
+          "type": "not_a_size",
+          "chest_cm": null,
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "not_applicable",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-139647",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXXL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 116,
+            "max": 121
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-139621",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-137756",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-137376",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXXL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 116,
+            "max": 121
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-137276",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-137064",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 98,
+            "max": 102
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 103,
+            "max": 108
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 93,
+            "max": 97
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-136897",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 103,
+            "max": 108
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 98,
+            "max": 102
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 109,
+            "max": 114
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-136509",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-135922",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-132602",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-132584",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-132569",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-131453",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-131063",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXXL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 116,
+            "max": 121
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-127857",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-127770",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 116,
+            "max": 121
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-127637",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-126857",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 98,
+            "max": 102
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 103,
+            "max": 108
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 93,
+            "max": 97
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-126789",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 103,
+            "max": 108
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 93,
+            "max": 97
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 98,
+            "max": 102
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 109,
+            "max": 114
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-126593",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 103,
+            "max": 108
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 93,
+            "max": 97
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-126569",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 103,
+            "max": 108
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 98,
+            "max": 102
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 93,
+            "max": 97
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 109,
+            "max": 114
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-126537",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 103,
+            "max": 108
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 109,
+            "max": 114
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 98,
+            "max": 102
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 93,
+            "max": 97
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-124524",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XSMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 86,
+            "max": 91
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-124045",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-123093",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XSMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-119881",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-119872",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-119780",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XSMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 86,
+            "max": 91
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-119768",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XSMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 86,
+            "max": 91
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-119762",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XSMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 86,
+            "max": 91
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-119718",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XSMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 86,
+            "max": 91
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-119712",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XSMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 86,
+            "max": 91
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-119682",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XSMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 86,
+            "max": 91
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-119665",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-119652",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XSMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 86,
+            "max": 91
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-119646",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XSMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 86,
+            "max": 91
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-119634",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XSMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 86,
+            "max": 91
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-119628",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XSMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 86,
+            "max": 91
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-119619",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-119593",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-119583",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-119573",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-119552",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-119537",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-119532",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-119510",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-119485",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-119445",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-119435",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-119425",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-118118",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-118139",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XSMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-118028",
+      "garment_type": "long_sleeve_t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-118013",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-117668",
+      "garment_type": "trousers",
+      "sizes": [
+        {
+          "label": "3436",
+          "type": "measured_size",
+          "chest_cm": null,
+          "waist_cm": {
+            "min": 86,
+            "max": 90
+          },
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "3430",
+          "type": "measured_size",
+          "chest_cm": null,
+          "waist_cm": {
+            "min": 86,
+            "max": 90
+          },
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "3431",
+          "type": "measured_size",
+          "chest_cm": null,
+          "waist_cm": {
+            "min": 86,
+            "max": 90
+          },
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "3432",
+          "type": "measured_size",
+          "chest_cm": null,
+          "waist_cm": {
+            "min": 86,
+            "max": 90
+          },
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "3433",
+          "type": "measured_size",
+          "chest_cm": null,
+          "waist_cm": {
+            "min": 86,
+            "max": 90
+          },
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "3434",
+          "type": "measured_size",
+          "chest_cm": null,
+          "waist_cm": {
+            "min": 86,
+            "max": 90
+          },
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "3438",
+          "type": "measured_size",
+          "chest_cm": null,
+          "waist_cm": {
+            "min": 86,
+            "max": 90
+          },
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-117595",
+      "garment_type": "shirt_jacket",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 93,
+            "max": 97
+          },
+          "waist_cm": {
+            "min": 83,
+            "max": 87
+          },
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 98,
+            "max": 102
+          },
+          "waist_cm": {
+            "min": 88,
+            "max": 92
+          },
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 103,
+            "max": 108
+          },
+          "waist_cm": {
+            "min": 93,
+            "max": 98
+          },
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 109,
+            "max": 114
+          },
+          "waist_cm": {
+            "min": 99,
+            "max": 104
+          },
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 115,
+            "max": 120
+          },
+          "waist_cm": {
+            "min": 105,
+            "max": 110
+          },
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-117515",
+      "garment_type": "polo_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-117217",
+      "garment_type": "long_sleeve_t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 93,
+            "max": 97
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 98,
+            "max": 102
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 103,
+            "max": 108
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 109,
+            "max": 114
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 115,
+            "max": 120
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-117125",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XSMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 86,
+            "max": 91
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-117120",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 91,
+            "max": 96
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "MEDIUM",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 96,
+            "max": 101
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "LARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 101,
+            "max": 106
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 106,
+            "max": 111
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        },
+        {
+          "label": "XXLARGE",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 111,
+            "max": 116
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "standard_table",
+          "source_url": null,
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "external_id": "ABC-117113",
+      "garment_type": "t_shirt",
+      "sizes": [
+        {
+          "label": "SMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 93,
+            "max": 97
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        },
+        {
+          "label": "XSMALL",
+          "type": "measured_size",
+          "chest_cm": {
+            "min": 88,
+            "max": 92
+          },
+          "waist_cm": null,
+          "height_cm": null,
+          "weight_kg": null,
+          "shoe_size_eu": null,
+          "source": "brand_chart_web",
+          "source_url": "https://gr.tommy.com/en/size-guide/men/",
+          "confidence": "high"
+        }
+      ]
+    }
+  ]
+}

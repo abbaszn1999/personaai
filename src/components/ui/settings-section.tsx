@@ -14,7 +14,7 @@ const ACCENT_CLASSES: Record<string, string> = {
   brand:      "gradient-brand",
   wearable:   "gradient-wearable",
   unwearable: "gradient-unwearable",
-  danger:     "bg-[var(--color-error)]",
+  danger:     "bg-[var(--color-error-solid)]",
 };
 
 export function SettingsSection({

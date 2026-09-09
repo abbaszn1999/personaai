@@ -16,7 +16,7 @@ const buttonVariants = cva(
         ghost:
           "text-[var(--color-text-secondary)] hover:bg-[var(--color-brand-light)] hover:text-[var(--color-brand-strong)]",
         danger:
-          "bg-[var(--color-error)] text-white shadow-sm hover:opacity-90 active:scale-[0.98]",
+          "bg-[var(--color-error-solid)] text-white shadow-sm hover:opacity-90 active:scale-[0.98]",
         outline:
           "border border-[var(--color-brand)] text-[var(--color-brand-strong)] hover:bg-[var(--color-brand-light)] active:scale-[0.98]",
       },

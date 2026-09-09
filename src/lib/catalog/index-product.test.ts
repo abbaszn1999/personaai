@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { StoreCategory } from "@/modules/store/types";
+import { EMPTY_FIELD_OVERRIDES } from "@/lib/catalog/option-groups";
 import type { CategoryLookup } from "./index-product";
 import type { RawCatalogProduct } from "./sync-types";
 
@@ -27,12 +28,15 @@ const categories: StoreCategory[] = [
   { id: "20", name: "Shoes & Bags", productCount: 80, parentId: null },
 ];
 
+/** A lookup over the fixture taxonomy with no field overrides — these cases are about category
+ *  resolution, and option-group routing is covered in map-product/mapping-fields. */
+function lookup(selectedCategoryIds: string[]): CategoryLookup {
+  return { selectedCategoryIds, categories, acsFieldOverrides: EMPTY_FIELD_OVERRIDES };
+}
+
 // The merchant only ever selects top-level categories (the UI enforces this) — "mens pants" and
 // "Shirts" below are exercised as things a product is *tagged with*, not as a selection.
-const connection: CategoryLookup = {
-  selectedCategoryIds: ["10", "20"],
-  categories,
-};
+const connection: CategoryLookup = lookup(["10", "20"]);
 
 const product: RawCatalogProduct = {
   externalId: "gid://shopify/Product/1",
@@ -148,21 +152,21 @@ describe("resolveCategoryPaths", () => {
   });
 
   it("ignores categories the product carries that aren't selected for indexing", () => {
-    const unselected: CategoryLookup = { selectedCategoryIds: ["10"], categories };
+    const unselected = lookup(["10"]);
     expect(resolveCategoryPaths({ ...product, sourceCategoryIds: ["12", "20"] }, unselected)).toEqual([
       ["Men", "mens pants"],
     ]);
   });
 
   it("returns a single-element path for a top-level category with no children tagged", () => {
-    const topLevelOnly: CategoryLookup = { selectedCategoryIds: ["20"], categories };
+    const topLevelOnly = lookup(["20"]);
     expect(resolveCategoryPaths({ ...product, sourceCategoryIds: ["20"] }, topLevelOnly)).toEqual([["Shoes & Bags"]]);
   });
 
   it("matches a product tagged directly with a selected non-top-level category, as its own single-element root", () => {
     // Selection is normally top-level only, but the resolver doesn't assume that — a directly
     // selected/tagged match is its own root, not collapsed under its own parent.
-    const childSelected: CategoryLookup = { selectedCategoryIds: ["12"], categories };
+    const childSelected = lookup(["12"]);
     expect(resolveCategoryPaths({ ...product, sourceCategoryIds: ["12"] }, childSelected)).toEqual([["mens pants"]]);
   });
 
@@ -171,7 +175,7 @@ describe("resolveCategoryPaths", () => {
   });
 
   it("returns nothing when the product's tag has no path up to any selected category", () => {
-    const other: CategoryLookup = { selectedCategoryIds: ["20"], categories };
+    const other = lookup(["20"]);
     expect(resolveCategoryPaths({ ...product, sourceCategoryIds: ["13"] }, other)).toEqual([]);
   });
 });

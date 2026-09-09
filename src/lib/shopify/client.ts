@@ -152,19 +152,52 @@ export async function getShopifyProductCount(domain: string, accessToken: string
   return data.count ?? 0;
 }
 
+/**
+ * How many products sit in one collection.
+ *
+ * Only exact for a single collection. Shopify has no union count — membership is reachable only by
+ * descending from one collection at a time — so totalling several of these double-counts every
+ * product that belongs to more than one, which is why the caller reports a multi-collection total as
+ * approximate rather than presenting the sum as fact.
+ */
+export async function countShopifyCollectionProducts(
+  domain: string,
+  accessToken: string,
+  collectionId: string
+): Promise<number> {
+  const data = await shopifyFetch<{ count: number }>(
+    domain,
+    accessToken,
+    `/products/count.json?collection_id=${encodeURIComponent(collectionId)}`
+  );
+  return data.count ?? 0;
+}
+
 interface ShopifyCollection {
   id: number;
   title: string;
+  handle: string;
 }
 
-/** Fetches custom + smart collections and their product counts (used as the app's "categories"). */
+/**
+ * Fetches custom + smart collections and their product counts (used as the app's "categories").
+ *
+ * Nothing here reports a parent, because Shopify collections genuinely have none: "Women",
+ * "Dresses" and "Summer Sale" are peers in one flat bag. The merchant arranges them into a
+ * hierarchy themselves in the Categories tab, which is what `handle` and `collectionType` are
+ * carried for — they are the two things that let someone tell a real taxonomy collection from a
+ * merchandising one when the titles alone are ambiguous.
+ */
 export async function getShopifyCollections(domain: string, accessToken: string): Promise<StoreCategory[]> {
   const [customRes, smartRes] = await Promise.all([
     shopifyFetch<{ custom_collections: ShopifyCollection[] }>(domain, accessToken, "/custom_collections.json?limit=250"),
     shopifyFetch<{ smart_collections: ShopifyCollection[] }>(domain, accessToken, "/smart_collections.json?limit=250"),
   ]);
 
-  const collections = [...(customRes.custom_collections ?? []), ...(smartRes.smart_collections ?? [])];
+  const collections = [
+    ...(customRes.custom_collections ?? []).map((c) => ({ ...c, collectionType: "custom" as const })),
+    ...(smartRes.smart_collections ?? []).map((c) => ({ ...c, collectionType: "smart" as const })),
+  ];
   const seen = new Set<number>();
   const uniqueCollections = collections.filter((c) => {
     if (seen.has(c.id)) return false;
@@ -173,16 +206,22 @@ export async function getShopifyCollections(domain: string, accessToken: string)
   });
 
   return mapWithConcurrency(uniqueCollections, 4, async (collection): Promise<StoreCategory> => {
+    const base = {
+      id: String(collection.id),
+      name: collection.title,
+      handle: collection.handle,
+      collectionType: collection.collectionType,
+    };
     try {
       const countData = await shopifyFetch<{ count: number }>(
         domain,
         accessToken,
         `/products/count.json?collection_id=${collection.id}`
       );
-      return { id: String(collection.id), name: collection.title, productCount: countData.count ?? 0 };
+      return { ...base, productCount: countData.count ?? 0 };
     } catch (err) {
       console.error(`[shopify getShopifyCollections] product count failed for collection ${collection.id}`, err);
-      return { id: String(collection.id), name: collection.title, productCount: 0 };
+      return { ...base, productCount: 0 };
     }
   });
 }

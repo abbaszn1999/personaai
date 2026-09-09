@@ -4,7 +4,7 @@
     "name": "Women",
     "slug": "women",
     "parentId": null,
-    "productCount": 1966,
+    "productCount": 1346,
     "mode": "wearable"
   },
   {
@@ -12,7 +12,7 @@
     "name": "Men",
     "slug": "men",
     "parentId": null,
-    "productCount": 666,
+    "productCount": 560,
     "mode": "wearable"
   },
   {
@@ -20,7 +20,7 @@
     "name": "Kids",
     "slug": "kids",
     "parentId": null,
-    "productCount": 1348,
+    "productCount": 1019,
     "mode": "wearable"
   },
   {
@@ -28,7 +28,7 @@
     "name": "Women / Accessories",
     "slug": "women-accessories",
     "parentId": "women",
-    "productCount": 152,
+    "productCount": 114,
     "mode": "wearable"
   },
   {
@@ -36,7 +36,7 @@
     "name": "Women / Clothing",
     "slug": "women-clothing",
     "parentId": "women",
-    "productCount": 1813,
+    "productCount": 1231,
     "mode": "wearable"
   },
   {
@@ -44,7 +44,7 @@
     "name": "Women / Lingerie & Sleepwear",
     "slug": "women-lingerie-and-sleepwear",
     "parentId": "women",
-    "productCount": 1,
+    "productCount": 0,
     "mode": "wearable"
   },
   {
@@ -52,7 +52,7 @@
     "name": "Men / Accessories",
     "slug": "men-accessories",
     "parentId": "men",
-    "productCount": 60,
+    "productCount": 47,
     "mode": "wearable"
   },
   {
@@ -60,7 +60,7 @@
     "name": "Men / Clothing",
     "slug": "men-clothing",
     "parentId": "men",
-    "productCount": 604,
+    "productCount": 509,
     "mode": "wearable"
   },
   {
@@ -76,7 +76,7 @@
     "name": "Kids / Accessories",
     "slug": "kids-accessories",
     "parentId": "kids",
-    "productCount": 75,
+    "productCount": 67,
     "mode": "wearable"
   },
   {
@@ -84,7 +84,7 @@
     "name": "Kids / Clothing",
     "slug": "kids-clothing",
     "parentId": "kids",
-    "productCount": 1022,
+    "productCount": 786,
     "mode": "wearable"
   },
   {
@@ -92,7 +92,7 @@
     "name": "Kids / Newborn Essentials",
     "slug": "kids-newborn-essentials",
     "parentId": "kids",
-    "productCount": 251,
+    "productCount": 159,
     "mode": "wearable"
   },
   {
@@ -100,7 +100,535 @@
     "name": "Shoes & Bags",
     "slug": "shoes-and-bags",
     "parentId": null,
-    "productCount": 2046,
+    "productCount": 1335,
+    "mode": "wearable"
+  },
+  {
+    "id": "women-accessories-belts",
+    "name": "Belts",
+    "slug": "women-accessories-belts",
+    "parentId": "women-accessories",
+    "productCount": 74,
+    "mode": "wearable"
+  },
+  {
+    "id": "women-accessories-gloves-and-scarves",
+    "name": "Gloves & Scarves",
+    "slug": "women-accessories-gloves-and-scarves",
+    "parentId": "women-accessories",
+    "productCount": 25,
+    "mode": "wearable"
+  },
+  {
+    "id": "women-accessories-faux-bijoux",
+    "name": "Faux Bijoux",
+    "slug": "women-accessories-faux-bijoux",
+    "parentId": "women-accessories",
+    "productCount": 4,
+    "mode": "wearable"
+  },
+  {
+    "id": "women-accessories-hats-and-caps",
+    "name": "Hats & Caps",
+    "slug": "women-accessories-hats-and-caps",
+    "parentId": "women-accessories",
+    "productCount": 9,
+    "mode": "wearable"
+  },
+  {
+    "id": "women-accessories-hair-accessories",
+    "name": "Hair Accessories",
+    "slug": "women-accessories-hair-accessories",
+    "parentId": "women-accessories",
+    "productCount": 1,
+    "mode": "wearable"
+  },
+  {
+    "id": "women-accessories-ties-and-collars",
+    "name": "Ties & Collars",
+    "slug": "women-accessories-ties-and-collars",
+    "parentId": "women-accessories",
+    "productCount": 1,
+    "mode": "wearable"
+  },
+  {
+    "id": "women-clothing-tops-and-t-shirts",
+    "name": "Tops & T-Shirts",
+    "slug": "women-clothing-tops-and-t-shirts",
+    "parentId": "women-clothing",
+    "productCount": 296,
+    "mode": "wearable"
+  },
+  {
+    "id": "women-clothing-jeans",
+    "name": "Jeans",
+    "slug": "women-clothing-jeans",
+    "parentId": "women-clothing",
+    "productCount": 100,
+    "mode": "wearable"
+  },
+  {
+    "id": "women-clothing-dresses",
+    "name": "Dresses",
+    "slug": "women-clothing-dresses",
+    "parentId": "women-clothing",
+    "productCount": 158,
+    "mode": "wearable"
+  },
+  {
+    "id": "women-clothing-coats",
+    "name": "Coats",
+    "slug": "women-clothing-coats",
+    "parentId": "women-clothing",
+    "productCount": 16,
+    "mode": "wearable"
+  },
+  {
+    "id": "women-clothing-skirts-and-shorts",
+    "name": "Skirts & Shorts",
+    "slug": "women-clothing-skirts-and-shorts",
+    "parentId": "women-clothing",
+    "productCount": 179,
+    "mode": "wearable"
+  },
+  {
+    "id": "women-clothing-shirts-and-blouses",
+    "name": "Shirts & Blouses",
+    "slug": "women-clothing-shirts-and-blouses",
+    "parentId": "women-clothing",
+    "productCount": 102,
+    "mode": "wearable"
+  },
+  {
+    "id": "women-clothing-jackets-and-blazers",
+    "name": "Jackets & Blazers",
+    "slug": "women-clothing-jackets-and-blazers",
+    "parentId": "women-clothing",
+    "productCount": 168,
+    "mode": "wearable"
+  },
+  {
+    "id": "women-clothing-trousers",
+    "name": "Trousers",
+    "slug": "women-clothing-trousers",
+    "parentId": "women-clothing",
+    "productCount": 155,
+    "mode": "wearable"
+  },
+  {
+    "id": "women-clothing-poncho",
+    "name": "Poncho",
+    "slug": "women-clothing-poncho",
+    "parentId": "women-clothing",
+    "productCount": 3,
+    "mode": "wearable"
+  },
+  {
+    "id": "women-clothing-sweaters-and-hoodies",
+    "name": "Sweaters & Hoodies",
+    "slug": "women-clothing-sweaters-and-hoodies",
+    "parentId": "women-clothing",
+    "productCount": 15,
+    "mode": "wearable"
+  },
+  {
+    "id": "women-clothing-joggers-and-leggings",
+    "name": "Joggers & Leggings",
+    "slug": "women-clothing-joggers-and-leggings",
+    "parentId": "women-clothing",
+    "productCount": 7,
+    "mode": "wearable"
+  },
+  {
+    "id": "women-clothing-jumpsuits",
+    "name": "Jumpsuits",
+    "slug": "women-clothing-jumpsuits",
+    "parentId": "women-clothing",
+    "productCount": 6,
+    "mode": "wearable"
+  },
+  {
+    "id": "women-clothing-swimwear",
+    "name": "Swimwear",
+    "slug": "women-clothing-swimwear",
+    "parentId": "women-clothing",
+    "productCount": 25,
+    "mode": "wearable"
+  },
+  {
+    "id": "women-clothing-sets",
+    "name": "Sets",
+    "slug": "women-clothing-sets",
+    "parentId": "women-clothing",
+    "productCount": 1,
+    "mode": "wearable"
+  },
+  {
+    "id": "men-accessories-hats-and-caps",
+    "name": "Hats & Caps",
+    "slug": "men-accessories-hats-and-caps",
+    "parentId": "men-accessories",
+    "productCount": 36,
+    "mode": "wearable"
+  },
+  {
+    "id": "men-accessories-belts",
+    "name": "Belts",
+    "slug": "men-accessories-belts",
+    "parentId": "men-accessories",
+    "productCount": 9,
+    "mode": "wearable"
+  },
+  {
+    "id": "men-accessories-ties-and-bowties",
+    "name": "Ties & Bowties",
+    "slug": "men-accessories-ties-and-bowties",
+    "parentId": "men-accessories",
+    "productCount": 2,
+    "mode": "wearable"
+  },
+  {
+    "id": "men-clothing-tops-and-t-shirts",
+    "name": "Tops & T-Shirts",
+    "slug": "men-clothing-tops-and-t-shirts",
+    "parentId": "men-clothing",
+    "productCount": 164,
+    "mode": "wearable"
+  },
+  {
+    "id": "men-clothing-sweaters-and-hoodies",
+    "name": "Sweaters & Hoodies",
+    "slug": "men-clothing-sweaters-and-hoodies",
+    "parentId": "men-clothing",
+    "productCount": 35,
+    "mode": "wearable"
+  },
+  {
+    "id": "men-clothing-polos",
+    "name": "Polos",
+    "slug": "men-clothing-polos",
+    "parentId": "men-clothing",
+    "productCount": 47,
+    "mode": "wearable"
+  },
+  {
+    "id": "men-clothing-shirts",
+    "name": "Shirts",
+    "slug": "men-clothing-shirts",
+    "parentId": "men-clothing",
+    "productCount": 69,
+    "mode": "wearable"
+  },
+  {
+    "id": "men-clothing-trousers",
+    "name": "Trousers",
+    "slug": "men-clothing-trousers",
+    "parentId": "men-clothing",
+    "productCount": 49,
+    "mode": "wearable"
+  },
+  {
+    "id": "men-clothing-jackets-and-blazers",
+    "name": "Jackets & Blazers",
+    "slug": "men-clothing-jackets-and-blazers",
+    "parentId": "men-clothing",
+    "productCount": 51,
+    "mode": "wearable"
+  },
+  {
+    "id": "men-clothing-shorts",
+    "name": "Shorts",
+    "slug": "men-clothing-shorts",
+    "parentId": "men-clothing",
+    "productCount": 27,
+    "mode": "wearable"
+  },
+  {
+    "id": "men-clothing-joggers",
+    "name": "Joggers",
+    "slug": "men-clothing-joggers",
+    "parentId": "men-clothing",
+    "productCount": 13,
+    "mode": "wearable"
+  },
+  {
+    "id": "men-clothing-jeans",
+    "name": "Jeans",
+    "slug": "men-clothing-jeans",
+    "parentId": "men-clothing",
+    "productCount": 35,
+    "mode": "wearable"
+  },
+  {
+    "id": "men-clothing-suits",
+    "name": "Suits",
+    "slug": "men-clothing-suits",
+    "parentId": "men-clothing",
+    "productCount": 5,
+    "mode": "wearable"
+  },
+  {
+    "id": "men-clothing-swimwear",
+    "name": "Swimwear",
+    "slug": "men-clothing-swimwear",
+    "parentId": "men-clothing",
+    "productCount": 11,
+    "mode": "wearable"
+  },
+  {
+    "id": "men-clothing-vests",
+    "name": "Vests",
+    "slug": "men-clothing-vests",
+    "parentId": "men-clothing",
+    "productCount": 2,
+    "mode": "wearable"
+  },
+  {
+    "id": "men-clothing-sets",
+    "name": "Sets",
+    "slug": "men-clothing-sets",
+    "parentId": "men-clothing",
+    "productCount": 1,
+    "mode": "wearable"
+  },
+  {
+    "id": "men-underwear-and-sleepwear-socks",
+    "name": "Socks",
+    "slug": "men-underwear-and-sleepwear-socks",
+    "parentId": "men-underwear-and-sleepwear",
+    "productCount": 2,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-accessories-hair-accessories",
+    "name": "Hair Accessories",
+    "slug": "kids-accessories-hair-accessories",
+    "parentId": "kids-accessories",
+    "productCount": 5,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-accessories-hats-and-caps",
+    "name": "Hats & Caps",
+    "slug": "kids-accessories-hats-and-caps",
+    "parentId": "kids-accessories",
+    "productCount": 25,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-accessories-belts",
+    "name": "Belts",
+    "slug": "kids-accessories-belts",
+    "parentId": "kids-accessories",
+    "productCount": 1,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-accessories-tights-and-socks",
+    "name": "Tights & Socks",
+    "slug": "kids-accessories-tights-and-socks",
+    "parentId": "kids-accessories",
+    "productCount": 36,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-clothing-sweaters-and-hoodies",
+    "name": "Sweaters & Hoodies",
+    "slug": "kids-clothing-sweaters-and-hoodies",
+    "parentId": "kids-clothing",
+    "productCount": 50,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-clothing-tops-and-t-shirts",
+    "name": "Tops & T-Shirts",
+    "slug": "kids-clothing-tops-and-t-shirts",
+    "parentId": "kids-clothing",
+    "productCount": 235,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-clothing-trousers-and-leggings",
+    "name": "Trousers & Leggings",
+    "slug": "kids-clothing-trousers-and-leggings",
+    "parentId": "kids-clothing",
+    "productCount": 67,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-clothing-dresses",
+    "name": "Dresses",
+    "slug": "kids-clothing-dresses",
+    "parentId": "kids-clothing",
+    "productCount": 77,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-clothing-sets",
+    "name": "Sets",
+    "slug": "kids-clothing-sets",
+    "parentId": "kids-clothing",
+    "productCount": 64,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-clothing-skirts-and-shorts",
+    "name": "Skirts & Shorts",
+    "slug": "kids-clothing-skirts-and-shorts",
+    "parentId": "kids-clothing",
+    "productCount": 96,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-clothing-jeans",
+    "name": "Jeans",
+    "slug": "kids-clothing-jeans",
+    "parentId": "kids-clothing",
+    "productCount": 22,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-clothing-coats-and-jackets",
+    "name": "Coats & Jackets",
+    "slug": "kids-clothing-coats-and-jackets",
+    "parentId": "kids-clothing",
+    "productCount": 33,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-clothing-pyjamas-and-robes",
+    "name": "Pyjamas & Robes",
+    "slug": "kids-clothing-pyjamas-and-robes",
+    "parentId": "kids-clothing",
+    "productCount": 67,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-clothing-jumpsuits-and-rompers",
+    "name": "Jumpsuits & Rompers",
+    "slug": "kids-clothing-jumpsuits-and-rompers",
+    "parentId": "kids-clothing",
+    "productCount": 27,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-clothing-swimwear",
+    "name": "Swimwear",
+    "slug": "kids-clothing-swimwear",
+    "parentId": "kids-clothing",
+    "productCount": 46,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-clothing-underwear",
+    "name": "Underwear",
+    "slug": "kids-clothing-underwear",
+    "parentId": "kids-clothing",
+    "productCount": 2,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-newborn-essentials-feeding-and-weaning",
+    "name": "Feeding & Weaning",
+    "slug": "kids-newborn-essentials-feeding-and-weaning",
+    "parentId": "kids-newborn-essentials",
+    "productCount": 34,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-newborn-essentials-bathing-and-changing",
+    "name": "Bathing & Changing",
+    "slug": "kids-newborn-essentials-bathing-and-changing",
+    "parentId": "kids-newborn-essentials",
+    "productCount": 13,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-newborn-essentials-body-bib-blankets-mittens",
+    "name": "Body, Bib, Blankets, Mittens",
+    "slug": "kids-newborn-essentials-body-bib-blankets-mittens",
+    "parentId": "kids-newborn-essentials",
+    "productCount": 30,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-newborn-essentials-bouncers",
+    "name": "Bouncers",
+    "slug": "kids-newborn-essentials-bouncers",
+    "parentId": "kids-newborn-essentials",
+    "productCount": 10,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-newborn-essentials-baby-care-and-safety",
+    "name": "Baby care & Safety",
+    "slug": "kids-newborn-essentials-baby-care-and-safety",
+    "parentId": "kids-newborn-essentials",
+    "productCount": 13,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-newborn-essentials-strollers-accessories",
+    "name": "Strollers Accessories",
+    "slug": "kids-newborn-essentials-strollers-accessories",
+    "parentId": "kids-newborn-essentials",
+    "productCount": 6,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-newborn-essentials-sterilizers",
+    "name": "Sterilizers",
+    "slug": "kids-newborn-essentials-sterilizers",
+    "parentId": "kids-newborn-essentials",
+    "productCount": 2,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-newborn-essentials-monitors",
+    "name": "Monitors",
+    "slug": "kids-newborn-essentials-monitors",
+    "parentId": "kids-newborn-essentials",
+    "productCount": 8,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-newborn-essentials-carriers",
+    "name": "Carriers",
+    "slug": "kids-newborn-essentials-carriers",
+    "parentId": "kids-newborn-essentials",
+    "productCount": 5,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-newborn-essentials-high-chairs",
+    "name": "High Chairs",
+    "slug": "kids-newborn-essentials-high-chairs",
+    "parentId": "kids-newborn-essentials",
+    "productCount": 8,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-newborn-essentials-car-seats",
+    "name": "Car Seats",
+    "slug": "kids-newborn-essentials-car-seats",
+    "parentId": "kids-newborn-essentials",
+    "productCount": 11,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-newborn-essentials-strollers",
+    "name": "Strollers",
+    "slug": "kids-newborn-essentials-strollers",
+    "parentId": "kids-newborn-essentials",
+    "productCount": 8,
+    "mode": "wearable"
+  },
+  {
+    "id": "kids-newborn-essentials-furniture-and-nursery",
+    "name": "Furniture & Nursery",
+    "slug": "kids-newborn-essentials-furniture-and-nursery",
+    "parentId": "kids-newborn-essentials",
+    "productCount": 11,
     "mode": "wearable"
   }
 ]

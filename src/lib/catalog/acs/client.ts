@@ -3,6 +3,7 @@ import { branchPath, catalogPath, defaultPlacementPath, getAcsConfig } from "./c
 import { categoryScopeFilterClause, merchantFilterClause } from "./isolation";
 import type {
   AcsImportRequestBody,
+  AcsListProductsResponse,
   AcsOperation,
   AcsProduct,
   AcsSearchRequest,
@@ -197,6 +198,17 @@ export async function deleteProduct(acsProductId: string): Promise<boolean> {
     if (err instanceof AcsApiError && err.status === 404) return false;
     throw err;
   }
+}
+
+/**
+ * Reads products from ProductService itself rather than the search index. The latter is
+ * eventually consistent, so it cannot be the source of truth for destructive cleanup.
+ */
+export async function listProducts(pageToken?: string): Promise<AcsListProductsResponse> {
+  const config = getAcsConfig();
+  const params = new URLSearchParams({ pageSize: "1000" });
+  if (pageToken) params.set("pageToken", pageToken);
+  return acsFetch<AcsListProductsResponse>(`${branchPath(config)}/products?${params}`, { method: "GET" });
 }
 
 /** Single-item lookup, used by the catalog-reads and sync paths to read back what ACS already

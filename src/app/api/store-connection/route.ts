@@ -29,18 +29,22 @@ import {
 import { purgeConnectionFromQueue } from "@/lib/db/catalog-queue";
 import { deleteAllAcsProductsForConnection, pruneOutOfScopeAcsProducts } from "@/lib/catalog/acs/catalog-reads";
 import { expandCategorySelection } from "@/lib/catalog/category-scope";
+import { parseCategoryParentMap, parseSkuParentOverrides } from "@/lib/catalog/category-parents";
+import { DEFAULT_SIZE_TYPE, parseSizeType, parseSizeTypeOverrides } from "@/lib/sizing/size-types";
+import { parseMerchantTree } from "@/lib/catalog/merchant-tree";
 import { deriveWebhookSecret } from "@/lib/utils/internal-auth";
 import { MAPPER_VERSION } from "@/lib/catalog/acs/map-product";
-import type { StorePlatform, StoreCategory } from "@/modules/store/types";
-
-/** True once the merchant has approved the mapping preview under the mapper's *current* version
- *  — a mapper version bump invalidates a stale approval rather than silently importing under a
- *  mapping the merchant never saw. See the plan's mapping-preview-approval gate. */
-function hasApprovedCurrentMapping(connection: { acsMappingApprovedAt: string | null; acsMapperVersionApproved: number | null }): boolean {
-  return connection.acsMappingApprovedAt !== null && connection.acsMapperVersionApproved === MAPPER_VERSION;
-}
+import { hasApprovedCurrentMapping } from "@/lib/catalog/acs/field-overrides";
+import { STYLE_GUIDE_MAX_LENGTH, type StorePlatform, type StoreCategory } from "@/modules/store/types";
 
 const VALID_PLATFORMS: StorePlatform[] = ["shopify", "woocommerce", "wordpress", "custom"];
+
+/** Strips control characters other than tab/newline/carriage-return. Length is validated
+ *  separately (rejected, not silently truncated) so a merchant knows their guide was cut off
+ *  rather than discovering it later missing from the end. */
+export function sanitizeStyleGuide(value: string): string {
+  return value.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "").trim();
+}
 
 /** Never expose the encrypted API key to the client. */
 function toPublicConnection(row: StoreConnectionRow) {
@@ -58,7 +62,13 @@ function toResponse(row: StoreConnectionRow) {
   return {
     connection: toPublicConnection(row),
     selectedCategoryIds: row.selectedCategoryIds,
+    categorySelectionGranularity: row.categorySelectionGranularity,
     categories: row.categories,
+    categoryParentMap: row.categoryParentMap,
+    categoryTree: row.categoryTree,
+    skuParentOverrides: row.skuParentOverrides,
+    storeSizeType: row.storeSizeType,
+    storeSizeTypeOverrides: row.storeSizeTypeOverrides,
     productCount: row.productCount,
     syncedAt: row.syncedAt,
     catalogSync: {
@@ -67,9 +77,10 @@ function toResponse(row: StoreConnectionRow) {
       total: row.catalogSyncTotal,
     },
     acsMapping: {
-      approved: hasApprovedCurrentMapping(row),
+      approved: hasApprovedCurrentMapping(row, MAPPER_VERSION),
       mapperVersion: MAPPER_VERSION,
     },
+    styleGuide: row.styleGuide,
   };
 }
 
@@ -116,7 +127,19 @@ export async function GET() {
 
     const row = await getStoreConnectionByOwner(user.id);
     if (!row) {
-      return Response.json({ connection: null, selectedCategoryIds: [], categories: [], productCount: 0, syncedAt: null });
+      return Response.json({
+        connection: null,
+        selectedCategoryIds: [],
+        categories: [],
+        categoryParentMap: {},
+        categoryTree: [],
+        skuParentOverrides: {},
+        storeSizeType: DEFAULT_SIZE_TYPE,
+        storeSizeTypeOverrides: {},
+        productCount: 0,
+        syncedAt: null,
+        styleGuide: null,
+      });
     }
 
     return Response.json(toResponse(row));
@@ -265,8 +288,10 @@ export async function PATCH(req: NextRequest) {
       const previous = current.selectedCategoryIds;
 
       patch.selectedCategoryIds = next;
+      // The picker writes leaves directly. Stamping it on every save also self-heals any row the
+      // one-time migration couldn't reach, rather than leaving it silently mislabelled.
+      patch.categorySelectionGranularity = "leaf";
 
-      const addedCategoryIds = next.filter((id) => !previous.includes(id));
       const removed = previous.filter((id) => !next.includes(id));
 
       // Only worth a pass when something was actually dropped. The prune keeps any product another
@@ -276,36 +301,56 @@ export async function PATCH(req: NextRequest) {
         pruneScope = expandCategorySelection(next, current.categories);
       }
 
-      if (addedCategoryIds.length > 0) {
-        // The one-time gate: the first backfill (or a category addition that re-triggers one)
-        // must never run against a mapping the merchant hasn't seen. Re-required after a mapper
-        // version bump, even for a merchant who approved an earlier version.
-        if (!hasApprovedCurrentMapping(current)) {
+      // Saving a selection deliberately does *not* start an index any more. Indexing is the last
+      // step of the Setup pipeline, which is the only place it can carry sizing attributes and the
+      // only place the merchant has approved the mapping it would run under. Two entry points meant
+      // a merchant could index from here, skip Setup, and end up with a catalog ACS could search but
+      // Persona could not size.
+    }
+
+    // Categories step 2. Both are whole-document saves rather than diffs: the merchant edits them
+    // as one screen and there is no partial state worth expressing.
+    if (body.categoryParentMap !== undefined) {
+      patch.categoryParentMap = parseCategoryParentMap(body.categoryParentMap);
+    }
+
+    if (body.categoryTree !== undefined) {
+      patch.categoryTree = parseMerchantTree(body.categoryTree);
+    }
+
+    // Stage 2 corrections. Also a whole-document save: the client holds every override it knows
+    // about, and sending the full object is what makes clearing one expressible at all.
+    if (body.skuParentOverrides !== undefined) {
+      patch.skuParentOverrides = parseSkuParentOverrides(body.skuParentOverrides);
+    }
+
+    // Doc Part 2. Independent of each other — a merchant can change the store default without
+    // touching their exceptions, and vice versa — so neither is implied by the other's presence.
+    if (body.storeSizeType !== undefined) {
+      patch.storeSizeType = parseSizeType(body.storeSizeType);
+    }
+
+    if (body.storeSizeTypeOverrides !== undefined) {
+      patch.storeSizeTypeOverrides = parseSizeTypeOverrides(body.storeSizeTypeOverrides);
+    }
+
+    if (body.styleGuide !== undefined) {
+      if (body.styleGuide !== null && typeof body.styleGuide !== "string") {
+        return Response.json({ error: "styleGuide must be a string or null" }, { status: 400 });
+      }
+      if (body.styleGuide === null) {
+        patch.styleGuide = null;
+      } else {
+        const sanitized = sanitizeStyleGuide(body.styleGuide);
+        if (sanitized.length > STYLE_GUIDE_MAX_LENGTH) {
           return Response.json(
-            {
-              error: "Review and approve the product mapping preview before indexing can start.",
-              code: "mapping_approval_required",
-            },
-            { status: 409 }
+            { error: `Style guide must be ${STYLE_GUIDE_MAX_LENGTH} characters or fewer` },
+            { status: 400 }
           );
         }
-
-        // Queued rather than walked here: the walk takes minutes on a large category and belongs
-        // to the scheduled job, not to a merchant's save request.
-        patch.catalogSyncStatus = "pending";
-        patch.catalogSyncProgress = 0;
-        patch.catalogSyncTotal = 0;
-
-        // Only a finished index can be added to incrementally. Any other state means the
-        // selection was never fully walked, so an empty list — walk everything selected — is the
-        // correct instruction; narrowing to just the additions there would leave the rest of the
-        // selection permanently unindexed.
-        patch.catalogPendingCategoryIds =
-          current.catalogSyncStatus === "ready"
-            ? // Union with anything already waiting, so two saves in quick succession don't drop
-              // the first addition.
-              [...new Set([...current.catalogPendingCategoryIds, ...addedCategoryIds])]
-            : [];
+        // An empty/whitespace-only guide after sanitizing is functionally "cleared" —
+        // stored as null rather than "" to match the DB column's existing null-as-unset convention.
+        patch.styleGuide = sanitized.length > 0 ? sanitized : null;
       }
     }
 
@@ -362,10 +407,10 @@ export async function PATCH(req: NextRequest) {
           { status: 400 }
         );
       }
-      if (!hasApprovedCurrentMapping(current)) {
+      if (!hasApprovedCurrentMapping(current, MAPPER_VERSION)) {
         return Response.json(
           {
-            error: "Review and approve the product mapping preview before indexing can start.",
+            error: "Review and approve your field mapping in Setup — Stage 1 before indexing can start.",
             code: "mapping_approval_required",
           },
           { status: 409 }
@@ -412,26 +457,39 @@ export async function DELETE() {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Read the row before deleting it: ACS has no foreign key back to this table to cascade
-    // through, and its queued indexing work doesn't cascade either — afterwards there is no id
-    // left to clean up either one by.
+    // ACS has no foreign key back to this table. Stop new writes first, then clean the external
+    // catalog while the connection id is still durable enough for a failed request to retry.
     const existing = await getStoreConnectionByOwner(user.id);
+
+    if (existing) {
+      const stopped = await updateStoreConnection(user.id, { status: "disconnected" });
+      if (!stopped) {
+        return Response.json({ error: "Failed to stop catalog synchronization" }, { status: 500 });
+      }
+
+      try {
+        const purged = await purgeConnectionFromQueue(existing.id);
+        if (purged > 0) {
+          console.log(`[store-connection DELETE] purged ${purged} queued message(s) for ${existing.id}`);
+        }
+
+        const deleted = await deleteAllAcsProductsForConnection(existing.id);
+        if (deleted > 0) {
+          console.log(`[store-connection DELETE] deleted ${deleted} ACS product(s) for ${existing.id}`);
+        }
+      } catch (err) {
+        console.error("[store-connection DELETE cleanup]", existing.id, err);
+        await updateStoreConnection(user.id, { status: "connected" });
+        return Response.json(
+          { error: "Could not remove the store catalog from ACS. Please try again." },
+          { status: 502 }
+        );
+      }
+    }
 
     const ok = await deleteStoreConnection(user.id);
     if (!ok) {
       return Response.json({ error: "Failed to disconnect store" }, { status: 500 });
-    }
-
-    if (existing) {
-      const purged = await purgeConnectionFromQueue(existing.id);
-      if (purged > 0) {
-        console.log(`[store-connection DELETE] purged ${purged} queued message(s) for ${existing.id}`);
-      }
-
-      const deleted = await deleteAllAcsProductsForConnection(existing.id);
-      if (deleted > 0) {
-        console.log(`[store-connection DELETE] deleted ${deleted} ACS product(s) for ${existing.id}`);
-      }
     }
 
     return Response.json({ success: true });

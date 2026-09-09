@@ -9,7 +9,13 @@ import type { AcsProduct } from "./types";
 
 const PREVIEW_SAMPLE_SIZE = 5;
 
-export interface MappingPreviewSample {
+/**
+ * Server-side preview row, precisely typed. Reaches the client JSON-serialized as
+ * `MappingPreviewSample` (src/modules/store/types.ts), which is deliberately loose — that module is
+ * client code and has no business importing the ACS product schema. Named differently rather than
+ * declaring `MappingPreviewSample` twice with two different shapes, which is what it used to do.
+ */
+export interface MappingPreviewRow {
   raw: RawCatalogProduct;
   mapped: AcsProduct;
 }
@@ -17,10 +23,15 @@ export interface MappingPreviewSample {
 /** Pulls a small real sample from the merchant's own store — never synthetic data — so the
  *  preview shows exactly what the first backfill would actually send. Scoped to `categoryIds`
  *  when given (the selection the merchant is about to save); falls back to the store's default
- *  listing order when there's no selection yet to scope to. */
-async function fetchSampleRawProducts(
+ *  listing order when there's no selection yet to scope to.
+ *
+ *  Exported for reuse by the category-samples endpoint (previewing a single category before it's
+ *  ever selected), which needs the same live Shopify/Woo listing but a display shape, not a
+ *  mapped ACS payload. */
+export async function fetchSampleRawProducts(
   connection: StoreConnectionRow,
-  categoryIds: string[]
+  categoryIds: string[],
+  sampleSize: number = PREVIEW_SAMPLE_SIZE
 ): Promise<RawCatalogProduct[]> {
   if (!connection.apiKeyEncrypted) return [];
 
@@ -28,21 +39,21 @@ async function fetchSampleRawProducts(
     const { clientId, clientSecret } = decodeCredentials(connection.apiKeyEncrypted);
     const token = await getShopifyAccessToken(connection.storeUrl, clientId, clientSecret, connection.id);
     const { products } = await listShopifyCatalogPage(connection.storeUrl, token, {
-      pageSize: PREVIEW_SAMPLE_SIZE,
+      pageSize: sampleSize,
       categoryIds: categoryIds.length > 0 ? categoryIds : undefined,
     });
-    return products.slice(0, PREVIEW_SAMPLE_SIZE);
+    return products.slice(0, sampleSize);
   }
 
   if (connection.platform === "wordpress" || connection.platform === "woocommerce") {
     const { wpUsername, wpAppPassword } = decodeCredentials(connection.apiKeyEncrypted);
     const siteUrl = normalizeWordPressUrl(connection.storeUrl);
     const { products } = await listWooCatalogPage(siteUrl, wpUsername, wpAppPassword, {
-      pageSize: PREVIEW_SAMPLE_SIZE,
+      pageSize: sampleSize,
       page: 1,
       categoryIds: categoryIds.length > 0 ? categoryIds : undefined,
     });
-    return products.slice(0, PREVIEW_SAMPLE_SIZE);
+    return products.slice(0, sampleSize);
   }
 
   return [];
@@ -57,7 +68,7 @@ async function fetchSampleRawProducts(
 export async function buildMappingPreview(
   connection: StoreConnectionRow,
   categoryIds: string[]
-): Promise<MappingPreviewSample[]> {
+): Promise<MappingPreviewRow[]> {
   const rawProducts = await fetchSampleRawProducts(connection, categoryIds);
 
   return rawProducts.map((raw) => {
@@ -72,6 +83,9 @@ export async function buildMappingPreview(
       garmentCategory,
       garmentSubcategory,
       sourceCategoryIds: withMembership.sourceCategoryIds,
+      // Without this the preview would show the built-in mapping while the index used the
+      // merchant's overrides — the exact disagreement this whole surface exists to prevent.
+      fieldOverrides: connection.acsFieldOverrides,
     };
 
     return { raw, mapped: rawCatalogProductToAcsProduct(input) };

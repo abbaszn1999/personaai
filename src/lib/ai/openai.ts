@@ -13,6 +13,24 @@ export class OpenAiApiError extends Error {
   }
 }
 
+/**
+ * The platform's own key, mirroring `getPlatformGeminiClient()` in `lib/ai/gemini.ts`: index-time
+ * enrichment and embedding pay on the platform's account rather than a merchant's, and so does
+ * Phase 4's chart research (`src/lib/sizing/research.ts`) — a merchant should not need their own
+ * OpenAI key just for Persona to look up a public Nike size guide.
+ *
+ * Every function in this module still takes `apiKey` as an explicit parameter rather than reading
+ * an env var itself, so the BYO chat path and this platform path share one implementation with no
+ * branching inside it; callers simply pass whichever key belongs to their use case.
+ */
+export function getPlatformOpenAiKey(): string {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new OpenAiApiError("OpenAI API key is not configured (OPENAI_API_KEY).");
+  }
+  return apiKey;
+}
+
 export interface ToolCall {
   id: string;
   type: "function";
@@ -22,12 +40,27 @@ export interface ToolCall {
 /** Responses API function-tool schema — flat/"internally tagged", unlike Chat Completions'
  *  nested `{ type: "function", function: {...} }` shape. `strict` defaults to `false` (set
  *  centrally below) so existing non-strict-compatible parameter schemas keep working as-is. */
-export interface ToolDefinition {
+export interface FunctionToolDefinition {
   type: "function";
   name: string;
   description: string;
   parameters: Record<string, unknown>;
   strict?: boolean;
+}
+
+/** The Responses API's hosted web-search tool: OpenAI runs the search and feeds results back into
+ *  the same turn, so unlike a `function` tool this app never sees or handles the call itself — it
+ *  only shows up as `web_search_call` items in `output`, which {@link extractOutputText} ignores in
+ *  favor of the final message that already incorporates them. Used only by Phase 4's chart finder
+ *  (`src/lib/sizing/research.ts`), which is why this stays a union member rather than its own param. */
+export interface WebSearchToolDefinition {
+  type: "web_search";
+}
+
+export type ToolDefinition = FunctionToolDefinition | WebSearchToolDefinition;
+
+function isFunctionTool(tool: ToolDefinition): tool is FunctionToolDefinition {
+  return tool.type === "function";
 }
 
 /** Kept identical to the old Chat Completions message union on purpose — every caller
@@ -66,6 +99,13 @@ interface CreateChatCompletionOpts {
    *  structured-output calls (e.g. garment classification) that must not fall back to text. */
   toolChoice?: "auto" | "none" | { type: "function"; name: string };
   timeoutMs?: number;
+  /** Constrains the final message to this schema via the Responses API's structured-output
+   *  parameter (`text.format`), the OpenAI equivalent of Gemini's `responseJsonSchema` used
+   *  throughout `lib/sizing/*`. Composes with `tools: [{ type: "web_search" }]` because the search
+   *  runs as its own step before the model writes the schema-constrained final message — but not
+   *  with a `function` tool the model is meant to keep calling, since that path never reaches a
+   *  final message at all. */
+  jsonSchema?: { name: string; schema: Record<string, unknown>; strict?: boolean };
 }
 
 export interface CreateChatCompletionResult {
@@ -156,8 +196,21 @@ function buildRequestBody(
   };
   if (instructions) body.instructions = instructions;
   if (opts?.tools?.length) {
-    body.tools = opts.tools.map((tool) => ({ ...tool, strict: tool.strict ?? false }));
+    // `strict` is a function-tool-only field — the hosted `web_search` tool has no parameters
+    // schema to constrain, and sending it one anyway is exactly the kind of undocumented-field
+    // request that a strict API starts rejecting without warning.
+    body.tools = opts.tools.map((tool) => (isFunctionTool(tool) ? { ...tool, strict: tool.strict ?? false } : tool));
     body.tool_choice = opts.toolChoice ?? "auto";
+  }
+  if (opts?.jsonSchema) {
+    body.text = {
+      format: {
+        type: "json_schema",
+        name: opts.jsonSchema.name,
+        schema: opts.jsonSchema.schema,
+        strict: opts.jsonSchema.strict ?? true,
+      },
+    };
   }
   return body;
 }
@@ -165,8 +218,9 @@ function buildRequestBody(
 /**
  * Non-streamed Responses API call with optional tool/function calling — used for every
  * round of an agent loop except the final answer-only turn (see {@link streamChatCompletion}).
- * Takes the caller's already-decrypted API key as a parameter (BYO — mirrors the
- * Shopify/WordPress credential pattern) and never reads a platform-level OpenAI key.
+ * Takes the caller's key as a parameter rather than reading one itself — usually a merchant's
+ * already-decrypted BYO key (mirrors the Shopify/WordPress credential pattern), but Phase 4's chart
+ * research passes `getPlatformOpenAiKey()` instead, since that call is paid for by the platform.
  */
 export async function createChatCompletion(
   apiKey: string,

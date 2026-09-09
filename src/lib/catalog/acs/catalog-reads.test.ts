@@ -1,14 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AcsProduct, AcsSearchResponse, AcsSearchResultItem } from "./types";
+import type { AcsProduct } from "./types";
 import * as client from "./client";
 import { deleteAllAcsProductsForConnection, getCatalogProductsByExternalIds } from "./catalog-reads";
 
 const CONNECTION_ID = "11111111-1111-1111-1111-111111111111";
 const originalProjectId = process.env.ACS_PROJECT_ID;
-
-function item(id: string): AcsSearchResultItem {
-  return { id, product: { id, type: "PRIMARY", title: "Product", categories: ["Men"] } };
-}
 
 function product(overrides: Partial<AcsProduct> = {}): AcsProduct {
   return {
@@ -34,85 +30,75 @@ describe("deleteAllAcsProductsForConnection", () => {
 
   it("does nothing and reports zero when ACS is unconfigured", async () => {
     delete process.env.ACS_PROJECT_ID;
-    const searchSpy = vi.spyOn(client, "searchProductsRaw");
+    const listSpy = vi.spyOn(client, "listProducts");
 
     await expect(deleteAllAcsProductsForConnection(CONNECTION_ID)).resolves.toBe(0);
-    expect(searchSpy).not.toHaveBeenCalled();
+    expect(listSpy).not.toHaveBeenCalled();
   });
 
-  it("deletes every page of matching products and reports the total", async () => {
-    const pageOne: AcsSearchResponse = { results: [item("a"), item("b")], nextPageToken: "page-2" };
-    const pageTwo: AcsSearchResponse = { results: [item("c")] };
-    const searchSpy = vi
-      .spyOn(client, "searchProductsRaw")
-      .mockResolvedValueOnce(pageOne)
-      .mockResolvedValueOnce(pageTwo);
+  it("deletes matching products from every authoritative catalog page", async () => {
+    const ownedById = product({ id: `${CONNECTION_ID}_a` });
+    const ownedByAttribute = product({
+      id: "legacy-a",
+      attributes: { merchant_id: { text: [CONNECTION_ID] } },
+    });
+    const otherMerchant = product({
+      id: "other_b",
+      attributes: { merchant_id: { text: ["other"] } },
+    });
+    const listSpy = vi
+      .spyOn(client, "listProducts")
+      .mockResolvedValueOnce({ products: [ownedById, otherMerchant], nextPageToken: "page-2" })
+      .mockResolvedValueOnce({ products: [ownedByAttribute] });
     const deleteSpy = vi.spyOn(client, "deleteProduct").mockResolvedValue(true);
 
     const deleted = await deleteAllAcsProductsForConnection(CONNECTION_ID);
 
-    expect(deleted).toBe(3);
-    expect(deleteSpy).toHaveBeenCalledWith("a");
-    expect(deleteSpy).toHaveBeenCalledWith("b");
-    expect(deleteSpy).toHaveBeenCalledWith("c");
-    // The filter must scope to this connection alone — no category-scope clause, since every
-    // product tagged with this merchant is in scope for removal, not just some subset of it.
-    expect(searchSpy).toHaveBeenCalledWith(
-      expect.stringContaining(`attributes.merchant_id: ANY("${CONNECTION_ID}")`),
-      expect.anything()
-    );
+    expect(deleted).toBe(2);
+    expect(deleteSpy).toHaveBeenCalledWith(`${CONNECTION_ID}_a`);
+    expect(deleteSpy).toHaveBeenCalledWith("legacy-a");
+    expect(deleteSpy).not.toHaveBeenCalledWith("other_b");
+    expect(listSpy).toHaveBeenNthCalledWith(1, undefined);
+    expect(listSpy).toHaveBeenNthCalledWith(2, "page-2");
   });
 
-  it("walks by page token, and reads the whole catalog before deleting any of it", async () => {
-    const searchSpy = vi
-      .spyOn(client, "searchProductsRaw")
-      .mockResolvedValueOnce({ results: [item("a")], nextPageToken: "page-2" })
-      .mockResolvedValueOnce({ results: [item("b")] });
+  it("reads the whole source catalog before deleting, so pagination stays stable", async () => {
+    const listSpy = vi
+      .spyOn(client, "listProducts")
+      .mockResolvedValueOnce({ products: [product({ id: `${CONNECTION_ID}_a` })], nextPageToken: "page-2" })
+      .mockResolvedValueOnce({ products: [product({ id: `${CONNECTION_ID}_b` })] });
     const deleteSpy = vi.spyOn(client, "deleteProduct").mockResolvedValue(true);
 
     await deleteAllAcsProductsForConnection(CONNECTION_ID);
 
-    expect(searchSpy.mock.calls[0][1]).toMatchObject({ pageToken: undefined });
-    expect(searchSpy.mock.calls[1][1]).toMatchObject({ pageToken: "page-2" });
-    // Reading everything up front is the whole fix: deleting page one before requesting page two
-    // invalidates the cursor and re-reads products ACS's search index has not dropped yet.
-    expect(searchSpy).toHaveBeenCalledTimes(2);
+    expect(listSpy.mock.invocationCallOrder[1]).toBeLessThan(deleteSpy.mock.invocationCallOrder[0]);
     expect(deleteSpy).toHaveBeenCalledTimes(2);
   });
 
-  it("stops once a page comes back without a token rather than looping forever", async () => {
-    const searchSpy = vi.spyOn(client, "searchProductsRaw").mockResolvedValue({ results: [] });
-    vi.spyOn(client, "deleteProduct").mockResolvedValue(true);
-
-    const deleted = await deleteAllAcsProductsForConnection(CONNECTION_ID);
-
-    expect(deleted).toBe(0);
-    expect(searchSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it("counts only what it actually removed, so a stale index reports zero rather than a lie", async () => {
-    vi.spyOn(client, "searchProductsRaw").mockResolvedValue({ results: [item("a"), item("b")] });
-    // Both already deleted by an earlier sweep; the search index simply has not caught up.
+  it("counts only products actually removed", async () => {
+    vi.spyOn(client, "listProducts").mockResolvedValue({
+      products: [product({ id: `${CONNECTION_ID}_a` }), product({ id: `${CONNECTION_ID}_b` })],
+    });
     vi.spyOn(client, "deleteProduct").mockResolvedValue(false);
 
     await expect(deleteAllAcsProductsForConnection(CONNECTION_ID)).resolves.toBe(0);
   });
 
-  it("reports how far it got when a delete fails partway rather than losing the count", async () => {
-    vi.spyOn(client, "searchProductsRaw").mockResolvedValue({ results: [item("a"), item("b")] });
+  it("throws when a delete fails so disconnect cannot discard the retry key", async () => {
+    vi.spyOn(client, "listProducts").mockResolvedValue({
+      products: [product({ id: `${CONNECTION_ID}_a` }), product({ id: `${CONNECTION_ID}_b` })],
+    });
     vi.spyOn(client, "deleteProduct")
       .mockResolvedValueOnce(true)
       .mockRejectedValueOnce(new Error("ACS is down"));
 
-    // The sweep is best-effort and must never fail the disconnect, but reporting 0 after removing
-    // something would hide the cleanup gap the log exists to surface.
-    await expect(deleteAllAcsProductsForConnection(CONNECTION_ID)).resolves.toBe(1);
+    await expect(deleteAllAcsProductsForConnection(CONNECTION_ID)).rejects.toThrow("ACS is down");
   });
 
-  it("swallows errors and reports zero rather than failing the disconnect", async () => {
-    vi.spyOn(client, "searchProductsRaw").mockRejectedValue(new Error("ACS is down"));
+  it("rejects repeated page tokens instead of looping forever", async () => {
+    vi.spyOn(client, "listProducts").mockResolvedValue({ products: [], nextPageToken: "same" });
 
-    await expect(deleteAllAcsProductsForConnection(CONNECTION_ID)).resolves.toBe(0);
+    await expect(deleteAllAcsProductsForConnection(CONNECTION_ID)).rejects.toThrow("repeated page token");
   });
 });
 

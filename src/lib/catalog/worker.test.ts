@@ -5,8 +5,10 @@ const runCatalogEnqueuePass = vi.fn(async () => [] as Array<{ connectionId: stri
 const getCatalogQueueDepth = vi.fn(async () => 0);
 const drainCatalogQueue = vi.fn(async () => drainResult());
 const settleFinishedRuns = vi.fn(async () => 0);
+const runSizingJobPass = vi.fn(async () => []);
 
 vi.mock("./jobs", () => ({ runCatalogEnqueuePass: () => runCatalogEnqueuePass() }));
+vi.mock("@/lib/sizing/jobs", () => ({ runSizingJobPass: () => runSizingJobPass() }));
 vi.mock("@/lib/db/catalog-queue", () => ({ getCatalogQueueDepth: () => getCatalogQueueDepth() }));
 vi.mock("./process-queue", () => ({
   drainCatalogQueue: () => drainCatalogQueue(),
@@ -71,6 +73,14 @@ describe("runCatalogTick", () => {
 
     expect(runCatalogEnqueuePass).toHaveBeenCalledTimes(1);
     expect(drainCatalogQueue).not.toHaveBeenCalled();
+  });
+
+  // Sizing shares this loop, and an idle catalog queue is the common case — a scan that only ran
+  // when there happened to be indexing work would sit pending indefinitely on a settled store.
+  it("advances sizing runs even when the catalog queue is idle", async () => {
+    await runCatalogTick();
+
+    expect(runSizingJobPass).toHaveBeenCalledTimes(1);
   });
 
   it("still concludes an unfinished run when there is nothing left to drain", async () => {

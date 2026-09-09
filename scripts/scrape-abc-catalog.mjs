@@ -154,6 +154,37 @@ function decodeEntities(s) {
     .trim();
 }
 
+/** Reads the listing page's own left-hand category filter checkboxes (e.g. under
+ *  Women/Clothing: Dresses, Trousers, Tops & T-Shirts, Jeans, ...) into id -> name.
+ *  This is the real subcategory taxonomy the site uses — much finer-grained than
+ *  our hardcoded CATEGORY_ROOTS, which only goes one level deep (e.g. "Clothing"). */
+function parseSubcategoryFilters(html) {
+  const map = new Map();
+  const re = /name="category_2"\s+value="(\d+)">\s*<span class="btn-text">\s*([^<]+?)\s*<\/span>/g;
+  let m;
+  while ((m = re.exec(html))) {
+    map.set(m[1], decodeEntities(m[2]));
+  }
+  return map;
+}
+
+/** Every product's real `category_id` (matching the filter values above) lives in
+ *  the big Livewire `wire:snapshot` JSON blob embedded on the listing page — not
+ *  in the individually rendered card markup `splitProductCards` slices. Each
+ *  product object there starts with a stable `id/uuid/slug/sku/label` prefix, so
+ *  we anchor on that and grab `category_id` a short distance later rather than
+ *  trying to fully JSON.parse Livewire's tuple-wrapped snapshot format. */
+function extractProductCategoryIds(html) {
+  const map = new Map();
+  const re =
+    /\{&quot;id&quot;:(\d+),&quot;uuid&quot;:&quot;[0-9a-f-]+&quot;,&quot;slug&quot;:&quot;[^&]*&quot;,&quot;sku&quot;:&quot;[^&]*&quot;,&quot;label&quot;:[\s\S]{0,600}?&quot;category_id&quot;:(\d+)/g;
+  let m;
+  while ((m = re.exec(html))) {
+    if (!map.has(m[1])) map.set(m[1], m[2]);
+  }
+  return map;
+}
+
 function parseProductCard(card) {
   const idMatch = /wire:key="[^"]*-(\d+)"/.exec(card.chunk);
   const mainImgMatch = /src="([^"]+\/products_600_600\/[^"]+)"/.exec(card.chunk);
@@ -185,6 +216,7 @@ async function fetchCategoryProducts(root, onProduct, shouldStop) {
   const seenOnThisRoot = new Set();
   let page = 1;
   let totalPages = 1;
+  let subcategoryFilters = null; // built once, from page 1 — stable across pagination
   do {
     if (shouldStop?.()) break;
     const url = `${BASE}${root.path}?page=${page}`;
@@ -197,12 +229,16 @@ async function fetchCategoryProducts(root, onProduct, shouldStop) {
     }
     const totalMatch = /Page \d+ of (\d+)/.exec(html);
     if (totalMatch) totalPages = Number(totalMatch[1]);
+    if (!subcategoryFilters) subcategoryFilters = parseSubcategoryFilters(html);
+    const productCategoryIds = extractProductCategoryIds(html);
 
     const cards = splitProductCards(html).map(parseProductCard).filter(Boolean);
     for (const card of cards) {
       if (seenOnThisRoot.has(card.id)) continue;
       seenOnThisRoot.add(card.id);
-      onProduct(card, root);
+      const subCategoryId = productCategoryIds.get(card.id);
+      const subCategoryName = subCategoryId ? subcategoryFilters.get(subCategoryId) : null;
+      onProduct(card, root, subCategoryId, subCategoryName);
     }
     console.log(`  [${root.name}] page ${page}/${totalPages} -> ${cards.length} cards`);
     page++;
@@ -370,21 +406,44 @@ async function main() {
 
   const categoryIdFor = (r) => (childrenByDept.get(r.dept) === 1 ? slugify(r.dept) : slugify(r.name));
 
+  // Real subcategories (Dresses, Trousers, Tops & T-Shirts, ...) discovered from each
+  // root listing's own filter sidebar — one level finer than CATEGORY_ROOTS, nested
+  // under it (e.g. "Women / Clothing" > "Dresses"). Keyed by `${baseCategoryId}::${siteSubcategoryId}`
+  // so the same subcategory id under two different roots (e.g. Women vs Men) doesn't collide.
+  const subcategories = new Map();
+
   const discovered = new Map(); // productId -> { card, categoryId }
 
   for (const root of CATEGORY_ROOTS) {
     if (discovered.size >= LIMIT) break;
+    const baseCategoryId = categoryIdFor(root);
     await fetchCategoryProducts(
       root,
-      (card, r) => {
+      (card, r, subCategoryId, subCategoryName) => {
         if (discovered.has(card.id)) return;
-        discovered.set(card.id, { card, categoryId: categoryIdFor(r), dept: r.dept });
+        let categoryId = baseCategoryId;
+        if (subCategoryId && subCategoryName) {
+          const key = `${baseCategoryId}::${subCategoryId}`;
+          if (!subcategories.has(key)) {
+            subcategories.set(key, {
+              id: slugify(`${baseCategoryId}-${subCategoryName}`),
+              name: subCategoryName,
+              slug: slugify(`${baseCategoryId}-${subCategoryName}`),
+              parentId: baseCategoryId,
+              productCount: 0,
+              mode: "wearable",
+            });
+          }
+          categoryId = subcategories.get(key).id;
+        }
+        discovered.set(card.id, { card, categoryId, dept: r.dept });
       },
       () => discovered.size >= LIMIT
     );
   }
 
   console.log(`\nDiscovered ${discovered.size} unique products across ${CATEGORY_ROOTS.length} categories.`);
+  console.log(`  ... including ${subcategories.size} real subcategories (Dresses, Trousers, etc.)`);
 
   const toProcess = [...discovered.values()].slice(0, Number.isFinite(LIMIT) ? LIMIT : undefined);
   let done = 0;
@@ -394,7 +453,7 @@ async function main() {
     if (done % 50 === 0) console.log(`  ... enriched ${done}/${toProcess.length}`);
 
     const cached = already.get(card.id);
-    if (cached) return cached.product;
+    if (cached) return { ...cached.product, categoryId };
 
     let variants = [];
     let combinations = [];
@@ -454,21 +513,31 @@ async function main() {
   });
 
   const finalProducts = products.filter(Boolean);
+  const allSubcategories = [...subcategories.values()];
 
-  for (const cat of categories) {
+  for (const cat of allSubcategories) {
     cat.productCount = finalProducts.filter((p) => p.categoryId === cat.id).length;
+  }
+  for (const cat of categories) {
+    // Roots that ended up with real subcategories underneath them hold no direct
+    // products themselves anymore — their count rolls up from their subcategories.
+    const childIds = allSubcategories.filter((s) => s.parentId === cat.id).map((s) => s.id);
+    cat.productCount = childIds.length
+      ? allSubcategories.filter((s) => s.parentId === cat.id).reduce((sum, s) => sum + s.productCount, 0)
+      : finalProducts.filter((p) => p.categoryId === cat.id).length;
   }
   for (const dept of departmentCategories) {
     dept.productCount = finalProducts.filter((p) => {
-      const cat = categories.find((c) => c.id === p.categoryId);
-      return cat?.parentId === dept.id;
+      const cat = categories.find((c) => c.id === p.categoryId) ?? allSubcategories.find((s) => s.id === p.categoryId);
+      const catDeptParentId = cat && categories.find((c) => c.id === cat.parentId);
+      return cat?.parentId === dept.id || catDeptParentId?.parentId === dept.id;
     }).length;
   }
 
   await writeFileResilient(path.join(OUT_DIR, "products.json"), JSON.stringify(finalProducts, null, 2));
   await writeFileResilient(
     path.join(OUT_DIR, "categories.json"),
-    JSON.stringify([...departmentCategories, ...categories], null, 2)
+    JSON.stringify([...departmentCategories, ...categories, ...allSubcategories], null, 2)
   );
   // Non-fatal: products.json is the authoritative output (export-woocommerce-csv.mjs
   // reads from it directly) — don't crash the whole run just because this convenience

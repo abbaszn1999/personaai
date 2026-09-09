@@ -22,6 +22,7 @@
     "acs:bootstrap": "npx tsx --env-file=.env.local scripts/acs-bootstrap.ts",
     "acs:purge": "npx tsx --env-file=.env.local scripts/acs-purge-connection.ts",
     "acs:doctor": "npx tsx --env-file=.env.local scripts/acs-doctor.ts",
+    "sizing:research": "npx tsx --env-file=.env.local scripts/sizing-research-dry-run.ts",
     "setup:stripe": "dotenv -e .env.local -- node scripts/setup-stripe-catalog.mjs",
     "generate:backdrops": "dotenv -e .env.local -- node scripts/generate-backdrop-plates.mjs"
   },

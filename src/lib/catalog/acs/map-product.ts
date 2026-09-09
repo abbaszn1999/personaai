@@ -1,5 +1,13 @@
 import type { CategoryPath } from "@/lib/retrieval/content-hash";
 import type { RawCatalogProduct } from "@/lib/catalog/sync-types";
+import {
+  CUSTOM_OPTION_ATTRIBUTE_PREFIX,
+  EMPTY_FIELD_OVERRIDES,
+  normalizeOptionGroupName,
+  resolveOptionRole,
+  sanitizeAttributeKeySegment,
+  type AcsFieldOverrides,
+} from "@/lib/catalog/option-groups";
 import { buildAcsProductId, merchantAttributeValue, MERCHANT_ID_ATTRIBUTE } from "./isolation";
 import type { AcsAvailability, AcsCustomAttribute, AcsProduct } from "./types";
 
@@ -9,33 +17,12 @@ import type { AcsAvailability, AcsCustomAttribute, AcsProduct } from "./types";
  * field, a changed flattening rule, a renamed attribute. Purely additive, backward-compatible
  * changes don't strictly need a bump, but when in doubt, bump it: the cost of an unnecessary
  * re-approval is one click, the cost of a silent mapping change nobody saw is a support ticket.
+ *
+ * 4: option-group roles became merchant-overridable, so the same product can now map differently
+ * per store. Every existing approval is invalidated by this bump, which is intended — the mapping a
+ * merchant approved under 3 was a global one they had no say in.
  */
-export const MAPPER_VERSION = 3;
-
-const COLOR_OPTION_NAMES = new Set(["color", "colour"]);
-const SIZE_OPTION_NAMES = new Set(["size"]);
-const MATERIAL_OPTION_NAMES = new Set(["material", "materials", "fabric"]);
-const PATTERN_OPTION_NAMES = new Set(["pattern", "patterns", "print"]);
-const GENDER_OPTION_NAMES = new Set(["gender", "genders", "sex"]);
-const AGE_GROUP_OPTION_NAMES = new Set(["age group", "agegroup", "age_group", "age"]);
-
-/** Prefix for the catch-all custom attributes any *other* variant option group (fit, style, ...)
- *  falls into — namespaced so a store's own option name can never collide with this app's
- *  internal bookkeeping attributes (`merchant_id`, `source_category_ids`, ...), and so
- *  `attributes-config.ts`'s dynamic registration can recognize which keys it owns. */
-const CUSTOM_OPTION_ATTRIBUTE_PREFIX = "opt_";
-
-/** ACS custom-attribute keys may only contain alphanumerics and underscores. Merchant option
- *  names are free text (spacing, punctuation, mixed case), so this collapses anything else to `_`
- *  — lossy, but stable and collision-resistant enough for the option names real storefronts use. */
-export function sanitizeAttributeKeySegment(name: string): string {
-  return name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_]+/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^_|_$/g, "");
-}
+export const MAPPER_VERSION = 4;
 
 export interface MapProductInput {
   raw: RawCatalogProduct;
@@ -54,6 +41,9 @@ export interface MapProductInput {
    *  — real stock and scope would be indistinguishable to a query that doesn't ask for
    *  `inStockOnly`. */
   sourceCategoryIds: string[];
+  /** The merchant's option-group reassignments, from `store_connections.acs_field_overrides`.
+   *  Omitted means "no overrides", which reproduces the built-in global name match exactly. */
+  fieldOverrides?: AcsFieldOverrides;
 }
 
 /**
@@ -90,6 +80,9 @@ export interface VariantAttributes {
   patterns: string[];
   genders: string[];
   ageGroups: string[];
+  /** Values from any group the merchant explicitly reassigned to `brand`. Never populated by the
+   *  built-in match — brand normally arrives on `RawCatalogProduct.brand`. */
+  brands: string[];
   /** Every other option group (fit, style, ...), keyed by its sanitized name — the catch-all this
    *  app has no dedicated ACS field for. One entry per distinct option name, values deduped by
    *  insertion order same as the named buckets. */
@@ -101,38 +94,66 @@ export interface VariantAttributes {
  * (`colorInfo`/`sizes`/`materials`/`patterns`/`genders`/`ageGroups`), matched case-insensitively
  * since merchants and platforms don't agree on capitalization or spacing. Anything left over
  * (fit, style, ...) has no ACS-predefined equivalent, so it falls into `customOptions` instead of
- * being silently dropped — the mapper's previous behavior, and a real gap in how much of a
- * merchant's own catalog data ever reached ACS's ranking/embedding signal.
+ * being silently dropped — a real gap in how much of a merchant's own catalog data ever reached
+ * ACS's ranking/embedding signal.
+ *
+ * Routing goes through `resolveOptionRole`, so a merchant who told Stage 1 that their "Talla" group
+ * means `size` gets it in `product.sizes` rather than `attributes.opt_talla`. That matters well
+ * beyond tidiness: the size-intelligence pipeline reads `sizes`, so a store whose size group has a
+ * name the built-in match doesn't know would otherwise produce no size data at all.
+ *
+ * Exported because the sizing scan (`lib/sizing/scan.ts`) has to read a product's sizes and
+ * audience through exactly the same routing the index will use. Deriving them any other way is how
+ * a store gets a chart researched against sizes that never reach ACS.
  */
-function extractVariantAttributes(raw: RawCatalogProduct): VariantAttributes {
+export function extractVariantAttributes(raw: RawCatalogProduct, overrides: AcsFieldOverrides): VariantAttributes {
   const colors: string[] = [];
   const sizes: string[] = [];
   const materials: string[] = [];
   const patterns: string[] = [];
   const genders: string[] = [];
   const ageGroups: string[] = [];
+  const brands: string[] = [];
   const customOptions = new Map<string, string[]>();
 
   for (const [optionName, values] of Object.entries(raw.variantOptions)) {
-    const normalized = optionName.trim().toLowerCase();
     const labels = values.map((v) => v.label);
     if (labels.length === 0) continue;
 
-    if (COLOR_OPTION_NAMES.has(normalized)) colors.push(...labels);
-    else if (SIZE_OPTION_NAMES.has(normalized)) sizes.push(...labels);
-    else if (MATERIAL_OPTION_NAMES.has(normalized)) materials.push(...labels);
-    else if (PATTERN_OPTION_NAMES.has(normalized)) patterns.push(...labels);
-    else if (GENDER_OPTION_NAMES.has(normalized)) genders.push(...labels);
-    else if (AGE_GROUP_OPTION_NAMES.has(normalized)) ageGroups.push(...labels);
-    else {
-      const key = sanitizeAttributeKeySegment(optionName);
-      if (!key) continue;
-      const existing = customOptions.get(key) ?? [];
-      customOptions.set(key, [...existing, ...labels]);
+    switch (resolveOptionRole(normalizeOptionGroupName(optionName), overrides.optionRoles)) {
+      case "color":
+        colors.push(...labels);
+        break;
+      case "size":
+        sizes.push(...labels);
+        break;
+      case "material":
+        materials.push(...labels);
+        break;
+      case "pattern":
+        patterns.push(...labels);
+        break;
+      case "gender":
+        genders.push(...labels);
+        break;
+      case "age_group":
+        ageGroups.push(...labels);
+        break;
+      case "brand":
+        brands.push(...labels);
+        break;
+      case "ignore":
+        break;
+      case "custom": {
+        const key = sanitizeAttributeKeySegment(optionName);
+        if (!key) break;
+        customOptions.set(key, [...(customOptions.get(key) ?? []), ...labels]);
+        break;
+      }
     }
   }
 
-  return { colors, sizes, materials, patterns, genders, ageGroups, customOptions };
+  return { colors, sizes, materials, patterns, genders, ageGroups, brands, customOptions };
 }
 
 /**
@@ -164,7 +185,10 @@ function textListAttribute(values: string[], opts: { searchable: boolean; indexa
  */
 export function rawCatalogProductToAcsProduct(input: MapProductInput): AcsProduct {
   const { raw, connectionId, categoryPaths, garmentCategory, garmentSubcategory, sourceCategoryIds } = input;
-  const { colors, sizes, materials, patterns, genders, ageGroups, customOptions } = extractVariantAttributes(raw);
+  const { colors, sizes, materials, patterns, genders, ageGroups, brands, customOptions } = extractVariantAttributes(
+    raw,
+    input.fieldOverrides ?? EMPTY_FIELD_OVERRIDES
+  );
 
   const attributes: Record<string, AcsCustomAttribute> = {
     [MERCHANT_ID_ATTRIBUTE]: textAttribute(merchantAttributeValue(connectionId), {
@@ -213,7 +237,11 @@ export function rawCatalogProductToAcsProduct(input: MapProductInput): AcsProduc
   };
 
   if (raw.description) product.description = raw.description;
-  if (raw.brand) product.brands = [raw.brand];
+  // An explicit `brand` role wins over `raw.brand`: reassigning a group to brand is deliberate
+  // merchant intent, usually because the platform's own brand/vendor field is empty or wrong, so
+  // letting the field they were correcting override them would defeat the point.
+  if (brands.length > 0) product.brands = brands;
+  else if (raw.brand) product.brands = [raw.brand];
   if (raw.price !== null && raw.currency) {
     product.priceInfo = { price: raw.price, currencyCode: raw.currency };
   }
@@ -233,4 +261,6 @@ export function rawCatalogProductToAcsProduct(input: MapProductInput): AcsProduc
   return product;
 }
 
-export { CUSTOM_OPTION_ATTRIBUTE_PREFIX };
+// Re-exported so existing importers (attributes-config.ts) keep one import site, even though both
+// now live in `@/lib/catalog/option-groups`.
+export { CUSTOM_OPTION_ATTRIBUTE_PREFIX, sanitizeAttributeKeySegment };

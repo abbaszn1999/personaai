@@ -13,9 +13,17 @@ export type IndexOutcome = "indexed" | "failed";
 /** Adds the two decisions a webhook can reach that a direct index call cannot. */
 export type WebhookIndexOutcome = IndexOutcome | "out-of-scope" | "removed";
 
-/** What a connection needs to resolve a product's category paths — just enough to be usable
- *  from a test fixture without pulling in the whole `StoreConnectionRow`. */
-export type CategoryLookup = Pick<StoreConnectionRow, "selectedCategoryIds" | "categories">;
+/** What a connection needs to resolve a product's category paths and route its option groups —
+ *  just enough to be usable from a test fixture without pulling in the whole `StoreConnectionRow`.
+ *
+ *  `acsFieldOverrides` is required rather than optional on purpose: it is the one field a caller can
+ *  omit without anything failing, and the consequence of omitting it is silent — the merchant's
+ *  Stage 1 reassignment would be correct in the preview and absent from the index. Making the type
+ *  demand it means the compiler catches a new call site that forgets. */
+export type CategoryLookup = Pick<
+  StoreConnectionRow,
+  "selectedCategoryIds" | "categories" | "acsFieldOverrides"
+>;
 
 /**
  * Resolves every selected category a product belongs to, using the merchant's own names, in
@@ -26,9 +34,9 @@ export type CategoryLookup = Pick<StoreConnectionRow, "selectedCategoryIds" | "c
  * rather than picking a single winner, so a shopper reaches it however they ask. Categories the
  * merchant hasn't selected are ignored entirely, same as the rest of the indexing pipeline.
  *
- * The merchant only ever selects top-level categories (see `topLevelCategories`) — choosing a
- * parent is what pulls in everything beneath it. But a product is tagged with the *specific*
- * term it sits on, which is commonly a child or grandchild of what was selected ("Men" selected;
+ * The merchant selects at any level, and choosing a branch pulls in everything beneath it. But a
+ * product is tagged with the *specific* term it sits on, which is commonly a child or grandchild
+ * of what was selected ("Men" selected;
  * a shirt is tagged "Men > Clothing > Shirts" and reports only "Shirts"). So this walks up from
  * each of the product's own tags, collecting every name along the way, until it reaches whichever
  * selected category owns it — rather than only matching a product tagged with the selected id
@@ -122,6 +130,7 @@ export async function indexSingleProduct(
       garmentCategory,
       garmentSubcategory,
       sourceCategoryIds,
+      fieldOverrides: connection.acsFieldOverrides,
     });
 
     return written ? "indexed" : "failed";

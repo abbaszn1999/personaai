@@ -1,3 +1,9 @@
+import {
+  customAttributeKeyFor,
+  normalizeOptionGroupName,
+  resolveOptionRole,
+  type VariantRole,
+} from "@/lib/catalog/option-groups";
 import type { MappingPreviewSample } from "./types";
 
 /**
@@ -6,10 +12,16 @@ import type { MappingPreviewSample } from "./types";
  * them. Kept as data rather than JSX so `buildFieldRows` — and therefore the whole mapping — stays
  * unit-testable without a DOM.
  *
+ * Option-group routing goes through the shared `resolveOptionRole`, the same function the indexer
+ * calls, so this table shows a merchant's override rather than the built-in default. It used to
+ * carry its own copies of the option-name sets, which was fine only while nothing was overridable:
+ * a merchant reassigning "Talla" to `size` would have seen `Size → —` here while the indexer wrote
+ * their sizes correctly.
+ *
  * `raw`/`mapped` come across the wire as `Record<string, unknown>` (see `MappingPreviewSample`),
- * not the real `RawCatalogProduct`/`AcsProduct` types — this is a read-only display shape for a
- * modal, not something this module constructs or validates, so every extractor treats its input
- * as untrusted and returns `undefined` rather than throwing on a missing/malformed field.
+ * not the real `RawCatalogProduct`/`AcsProduct` types — this is a read-only display shape, so every
+ * extractor treats its input as untrusted and returns `undefined` rather than throwing on a
+ * missing/malformed field.
  */
 
 export interface MappingFieldRow {
@@ -25,10 +37,8 @@ export interface MappingFieldRow {
    *  customer-facing store field — so the UI can flag them rather than implying the merchant's
    *  store has a "merchant_id" column. */
   internal: boolean;
-  /** True for a store field the mapper reads but never sends anywhere — shown so the merchant
-   *  sees the whole real picture, gaps included, not just what looks good. Nothing hits this today
-   *  (`sku` used to, before it became a real custom attribute), but the mechanism stays for the
-   *  next field that turns out to be a genuine gap. */
+  /** True for a store field that reaches nothing. Populated when a merchant sets an option group
+   *  to `ignore`, so their choice is visible as a row rather than the group vanishing. */
   notSent: boolean;
 }
 
@@ -53,100 +63,73 @@ function display(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value.join(", ") : value;
 }
 
-/** Pulls every option-group value (case-insensitively) matching any of `names` out of
- *  `variantOptions`, the same rule `extractColorAndSize` in `map-product.ts` uses. */
-function variantOptionValues(raw: Record<string, unknown>, names: Set<string>): string[] | undefined {
-  const groups = record(raw.variantOptions);
-  const values: string[] = [];
-  for (const [optionName, entries] of Object.entries(groups)) {
-    if (!names.has(optionName.trim().toLowerCase()) || !Array.isArray(entries)) continue;
-    for (const entry of entries) {
-      const label = record(entry).label;
-      if (typeof label === "string") values.push(label);
-    }
-  }
-  return values.length > 0 ? values : undefined;
-}
-
-const COLOR_OPTION_NAMES = new Set(["color", "colour"]);
-const SIZE_OPTION_NAMES = new Set(["size"]);
-const MATERIAL_OPTION_NAMES = new Set(["material", "materials", "fabric"]);
-const PATTERN_OPTION_NAMES = new Set(["pattern", "patterns", "print"]);
-const GENDER_OPTION_NAMES = new Set(["gender", "genders", "sex"]);
-const AGE_GROUP_OPTION_NAMES = new Set(["age group", "agegroup", "age_group", "age"]);
-
-/** Every option name `map-product.ts` routes into a predefined ACS field rather than the
- *  `opt_<name>` catch-all — kept in sync with that module's own name sets so a "Material" option
- *  group shows up under the dedicated Material row here, not duplicated as a leftover row too. */
-const KNOWN_OPTION_NAMES = new Set([
-  ...COLOR_OPTION_NAMES,
-  ...SIZE_OPTION_NAMES,
-  ...MATERIAL_OPTION_NAMES,
-  ...PATTERN_OPTION_NAMES,
-  ...GENDER_OPTION_NAMES,
-  ...AGE_GROUP_OPTION_NAMES,
-]);
-
-/** Mirrors `sanitizeAttributeKeySegment` in `map-product.ts` — duplicated rather than imported
- *  since that module pulls in server-only isolation/id-building helpers this purely-display
- *  module (rendered client-side in the mapping preview modal) has no business depending on. */
-function sanitizeAttributeKeySegment(name: string): string {
-  return name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_]+/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^_|_$/g, "");
-}
-
 function attributeText(mapped: Record<string, unknown>, key: string): string[] | undefined {
   const attribute = record(record(mapped.attributes)[key]);
   return strList(attribute.text);
 }
 
-/** One row per `variantOptions` group the mapper had no dedicated field for (fit, style, ...) —
- *  the same `opt_<name>` catch-all `map-product.ts` sends to a generic custom attribute. Rows are
- *  only emitted for groups actually present on this sample, unlike the static rows above: unlike
- *  Color/Size/Material/etc., there is no fixed universe of these to always show a "—" row for. */
-function otherVariantOptionRows(raw: Record<string, unknown>, mapped: Record<string, unknown>): MappingFieldRow[] {
-  const groups = record(raw.variantOptions);
-  const rows: MappingFieldRow[] = [];
+/** One option group's contribution: the labels it holds and the store's name for it, so a row can
+ *  say `variantOptions["Talla"]` rather than naming the ACS field the merchant pointed it at. */
+interface GroupContribution {
+  name: string;
+  labels: string[];
+}
 
-  for (const [optionName, entries] of Object.entries(groups)) {
-    const normalized = optionName.trim().toLowerCase();
-    if (KNOWN_OPTION_NAMES.has(normalized) || !Array.isArray(entries)) continue;
+/** Every `variantOptions` group bucketed by where the merchant's mapping actually sends it. */
+interface GroupedOptions {
+  byRole: Map<VariantRole, GroupContribution[]>;
+  /** Groups with no predefined ACS field, headed for the `opt_<name>` catch-all. */
+  custom: GroupContribution[];
+}
 
-    const values = entries
+function groupOptions(raw: Record<string, unknown>, optionRoles: Record<string, VariantRole>): GroupedOptions {
+  const byRole = new Map<VariantRole, GroupContribution[]>();
+  const custom: GroupContribution[] = [];
+
+  for (const [optionName, entries] of Object.entries(record(raw.variantOptions))) {
+    if (!Array.isArray(entries)) continue;
+    const labels = entries
       .map((entry) => record(entry).label)
       .filter((label): label is string => typeof label === "string");
-    if (values.length === 0) continue;
+    if (labels.length === 0) continue;
 
-    const key = sanitizeAttributeKeySegment(optionName);
-    if (!key) continue;
-    const acsKey = `opt_${key}`;
-
-    rows.push({
-      label: optionName,
-      storePath: `variantOptions["${optionName}"]`,
-      storeValue: display(values),
-      acsPath: `attributes.${acsKey}`,
-      acsValue: display(attributeText(mapped, acsKey)),
-      internal: false,
-      notSent: false,
-    });
+    const role = resolveOptionRole(normalizeOptionGroupName(optionName), optionRoles);
+    if (role === "custom") {
+      custom.push({ name: optionName, labels });
+      continue;
+    }
+    byRole.set(role, [...(byRole.get(role) ?? []), { name: optionName, labels }]);
   }
 
-  return rows;
+  return { byRole, custom };
+}
+
+function contributionsFor(grouped: GroupedOptions, role: VariantRole): GroupContribution[] {
+  return grouped.byRole.get(role) ?? [];
+}
+
+function valuesFor(grouped: GroupedOptions, role: VariantRole): string[] | undefined {
+  const labels = contributionsFor(grouped, role).flatMap((group) => group.labels);
+  return labels.length > 0 ? labels : undefined;
+}
+
+/** `variantOptions["Colour"]`, or a list when more than one group feeds the same role. Falls back
+ *  to a role-shaped placeholder so a row with no matching group still explains what would fill it. */
+function pathFor(grouped: GroupedOptions, role: VariantRole, fallback: string): string {
+  const names = contributionsFor(grouped, role).map((group) => `variantOptions["${group.name}"]`);
+  return names.length > 0 ? names.join(", ") : fallback;
 }
 
 interface FieldDefinition {
   label: string;
   storePath: string | null;
-  storeValue: (raw: Record<string, unknown>) => string | string[] | undefined;
+  storeValue: (raw: Record<string, unknown>, grouped: GroupedOptions) => string | string[] | undefined;
   acsPath: string;
   acsValue: (mapped: Record<string, unknown>) => string | string[] | undefined;
   internal?: boolean;
-  notSent?: boolean;
+  /** Set for rows fed by a `variantOptions` group, so `storePath` names the merchant's own group
+   *  instead of a guess at what it might be called. */
+  role?: VariantRole;
 }
 
 const FIELD_DEFINITIONS: FieldDefinition[] = [
@@ -167,9 +150,12 @@ const FIELD_DEFINITIONS: FieldDefinition[] = [
   {
     label: "Brand",
     storePath: "brand",
-    storeValue: (raw) => str(raw.brand),
+    // An option group explicitly reassigned to `brand` wins over the platform's own brand field,
+    // matching the mapper's precedence.
+    storeValue: (raw, grouped) => valuesFor(grouped, "brand") ?? str(raw.brand),
     acsPath: "brands[0]",
     acsValue: (mapped) => strList(mapped.brands)?.[0],
+    role: "brand",
   },
   {
     label: "Price",
@@ -229,45 +215,51 @@ const FIELD_DEFINITIONS: FieldDefinition[] = [
   },
   {
     label: "Color",
-    storePath: 'variantOptions["Color"/"Colour"]',
-    storeValue: (raw) => variantOptionValues(raw, COLOR_OPTION_NAMES),
+    storePath: null,
+    storeValue: (_raw, grouped) => valuesFor(grouped, "color"),
     acsPath: "colorInfo.colors",
     acsValue: (mapped) => strList(record(mapped.colorInfo).colors),
+    role: "color",
   },
   {
     label: "Size",
-    storePath: 'variantOptions["Size"]',
-    storeValue: (raw) => variantOptionValues(raw, SIZE_OPTION_NAMES),
+    storePath: null,
+    storeValue: (_raw, grouped) => valuesFor(grouped, "size"),
     acsPath: "sizes",
     acsValue: (mapped) => strList(mapped.sizes),
+    role: "size",
   },
   {
     label: "Material",
-    storePath: 'variantOptions["Material"/"Fabric"]',
-    storeValue: (raw) => variantOptionValues(raw, MATERIAL_OPTION_NAMES),
+    storePath: null,
+    storeValue: (_raw, grouped) => valuesFor(grouped, "material"),
     acsPath: "materials",
     acsValue: (mapped) => strList(mapped.materials),
+    role: "material",
   },
   {
     label: "Pattern",
-    storePath: 'variantOptions["Pattern"/"Print"]',
-    storeValue: (raw) => variantOptionValues(raw, PATTERN_OPTION_NAMES),
+    storePath: null,
+    storeValue: (_raw, grouped) => valuesFor(grouped, "pattern"),
     acsPath: "patterns",
     acsValue: (mapped) => strList(mapped.patterns),
+    role: "pattern",
   },
   {
     label: "Gender",
-    storePath: 'variantOptions["Gender"]',
-    storeValue: (raw) => variantOptionValues(raw, GENDER_OPTION_NAMES),
+    storePath: null,
+    storeValue: (_raw, grouped) => valuesFor(grouped, "gender"),
     acsPath: "genders",
     acsValue: (mapped) => strList(mapped.genders),
+    role: "gender",
   },
   {
     label: "Age group",
-    storePath: 'variantOptions["Age group"]',
-    storeValue: (raw) => variantOptionValues(raw, AGE_GROUP_OPTION_NAMES),
+    storePath: null,
+    storeValue: (_raw, grouped) => valuesFor(grouped, "age_group"),
     acsPath: "ageGroups",
     acsValue: (mapped) => strList(mapped.ageGroups),
+    role: "age_group",
   },
   {
     label: "Variant group",
@@ -312,23 +304,83 @@ const FIELD_DEFINITIONS: FieldDefinition[] = [
   },
 ];
 
-/** Builds one field-mapping table's worth of rows for a single sample product — the table the
- *  merchant reviews before approving indexing. Every row always renders, even when a field is
- *  empty for this particular sample ("—" rather than a skipped row), so switching between the 5
- *  sampled products never changes which rows are present. */
-export function buildFieldRows(sample: MappingPreviewSample): MappingFieldRow[] {
+/** Default `storePath` text for a role-fed row with no contributing group, so the cell explains
+ *  what the row is waiting for rather than showing a bare dash. */
+const ROLE_PLACEHOLDER: Record<VariantRole, string> = {
+  color: 'variantOptions["Color"]',
+  size: 'variantOptions["Size"]',
+  material: 'variantOptions["Material"]',
+  pattern: 'variantOptions["Pattern"]',
+  gender: 'variantOptions["Gender"]',
+  age_group: 'variantOptions["Age group"]',
+  brand: "brand",
+  ignore: "—",
+};
+
+/** One row per group the merchant set to `ignore`, so the choice is visible rather than the group
+ *  silently disappearing from the table. */
+function ignoredRows(grouped: GroupedOptions): MappingFieldRow[] {
+  return contributionsFor(grouped, "ignore").map((group) => ({
+    label: group.name,
+    storePath: `variantOptions["${group.name}"]`,
+    storeValue: display(group.labels),
+    acsPath: "—",
+    acsValue: "Not sent to search",
+    internal: false,
+    notSent: true,
+  }));
+}
+
+/** One row per group with no predefined ACS field — the `opt_<name>` catch-all. Emitted only for
+ *  groups actually present on this sample, unlike the static rows above: there is no fixed universe
+ *  of these to always show a "—" row for. */
+function customOptionRows(grouped: GroupedOptions, mapped: Record<string, unknown>): MappingFieldRow[] {
+  const rows: MappingFieldRow[] = [];
+
+  for (const group of grouped.custom) {
+    const acsKey = customAttributeKeyFor(group.name);
+    if (!acsKey) continue;
+
+    rows.push({
+      label: group.name,
+      storePath: `variantOptions["${group.name}"]`,
+      storeValue: display(group.labels),
+      acsPath: `attributes.${acsKey}`,
+      acsValue: display(attributeText(mapped, acsKey)),
+      internal: false,
+      notSent: false,
+    });
+  }
+
+  return rows;
+}
+
+/**
+ * Builds one field-mapping table's worth of rows for a single sample product — the table the
+ * merchant reviews before approving indexing. Every static row always renders, even when a field is
+ * empty for this particular sample ("—" rather than a skipped row), so switching between the
+ * sampled products never changes which rows are present.
+ *
+ * `optionRoles` is the merchant's saved override set; passing `{}` reproduces the mapper's built-in
+ * name matching.
+ */
+export function buildFieldRows(
+  sample: MappingPreviewSample,
+  optionRoles: Record<string, VariantRole> = {}
+): MappingFieldRow[] {
   const raw = record(sample.raw);
   const mapped = record(sample.mapped);
+  const grouped = groupOptions(raw, optionRoles);
 
-  const staticRows = FIELD_DEFINITIONS.map((def) => ({
+  const staticRows: MappingFieldRow[] = FIELD_DEFINITIONS.map((def) => ({
     label: def.label,
-    storePath: def.storePath,
-    storeValue: display(def.storeValue(raw)),
+    storePath: def.role ? pathFor(grouped, def.role, ROLE_PLACEHOLDER[def.role]) : def.storePath,
+    storeValue: display(def.storeValue(raw, grouped)),
     acsPath: def.acsPath,
-    acsValue: def.notSent ? "Not sent to search" : display(def.acsValue(mapped)),
+    acsValue: display(def.acsValue(mapped)),
     internal: def.internal ?? false,
-    notSent: def.notSent ?? false,
+    notSent: false,
   }));
 
-  return [...staticRows, ...otherVariantOptionRows(raw, mapped)];
+  return [...staticRows, ...customOptionRows(grouped, mapped), ...ignoredRows(grouped)];
 }

@@ -6,6 +6,8 @@ import {
   type QueuedMessage,
 } from "@/lib/db/catalog-queue";
 import { fetchExistingAcsSourceCategoryIds, syncProductsToAcs } from "@/lib/catalog/acs/sync";
+import { deleteProduct } from "@/lib/catalog/acs/client";
+import { buildAcsProductId } from "@/lib/catalog/acs/isolation";
 import type { MapProductInput } from "@/lib/catalog/acs/map-product";
 import {
   getStoreConnectionById,
@@ -210,8 +212,8 @@ async function processConnectionBatch(connectionId: string, batch: QueuedMessage
   // catalog rows away, but the queue is shared across merchants and keeps whatever was already
   // enqueued for it. Checking first is what keeps that cheap.
   const connection = await getStoreConnectionById(connectionId);
-  if (!connection) {
-    console.warn(`[catalog process-queue] dropping ${batch.length} message(s) for removed connection ${connectionId}`);
+  if (!connection || connection.status !== "connected") {
+    console.warn(`[catalog process-queue] dropping ${batch.length} message(s) for inactive connection ${connectionId}`);
     return batch.map(() => "orphaned");
   }
 
@@ -241,6 +243,9 @@ async function processConnectionBatch(connectionId: string, batch: QueuedMessage
       garmentCategory,
       garmentSubcategory,
       sourceCategoryIds: mergedSourceCategoryIds,
+      // The backfill is the path that actually populates the index, so omitting this would make a
+      // merchant's Stage 1 reassignment purely cosmetic — correct in the preview, absent from search.
+      fieldOverrides: connection.acsFieldOverrides,
     };
 
     return { message, input };
@@ -253,7 +258,27 @@ async function processConnectionBatch(connectionId: string, batch: QueuedMessage
     console.warn(`[catalog process-queue] deferring ${skipped} product(s) for ${connectionId}: category read failed`);
   }
 
+  // Disconnect marks the row inactive before sweeping ACS. Re-check after preparation so a
+  // batch claimed just before that transition cannot recreate products after the sweep.
+  const current = await getStoreConnectionById(connectionId);
+  if (!current || current.status !== "connected") {
+    console.warn(`[catalog process-queue] dropping ${batch.length} prepared message(s) for inactive connection ${connectionId}`);
+    return batch.map(() => "orphaned");
+  }
+
   const written = await syncProductsToAcs(importable.map((entry) => entry.input));
+
+  // A disconnect can land in the narrow interval between the pre-import check and the write.
+  // In that case this worker owns the race and removes exactly the products it just recreated.
+  const afterWrite = await getStoreConnectionById(connectionId);
+  if (!afterWrite || afterWrite.status !== "connected") {
+    if (written) {
+      await Promise.all(
+        importable.map((entry) => deleteProduct(buildAcsProductId(connectionId, entry.input.raw.externalId)))
+      );
+    }
+    return batch.map(() => "orphaned");
+  }
 
   const outcomes: ItemOutcome[] = prepared.map((entry) =>
     entry.input !== null && written ? "indexed" : "failed"
