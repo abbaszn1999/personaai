@@ -64,10 +64,11 @@ APP_URL=https://your-app.onrender.com   # → update once Render assigns your UR
 # Secrets encryption
 OPENAI_KEY_ENCRYPTION_SECRET=...   # same as local
 
-# AI agents
+# Avatar + try-on rendering (Pruna)
+PRUNA_API_KEY=...               # same as local — required for avatars and try-on renders
+
+# AI agents (catalog enrichment, embeddings, chat)
 GEMINI_API_KEY=...              # same as local
-GEMINI_IMAGE_MODEL=...          # same as local
-GEMINI_IMAGE_SIZE=...           # same as local
 OPENAI_CHAT_MODEL=...           # same as local
 DECART_API_KEY=...              # same as local
 CATALOG_SEARCH_POOL_SIZE=100    # same as local

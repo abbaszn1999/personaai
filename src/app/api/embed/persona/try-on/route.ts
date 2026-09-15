@@ -3,7 +3,7 @@ import { getUserById } from "@/lib/db/users";
 import { consumeImageGeneration } from "@/lib/db/image-generations";
 import { canGenerateImage, getAccountBillingContext } from "@/lib/billing/account";
 import { generateTryOnImage, PersonaAgentError } from "@/lib/agents/persona-agent";
-import { GeminiApiError } from "@/lib/ai/gemini";
+import { PrunaApiError } from "@/lib/ai/pruna";
 import { resolveEmbedRequest } from "@/lib/embed/resolve";
 import { embedJson, embedOptions } from "@/lib/embed/cors";
 
@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
     if (err instanceof PersonaAgentError) {
       return embedJson({ error: err.message }, { status: 400 });
     }
-    if (err instanceof GeminiApiError) {
+    if (err instanceof PrunaApiError) {
       return embedJson({ error: err.message }, { status: 502 });
     }
     return embedJson({ error: "Internal server error" }, { status: 500 });
