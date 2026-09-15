@@ -2,6 +2,7 @@ import * as React from "react";
 import { createRoot } from "react-dom/client";
 import { EmbedApp } from "./embed-app";
 import { setWearableAssetOrigin } from "@/modules/wearable-agent/constants";
+import { setWidgetOrigin } from "./widget-origin";
 // Bundled at build time (see scripts/build-widget.mjs) as raw CSS text so the whole widget
 // ships as one <script> file with zero extra network round-trips or FOUC while a separate
 // stylesheet loads.
@@ -41,6 +42,9 @@ function boot() {
 
   const origin = scriptUrl.origin;
   setWearableAssetOrigin(origin);
+  // Lets the on-demand chunks (currently widget-live.js) build an absolute URL back to us
+  // rather than to the merchant's origin — see widget/src/decart-runtime-shim.ts.
+  setWidgetOrigin(origin);
   const targetSelector = scriptEl.getAttribute("data-target");
   const targetEl = targetSelector ? document.querySelector(targetSelector) : null;
 

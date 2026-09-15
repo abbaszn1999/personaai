@@ -1,12 +1,8 @@
 "use client";
 
 import * as React from "react";
-import {
-  createDecartClient,
-  models,
-  type DecartSDKError,
-  type RealTimeClient,
-} from "@decartai/sdk";
+import type { DecartSDKError, RealTimeClient } from "@decartai/sdk";
+import { loadDecartRuntime } from "./decart-runtime";
 import type { Product } from "@/modules/shopping-agent/types";
 import type { EmbedRuntimeConfig } from "./use-try-on-agent";
 import { getOrCreateEmbedSessionId } from "@/lib/embed/client/embed-storage";
@@ -248,6 +244,13 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
           throw new Error("Live camera access is not supported in this browser.");
         }
 
+        // Kicked off before the token request rather than awaited after it: the two are
+        // independent, so the SDK download overlaps the round trip instead of extending it.
+        const runtimePromise = loadDecartRuntime();
+        // Without a handler attached up front, a token request that rejects first would leave
+        // this one an unhandled rejection in the shopper's console. `await` below still throws.
+        void runtimePromise.catch(() => {});
+
         const tokenUrl = embedApiBase
           ? `${embedApiBase}/persona/live-token`
           : "/api/agents/persona/live-token";
@@ -260,6 +263,8 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
         if (!tokenResponse.ok || !tokenData.apiKey) {
           throw new Error(tokenData.error || "Live try-on isn't available right now.");
         }
+
+        const { createDecartClient, models } = await runtimePromise;
 
         const model = models.realtime("lucy-vton-3");
         const cameraStream = await navigator.mediaDevices.getUserMedia({
