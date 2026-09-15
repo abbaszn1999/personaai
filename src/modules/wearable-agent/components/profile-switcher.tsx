@@ -1,0 +1,211 @@
+"use client";
+
+import * as React from "react";
+import { Check, Pencil, Plus, User, X } from "lucide-react";
+import { cn } from "@/lib/utils/cn";
+import { useWearableTheme } from "../theme-context";
+
+interface ProfileMeta {
+  id: string;
+  label: string;
+}
+
+/** This control floats over two very different surfaces — the onboarding card and the avatar
+ *  panel — so it can't inherit a background. The dark set is the original glass treatment
+ *  (correct over a photo-backed avatar panel and a dark embed); the light set exists because
+ *  white-on-translucent-black is unreadable once a merchant picks the light theme. */
+const SWITCHER_STYLES = {
+  dark: {
+    pill: "border-white/15 bg-black/55 text-white/85 hover:bg-black/70 hover:text-white shadow-[0_4px_16px_rgba(0,0,0,0.35)]",
+    panel: "border-white/[0.1] bg-[rgba(12,10,18,0.97)] shadow-[0_16px_48px_rgba(0,0,0,0.6)]",
+    panelLabel: "text-white/35",
+    row: "hover:bg-white/[0.06]",
+    rowActive: "bg-white/[0.1]",
+    rowText: "text-white/85",
+    renameInput: "bg-white/10 text-white",
+    iconButton: "text-white/35 hover:bg-white/[0.08] hover:text-white/80",
+    removeButton: "text-white/35 hover:bg-white/[0.08] hover:text-red-400",
+    addButton: "border-white/[0.1] text-white/70 hover:bg-white/[0.06] hover:text-white",
+  },
+  light: {
+    pill: "border-black/10 bg-white/90 text-[var(--color-text-secondary)] hover:bg-white hover:text-[var(--color-text-primary)] shadow-[0_4px_16px_rgba(0,0,0,0.12)]",
+    panel: "border-black/10 bg-[rgba(255,255,255,0.98)] shadow-[0_16px_48px_rgba(0,0,0,0.18)]",
+    panelLabel: "text-[var(--color-text-muted)]",
+    row: "hover:bg-black/[0.04]",
+    rowActive: "bg-black/[0.06]",
+    rowText: "text-[var(--color-text-primary)]",
+    renameInput: "bg-black/[0.06] text-[var(--color-text-primary)]",
+    iconButton: "text-[var(--color-text-muted)] hover:bg-black/[0.06] hover:text-[var(--color-text-primary)]",
+    removeButton: "text-[var(--color-text-muted)] hover:bg-black/[0.06] hover:text-[var(--color-error)]",
+    addButton:
+      "border-black/10 text-[var(--color-text-secondary)] hover:bg-black/[0.04] hover:text-[var(--color-text-primary)]",
+  },
+} as const;
+
+interface ProfileSwitcherProps {
+  profiles: ProfileMeta[];
+  activeProfileId: string;
+  maxProfiles: number;
+  onSwitch: (id: string) => void;
+  onAdd: () => void;
+  onRemove: (id: string) => void;
+  onRename: (id: string, label: string) => void;
+}
+
+/** Floating pill + popover for switching between up to `maxProfiles` local, login-free
+ *  profiles (e.g. a parent shopping for themselves and their kids on one shared device).
+ *  Deliberately self-contained and absolutely positioned so it can overlay the existing
+ *  onboarding/chat surfaces without touching their internals. */
+export function ProfileSwitcher({
+  profiles,
+  activeProfileId,
+  maxProfiles,
+  onSwitch,
+  onAdd,
+  onRemove,
+  onRename,
+}: ProfileSwitcherProps) {
+  const [open, setOpen] = React.useState(false);
+  const [editingId, setEditingId] = React.useState<string | null>(null);
+  const [draftLabel, setDraftLabel] = React.useState("");
+  const rootRef = React.useRef<HTMLDivElement>(null);
+  const styles = SWITCHER_STYLES[useWearableTheme()];
+
+  React.useEffect(() => {
+    if (!open) return;
+    function onPointerDown(e: PointerEvent) {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setEditingId(null);
+      }
+    }
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => window.removeEventListener("pointerdown", onPointerDown);
+  }, [open]);
+
+  // Only worth showing once there's actually a choice to make or room to add one — a lone
+  // profile with no room to grow would just be a confusing button that does nothing useful.
+  if (profiles.length <= 1 && profiles.length >= maxProfiles) return null;
+
+  const active = profiles.find((p) => p.id === activeProfileId);
+
+  function commitRename(id: string) {
+    onRename(id, draftLabel);
+    setEditingId(null);
+  }
+
+  return (
+    <div ref={rootRef} className="absolute left-3 top-3 z-40">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "flex items-center gap-1.5 rounded-full border backdrop-blur-xl px-3 py-1.5 text-[11px] font-medium transition-colors",
+          styles.pill
+        )}
+      >
+        <User className="h-3 w-3" />
+        {active?.label ?? "Profile"}
+      </button>
+
+      {open && (
+        <div
+          className={cn(
+            "mt-2 w-56 rounded-2xl border backdrop-blur-2xl p-2",
+            styles.panel
+          )}
+        >
+          <p className={cn("px-1.5 pb-1.5 text-[9px] font-bold uppercase tracking-[0.16em]", styles.panelLabel)}>
+            Profiles ({profiles.length}/{maxProfiles})
+          </p>
+          <div className="space-y-1">
+            {profiles.map((p) => (
+              <div
+                key={p.id}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-xl px-2 py-1.5 transition-colors",
+                  p.id === activeProfileId ? styles.rowActive : styles.row
+                )}
+              >
+                {editingId === p.id ? (
+                  <input
+                    autoFocus
+                    value={draftLabel}
+                    onChange={(e) => setDraftLabel(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitRename(p.id);
+                      else if (e.key === "Escape") setEditingId(null);
+                    }}
+                    onBlur={() => commitRename(p.id)}
+                    className={cn(
+                      "flex-1 min-w-0 rounded-lg px-2 py-1 text-[12px] outline-none",
+                      styles.renameInput
+                    )}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSwitch(p.id);
+                      setOpen(false);
+                    }}
+                    className={cn("flex-1 min-w-0 flex items-center gap-1.5 text-left text-[12px]", styles.rowText)}
+                  >
+                    {p.id === activeProfileId && <Check className="h-3 w-3 shrink-0 text-[var(--color-brand)]" />}
+                    <span className="truncate">{p.label}</span>
+                  </button>
+                )}
+
+                {editingId !== p.id && (
+                  <button
+                    type="button"
+                    title="Rename"
+                    onClick={() => {
+                      setEditingId(p.id);
+                      setDraftLabel(p.label);
+                    }}
+                    className={cn(
+                      "h-6 w-6 shrink-0 rounded-full flex items-center justify-center transition-colors",
+                      styles.iconButton
+                    )}
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                )}
+                {profiles.length > 1 && editingId !== p.id && (
+                  <button
+                    type="button"
+                    title="Remove profile"
+                    onClick={() => onRemove(p.id)}
+                    className={cn(
+                      "h-6 w-6 shrink-0 rounded-full flex items-center justify-center transition-colors",
+                      styles.removeButton
+                    )}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {profiles.length < maxProfiles && (
+            <button
+              type="button"
+              onClick={() => {
+                onAdd();
+                setOpen(false);
+              }}
+              className={cn(
+                "mt-1.5 w-full flex items-center justify-center gap-1.5 rounded-xl border px-2 py-1.5 text-[11px] font-medium transition-colors",
+                styles.addButton
+              )}
+            >
+              <Plus className="h-3 w-3" /> Add profile
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

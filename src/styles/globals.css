@@ -569,6 +569,16 @@ h1, h2, h3, h4, h5, .font-display {
   to   { opacity: 1; transform: translateX(0); }
 }
 
+@keyframes slide-in-left {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.94); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.3; }
@@ -604,6 +614,8 @@ h1, h2, h3, h4, h5, .font-display {
 
 .animate-fade-in      { animation: fade-in 0.35s ease both; }
 .animate-slide-right  { animation: slide-in-right 0.3s ease both; }
+.animate-slide-left   { animation: slide-in-left 0.3s ease both; }
+.animate-scale-in     { animation: scale-in 0.3s ease both; }
 .animate-pulse-dot    { animation: pulse-dot 1.4s ease-in-out infinite; }
 .animate-spin-slow    { animation: spin-slow 3s linear infinite; }
 .animate-float        { animation: float-slow 6s ease-in-out infinite; }
@@ -619,4 +631,21 @@ h1, h2, h3, h4, h5, .font-display {
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
   border-radius: var(--radius-md);
+}
+
+/* Respect the shopper's OS-level motion preference — the onboarding step transitions and
+   audience-card stagger are cosmetic, never load-bearing, so it's safe to just remove them. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .animate-slide-right,
+  .animate-slide-left,
+  .animate-scale-in,
+  .animate-pulse-dot,
+  .animate-spin-slow,
+  .animate-float,
+  .animate-indeterminate,
+  .animate-gradient {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }

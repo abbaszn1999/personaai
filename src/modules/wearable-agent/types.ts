@@ -1,4 +1,14 @@
-export type OnboardingPhase = "profile" | "generating" | "avatar-selection";
+export type OnboardingPhase =
+  | "welcome"
+  | "audience"
+  | "measurements"
+  | "photo"
+  | "generating"
+  | "avatar-selection";
+
+/** Who this profile is being set up for — shopper-declared, stored on the profile only.
+ *  Not currently wired into search filters, sizing charts, or the persona prompt. */
+export type TryOnAudience = "woman" | "man" | "unisex" | "kids-boy" | "kids-girl" | "kids-unisex";
 
 export interface AvatarVariation {
   id: string;
@@ -9,6 +19,7 @@ export interface AvatarVariation {
 }
 
 export interface TryOnProfile {
+  audience: TryOnAudience | null;
   photoUrl: string | null;
   /** Base64-encoded face photo bytes, sent to the Persona Agent (client-only, in-memory). */
   photoBase64: string | null;

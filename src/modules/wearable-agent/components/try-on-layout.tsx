@@ -1,15 +1,23 @@
 "use client";
 
 import * as React from "react";
+import { ArrowRight } from "lucide-react";
 import { useTryOnAgent, type EmbedRuntimeConfig } from "../hooks/use-try-on-agent";
-import { ProfileSetupGate } from "./profile-setup-gate";
+import { OnboardingShell } from "./onboarding/onboarding-shell";
+import { WelcomeStep } from "./onboarding/welcome-step";
+import { AudienceStep } from "./onboarding/audience-step";
+import { MeasurementsStep } from "./onboarding/measurements-step";
+import { PhotoStep } from "./onboarding/photo-step";
 import { AvatarGenerationLoading } from "./avatar-generation-loading";
 import { AvatarVariationPicker } from "./avatar-variation-picker";
 import { PreviewViewportShell } from "./preview-viewport-shell";
 import { TryOnAgentChat } from "./try-on-agent-chat";
+import { ProfileSwitcher } from "./profile-switcher";
 import type { PreviewViewportMode } from "./preview-viewport-toggle";
+import type { OnboardingPhase } from "@/modules/wearable-agent/types";
 import { WearableThemeProvider, type WearableTheme } from "../theme-context";
 import { WearableBrandingProvider, type WearableBranding } from "../branding-context";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils/cn";
 
 interface TryOnLayoutProps {
@@ -29,8 +37,90 @@ interface TryOnLayoutProps {
   workspaceId?: string;
 }
 
+/** The steps that share OnboardingShell's chrome. Kept as one list so the shell below can be a
+ *  single, persistent element: rendering a separate `<OnboardingShell>` per step would make
+ *  React unmount and remount it on every transition, resetting the shell's own slide-direction
+ *  state so back navigation could never animate backwards. */
+const ONBOARDING_STEPS = ["welcome", "audience", "measurements", "photo"] as const;
+
+function isOnboardingStep(phase: OnboardingPhase): boolean {
+  return (ONBOARDING_STEPS as readonly OnboardingPhase[]).includes(phase);
+}
+
 export function TryOnLayout({ viewportMode = "desktop", embed, theme = "dark", branding, workspaceId }: TryOnLayoutProps) {
   const agent = useTryOnAgent(embed, branding?.welcomeMessage, workspaceId);
+
+  function renderStepBody() {
+    switch (agent.onboardingPhase) {
+      case "welcome":
+        return <WelcomeStep />;
+      case "audience":
+        return <AudienceStep value={agent.profile.audience} onSelect={agent.selectAudience} />;
+      case "measurements":
+        return <MeasurementsStep profile={agent.profile} onChange={agent.updateProfile} />;
+      case "photo":
+        return (
+          <PhotoStep profile={agent.profile} error={agent.avatarGenerationError} onChange={agent.updateProfile} />
+        );
+      default:
+        return null;
+    }
+  }
+
+  function renderStepFooter() {
+    switch (agent.onboardingPhase) {
+      case "welcome":
+        return (
+          <Button
+            size="lg"
+            onClick={() => agent.goToStep("audience")}
+            className="gradient-wearable text-white border-0"
+          >
+            Get started
+            <ArrowRight className="h-4 w-4" />
+          </Button>
+        );
+      // Picking an audience card advances on its own, so this step has no footer at all.
+      case "audience":
+        return null;
+      case "measurements":
+        return (
+          <>
+            <Button
+              size="lg"
+              onClick={() => agent.goToStep("photo")}
+              disabled={!agent.measurementsComplete}
+              className={cn(agent.measurementsComplete ? "gradient-wearable text-white border-0" : "")}
+            >
+              Continue
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+            {!agent.measurementsComplete && (
+              <p className="text-xs text-[var(--color-text-muted)]">Fill in all fields to continue</p>
+            )}
+          </>
+        );
+      case "photo":
+        return (
+          <>
+            <Button
+              size="lg"
+              onClick={agent.startAvatarGeneration}
+              disabled={!agent.profileComplete}
+              className={cn(agent.profileComplete ? "gradient-wearable text-white border-0" : "")}
+            >
+              Create my avatar
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+            {!agent.profileComplete && (
+              <p className="text-xs text-[var(--color-text-muted)]">Add a photo to continue</p>
+            )}
+          </>
+        );
+      default:
+        return null;
+    }
+  }
 
   return (
     <WearableThemeProvider theme={theme}>
@@ -39,6 +129,17 @@ export function TryOnLayout({ viewportMode = "desktop", embed, theme = "dark", b
           className={cn("relative h-full min-h-0 overflow-hidden", theme === "dark" && "dark")}
           style={branding?.borderRadius ? { borderRadius: branding.borderRadius } : undefined}
         >
+          {embed && (
+            <ProfileSwitcher
+              profiles={agent.profiles}
+              activeProfileId={agent.activeProfileId}
+              maxProfiles={agent.maxProfiles}
+              onSwitch={agent.switchProfile}
+              onAdd={agent.addProfile}
+              onRemove={agent.removeProfile}
+              onRename={agent.renameProfile}
+            />
+          )}
           {agent.cartSyncError && (
             <div className="pointer-events-none absolute inset-x-0 bottom-4 z-50 flex justify-center px-4">
               <div className="max-w-[90%] rounded-2xl bg-red-500/95 px-4 py-2.5 text-xs font-medium leading-relaxed text-white shadow-lg backdrop-blur-sm">
@@ -52,14 +153,14 @@ export function TryOnLayout({ viewportMode = "desktop", embed, theme = "dark", b
             </PreviewViewportShell>
           ) : (
             <PreviewViewportShell mode={viewportMode} layout="card" frameless={!!embed}>
-              {agent.onboardingPhase === "profile" && (
-                <ProfileSetupGate
-                  profile={agent.profile}
-                  profileComplete={agent.profileComplete}
-                  error={agent.avatarGenerationError}
-                  onUpdate={agent.updateProfile}
-                  onContinue={agent.startAvatarGeneration}
-                />
+              {isOnboardingStep(agent.onboardingPhase) && (
+                <OnboardingShell
+                  step={agent.onboardingPhase}
+                  onBack={agent.goBack}
+                  footer={renderStepFooter()}
+                >
+                  {renderStepBody()}
+                </OnboardingShell>
               )}
 
               {agent.onboardingPhase === "generating" && (

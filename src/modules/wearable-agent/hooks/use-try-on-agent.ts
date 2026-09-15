@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import type { ChatMessage } from "@/modules/shopping-agent/types";
-import type { AvatarVariation, OnboardingPhase, TryOnProfile } from "@/modules/wearable-agent/types";
+import type { AvatarVariation, OnboardingPhase, TryOnAudience, TryOnProfile } from "@/modules/wearable-agent/types";
 import type { BundleSuggestion, Product } from "@/modules/shopping-agent/types";
 import type { IntakeState, WearableAgentEvent } from "@/lib/agents/wearable/persona";
 import type { BundleState } from "@/lib/retrieval/types";
@@ -35,9 +35,43 @@ export interface EmbedRuntimeConfig {
   enableRealCart?: boolean;
 }
 
+/** Up to this many separate local profiles (e.g. a parent shopping for themselves + up to
+ *  2 kids) can share one embed token/browser — see docs/notes on the sign-in decision: this
+ *  intentionally stays login-free and device-local rather than becoming a shopper account. */
+export const MAX_TRYON_PROFILES = 3;
+const DEFAULT_PROFILE_ID = "default";
+
+/** Per-profile slice of persisted state — everything that's genuinely "whose body this is":
+ *  measurements/avatar and the try-on renders made for them. Chat, cart, and catalog knowledge
+ *  stay shared across profiles (same shopping session, same person browsing). */
+interface StoredProfileSlot {
+  id: string;
+  label: string;
+  profile: TryOnProfile;
+  profileSubmitted: boolean;
+  selectedAvatarId: string | null;
+  tryOnImages: GeneratedTryOn[];
+  currentImageIndex: number;
+}
+
 /** Shape persisted to localStorage for an embedded session — deliberately a subset of the
  *  full in-memory state (no loading/animation flags, nothing already derivable from a fetch). */
 interface PersistedEmbedState {
+  profiles: StoredProfileSlot[];
+  activeProfileId: string;
+  messages: ChatMessage[];
+  outfitItems: Product[];
+  cartItems: Product[];
+  intakeAnswers: IntakeState;
+  knownProducts: Record<string, Product>;
+  /** The pinned product survives a reload for the same reason the messages do — the shopper can
+   *  see it, so losing it silently reads as the widget forgetting what they were discussing. */
+  selectedAnchor: Product | null;
+}
+
+/** Pre-multi-profile shape, kept only to migrate a shopper's existing localStorage entry
+ *  in place instead of silently wiping their session on the first load after this update. */
+interface LegacyPersistedEmbedStateV1 {
   profile: TryOnProfile;
   profileSubmitted: boolean;
   messages: ChatMessage[];
@@ -48,9 +82,79 @@ interface PersistedEmbedState {
   tryOnImages: GeneratedTryOn[];
   currentImageIndex: number;
   selectedAvatarId: string | null;
-  /** The pinned product survives a reload for the same reason the messages do — the shopper can
-   *  see it, so losing it silently reads as the widget forgetting what they were discussing. */
   selectedAnchor: Product | null;
+}
+
+function blankProfileSlotData(): Omit<StoredProfileSlot, "id" | "label"> {
+  return { profile: INITIAL_PROFILE, profileSubmitted: false, selectedAvatarId: null, tryOnImages: [], currentImageIndex: 0 };
+}
+
+/** Strips the raw body photo before anything touches localStorage. The merchant's own page
+ *  (WordPress/Shopify, full of third-party scripts) owns that storage origin — any other
+ *  script there could otherwise read a shopper's body photo straight out of it. The photo only
+ *  ever needs to live in-memory for the active tab and in the server's own short-lived avatar
+ *  cache; losing it on reload just means re-uploading a photo to regenerate a new avatar, while
+ *  the already-generated avatarUrl, measurements, and try-on history are unaffected.
+ *
+ *  `photoUrl` goes with it, and must: it's an `URL.createObjectURL` blob handle (see
+ *  onboarding/photo-step.tsx), so it carries no image bytes but is also dead after a reload.
+ *  Keeping it while dropping the bytes would leave the pair inconsistent — the setup form
+ *  would show a broken thumbnail and count the profile as complete (it only checks
+ *  `photoUrl`), then fail the avatar request server-side for a missing photo. */
+function sanitizeProfileForStorage(profile: TryOnProfile): TryOnProfile {
+  return { ...profile, photoUrl: null, photoBase64: null, photoMimeType: null };
+}
+
+/** Fills in fields added after a shopper's localStorage entry was first written (e.g.
+ *  `audience`, introduced with the multi-step onboarding redesign) so older persisted
+ *  profiles don't come back from `JSON.parse` missing keys the rest of the app assumes exist. */
+function normalizeProfileFields(profile: Partial<TryOnProfile> | null | undefined): TryOnProfile {
+  return { ...INITIAL_PROFILE, ...(profile ?? {}) };
+}
+
+function sanitizeSlotForStorage(slot: Omit<StoredProfileSlot, "id" | "label">): Omit<StoredProfileSlot, "id" | "label"> {
+  return { ...slot, profile: sanitizeProfileForStorage(slot.profile) };
+}
+
+/** Normalizes whatever is in localStorage (new multi-profile shape, the old single-profile
+ *  shape, or garbage) into today's `PersistedEmbedState` — see LegacyPersistedEmbedStateV1. */
+export function normalizePersistedState(raw: unknown): PersistedEmbedState | null {
+  if (!raw || typeof raw !== "object") return null;
+  const obj = raw as Record<string, unknown>;
+
+  if (Array.isArray(obj.profiles) && typeof obj.activeProfileId === "string") {
+    const shaped = obj as unknown as PersistedEmbedState;
+    return {
+      ...shaped,
+      profiles: shaped.profiles.map((slot) => ({ ...slot, profile: normalizeProfileFields(slot.profile) })),
+    };
+  }
+
+  if (obj.profile && typeof obj.profile === "object") {
+    const legacy = obj as unknown as LegacyPersistedEmbedStateV1;
+    return {
+      profiles: [
+        {
+          id: DEFAULT_PROFILE_ID,
+          label: "Profile 1",
+          profile: sanitizeProfileForStorage(normalizeProfileFields(legacy.profile)),
+          profileSubmitted: legacy.profileSubmitted,
+          selectedAvatarId: legacy.selectedAvatarId,
+          tryOnImages: legacy.tryOnImages ?? [],
+          currentImageIndex: legacy.currentImageIndex ?? 0,
+        },
+      ],
+      activeProfileId: DEFAULT_PROFILE_ID,
+      messages: legacy.messages ?? [],
+      outfitItems: legacy.outfitItems ?? [],
+      cartItems: legacy.cartItems ?? [],
+      intakeAnswers: legacy.intakeAnswers ?? {},
+      knownProducts: legacy.knownProducts ?? {},
+      selectedAnchor: legacy.selectedAnchor ?? null,
+    };
+  }
+
+  return null;
 }
 
 interface TryOnApiResponse {
@@ -157,6 +261,7 @@ async function streamAvatarVariations(
 }
 
 const INITIAL_PROFILE: TryOnProfile = {
+  audience: null,
   photoUrl: null,
   photoBase64: null,
   photoMimeType: null,
@@ -245,9 +350,10 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isProfileComplete(profile: TryOnProfile): boolean {
+/** Just the numeric fields, gating the Continue button on the measurements step — the photo
+ *  is asked for separately, one step later. */
+export function isMeasurementsComplete(profile: TryOnProfile): boolean {
   return (
-    !!profile.photoUrl &&
     profile.heightCm !== null &&
     profile.heightCm > 0 &&
     profile.weightKg !== null &&
@@ -259,6 +365,23 @@ function isProfileComplete(profile: TryOnProfile): boolean {
     profile.shoeSizeEu !== null &&
     profile.shoeSizeEu > 0
   );
+}
+
+export function isProfileComplete(profile: TryOnProfile): boolean {
+  return !!profile.photoUrl && isMeasurementsComplete(profile);
+}
+
+/** Picks which onboarding step to drop a shopper on, given whatever their profile already
+ *  holds — so someone who filled in their measurements and then reloaded (or switched away and
+ *  back) doesn't have to click through the welcome and audience screens again just to reach the
+ *  one thing still missing. A blank/absent profile still starts at the welcome screen, which is
+ *  also what a freshly-added profile gets. Note this can never resolve to a step *after*
+ *  `photo`: the raw photo is deliberately never persisted (see sanitizeProfileForStorage), so a
+ *  returning shopper always has to re-pick one before an avatar can be generated. */
+export function resumeOnboardingPhase(profile: TryOnProfile | null | undefined): OnboardingPhase {
+  if (!profile?.audience) return "welcome";
+  if (!isMeasurementsComplete(profile)) return "measurements";
+  return "photo";
 }
 
 /** Parses one `\n\n`-delimited SSE chunk buffer into whole `data:` frames, returning the
@@ -311,17 +434,18 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
   // the server already guarantees the merchant has one configured before enabling the embed.
   const geminiKey = useGeminiApiKey(!embed);
 
-  const persisted = embed ? loadEmbedState<PersistedEmbedState>(embed.embedToken) : null;
+  const persisted = embed ? normalizePersistedState(loadEmbedState<unknown>(embed.embedToken)) : null;
+  const activeSlot = persisted ? (persisted.profiles.find((p) => p.id === persisted.activeProfileId) ?? null) : null;
 
   const [state, setState] = React.useState<TryOnAgentState>({
-    profile: persisted?.profile ?? INITIAL_PROFILE,
-    onboardingPhase: "profile",
-    profileSubmitted: persisted?.profileSubmitted ?? false,
+    profile: activeSlot?.profile ?? INITIAL_PROFILE,
+    onboardingPhase: resumeOnboardingPhase(activeSlot?.profile),
+    profileSubmitted: activeSlot?.profileSubmitted ?? false,
     generationProgress: 0,
     generationStageIndex: 0,
     avatarVariations: [],
     avatarGenerationError: null,
-    selectedAvatarId: persisted?.selectedAvatarId ?? null,
+    selectedAvatarId: activeSlot?.selectedAvatarId ?? null,
     customAvatarUrl: null,
     messages: persisted?.messages ?? [],
     outfitItems: persisted?.outfitItems ?? [],
@@ -330,8 +454,8 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
     typingStage: "thinking",
     isGenerating: false,
     isRegeneratingAvatar: false,
-    tryOnImages: persisted?.tryOnImages ?? [],
-    currentImageIndex: persisted?.currentImageIndex ?? 0,
+    tryOnImages: activeSlot?.tryOnImages ?? [],
+    currentImageIndex: activeSlot?.currentImageIndex ?? 0,
     cartItems: persisted?.cartItems ?? [],
     pendingCartItemIds: [],
     intakeAnswers: persisted?.intakeAnswers ?? {},
@@ -345,6 +469,29 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
     backdropUploadError: null,
     cartSyncError: null,
   });
+
+  const [profilesMeta, setProfilesMeta] = React.useState<{ id: string; label: string }[]>(
+    () => persisted?.profiles.map((p) => ({ id: p.id, label: p.label })) ?? [{ id: DEFAULT_PROFILE_ID, label: "Profile 1" }]
+  );
+  const [activeProfileId, setActiveProfileId] = React.useState<string>(persisted?.activeProfileId ?? DEFAULT_PROFILE_ID);
+  /** Holds the full data for every profile *other than* the active one — the active one's
+   *  latest data always lives in `state` itself. Populated once from whatever was persisted. */
+  const inactiveProfilesRef = React.useRef<Record<string, Omit<StoredProfileSlot, "id" | "label">> | null>(null);
+  if (inactiveProfilesRef.current === null) {
+    inactiveProfilesRef.current = {};
+    if (persisted) {
+      for (const slot of persisted.profiles) {
+        if (slot.id === persisted.activeProfileId) continue;
+        inactiveProfilesRef.current[slot.id] = {
+          profile: slot.profile,
+          profileSubmitted: slot.profileSubmitted,
+          selectedAvatarId: slot.selectedAvatarId,
+          tryOnImages: slot.tryOnImages,
+          currentImageIndex: slot.currentImageIndex,
+        };
+      }
+    }
+  }
 
   const generationTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const scanTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
@@ -414,27 +561,43 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
     };
   }, []);
 
+  /** Builds the full multi-profile array to persist: the active profile's slot comes from
+   *  whatever's passed in (fresh render state or a synchronous override), every other
+   *  profile's slot comes from the last snapshot stashed in `inactiveProfilesRef`. */
+  function buildProfilesSnapshot(activeData: Omit<StoredProfileSlot, "id" | "label">): StoredProfileSlot[] {
+    return profilesMeta.map((meta) =>
+      meta.id === activeProfileId
+        ? { id: meta.id, label: meta.label, ...sanitizeSlotForStorage(activeData) }
+        : { id: meta.id, label: meta.label, ...(inactiveProfilesRef.current?.[meta.id] ?? blankProfileSlotData()) }
+    );
+  }
+
   // Mirror the shopper-relevant slice of state into localStorage so an embedded session
   // survives a page reload without any login — this app is already fully client-state-driven
   // server-side, so this is a persistence wrapper, not a new state architecture.
   React.useEffect(() => {
     if (!embed) return;
     const snapshot: PersistedEmbedState = {
-      profile: state.profile,
-      profileSubmitted: state.profileSubmitted,
+      profiles: buildProfilesSnapshot({
+        profile: state.profile,
+        profileSubmitted: state.profileSubmitted,
+        selectedAvatarId: state.selectedAvatarId,
+        tryOnImages: state.tryOnImages,
+        currentImageIndex: state.currentImageIndex,
+      }),
+      activeProfileId,
       messages: state.messages,
       outfitItems: state.outfitItems,
       cartItems: state.cartItems,
       intakeAnswers: state.intakeAnswers,
       knownProducts: state.knownProducts,
-      tryOnImages: state.tryOnImages,
-      currentImageIndex: state.currentImageIndex,
-      selectedAvatarId: state.selectedAvatarId,
       selectedAnchor: state.selectedAnchor,
     };
     saveEmbedState(embed.embedToken, snapshot);
   }, [
     embed,
+    profilesMeta,
+    activeProfileId,
     state.profile,
     state.profileSubmitted,
     state.messages,
@@ -459,22 +622,145 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
   function persistCartItemsNow(nextCartItems: Product[]) {
     if (!embed) return;
     saveEmbedState<PersistedEmbedState>(embed.embedToken, {
-      profile: profileRef.current,
-      profileSubmitted: state.profileSubmitted,
+      profiles: buildProfilesSnapshot({
+        profile: profileRef.current,
+        profileSubmitted: state.profileSubmitted,
+        selectedAvatarId: state.selectedAvatarId,
+        tryOnImages: state.tryOnImages,
+        currentImageIndex: state.currentImageIndex,
+      }),
+      activeProfileId,
       messages: messagesRef.current,
       outfitItems: outfitRef.current,
       cartItems: nextCartItems,
       intakeAnswers: intakeAnswersRef.current,
       knownProducts: knownProductsRef.current,
-      tryOnImages: state.tryOnImages,
-      currentImageIndex: state.currentImageIndex,
-      selectedAvatarId: state.selectedAvatarId,
       selectedAnchor: state.selectedAnchor,
     });
   }
 
   function updateProfile(patch: Partial<TryOnProfile>) {
     setState((s) => ({ ...s, profile: { ...s.profile, ...patch } }));
+  }
+
+  /** Stashes the currently-active profile's data into `inactiveProfilesRef` before switching
+   *  away from it — called by both switchProfile and addProfile/removeProfile. */
+  function stashActiveProfile() {
+    inactiveProfilesRef.current![activeProfileId] = sanitizeSlotForStorage({
+      profile: profileRef.current,
+      profileSubmitted: state.profileSubmitted,
+      selectedAvatarId: state.selectedAvatarId,
+      tryOnImages: state.tryOnImages,
+      currentImageIndex: state.currentImageIndex,
+    });
+  }
+
+  /** Applies a (possibly blank) profile slot as the new active one — shared by switch/add/remove. */
+  function activateProfileData(id: string, data: Omit<StoredProfileSlot, "id" | "label">) {
+    delete inactiveProfilesRef.current![id];
+    setActiveProfileId(id);
+    setState((s) => ({
+      ...s,
+      profile: data.profile,
+      profileSubmitted: data.profileSubmitted,
+      onboardingPhase: resumeOnboardingPhase(data.profile),
+      selectedAvatarId: data.selectedAvatarId,
+      tryOnImages: data.tryOnImages,
+      currentImageIndex: data.currentImageIndex,
+      avatarVariations: [],
+      customAvatarUrl: null,
+      avatarGenerationError: null,
+    }));
+    // Force the next chat turn to (re-)send this profile's own avatar rather than trusting the
+    // server's cache, which is now keyed per-profile too (see avatarCacheKey in the wearable route).
+    lastSentAvatarUrlRef.current = null;
+  }
+
+  /** Switches which local profile ("who's trying this on") is active — up to MAX_TRYON_PROFILES
+   *  can share one browser/embed token, entirely device-local, no login required. */
+  function switchProfile(id: string) {
+    if (id === activeProfileId) return;
+    stashActiveProfile();
+    const target = inactiveProfilesRef.current![id] ?? blankProfileSlotData();
+    activateProfileData(id, target);
+  }
+
+  function addProfile() {
+    if (profilesMeta.length >= MAX_TRYON_PROFILES) return;
+    const id =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `profile-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const label = `Profile ${profilesMeta.length + 1}`;
+    stashActiveProfile();
+    setProfilesMeta((m) => [...m, { id, label }]);
+    activateProfileData(id, blankProfileSlotData());
+  }
+
+  function removeProfile(id: string) {
+    if (profilesMeta.length <= 1) return;
+    const remaining = profilesMeta.filter((m) => m.id !== id);
+    delete inactiveProfilesRef.current![id];
+    setProfilesMeta(remaining);
+    if (id === activeProfileId) {
+      const next = remaining[0];
+      const target = inactiveProfilesRef.current![next.id] ?? blankProfileSlotData();
+      activateProfileData(next.id, target);
+    }
+  }
+
+  function renameProfile(id: string, label: string) {
+    const trimmed = label.trim().slice(0, 40);
+    if (!trimmed) return;
+    setProfilesMeta((m) => m.map((p) => (p.id === id ? { ...p, label: trimmed } : p)));
+  }
+
+  /** Onboarding steps before avatar generation kicks in — used by goBack to step to the
+   *  previous one. Generation/avatar-selection aren't in here: there's no "back" out of a
+   *  request already in flight, and confirmAvatar/the error path handle those transitions. */
+  const ONBOARDING_STEP_ORDER: OnboardingPhase[] = ["welcome", "audience", "measurements", "photo"];
+
+  // Navigating between steps clears any previous avatar-generation failure: the message is
+  // pinned to the photo step, so leaving and coming back would otherwise re-surface a stale
+  // error the shopper has already moved on from (a retry clears it too, but only on retry).
+  function goToStep(phase: OnboardingPhase) {
+    setState((s) => ({ ...s, onboardingPhase: phase, avatarGenerationError: null }));
+  }
+
+  function goBack() {
+    setState((s) => {
+      const idx = ONBOARDING_STEP_ORDER.indexOf(s.onboardingPhase);
+      if (idx <= 0) return s;
+      return { ...s, onboardingPhase: ONBOARDING_STEP_ORDER[idx - 1], avatarGenerationError: null };
+    });
+  }
+
+  /** Labels applied automatically the first time a profile declares who it's for — only
+   *  while the profile still has its auto-assigned "Profile N" label, so a shopper's own
+   *  rename (via ProfileSwitcher) is never silently overwritten. */
+  const AUDIENCE_PROFILE_LABELS: Record<TryOnAudience, string> = {
+    woman: "Me",
+    man: "Me",
+    unisex: "Me",
+    "kids-boy": "My Son",
+    "kids-girl": "My Daughter",
+    "kids-unisex": "My Kid",
+  };
+
+  function selectAudience(audience: TryOnAudience) {
+    setState((s) => ({
+      ...s,
+      profile: { ...s.profile, audience },
+      onboardingPhase: "measurements",
+      avatarGenerationError: null,
+    }));
+    setProfilesMeta((m) =>
+      m.map((p) =>
+        p.id === activeProfileId && /^Profile \d+$/.test(p.label)
+          ? { ...p, label: AUDIENCE_PROFILE_LABELS[audience] }
+          : p
+      )
+    );
   }
 
   function startAvatarGeneration() {
@@ -559,7 +845,7 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
       // Only a real failure if literally nothing came back — if at least one variation
       // already landed and unlocked the picker, a later straggler failing is a non-event.
       if ("error" in result && !receivedAny) {
-        setState((s) => ({ ...s, onboardingPhase: "profile", avatarGenerationError: result.error, avatarVariations: [] }));
+        setState((s) => ({ ...s, onboardingPhase: "photo", avatarGenerationError: result.error, avatarVariations: [] }));
       }
     });
   }
@@ -592,7 +878,7 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
       return {
         ...s,
         profileSubmitted: true,
-        onboardingPhase: "profile",
+        onboardingPhase: "welcome",
         profile: { ...s.profile, avatarUrl, backdropUrl },
         messages: [
           welcomeMessage
@@ -676,8 +962,16 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
     }));
 
     // A custom-uploaded photo isn't AI-generated, so there's nothing to regenerate — just
-    // acknowledge the new measurements were saved.
-    if (selectedAvatarIdRef.current === "custom" && customAvatarUrlRef.current) {
+    // acknowledge the new measurements were saved. Same path when the raw source photo is
+    // simply no longer in memory (it's deliberately never persisted — see
+    // sanitizeProfileForStorage), e.g. the shopper reloaded the page or switched profiles and
+    // came back: re-rendering the avatar would need a photo we don't have, but the
+    // measurements themselves still drive fit analysis and size recommendations, which is
+    // what the shopper actually asked to change.
+    if (
+      (selectedAvatarIdRef.current === "custom" && customAvatarUrlRef.current) ||
+      !profileRef.current.photoBase64
+    ) {
       await sleep(1200);
       setState((s) => ({
         ...s,
@@ -1001,7 +1295,9 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...(embed ? { embedToken: embed.embedToken, sessionId: embedSessionIdRef.current } : {}),
+          ...(embed
+            ? { embedToken: embed.embedToken, sessionId: embedSessionIdRef.current, profileId: activeProfileId }
+            : {}),
           messages: slimHistory,
           profile: {
             heightCm: profile.heightCm,
@@ -1591,12 +1887,16 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
   }
 
   const profileComplete = isProfileComplete(state.profile);
+  const measurementsComplete = isMeasurementsComplete(state.profile);
   const currentTryOn = state.tryOnImages[state.currentImageIndex] ?? null;
 
   return {
     ...state,
     currentTryOn,
     updateProfile,
+    goToStep,
+    goBack,
+    selectAudience,
     startAvatarGeneration,
     selectAvatar,
     uploadCustomAvatar,
@@ -1621,6 +1921,15 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
     discussBundle,
     clearDiscussedBundle,
     profileComplete,
+    measurementsComplete,
+    // Local, login-free multi-profile support (up to MAX_TRYON_PROFILES per browser/embed token).
+    profiles: profilesMeta,
+    activeProfileId,
+    maxProfiles: MAX_TRYON_PROFILES,
+    switchProfile,
+    addProfile,
+    removeProfile,
+    renameProfile,
     // The embedded page has no shopper login/API-key concept — the server already guarantees
     // the merchant has a key configured before its embed can be enabled at all.
     hasApiKey: embed ? true : geminiKey.hasKey,

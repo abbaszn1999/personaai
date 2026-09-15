@@ -5,6 +5,7 @@ import type { WearableChatProfileContext } from "@/lib/agents/wearable/persona/t
 
 function toFitMetricsProfile(profile: WearableChatProfileContext): TryOnProfile {
   return {
+    audience: null,
     photoUrl: null,
     photoBase64: null,
     photoMimeType: null,
