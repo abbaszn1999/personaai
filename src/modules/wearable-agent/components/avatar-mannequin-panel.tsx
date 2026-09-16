@@ -44,7 +44,9 @@ import { AvatarWearScanOverlay } from "./avatar-wear-scan-overlay";
 import { GarmentHotspot, type ActiveLookItem } from "./garment-hotspot";
 import { SizeGuideModal } from "./size-guide-modal";
 import { cn } from "@/lib/utils/cn";
+import { useClickOutside } from "@/lib/hooks/use-click-outside";
 import { useWearableTheme } from "../theme-context";
+import { MOBILE_SURFACE, NO_IOS_ZOOM_TEXT, SAFE_BOTTOM, SHEET_H } from "../mobile-surface";
 import type { EmbedRuntimeConfig } from "../hooks/use-try-on-agent";
 import { useRealtimeTryOn } from "../hooks/use-realtime-tryon";
 import { RealtimeTryOnOverlay } from "./realtime-tryon-overlay";
@@ -77,6 +79,10 @@ interface AvatarMannequinPanelProps {
   isUploadingBackdrop: boolean;
   backdropUploadError: string | null;
   mobile?: boolean;
+  /** Mobile only — asks the parent to collapse the chat sheet. A full-cover panel (Fit
+   *  Analysis, Edit Stats, Size Guide) is unusable in the sliver left above an expanded
+   *  sheet, so opening one reclaims the frame first. */
+  onRequestSpace?: () => void;
   embed?: EmbedRuntimeConfig;
   workspaceId?: string;
 }
@@ -147,6 +153,7 @@ export function AvatarMannequinPanel({
   isUploadingBackdrop,
   backdropUploadError,
   mobile = false,
+  onRequestSpace,
   embed,
   workspaceId,
 }: AvatarMannequinPanelProps) {
@@ -220,16 +227,7 @@ export function AvatarMannequinPanel({
     setIsPanning(false);
   }, []);
 
-  React.useEffect(() => {
-    if (!isBgPickerOpen) return;
-    function onPointerDown(e: PointerEvent) {
-      if (bgPickerRef.current && !bgPickerRef.current.contains(e.target as Node)) {
-        setIsBgPickerOpen(false);
-      }
-    }
-    window.addEventListener("pointerdown", onPointerDown);
-    return () => window.removeEventListener("pointerdown", onPointerDown);
-  }, [isBgPickerOpen]);
+  useClickOutside(bgPickerRef, React.useCallback(() => setIsBgPickerOpen(false), []), isBgPickerOpen);
 
   const canZoomIn = zoomLevel < ZOOM_MAX;
   const canZoomOut = zoomLevel > ZOOM_MIN;
@@ -418,6 +416,7 @@ export function AvatarMannequinPanel({
         onViewModeChange={changeViewMode}
         realtime={realtime}
         liveProducts={liveProducts}
+        onRequestSpace={onRequestSpace}
       />
     );
   }
@@ -998,6 +997,7 @@ interface MobileAvatarStripProps {
   onViewModeChange: (mode: "photo" | "live") => void;
   realtime: ReturnType<typeof useRealtimeTryOn>;
   liveProducts: Product[];
+  onRequestSpace?: () => void;
 }
 
 /** What sub-panel is open over the avatar on mobile. */
@@ -1033,11 +1033,23 @@ function MobileAvatarStrip({
   onViewModeChange,
   realtime,
   liveProducts,
+  onRequestSpace,
 }: MobileAvatarStripProps) {
   const theme = useWearableTheme();
   const panelBg = PANEL_BG_BY_THEME[theme];
+  const styles = MOBILE_SURFACE[theme];
   const [panel, setPanel] = React.useState<MobilePanel>(null);
   const [editDraft, setEditDraft] = React.useState<TryOnProfile>(profile);
+
+  /** Every path that opens a full-cover panel goes through here so the chat sheet is always
+   *  collapsed out of the way first. */
+  const openPanel = React.useCallback(
+    (next: MobilePanel) => {
+      setPanel(next);
+      if (next) onRequestSpace?.();
+    },
+    [onRequestSpace]
+  );
 
   // Keep draft in sync if profile changes externally
   React.useEffect(() => { setEditDraft(profile); }, [profile]);
@@ -1092,7 +1104,10 @@ function MobileAvatarStrip({
             src={imgSrc}
             alt="Avatar"
             onError={onImageError}
-            className="absolute inset-0 w-full h-full object-cover object-center select-none"
+            // Anchored above centre: when the host page gives the widget a frame shorter than
+            // a 2:3 figure, `cover` has to crop vertically, and cropping the feet is far
+            // better than cropping the head and the garment being tried on.
+            className="absolute inset-0 w-full h-full object-cover select-none [object-position:50%_15%]"
           />
         </>
       )}
@@ -1112,60 +1127,69 @@ function MobileAvatarStrip({
         </div>
       )}
 
-      {/* Top gradient */}
-      <div className="absolute inset-x-0 top-0 h-20 z-[9] pointer-events-none"
-        style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.55), transparent)" }}
+      {/* Top gradient — just enough to seat the badges, kept off the model's face */}
+      <div className="absolute inset-x-0 top-0 h-16 z-[9] pointer-events-none"
+        style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.45), transparent)" }}
       />
-      {/* Bottom gradient — lighter since the sheet handle sits right below */}
-      <div className="absolute inset-x-0 bottom-0 h-16 z-[9] pointer-events-none"
-        style={{ background: "linear-gradient(to top, rgba(0,0,0,0.5), transparent)" }}
+      {/* Bottom gradient — rides on top of the sheet so it always seats the controls below */}
+      <div className="absolute inset-x-0 h-16 z-[9] pointer-events-none"
+        style={{ bottom: SHEET_H, background: "linear-gradient(to top, rgba(0,0,0,0.5), transparent)" }}
       />
 
       {/* ── Top row: Fit badge + Details button ── */}
-      {viewMode === "photo" && <div className="absolute top-3 inset-x-3 z-[10] flex items-center justify-between">
-        <div className="flex items-center gap-1.5 rounded-full bg-black/50 backdrop-blur-md border border-white/[0.12] px-2.5 py-1">
-          <div className="h-2 w-2 rounded-full" style={{
+      {viewMode === "photo" && <div className="absolute top-3 inset-x-3 z-[10] flex items-center justify-between gap-2">
+        <div className="flex min-h-11 min-w-0 items-center gap-1.5 rounded-full bg-black/50 backdrop-blur-md border border-white/[0.12] px-3">
+          <div className="h-2 w-2 shrink-0 rounded-full" style={{
             background: fit.fitScore >= 90 ? "#22c55e" : fit.fitScore >= 75 ? "#f76d01" : "#ef4444",
           }} />
-          <span className="text-[11px] font-bold text-white">{fit.fitScore}% Fit</span>
-          <span className="text-[11px] text-white/50 ml-0.5">{lookLabel}</span>
+          <span className="text-[12px] font-bold text-white">{fit.fitScore}% Fit</span>
+          <span className="ml-0.5 truncate text-[12px] text-white/55">{lookLabel}</span>
         </div>
         <button
           type="button"
-          onClick={() => setPanel(panel === "details" ? null : "details")}
-          className="flex items-center gap-1 rounded-full bg-black/50 backdrop-blur-md border border-white/[0.12] px-2.5 py-1 text-[11px] font-medium text-white/75 hover:text-white transition-colors"
+          onClick={() => openPanel(panel === "details" ? null : "details")}
+          className="flex min-h-11 shrink-0 items-center gap-1 rounded-full bg-black/50 backdrop-blur-md border border-white/[0.12] px-3.5 text-[12px] font-medium text-white/80 hover:text-white transition-colors"
         >
           Details
-          <ChevronDown className={cn("h-3 w-3 transition-transform", panel === "details" && "rotate-180")} />
+          <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", panel === "details" && "rotate-180")} />
         </button>
       </div>}
 
       {/* ── Left toolbar: Image ⇄ Live mode switch — same slot the "3D — coming soon"
-           control will live in later, mirrors the desktop toolbar's left rail. ── */}
-      <div className="absolute left-3 top-1/2 z-[16] flex -translate-y-1/2 flex-col items-center gap-1.5 rounded-full border border-white/[0.12] bg-black/50 p-1 shadow-[0_8px_28px_rgba(0,0,0,0.5)] backdrop-blur-2xl">
+           control will live in later, mirrors the desktop toolbar's left rail.
+           Centred in the space left above the chat sheet, not in the frame, so it stays
+           reachable at every snap point instead of sliding underneath. ── */}
+      <div
+        className="absolute left-3 z-[16] flex -translate-y-1/2 flex-col items-center gap-1 rounded-full border border-white/[0.12] bg-black/50 p-1 shadow-[0_8px_28px_rgba(0,0,0,0.5)] backdrop-blur-2xl"
+        style={{ top: `calc((100% - ${SHEET_H}) / 2)` }}
+      >
         {(["photo", "live"] as const).map((mode) => (
           <button
             key={mode}
             type="button"
             title={mode === "photo" ? "Image" : "Live"}
+            aria-label={mode === "photo" ? "Image view" : "Live camera view"}
             onClick={() => onViewModeChange(mode)}
             className={cn(
-              "flex h-8 w-8 items-center justify-center rounded-full transition-all",
+              "flex h-10 w-10 items-center justify-center rounded-full transition-all",
               viewMode === mode
                 ? "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-[var(--color-brand-contrast)]"
-                : "text-white/50 hover:text-white/90 hover:bg-white/[0.08]"
+                : "text-white/55 hover:text-white/90 hover:bg-white/[0.08]"
             )}
           >
-            {mode === "live" ? <Camera className="h-3.5 w-3.5" /> : <ImageIcon className="h-3.5 w-3.5" />}
+            {mode === "live" ? <Camera className="h-4 w-4" /> : <ImageIcon className="h-4 w-4" />}
           </button>
         ))}
       </div>
 
       {/* ── Bottom row: swatches + cart — only when there is a real outfit / try-on ── */}
       {viewMode === "photo" && (hasGeneratedLooks || activeItems.length > 0) && (
-      <div className="absolute inset-x-0 bottom-2 z-[10] flex items-center justify-between px-3 gap-2">
+      <div
+        className="absolute inset-x-0 z-[10] flex items-center justify-between px-3 gap-2"
+        style={{ bottom: `calc(${SHEET_H} + 10px)` }}
+      >
         {/* Style swatches */}
-        <div className="flex items-center gap-1.5 overflow-x-auto flex-1 scrollbar-none">
+        <div className="flex items-center gap-2 overflow-x-auto flex-1 scrollbar-none overscroll-x-contain [-webkit-overflow-scrolling:touch]">
           {(hasGeneratedLooks ? tryOnImages : activeItems.map((i) => i.product)).map((item, idx) => {
             const isGenerated = hasGeneratedLooks;
             const imgUrl = isGenerated
@@ -1173,9 +1197,10 @@ function MobileAvatarStrip({
               : (item as Product).imageUrl;
             return (
               <button key={idx} type="button"
+                aria-label={isGenerated ? `Look ${idx + 1}` : undefined}
                 onClick={() => isGenerated ? onSelectImage(idx) : undefined}
                 className={cn(
-                  "h-8 w-8 shrink-0 rounded-[7px] overflow-hidden border-2 transition-all",
+                  "h-11 w-11 shrink-0 rounded-[10px] overflow-hidden border-2 transition-all",
                   (isGenerated ? currentImageIndex : activeSwatchIndex) === idx
                     ? "border-[var(--color-brand)] scale-105" : "border-white/20 opacity-70"
                 )}
@@ -1192,12 +1217,12 @@ function MobileAvatarStrip({
           return (
             <button type="button" onClick={handleAddAllToCart} disabled={anyPending}
               className={cn(
-                "shrink-0 flex items-center gap-1.5 rounded-[10px] px-2.5 py-1.5 text-[11px] font-semibold transition-all",
+                "h-11 shrink-0 flex items-center gap-1.5 rounded-[12px] px-3.5 text-[12px] font-semibold transition-all",
                 "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-white shadow-[var(--shadow-glow)]",
                 "hover:brightness-110 active:scale-[0.97] disabled:opacity-70"
               )}
             >
-              {anyPending ? <Loader2 className="h-3 w-3 animate-spin" /> : justAddedAll ? <Check className="h-3 w-3" /> : <ShoppingBag className="h-3 w-3" />}
+              {anyPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : justAddedAll ? <Check className="h-3.5 w-3.5" /> : <ShoppingBag className="h-3.5 w-3.5" />}
               {anyPending ? "Adding…" : justAddedAll ? "Added" : `Cart · ${formatPrice(cartTotal, currency)}`}
             </button>
           );
@@ -1226,24 +1251,24 @@ function MobileAvatarStrip({
         <MobileInlinePanel title="Fit Analysis" onClose={() => setPanel(null)}>
           <div className="flex items-center gap-3 mb-4">
             <div className="h-12 w-12 rounded-full border-2 border-[var(--color-brand)] flex items-center justify-center shrink-0">
-              <span className="text-[15px] font-black text-white">{fit.fitScore}%</span>
+              <span className={cn("text-[15px] font-black", styles.panelValue)}>{fit.fitScore}%</span>
             </div>
             <div>
-              <p className="text-[12px] font-bold text-white">{fit.fitLabel}</p>
+              <p className={cn("text-[13px] font-bold", styles.panelValue)}>{fit.fitLabel}</p>
             </div>
           </div>
-          <div className="space-y-2 mb-4">
+          <div className="space-y-2.5 mb-4">
             {fit.metrics.map((m) => (
               <div key={m.label} className="flex items-center gap-2">
-                <span className="w-20 text-[11px] text-white/45 shrink-0">{m.label}</span>
-                <div className="flex-1 h-1.5 rounded-full bg-white/[0.08]">
+                <span className={cn("w-20 shrink-0 text-[12px]", styles.panelLabel)}>{m.label}</span>
+                <div className={cn("flex-1 h-1.5 rounded-full", styles.panelTrack)}>
                   <div className="h-full rounded-full bg-[var(--color-brand)]" style={{ width: `${m.value}%` }} />
                 </div>
-                <span className="text-[11px] font-semibold text-white/70 w-7 text-right">{m.value}%</span>
+                <span className={cn("w-8 text-right text-[12px] font-semibold", styles.panelValue)}>{m.value}%</span>
               </div>
             ))}
           </div>
-          <div className="h-px bg-white/[0.07] mb-4" />
+          <div className={cn("h-px mb-4", styles.panelDivider)} />
           <div className="grid grid-cols-2 gap-x-4 gap-y-3 mb-5">
             {[
               { id: "height", label: "Height", value: formatHeightCm(profile.heightCm) },
@@ -1254,18 +1279,18 @@ function MobileAvatarStrip({
               ...sizeRows.map((r) => ({ id: `size-${r.id}`, label: r.label, value: r.size })),
             ].map(({ id, label, value }) => (
               <div key={id} className="flex flex-col">
-                <span className="text-[10px] text-white/35 uppercase tracking-[0.12em]">{label}</span>
-                <span className="text-[12px] font-semibold text-white mt-0.5">{value}</span>
+                <span className={cn("text-[11px] uppercase tracking-[0.12em]", styles.panelLabel)}>{label}</span>
+                <span className={cn("mt-0.5 text-[13px] font-semibold", styles.panelValue)}>{value}</span>
               </div>
             ))}
           </div>
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => setPanel("edit")}
-              className="flex-1 h-9 rounded-[10px] bg-white/[0.07] border border-white/[0.10] text-[12px] font-medium text-white/80 hover:bg-white/[0.12] transition-colors">
+              className={cn("flex-1 h-11 rounded-[12px] border text-[13px] font-medium transition-colors", styles.panelSecondaryButton)}>
               Edit Stats
             </button>
             <button type="button" onClick={() => setPanel("size-guide")}
-              className="flex-1 h-9 rounded-[10px] bg-white/[0.07] border border-white/[0.10] text-[12px] font-medium text-white/80 hover:bg-white/[0.12] transition-colors">
+              className={cn("flex-1 h-11 rounded-[12px] border text-[13px] font-medium transition-colors", styles.panelSecondaryButton)}>
               Size Guide
             </button>
           </div>
@@ -1284,27 +1309,32 @@ function MobileAvatarStrip({
               { key: "shoeSizeEu", label: "Shoe Size", unit: "EU" },
             ] as const).map(({ key, label, unit }) => (
               <label key={key} className="flex flex-col gap-1">
-                <span className="text-[10px] text-white/45 uppercase tracking-wide">{label}</span>
+                <span className={cn("text-[11px] uppercase tracking-wide", styles.panelLabel)}>{label}</span>
                 <div className="relative">
                   <input
                     type="number"
+                    inputMode="numeric"
                     value={editDraft[key] ?? ""}
                     onChange={(e) => setEditDraft((d) => ({ ...d, [key]: e.target.value ? Number(e.target.value) : null }))}
-                    className="w-full h-9 pl-3 pr-8 rounded-lg bg-white/[0.07] border border-white/[0.10] text-[13px] text-white focus:outline-none focus:border-[var(--color-brand)] transition-colors"
+                    className={cn(
+                      "w-full h-11 pl-3 pr-9 rounded-[10px] border transition-colors focus:outline-none focus:border-[var(--color-brand)]",
+                      NO_IOS_ZOOM_TEXT,
+                      styles.panelField
+                    )}
                   />
-                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-white/30">{unit}</span>
+                  <span className={cn("absolute right-3 top-1/2 -translate-y-1/2 text-[11px]", styles.panelMuted)}>{unit}</span>
                 </div>
               </label>
             ))}
           </div>
           <div className="flex gap-2">
             <button type="button" onClick={() => setPanel("details")}
-              className="flex-1 h-9 rounded-[10px] border border-white/10 text-[12px] text-white/60 hover:bg-white/[0.06] transition-colors">
+              className={cn("flex-1 h-11 rounded-[12px] border text-[13px] transition-colors", styles.panelSecondaryButton)}>
               Cancel
             </button>
             <button type="button" onClick={handleSaveEdit} disabled={isRegeneratingAvatar}
               className={cn(
-                "flex-1 h-9 rounded-[10px] text-[12px] font-semibold text-white flex items-center justify-center gap-1.5 transition-all",
+                "flex-1 h-11 rounded-[12px] text-[13px] font-semibold text-white flex items-center justify-center gap-1.5 transition-all",
                 "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] shadow-[var(--shadow-glow)]",
                 "disabled:opacity-60"
               )}>
@@ -1320,7 +1350,7 @@ function MobileAvatarStrip({
       {viewMode === "photo" && panel === "size-guide" && (
         <MobileInlinePanel title="Size Guide" onClose={() => setPanel("details")}>
           {activeItems.length === 0 ? (
-            <p className="text-[12px] text-white/40 text-center py-8">Add items to see size recommendations.</p>
+            <p className={cn("py-8 text-center text-[13px]", styles.panelMuted)}>Add items to see size recommendations.</p>
           ) : (
             <div className="space-y-3">
               {activeItems.map((item) => {
@@ -1329,35 +1359,37 @@ function MobileAvatarStrip({
                 const sizeVariants = item.product.variants.filter((v) => v.type === "size");
                 const scale = sizeVariants.length > 0 ? sizeVariants.map((v) => v.label) : ["XS","S","M","L","XL"];
                 return (
-                  <div key={item.product.id} className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
+                  <div key={item.product.id} className={cn("rounded-xl border p-3", styles.panelCard)}>
                     <div className="flex items-start gap-2.5 mb-3">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={item.product.imageUrl} alt={item.product.name}
                         className="h-12 w-12 rounded-lg object-cover shrink-0 border border-white/10" />
                       <div className="flex-1 min-w-0">
-                        <p className="text-[12px] font-semibold text-white leading-snug">{item.product.name}</p>
-                        <p className="text-[11px] text-white/45 mt-0.5">{formatPrice(item.product.price, item.product.currency)}</p>
+                        <p className={cn("text-[13px] font-semibold leading-snug", styles.panelValue)}>{item.product.name}</p>
+                        <p className={cn("mt-0.5 text-[12px]", styles.panelMuted)}>{formatPrice(item.product.price, item.product.currency)}</p>
                       </div>
                       <button type="button" onClick={() => onAddToCart(item.product)} disabled={inCart || isPending}
                         className={cn(
-                          "h-7 shrink-0 px-2.5 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition-all",
-                          inCart ? "bg-white/10 text-white/50" : "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-white"
+                          "h-10 shrink-0 px-3 rounded-[10px] text-[12px] font-semibold flex items-center gap-1 transition-all",
+                          inCart
+                            ? cn("border", styles.panelSecondaryButton)
+                            : "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-white"
                         )}>
-                        {isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : inCart ? <Check className="h-3 w-3" /> : <ShoppingBag className="h-3 w-3" />}
+                        {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : inCart ? <Check className="h-3.5 w-3.5" /> : <ShoppingBag className="h-3.5 w-3.5" />}
                         {isPending ? "Adding…" : inCart ? "Added" : "Add"}
                       </button>
                     </div>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1.5">
                       {scale.map((size) => (
                         <div key={size} className={cn(
-                          "flex-1 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold",
+                          "flex-1 h-9 rounded-[10px] flex items-center justify-center text-[12px] font-bold",
                           size === item.size
                             ? "bg-[var(--color-brand)] text-white"
-                            : "bg-white/[0.05] text-white/35 border border-white/[0.06]"
+                            : cn("border", styles.sizeChipIdle)
                         )}>{size}</div>
                       ))}
                     </div>
-                    <p className="text-[10px] text-white/30 mt-1.5">
+                    <p className={cn("mt-2 text-[11px]", styles.panelMuted)}>
                       Recommended: <span className="text-[var(--color-brand)] font-semibold">{item.size}</span>
                     </p>
                   </div>
@@ -1377,7 +1409,10 @@ function MobileAvatarStrip({
         } />
       )}
       {viewMode === "photo" && isRegeneratingAvatar && (
-        <div className="absolute inset-0 z-[30] flex flex-col items-center justify-center gap-3 bg-black/55 backdrop-blur-sm">
+        <div
+          className="absolute inset-x-0 top-0 z-[19] flex flex-col items-center justify-center gap-3 bg-black/55 backdrop-blur-sm"
+          style={{ bottom: SHEET_H }}
+        >
           <Loader2 className="h-8 w-8 text-white animate-spin" />
           <p className="text-sm font-medium text-white">Regenerating…</p>
         </div>
@@ -1386,7 +1421,8 @@ function MobileAvatarStrip({
   );
 }
 
-/** Reusable full-cover overlay panel for mobile — stays within the phone frame. */
+/** Reusable full-cover overlay panel for mobile. Stays inside the widget frame, and stops at
+ *  the top of the chat sheet so its footer buttons are never covered by it. */
 function MobileInlinePanel({
   title,
   onClose,
@@ -1396,16 +1432,20 @@ function MobileInlinePanel({
   onClose: () => void;
   children: React.ReactNode;
 }) {
+  const styles = MOBILE_SURFACE[useWearableTheme()];
   return (
-    <div className="absolute inset-0 z-[20] bg-[#0a0910]/97 backdrop-blur-2xl flex flex-col">
-      <div className="flex items-center justify-between px-4 pt-4 pb-3 shrink-0 border-b border-white/[0.07]">
-        <p className="text-[13px] font-bold text-white">{title}</p>
-        <button type="button" onClick={onClose}
-          className="h-7 w-7 rounded-full bg-white/[0.10] flex items-center justify-center text-white/60 hover:text-white hover:bg-white/[0.16] transition-colors">
-          <X className="h-3.5 w-3.5" />
+    <div
+      className={cn("absolute inset-x-0 top-0 z-[20] flex flex-col backdrop-blur-2xl", styles.panel)}
+      style={{ bottom: SHEET_H }}
+    >
+      <div className={cn("flex items-center justify-between gap-2 border-b px-4 pt-4 pb-3 shrink-0", styles.panelBorder)}>
+        <p className={cn("text-[14px] font-bold", styles.panelTitle)}>{title}</p>
+        <button type="button" onClick={onClose} aria-label="Close"
+          className={cn("h-11 w-11 shrink-0 rounded-full flex items-center justify-center transition-colors", styles.panelClose)}>
+          <X className="h-4 w-4" />
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto px-4 py-4">
+      <div className={cn("flex-1 overflow-y-auto overscroll-contain scrollbar-none px-4 py-4", SAFE_BOTTOM)}>
         {children}
       </div>
     </div>

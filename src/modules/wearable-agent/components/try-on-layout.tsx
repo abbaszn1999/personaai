@@ -129,8 +129,9 @@ export function TryOnLayout({ viewportMode = "desktop", embed, theme = "dark", b
           className={cn("relative h-full min-h-0 overflow-hidden", theme === "dark" && "dark")}
           style={branding?.borderRadius ? { borderRadius: branding.borderRadius } : undefined}
         >
-          {embed && (
+          {embed && !agent.profileSubmitted && (
             <ProfileSwitcher
+              className="absolute right-3 top-3"
               profiles={agent.profiles}
               activeProfileId={agent.activeProfileId}
               maxProfiles={agent.maxProfiles}

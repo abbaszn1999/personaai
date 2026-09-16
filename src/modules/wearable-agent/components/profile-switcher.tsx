@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Check, Pencil, Plus, User, X } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
+import { useClickOutside } from "@/lib/hooks/use-click-outside";
 import { useWearableTheme } from "../theme-context";
 
 interface ProfileMeta {
@@ -50,12 +51,16 @@ interface ProfileSwitcherProps {
   onAdd: () => void;
   onRemove: (id: string) => void;
   onRename: (id: string, label: string) => void;
+  /** Positioning only — the popover itself is always `absolute` under the pill so it never
+   *  stretches a chat header. Pass `absolute right-3 top-3` for the onboarding overlay. */
+  className?: string;
+  /** Mobile's collapsed chat sheet is only ~72px tall, so the menu has to open upward
+   *  onto the avatar; everywhere else it opens down. */
+  menuPlacement?: "down" | "up";
 }
 
-/** Floating pill + popover for switching between up to `maxProfiles` local, login-free
- *  profiles (e.g. a parent shopping for themselves and their kids on one shared device).
- *  Deliberately self-contained and absolutely positioned so it can overlay the existing
- *  onboarding/chat surfaces without touching their internals. */
+/** Pill + popover for switching between up to `maxProfiles` local, login-free profiles
+ *  (e.g. a parent shopping for themselves and their kids on one shared device). */
 export function ProfileSwitcher({
   profiles,
   activeProfileId,
@@ -64,6 +69,8 @@ export function ProfileSwitcher({
   onAdd,
   onRemove,
   onRename,
+  className,
+  menuPlacement = "down",
 }: ProfileSwitcherProps) {
   const [open, setOpen] = React.useState(false);
   const [editingId, setEditingId] = React.useState<string | null>(null);
@@ -71,17 +78,14 @@ export function ProfileSwitcher({
   const rootRef = React.useRef<HTMLDivElement>(null);
   const styles = SWITCHER_STYLES[useWearableTheme()];
 
-  React.useEffect(() => {
-    if (!open) return;
-    function onPointerDown(e: PointerEvent) {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setEditingId(null);
-      }
-    }
-    window.addEventListener("pointerdown", onPointerDown);
-    return () => window.removeEventListener("pointerdown", onPointerDown);
-  }, [open]);
+  useClickOutside(
+    rootRef,
+    React.useCallback(() => {
+      setOpen(false);
+      setEditingId(null);
+    }, []),
+    open
+  );
 
   // Only worth showing once there's actually a choice to make or room to add one — a lone
   // profile with no room to grow would just be a confusing button that does nothing useful.
@@ -95,27 +99,32 @@ export function ProfileSwitcher({
   }
 
   return (
-    <div ref={rootRef} className="absolute left-3 top-3 z-40">
+    <div
+      ref={rootRef}
+      className={cn("relative z-40 shrink-0", className)}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "flex items-center gap-1.5 rounded-full border backdrop-blur-xl px-3 py-1.5 text-[11px] font-medium transition-colors",
+          "flex min-h-11 items-center gap-1.5 rounded-full border backdrop-blur-xl px-3.5 text-[12px] font-medium transition-colors",
           styles.pill
         )}
       >
-        <User className="h-3 w-3" />
-        {active?.label ?? "Profile"}
+        <User className="h-3.5 w-3.5 shrink-0" />
+        <span className="max-w-[88px] truncate">{active?.label ?? "Profile"}</span>
       </button>
 
       {open && (
         <div
           className={cn(
-            "mt-2 w-56 rounded-2xl border backdrop-blur-2xl p-2",
+            "absolute right-0 w-60 rounded-2xl border backdrop-blur-2xl p-2",
+            menuPlacement === "up" ? "bottom-full mb-2" : "top-full mt-2",
             styles.panel
           )}
         >
-          <p className={cn("px-1.5 pb-1.5 text-[9px] font-bold uppercase tracking-[0.16em]", styles.panelLabel)}>
+          <p className={cn("px-1.5 pb-1.5 text-[10px] font-bold uppercase tracking-[0.16em]", styles.panelLabel)}>
             Profiles ({profiles.length}/{maxProfiles})
           </p>
           <div className="space-y-1">
@@ -123,7 +132,7 @@ export function ProfileSwitcher({
               <div
                 key={p.id}
                 className={cn(
-                  "flex items-center gap-1.5 rounded-xl px-2 py-1.5 transition-colors",
+                  "flex min-h-12 items-center gap-1 rounded-xl px-2 transition-colors",
                   p.id === activeProfileId ? styles.rowActive : styles.row
                 )}
               >
@@ -138,7 +147,7 @@ export function ProfileSwitcher({
                     }}
                     onBlur={() => commitRename(p.id)}
                     className={cn(
-                      "flex-1 min-w-0 rounded-lg px-2 py-1 text-[12px] outline-none",
+                      "h-10 flex-1 min-w-0 rounded-lg px-2 text-[16px] outline-none",
                       styles.renameInput
                     )}
                   />
@@ -149,9 +158,9 @@ export function ProfileSwitcher({
                       onSwitch(p.id);
                       setOpen(false);
                     }}
-                    className={cn("flex-1 min-w-0 flex items-center gap-1.5 text-left text-[12px]", styles.rowText)}
+                    className={cn("flex min-h-12 flex-1 min-w-0 items-center gap-1.5 text-left text-[13px]", styles.rowText)}
                   >
-                    {p.id === activeProfileId && <Check className="h-3 w-3 shrink-0 text-[var(--color-brand)]" />}
+                    {p.id === activeProfileId && <Check className="h-3.5 w-3.5 shrink-0 text-[var(--color-brand)]" />}
                     <span className="truncate">{p.label}</span>
                   </button>
                 )}
@@ -165,11 +174,11 @@ export function ProfileSwitcher({
                       setDraftLabel(p.label);
                     }}
                     className={cn(
-                      "h-6 w-6 shrink-0 rounded-full flex items-center justify-center transition-colors",
+                      "h-10 w-10 shrink-0 rounded-full flex items-center justify-center transition-colors",
                       styles.iconButton
                     )}
                   >
-                    <Pencil className="h-3 w-3" />
+                    <Pencil className="h-3.5 w-3.5" />
                   </button>
                 )}
                 {profiles.length > 1 && editingId !== p.id && (
@@ -178,11 +187,11 @@ export function ProfileSwitcher({
                     title="Remove profile"
                     onClick={() => onRemove(p.id)}
                     className={cn(
-                      "h-6 w-6 shrink-0 rounded-full flex items-center justify-center transition-colors",
+                      "h-10 w-10 shrink-0 rounded-full flex items-center justify-center transition-colors",
                       styles.removeButton
                     )}
                   >
-                    <X className="h-3 w-3" />
+                    <X className="h-3.5 w-3.5" />
                   </button>
                 )}
               </div>
@@ -197,11 +206,11 @@ export function ProfileSwitcher({
                 setOpen(false);
               }}
               className={cn(
-                "mt-1.5 w-full flex items-center justify-center gap-1.5 rounded-xl border px-2 py-1.5 text-[11px] font-medium transition-colors",
+                "mt-1.5 min-h-11 w-full flex items-center justify-center gap-1.5 rounded-xl border px-2 text-[13px] font-medium transition-colors",
                 styles.addButton
               )}
             >
-              <Plus className="h-3 w-3" /> Add profile
+              <Plus className="h-3.5 w-3.5" /> Add profile
             </button>
           )}
         </div>
