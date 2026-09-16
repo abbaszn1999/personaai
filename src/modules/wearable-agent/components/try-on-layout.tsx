@@ -161,13 +161,6 @@ export function TryOnLayout({ viewportMode = "desktop", embed, theme = "dark", b
               onRename={agent.renameProfile}
             />
           )}
-          {agent.cartSyncError && (
-            <div className="pointer-events-none absolute inset-x-0 bottom-4 z-50 flex justify-center px-4">
-              <div className="max-w-[90%] rounded-2xl bg-red-500/95 px-4 py-2.5 text-xs font-medium leading-relaxed text-white shadow-lg backdrop-blur-sm">
-                {agent.cartSyncError}
-              </div>
-            </div>
-          )}
           {agent.profileSubmitted ? (
             <PreviewViewportShell mode={viewportMode} layout="full" frameless={!!embed}>
               <TryOnAgentChat agent={agent} viewportMode={viewportMode} embed={embed} workspaceId={workspaceId} />
@@ -196,6 +189,7 @@ export function TryOnLayout({ viewportMode = "desktop", embed, theme = "dark", b
                   variations={agent.avatarVariations}
                   selectedId={agent.selectedAvatarId}
                   customAvatarUrl={agent.customAvatarUrl}
+                  partialNote={agent.avatarPartialNote}
                   onSelect={agent.selectAvatar}
                   onUploadCustom={agent.uploadCustomAvatar}
                   onConfirm={agent.confirmAvatar}

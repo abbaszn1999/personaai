@@ -34,12 +34,37 @@ interface TryOnAgentChatProps {
 const AVATAR_PANEL_DEFAULT_WIDTH = 860;
 const AVATAR_PANEL_MIN_WIDTH = 820;
 const AVATAR_PANEL_MAX_WIDTH = 1100;
+const AVATAR_PANEL_WIDTH_STORAGE_KEY = "wearable-agent:avatar-panel-width";
+const RESIZE_KEY_STEP = 24;
 
-/** Drag-to-resize the avatar panel by grabbing the divider between the two columns. */
+function readStoredPanelWidth(): number {
+  if (typeof window === "undefined") return AVATAR_PANEL_DEFAULT_WIDTH;
+  const raw = window.localStorage.getItem(AVATAR_PANEL_WIDTH_STORAGE_KEY);
+  const parsed = raw ? Number(raw) : NaN;
+  if (!Number.isFinite(parsed)) return AVATAR_PANEL_DEFAULT_WIDTH;
+  return Math.min(AVATAR_PANEL_MAX_WIDTH, Math.max(AVATAR_PANEL_MIN_WIDTH, parsed));
+}
+
+/** Drag-to-resize the avatar panel by grabbing the divider between the two columns. Width
+ *  persists across sessions (desktop dashboard preview only — embeds always default) so a
+ *  merchant testing the layout doesn't have to redo it on every reload. */
 function useResizablePanel() {
   const [width, setWidth] = React.useState(AVATAR_PANEL_DEFAULT_WIDTH);
   const [isDragging, setIsDragging] = React.useState(false);
   const dragState = React.useRef({ startX: 0, startWidth: AVATAR_PANEL_DEFAULT_WIDTH });
+
+  React.useEffect(() => {
+    setWidth(readStoredPanelWidth());
+  }, []);
+
+  const persist = React.useCallback((next: number) => {
+    try {
+      window.localStorage.setItem(AVATAR_PANEL_WIDTH_STORAGE_KEY, String(next));
+    } catch {
+      // Storage can throw in locked-down/incognito contexts — resizing still works for the
+      // session, it just won't be remembered next time.
+    }
+  }, []);
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     dragState.current = { startX: e.clientX, startWidth: width };
@@ -58,9 +83,29 @@ function useResizablePanel() {
     setWidth(next);
   };
 
-  const onPointerUp = () => setIsDragging(false);
+  const onPointerUp = () => {
+    setIsDragging(false);
+    persist(width);
+  };
 
-  return { width, isDragging, onPointerDown, onPointerMove, onPointerUp };
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    // Left/Right move the divider itself; since dragging it left *grows* the panel, Left
+    // grows and Right shrinks to match the pointer behavior above.
+    let delta = 0;
+    if (e.key === "ArrowLeft") delta = RESIZE_KEY_STEP;
+    else if (e.key === "ArrowRight") delta = -RESIZE_KEY_STEP;
+    else if (e.key === "Home") delta = AVATAR_PANEL_MAX_WIDTH;
+    else if (e.key === "End") delta = -AVATAR_PANEL_MAX_WIDTH;
+    else return;
+    e.preventDefault();
+    setWidth((w) => {
+      const next = Math.min(AVATAR_PANEL_MAX_WIDTH, Math.max(AVATAR_PANEL_MIN_WIDTH, w + delta));
+      persist(next);
+      return next;
+    });
+  };
+
+  return { width, isDragging, onPointerDown, onPointerMove, onPointerUp, onKeyDown };
 }
 
 export function TryOnAgentChat({ agent, viewportMode = "desktop", embed, workspaceId }: TryOnAgentChatProps) {
@@ -116,7 +161,14 @@ export function TryOnAgentChat({ agent, viewportMode = "desktop", embed, workspa
   }
 
   return (
-    <div className="flex h-full min-h-0 overflow-hidden">
+    <div className="relative flex h-full min-h-0 overflow-hidden">
+      {agent.cartSyncError && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-4 z-50 flex justify-center px-4">
+          <div className="max-w-[90%] rounded-2xl bg-red-500/95 px-4 py-2.5 text-xs font-medium leading-relaxed text-white shadow-lg backdrop-blur-sm">
+            {agent.cartSyncError}
+          </div>
+        </div>
+      )}
       <StyleChatPanel
         agent={agent}
         outfitItemIds={outfitItemIds}
@@ -128,17 +180,23 @@ export function TryOnAgentChat({ agent, viewportMode = "desktop", embed, workspa
       <div
         role="separator"
         aria-orientation="vertical"
+        aria-label="Resize avatar panel"
+        aria-valuenow={resizer.width}
+        aria-valuemin={AVATAR_PANEL_MIN_WIDTH}
+        aria-valuemax={AVATAR_PANEL_MAX_WIDTH}
+        tabIndex={0}
         onPointerDown={resizer.onPointerDown}
         onPointerMove={resizer.onPointerMove}
         onPointerUp={resizer.onPointerUp}
-        className="group relative w-4 shrink-0 cursor-col-resize flex items-center justify-center touch-none"
+        onKeyDown={resizer.onKeyDown}
+        className="group relative w-4 shrink-0 cursor-col-resize flex items-center justify-center touch-none focus-visible:outline-none"
       >
         <div
           className={cn(
             "h-14 w-[5px] rounded-full transition-colors",
             resizer.isDragging
               ? "bg-[var(--color-brand)]"
-              : "bg-[var(--color-border)] group-hover:bg-[var(--color-brand)]/60"
+              : "bg-[var(--color-border)] group-hover:bg-[var(--color-brand)]/60 group-focus-visible:bg-[var(--color-brand)]"
           )}
         />
         <GripVertical
@@ -430,6 +488,17 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
           workspaceId={workspaceId}
         />
       </div>
+
+      {agent.cartSyncError && (
+        <div
+          className="pointer-events-none absolute inset-x-0 z-40 flex justify-center px-4"
+          style={{ bottom: `calc(${SHEET_H} + 10px)` }}
+        >
+          <div className="max-w-[90%] rounded-2xl bg-red-500/95 px-4 py-2.5 text-xs font-medium leading-relaxed text-white shadow-lg backdrop-blur-sm">
+            {agent.cartSyncError}
+          </div>
+        </div>
+      )}
 
       {/* ── Layer 1: Bottom sheet chat ── */}
       <div

@@ -6,6 +6,7 @@ import { Check, Loader2, Plus, ShoppingBag } from "lucide-react";
 import type { Product } from "@/modules/shopping-agent/types";
 import { formatPrice } from "@/modules/shopping-agent/constants";
 import { cn } from "@/lib/utils/cn";
+import { useClickOutside } from "@/lib/hooks/use-click-outside";
 
 export interface ActiveLookItem {
   product: Product;
@@ -29,8 +30,9 @@ const EDGE_PADDING = 10;
 
 export function GarmentHotspot({ item, inCart, isPending = false, onAddToCart }: GarmentHotspotProps) {
   const [isOpen, setIsOpen] = React.useState(false);
-  const [side, setSide] = React.useState<"left" | "right">("right");
+  const [placement, setPlacement] = React.useState({ left: GAP, top: 0, width: CARD_WIDTH });
   const rootRef = React.useRef<HTMLDivElement>(null);
+  const cardRef = React.useRef<HTMLDivElement>(null);
   const closeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Using a delayed close so the mouse can travel from the dot across the gap
@@ -46,28 +48,54 @@ export function GarmentHotspot({ item, inCart, isPending = false, onAddToCart }:
   }
 
   React.useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current); }, []);
+  useClickOutside(rootRef, React.useCallback(() => setIsOpen(false), []), isOpen);
 
-  // Picks the side with room the moment the card opens, from the *actual* pixel width of the
-  // photo frame it's positioned against — not a fixed "past 55% of the panel" guess. That
-  // guess assumed a wide desktop panel; on a ~390px phone frame a hotspot sitting at even 35%
-  // from the left already has less than the card's own 208px + gap of room to its right, so it
-  // opened off the edge and got clipped exactly as reported (name, price and the Add to Cart
-  // button all cut off).
+  // Compute an exact position inside the visible avatar area. Picking only "left" or "right"
+  // is not enough on a phone: a hotspot around the middle can have less than 208px available
+  // on *both* sides. We first choose the more natural side, then clamp the resulting card box
+  // to the frame's edges. The vertical calculation also subtracts `--sheet-h`, because that
+  // part of the avatar is physically covered by the chat sheet even though it is still part of
+  // the hotspot layer's DOM box.
   React.useLayoutEffect(() => {
     if (!isOpen) return;
-    const parent = rootRef.current?.offsetParent as HTMLElement | null;
-    if (!parent) return;
-    const leftPx = (parseFloat(item.position.left) / 100) * parent.clientWidth;
-    const fitsRight = leftPx + GAP + CARD_WIDTH + EDGE_PADDING <= parent.clientWidth;
-    setSide(fitsRight ? "right" : "left");
-  }, [isOpen, item.position.left]);
+    const root = rootRef.current;
+    const card = cardRef.current;
+    const parent = root?.offsetParent as HTMLElement | null;
+    if (!root || !card || !parent) return;
 
-  // Same idea vertically, without needing to measure the card's own height (which depends on
-  // a 1- vs 2-line product name): a dot near the top or bottom of a short mobile frame can't
-  // support a card centred on it without spilling past that edge, so anchor the card's own
-  // top/bottom edge to the dot instead of straddling it in those zones.
-  const topPct = parseFloat(item.position.top);
-  const vAlign = topPct < 30 ? "top" : topPct > 70 ? "bottom" : "center";
+    const update = () => {
+      // offsetLeft/Top and clientWidth/Height are all in the same CSS-pixel coordinate space.
+      // Mixing boundingClientRect (post-transform pixels) with clientWidth (pre-transform
+      // pixels) would break this math if the dashboard preview is ever scaled.
+      const anchorX = root.offsetLeft;
+      const anchorY = root.offsetTop;
+      const width = Math.min(CARD_WIDTH, Math.max(160, parent.clientWidth - EDGE_PADDING * 2));
+      const cardHeight = card.getBoundingClientRect().height;
+
+      const roomRight = parent.clientWidth - anchorX;
+      const preferredLeft = roomRight >= anchorX ? anchorX + GAP : anchorX - GAP - width;
+      const globalLeft = Math.max(
+        EDGE_PADDING,
+        Math.min(parent.clientWidth - EDGE_PADDING - width, preferredLeft)
+      );
+
+      const sheetHeight = parseFloat(getComputedStyle(parent).getPropertyValue("--sheet-h")) || 0;
+      const visibleHeight = Math.max(0, parent.clientHeight - sheetHeight);
+      const preferredTop = anchorY - cardHeight / 2;
+      const globalTop = Math.max(
+        EDGE_PADDING,
+        Math.min(Math.max(EDGE_PADDING, visibleHeight - EDGE_PADDING - cardHeight), preferredTop)
+      );
+
+      setPlacement({ left: globalLeft - anchorX, top: globalTop - anchorY, width });
+    };
+
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(parent);
+    observer.observe(card);
+    return () => observer.disconnect();
+  }, [isOpen, item.position.left, item.position.top]);
 
   return (
     <div
@@ -82,7 +110,10 @@ export function GarmentHotspot({ item, inCart, isPending = false, onAddToCart }:
         onClick={() => { cancelClose(); setIsOpen((v) => !v); }}
         onMouseEnter={() => { cancelClose(); setIsOpen(true); }}
         onMouseLeave={scheduleClose}
+        onFocus={() => { cancelClose(); setIsOpen(true); }}
+        onBlur={scheduleClose}
         aria-label={`${item.product.name} — view details`}
+        aria-expanded={isOpen}
         className="relative -translate-x-1/2 -translate-y-1/2 h-11 w-11 flex items-center justify-center group"
       >
         <span className="absolute inset-0 m-auto h-7 w-7 rounded-full bg-white/50 animate-ping" />
@@ -103,17 +134,16 @@ export function GarmentHotspot({ item, inCart, isPending = false, onAddToCart }:
       {/* Popover card — enters the same mouse-zone so moving from dot→card cancels close */}
       {isOpen && (
         <div
+          ref={cardRef}
           onMouseEnter={cancelClose}
           onMouseLeave={scheduleClose}
-          style={{ width: CARD_WIDTH }}
+          onFocus={cancelClose}
+          onBlur={scheduleClose}
+          style={{ width: placement.width, left: placement.left, top: placement.top }}
           className={cn(
             "absolute rounded-xl border border-white/15",
             "bg-[rgba(10,8,14,0.96)] backdrop-blur-2xl shadow-[0_16px_40px_rgba(0,0,0,0.6)]",
-            "p-3 z-[30] animate-fade-in",
-            side === "left" ? "right-[calc(100%+10px)]" : "left-[calc(100%+10px)]",
-            vAlign === "top" && "top-0",
-            vAlign === "bottom" && "bottom-0",
-            vAlign === "center" && "top-1/2 -translate-y-1/2"
+            "p-3 z-[30] animate-fade-in"
           )}
         >
           <div className="flex gap-2.5">

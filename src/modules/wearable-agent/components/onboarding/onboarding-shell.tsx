@@ -5,6 +5,7 @@ import { ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import type { OnboardingPhase } from "@/modules/wearable-agent/types";
 import { useKeepFocusedFieldVisible } from "@/lib/hooks/use-visual-viewport";
+import { SAFE_BOTTOM } from "../../mobile-surface";
 
 /** Steps that get the shared chrome (back button + progress dots + slide transition). Avatar
  *  generation and selection keep their own full-bleed screens, unchanged from before. */
@@ -43,18 +44,25 @@ export function OnboardingShell({ step, onBack, footer, children }: OnboardingSh
   useKeepFocusedFieldVisible(rootRef);
 
   return (
-    <div ref={rootRef} className="flex flex-col gap-6 px-6 py-8">
+    <div ref={rootRef} className="flex flex-col gap-6 px-6 py-8 overscroll-contain">
       {stepIndex > 0 && (
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={onBack}
             aria-label="Go back"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--color-border)] text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-base)] hover:text-[var(--color-text-primary)]"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[var(--color-border)] text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-base)] hover:text-[var(--color-text-primary)]"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
-          <div className="flex flex-1 items-center justify-center gap-1.5" role="progressbar" aria-valuenow={stepIndex} aria-valuemin={1} aria-valuemax={STEP_SEQUENCE.length - 1}>
+          <div
+            className="flex flex-1 items-center justify-center gap-1.5"
+            role="progressbar"
+            aria-label="Onboarding progress"
+            aria-valuenow={stepIndex}
+            aria-valuemin={1}
+            aria-valuemax={STEP_SEQUENCE.length - 1}
+          >
             {STEP_SEQUENCE.slice(1).map((s, i) => (
               <span
                 key={s}
@@ -65,7 +73,7 @@ export function OnboardingShell({ step, onBack, footer, children }: OnboardingSh
               />
             ))}
           </div>
-          <div className="h-9 w-9 shrink-0" aria-hidden />
+          <div className="h-11 w-11 shrink-0" aria-hidden />
         </div>
       )}
 
@@ -73,7 +81,7 @@ export function OnboardingShell({ step, onBack, footer, children }: OnboardingSh
         {children}
       </div>
 
-      {footer && <div className="flex flex-col items-center gap-2 pt-1">{footer}</div>}
+      {footer && <div className={cn("flex flex-col items-center gap-2 pt-1", SAFE_BOTTOM)}>{footer}</div>}
     </div>
   );
 }

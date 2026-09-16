@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Image from "next/image";
-import { ArrowRight, Check, Upload, UserRound } from "lucide-react";
+import { AlertCircle, ArrowRight, Check, Upload, UserRound } from "lucide-react";
 import type { AvatarVariation } from "@/modules/wearable-agent/types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils/cn";
@@ -11,6 +11,7 @@ interface AvatarVariationPickerProps {
   variations: AvatarVariation[];
   selectedId: string | null;
   customAvatarUrl: string | null;
+  partialNote?: string | null;
   onSelect: (id: string) => void;
   onUploadCustom: (file: File) => void;
   onConfirm: () => void;
@@ -35,6 +36,7 @@ export function AvatarVariationPicker({
   variations,
   selectedId,
   customAvatarUrl,
+  partialNote,
   onSelect,
   onUploadCustom,
   onConfirm,
@@ -59,6 +61,13 @@ export function AvatarVariationPicker({
           Pick the standing model that best matches you. This becomes your try-on mannequin on the right side during shopping.
         </p>
       </div>
+
+      {partialNote && (
+        <div className="flex items-center justify-center gap-2 rounded-[var(--radius-lg)] border border-[var(--color-warning,#e0a300)]/30 bg-[var(--color-warning-light,rgba(224,163,0,0.1))] px-4 py-2.5 text-center text-xs text-[var(--color-text-secondary)]">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0 text-[var(--color-warning,#e0a300)]" />
+          {partialNote}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {variations.map((variation) => {

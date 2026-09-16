@@ -8,14 +8,12 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Heart,
   Image as ImageIcon,
   ImageUp,
   Loader2,
   Maximize2,
   Palette,
   Pencil,
-  Share2,
   ShoppingBag,
   X,
 } from "lucide-react";
@@ -165,10 +163,19 @@ export function AvatarMannequinPanel({
 
   useClickOutside(bgPickerRef, React.useCallback(() => setIsBgPickerOpen(false), []), isBgPickerOpen);
 
+  const fullscreenCloseRef = React.useRef<HTMLButtonElement>(null);
   React.useEffect(() => {
     if (!isFullscreen) return;
+    // Single-control dialog — the close button is the only focusable element, so trapping
+    // focus just means grabbing it on open and pulling it back on every Tab press rather
+    // than letting focus escape to whatever sits behind the overlay.
+    fullscreenCloseRef.current?.focus();
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") setIsFullscreen(false);
+      else if (e.key === "Tab") {
+        e.preventDefault();
+        fullscreenCloseRef.current?.focus();
+      }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -292,11 +299,25 @@ export function AvatarMannequinPanel({
     size: item.size,
   }));
 
+  const bulkAddingRef = React.useRef(false);
+
   function handleAddAllToCart() {
+    bulkAddingRef.current = true;
     activeItems.forEach((item) => handleBulkAddToCart(item.product));
-    setJustAddedAll(true);
-    setTimeout(() => setJustAddedAll(false), 2000);
   }
+
+  // Confirms "Added to Cart" against the actual cart state once every item this click
+  // started has finished settling — not a blind timer, so a real add failure (surfaced via
+  // agent.cartSyncError elsewhere) never gets papered over with a false success message.
+  React.useEffect(() => {
+    if (!bulkAddingRef.current || anyPendingInCart) return;
+    bulkAddingRef.current = false;
+    const allAdded = activeItems.length > 0 && activeItems.every((item) => cartItemIds.has(item.product.id));
+    if (!allAdded) return;
+    setJustAddedAll(true);
+    const timer = setTimeout(() => setJustAddedAll(false), 2000);
+    return () => clearTimeout(timer);
+  }, [anyPendingInCart, cartItemIds, activeItems]);
 
   // ─── Mobile avatar strip ─────────────────────────────────────────────────
   if (mobile) {
@@ -415,7 +436,7 @@ export function AvatarMannequinPanel({
           wrapper so empty space lets clicks/drags reach the photo underneath (e.g. panning);
           each hotspot dot opts back in with its own pointer-events-auto. ── */}
       {viewMode === "photo" && !isGenerating && !isRegeneratingAvatar && (
-        <div className="absolute inset-y-0 left-0 z-[8] pointer-events-none" style={{ aspectRatio: "1024 / 1536" }}>
+        <div className="absolute inset-y-0 left-0 z-[18] pointer-events-none" style={{ aspectRatio: "1024 / 1536" }}>
           {activeItems.map((item) => (
             <GarmentHotspot
               key={item.product.id}
@@ -428,23 +449,6 @@ export function AvatarMannequinPanel({
         </div>
       )}
 
-      {/* ── Top-right: Save / Share ── */}
-      {viewMode === "photo" && <div className="absolute top-5 right-5 z-[20] flex items-center gap-2">
-        {[
-          { icon: Heart, label: "Save Look" },
-          { icon: Share2, label: "Share" },
-        ].map(({ icon: Icon, label }) => (
-          <button
-            key={label}
-            type="button"
-            className="flex items-center gap-1.5 rounded-full border border-white/[0.15] bg-black/40 backdrop-blur-xl px-3 py-1.5 text-[11px] font-medium text-white/75 hover:text-white hover:bg-white/[0.12] transition-colors shadow-[0_4px_12px_rgba(0,0,0,0.3)]"
-          >
-            <Icon className="h-3 w-3" />
-            {label}
-          </button>
-        ))}
-      </div>}
-
       {/* ── Left toolbar ── */}
       <div ref={bgPickerRef} className="absolute left-5 top-1/2 -translate-y-1/2 z-[20] flex flex-col items-center gap-3">
         <div
@@ -456,6 +460,7 @@ export function AvatarMannequinPanel({
               <button
                 type="button"
                 title="Change background"
+                aria-label="Change background"
                 onClick={() => setIsBgPickerOpen((v) => !v)}
                 className={cn(
                   "h-9 w-9 rounded-full flex items-center justify-center transition-all",
@@ -474,6 +479,7 @@ export function AvatarMannequinPanel({
                     key={mode.id}
                     type="button"
                     title={mode.label}
+                    aria-label={mode.label}
                     onClick={() => handleToolbarAction(mode.id)}
                     className="relative h-9 w-9 rounded-full flex items-center justify-center transition-all text-white/50 hover:text-white/90 hover:bg-white/[0.08] active:scale-90"
                   >
@@ -492,6 +498,7 @@ export function AvatarMannequinPanel({
               key={mode.id}
               type="button"
               title={mode.label}
+              aria-label={mode.label}
               onClick={() => changeViewMode(mode.id)}
               className={cn(
                 "h-9 w-9 rounded-full flex items-center justify-center transition-all",
@@ -800,6 +807,9 @@ export function AvatarMannequinPanel({
 
       {isFullscreen && (
         <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Fullscreen avatar preview"
           className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 backdrop-blur-md p-6"
           onClick={() => setIsFullscreen(false)}
         >
@@ -823,10 +833,12 @@ export function AvatarMannequinPanel({
             />
           )}
           <button
+            ref={fullscreenCloseRef}
             type="button"
             onClick={() => setIsFullscreen(false)}
             title="Close (Esc)"
-            className="absolute top-5 right-5 h-10 w-10 rounded-full bg-white/10 border border-white/20 text-white flex items-center justify-center backdrop-blur-md hover:bg-white/20 transition-colors"
+            aria-label="Close fullscreen preview"
+            className="absolute top-5 right-5 h-11 w-11 rounded-full bg-white/10 border border-white/20 text-white flex items-center justify-center backdrop-blur-md hover:bg-white/20 transition-colors"
           >
             <X className="h-4 w-4" />
           </button>
@@ -993,7 +1005,7 @@ function MobileAvatarStrip({
 
       {/* ── Hotspot pins — absolute inset-0 matches the cover-filled image exactly ── */}
       {viewMode === "photo" && !isGenerating && !isRegeneratingAvatar && (
-        <div className="absolute inset-0 z-[8] pointer-events-none">
+        <div className="absolute inset-0 z-[18] pointer-events-none">
           {activeItems.map((item) => (
             <GarmentHotspot
               key={item.product.id}
@@ -1281,11 +1293,14 @@ function MobileAvatarStrip({
 
       {/* ── Wear scan / regenerating overlays ── */}
       {viewMode === "photo" && isGenerating && !isRegeneratingAvatar && (
-        <AvatarWearScanOverlay itemLabel={
-          outfitItems.length > 0
-            ? outfitItems.map((p) => p.name).join(" · ")
-            : activeItems.map((i) => i.product.name).join(" · ")
-        } />
+        <AvatarWearScanOverlay
+          mobile
+          itemLabel={
+            outfitItems.length > 0
+              ? outfitItems.map((p) => p.name).join(" · ")
+              : activeItems.map((i) => i.product.name).join(" · ")
+          }
+        />
       )}
       {viewMode === "photo" && isRegeneratingAvatar && (
         <div

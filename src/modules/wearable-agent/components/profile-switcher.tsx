@@ -75,7 +75,10 @@ export function ProfileSwitcher({
   const [open, setOpen] = React.useState(false);
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [draftLabel, setDraftLabel] = React.useState("");
+  const [confirmRemoveId, setConfirmRemoveId] = React.useState<string | null>(null);
   const rootRef = React.useRef<HTMLDivElement>(null);
+  const panelRef = React.useRef<HTMLDivElement>(null);
+  const [panelOffsetX, setPanelOffsetX] = React.useState(0);
   const styles = SWITCHER_STYLES[useWearableTheme()];
 
   useClickOutside(
@@ -83,9 +86,27 @@ export function ProfileSwitcher({
     React.useCallback(() => {
       setOpen(false);
       setEditingId(null);
+      setConfirmRemoveId(null);
     }, []),
     open
   );
+
+  // The popover is anchored `right-0` under the pill, which overflows the widget's left edge
+  // once the pill itself sits close to that edge (narrow mobile frames, or the switcher docked
+  // top-left elsewhere). Nudge it back inside the nearest scrollable/embed boundary instead of
+  // letting it clip.
+  React.useLayoutEffect(() => {
+    if (!open || !panelRef.current) {
+      setPanelOffsetX(0);
+      return;
+    }
+    const rect = panelRef.current.getBoundingClientRect();
+    const margin = 8;
+    let shift = 0;
+    if (rect.left < margin) shift = margin - rect.left;
+    else if (rect.right > window.innerWidth - margin) shift = window.innerWidth - margin - rect.right;
+    setPanelOffsetX(shift);
+  }, [open]);
 
   // Only worth showing once there's actually a choice to make or room to add one — a lone
   // profile with no room to grow would just be a confusing button that does nothing useful.
@@ -108,6 +129,9 @@ export function ProfileSwitcher({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Switch profile — currently ${active?.label || "Profile"}`}
         className={cn(
           "flex min-h-11 items-center gap-1.5 rounded-full border backdrop-blur-xl px-3.5 text-[12px] font-medium transition-colors",
           styles.pill
@@ -119,6 +143,8 @@ export function ProfileSwitcher({
 
       {open && (
         <div
+          ref={panelRef}
+          style={panelOffsetX ? { transform: `translateX(${panelOffsetX}px)` } : undefined}
           className={cn(
             "absolute right-0 w-60 rounded-2xl border backdrop-blur-2xl p-2",
             menuPlacement === "up" ? "bottom-full mb-2" : "top-full mt-2",
@@ -152,6 +178,10 @@ export function ProfileSwitcher({
                       styles.renameInput
                     )}
                   />
+                ) : confirmRemoveId === p.id ? (
+                  <p className={cn("flex-1 min-w-0 truncate text-[12px] font-medium", styles.rowText)}>
+                    Delete &ldquo;{p.label}&rdquo;? Chat &amp; avatar can&apos;t be recovered.
+                  </p>
                 ) : (
                   <button
                     type="button"
@@ -166,10 +196,11 @@ export function ProfileSwitcher({
                   </button>
                 )}
 
-                {editingId !== p.id && (
+                {editingId !== p.id && confirmRemoveId !== p.id && (
                   <button
                     type="button"
                     title="Rename"
+                    aria-label={`Rename ${p.label}`}
                     onClick={() => {
                       setEditingId(p.id);
                       setDraftLabel(p.label);
@@ -182,11 +213,12 @@ export function ProfileSwitcher({
                     <Pencil className="h-3.5 w-3.5" />
                   </button>
                 )}
-                {profiles.length > 1 && editingId !== p.id && (
+                {profiles.length > 1 && editingId !== p.id && confirmRemoveId !== p.id && (
                   <button
                     type="button"
                     title="Remove profile"
-                    onClick={() => onRemove(p.id)}
+                    aria-label={`Remove ${p.label}`}
+                    onClick={() => setConfirmRemoveId(p.id)}
                     className={cn(
                       "h-10 w-10 shrink-0 rounded-full flex items-center justify-center transition-colors",
                       styles.removeButton
@@ -194,6 +226,34 @@ export function ProfileSwitcher({
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
+                )}
+                {confirmRemoveId === p.id && (
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      title={`Confirm removing ${p.label}`}
+                      aria-label={`Confirm removing ${p.label}`}
+                      onClick={() => {
+                        onRemove(p.id);
+                        setConfirmRemoveId(null);
+                      }}
+                      className="h-10 rounded-full bg-red-500/90 px-3 text-[11px] font-semibold text-white hover:bg-red-500 transition-colors"
+                    >
+                      Remove
+                    </button>
+                    <button
+                      type="button"
+                      title="Cancel"
+                      aria-label="Cancel removing profile"
+                      onClick={() => setConfirmRemoveId(null)}
+                      className={cn(
+                        "h-10 w-10 shrink-0 rounded-full flex items-center justify-center transition-colors",
+                        styles.iconButton
+                      )}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 )}
               </div>
             ))}

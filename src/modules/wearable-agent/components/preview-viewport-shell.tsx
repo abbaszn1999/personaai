@@ -62,7 +62,7 @@ export function PreviewViewportShell({
   }
 
   return (
-    <div className="flex h-full min-h-0 items-center justify-center overflow-y-auto py-6 sidebar-scroll">
+    <div className="flex h-full min-h-0 items-center justify-center overflow-y-auto overscroll-contain py-6 sidebar-scroll">
       <div
         className={cn(
           "w-full max-w-2xl rounded-[var(--radius-2xl)] border border-[var(--color-border)]",

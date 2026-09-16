@@ -20,6 +20,10 @@ const SWEEP_DURATION_MS = 2200;
 
 interface AvatarWearScanOverlayProps {
   itemLabel?: string;
+  /** Desktop reserves a fixed 268px info-card gutter on the right, so the corner brackets stop
+   *  short of it; mobile has no such gutter — the avatar fills the full width — so the right
+   *  brackets should hug the real edge instead of leaving a huge unexplained gap. */
+  mobile?: boolean;
 }
 
 // Brand-derived translucent tints — `--color-brand` is overridden per-merchant on the embed
@@ -29,7 +33,7 @@ const brandAlpha = (pct: number) => `color-mix(in srgb, var(--color-brand) ${pct
 /** Full-panel scan animation shown while a garment is being fitted onto the avatar — the
  *  beam sweeps down then back up on a loop for as long as fitting is in progress, rather
  *  than a single top→bottom pass that finishes and sits idle while the real render continues. */
-export function AvatarWearScanOverlay({ itemLabel }: AvatarWearScanOverlayProps) {
+export function AvatarWearScanOverlay({ itemLabel, mobile = false }: AvatarWearScanOverlayProps) {
   const [beamPosition, setBeamPosition] = React.useState(0);
   const [stageIndex, setStageIndex] = React.useState(0);
 
@@ -94,12 +98,17 @@ export function AvatarWearScanOverlay({ itemLabel }: AvatarWearScanOverlayProps)
 
       {/* Corner brackets — HUD frame */}
       <div className="absolute top-6 left-6 h-10 w-10 border-t-2 border-l-2 border-[var(--color-brand)]/70 rounded-tl-sm" />
-      <div className="absolute top-6 right-[268px] h-10 w-10 border-t-2 border-r-2 border-[var(--color-brand)]/70 rounded-tr-sm" />
+      <div className={cn("absolute top-6 h-10 w-10 border-t-2 border-r-2 border-[var(--color-brand)]/70 rounded-tr-sm", mobile ? "right-6" : "right-[268px]")} />
       <div className="absolute bottom-6 left-6 h-10 w-10 border-b-2 border-l-2 border-[var(--color-brand)]/70 rounded-bl-sm" />
-      <div className="absolute bottom-6 right-[268px] h-10 w-10 border-b-2 border-r-2 border-[var(--color-brand)]/70 rounded-br-sm" />
+      <div className={cn("absolute bottom-6 h-10 w-10 border-b-2 border-r-2 border-[var(--color-brand)]/70 rounded-br-sm", mobile ? "right-6" : "right-[268px]")} />
 
       {/* Status card — top-left */}
-      <div className="absolute top-8 left-10 z-[31] max-w-[280px] rounded-2xl border border-white/10 bg-[rgba(10,8,14,0.78)] backdrop-blur-xl px-4 py-3 shadow-[0_12px_40px_rgba(0,0,0,0.45)]">
+      <div
+        className={cn(
+          "absolute z-[31] rounded-2xl border border-white/10 bg-[rgba(10,8,14,0.78)] backdrop-blur-xl px-4 py-3 shadow-[0_12px_40px_rgba(0,0,0,0.45)]",
+          mobile ? "top-4 left-4 right-4 max-w-none" : "top-8 left-10 max-w-[280px]"
+        )}
+      >
         <div className="flex items-center gap-2 mb-2">
           <div className="h-7 w-7 rounded-full bg-[var(--color-brand)]/20 flex items-center justify-center">
             <ScanLine className="h-3.5 w-3.5 text-[var(--color-brand)]" />

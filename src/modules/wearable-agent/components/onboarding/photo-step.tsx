@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ShieldCheck, Upload, User } from "lucide-react";
+import { AlertCircle, ShieldCheck, Upload, User } from "lucide-react";
 import Image from "next/image";
 import type { TryOnProfile } from "@/modules/wearable-agent/types";
 
@@ -11,15 +11,42 @@ interface PhotoStepProps {
   onChange: (patch: Partial<TryOnProfile>) => void;
 }
 
+const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const MAX_BYTES = 10 * 1024 * 1024;
+
 /** Last onboarding step, not the first — a shopper who has already answered three easy
  *  questions is far likelier to finish uploading a photo than one asked for it cold. */
 export function PhotoStep({ profile, error, onChange }: PhotoStepProps) {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [localError, setLocalError] = React.useState<string | null>(null);
+  const objectUrlRef = React.useRef<string | null>(null);
+
+  React.useEffect(
+    () => () => {
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+    },
+    []
+  );
 
   function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
+
+    setLocalError(null);
+
+    if (!ACCEPTED_TYPES.includes(file.type)) {
+      setLocalError("Please upload a JPEG, PNG, or WEBP image.");
+      return;
+    }
+    if (file.size > MAX_BYTES) {
+      setLocalError("That photo is too large — please use one under 10MB.");
+      return;
+    }
+
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
     const url = URL.createObjectURL(file);
+    objectUrlRef.current = url;
     onChange({ photoUrl: url });
 
     const reader = new FileReader();
@@ -28,9 +55,16 @@ export function PhotoStep({ profile, error, onChange }: PhotoStepProps) {
       const photoBase64 = result?.includes(",") ? result.split(",")[1] : result;
       onChange({ photoBase64: photoBase64 ?? null, photoMimeType: file.type });
     };
+    reader.onerror = () => {
+      setLocalError("Couldn't read that photo — please try a different file.");
+      onChange({ photoUrl: null, photoBase64: null, photoMimeType: null });
+    };
     reader.readAsDataURL(file);
+  }
 
-    e.target.value = "";
+  function handleImgError() {
+    setLocalError("That photo couldn't be loaded — please pick another one.");
+    onChange({ photoUrl: null, photoBase64: null, photoMimeType: null });
   }
 
   return (
@@ -51,7 +85,15 @@ export function PhotoStep({ profile, error, onChange }: PhotoStepProps) {
       >
         {profile.photoUrl ? (
           <div className="relative h-28 w-28 overflow-hidden rounded-full border-2 border-[var(--color-wearable-from)]">
-            <Image src={profile.photoUrl} alt="Your face" fill className="object-cover" unoptimized />
+            <Image
+              src={profile.photoUrl}
+              alt="Your face"
+              fill
+              sizes="112px"
+              className="object-cover"
+              unoptimized
+              onError={handleImgError}
+            />
           </div>
         ) : (
           <>
@@ -81,9 +123,10 @@ export function PhotoStep({ profile, error, onChange }: PhotoStepProps) {
         Your photo is used to build your avatar, then discarded — never stored.
       </p>
 
-      {error && (
-        <div className="rounded-[var(--radius-lg)] border border-[var(--color-error)]/30 bg-[var(--color-error-light)] px-4 py-3 text-center text-sm text-[var(--color-error)]">
-          {error}
+      {(localError || error) && (
+        <div className="flex items-center justify-center gap-2 rounded-[var(--radius-lg)] border border-[var(--color-error)]/30 bg-[var(--color-error-light)] px-4 py-3 text-center text-sm text-[var(--color-error)]">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          {localError || error}
         </div>
       )}
     </div>

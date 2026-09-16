@@ -19,6 +19,11 @@ import { getOrCreateEmbedSessionId, loadEmbedState, saveEmbedState } from "@/lib
 import { addItemToWooCommerceCart } from "@/lib/woocommerce/store-api-client";
 import { addItemToShopifyCart } from "@/lib/shopify/ajax-cart-client";
 
+// Mirrors DEFAULT_AVATAR_VARIATION_COUNT in src/lib/agents/persona-agent.ts — kept as a local
+// literal rather than importing that module, since this hook ships in the client widget bundle
+// and persona-agent.ts pulls in server-only deps (sharp, the Pruna client) that must never be
+// bundled for the browser.
+const EXPECTED_AVATAR_VARIATION_COUNT = 4;
 const GENERIC_AVATAR_ERROR = "We couldn't generate your avatar. Please try again.";
 const GENERIC_TRYON_ERROR = "Sorry, I couldn't generate your try-on preview. Please try again.";
 const GENERIC_CHAT_ERROR = "Sorry, something went wrong on my end. Please try that again.";
@@ -362,6 +367,10 @@ interface TryOnAgentState {
   avatarVariations: AvatarVariation[];
   /** Set when the real avatar generation request fails — cleared on the next attempt. */
   avatarGenerationError: string | null;
+  /** Non-blocking heads-up shown on the avatar-selection screen when at least one style landed
+   *  but fewer than the full set did — the picker is still usable, this just explains why it
+   *  shows 2-3 cards instead of the usual 4 rather than looking like a silent bug. */
+  avatarPartialNote: string | null;
   selectedAvatarId: string | null;
   customAvatarUrl: string | null;
   messages: ChatMessage[];
@@ -510,6 +519,7 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
     generationStageIndex: 0,
     avatarVariations: [],
     avatarGenerationError: null,
+    avatarPartialNote: null,
     selectedAvatarId: activeSlot?.selectedAvatarId ?? null,
     customAvatarUrl: null,
     messages: activeSlot?.messages ?? [],
@@ -763,6 +773,7 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
       avatarVariations: [],
       customAvatarUrl: null,
       avatarGenerationError: null,
+      avatarPartialNote: null,
       // A pinned anchor/bundle and mid-flight typing indicator belong to the conversation
       // that's being swapped out — carrying them into the incoming profile's fresh chat
       // would show a "still thinking" bubble or a pinned product nobody there ever discussed.
@@ -881,6 +892,7 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
       generationStageIndex: 0,
       avatarVariations: [],
       avatarGenerationError: null,
+      avatarPartialNote: null,
     }));
 
     // The first few stages ("analyzing photo", "mapping measurements", "building body model")
@@ -952,6 +964,16 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
       // already landed and unlocked the picker, a later straggler failing is a non-event.
       if ("error" in result && !receivedAny) {
         setState((s) => ({ ...s, onboardingPhase: "photo", avatarGenerationError: result.error, avatarVariations: [] }));
+        return;
+      }
+      if ("successCount" in result && result.successCount > 0 && result.successCount < EXPECTED_AVATAR_VARIATION_COUNT) {
+        setState((s) => ({
+          ...s,
+          avatarPartialNote:
+            result.successCount === 1
+              ? "We could only generate 1 style this time — feel free to retake the photo for more options."
+              : `We generated ${result.successCount} of ${EXPECTED_AVATAR_VARIATION_COUNT} styles this time — you can still pick your favorite below.`,
+        }));
       }
     });
   }
@@ -1015,13 +1037,24 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
       return;
     }
 
+    const ACCEPTED_BACKDROP_TYPES = ["image/jpeg", "image/png", "image/webp"];
+    const MAX_BACKDROP_BYTES = 10 * 1024 * 1024;
+    if (!ACCEPTED_BACKDROP_TYPES.includes(file.type)) {
+      setState((s) => ({ ...s, backdropUploadError: "Please upload a JPEG, PNG, or WEBP image." }));
+      return;
+    }
+    if (file.size > MAX_BACKDROP_BYTES) {
+      setState((s) => ({ ...s, backdropUploadError: "That image is too large — please use one under 10MB." }));
+      return;
+    }
+
     setState((s) => ({ ...s, isUploadingBackdrop: true, backdropUploadError: null }));
 
     try {
       const dataUrl: string = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(reader.result as string);
-        reader.onerror = () => reject(reader.error);
+        reader.onerror = () => reject(reader.error ?? new Error("Couldn't read that image file."));
         reader.readAsDataURL(file);
       });
 

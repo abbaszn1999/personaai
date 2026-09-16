@@ -66,7 +66,7 @@ export function RealtimeTryOnOverlay({
             type="button"
             onClick={onStart}
             disabled={!hasProducts}
-            className="mt-5 inline-flex h-10 items-center gap-2 rounded-full bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] px-5 text-sm font-semibold text-[var(--color-brand-contrast)] shadow-[var(--shadow-glow)] transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45"
+            className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-full bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] px-5 text-sm font-semibold text-[var(--color-brand-contrast)] shadow-[var(--shadow-glow)] transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45"
           >
             <Play className="h-4 w-4" />
             {hasProducts ? "Start Live Try-On" : "Pick an item first"}
@@ -150,10 +150,10 @@ export function RealtimeTryOnOverlay({
           <button
             type="button"
             onClick={onStop}
-            className="absolute right-4 top-4 z-20 inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-black/55 px-3 py-1.5 text-[11px] font-semibold text-white shadow-lg backdrop-blur-xl transition-colors hover:bg-red-500/85"
+            className="absolute right-4 top-4 z-20 inline-flex min-h-11 items-center gap-1.5 rounded-full border border-white/15 bg-black/55 px-4 text-[12px] font-semibold text-white shadow-lg backdrop-blur-xl transition-colors hover:bg-red-500/85"
             aria-label="Stop live try-on"
           >
-            <Square className="h-3 w-3 fill-current" />
+            <Square className="h-3.5 w-3.5 fill-current" />
             Stop Live
           </button>
           {status === "live" && (
@@ -161,7 +161,7 @@ export function RealtimeTryOnOverlay({
               type="button"
               onClick={isRecording ? onStopRecording : onStartRecording}
               className={cn(
-                "absolute right-4 top-14 z-20 inline-flex h-8 w-8 items-center justify-center rounded-full border shadow-lg backdrop-blur-xl transition-colors active:scale-90",
+                "absolute right-4 top-[68px] z-20 inline-flex h-11 w-11 items-center justify-center rounded-full border shadow-lg backdrop-blur-xl transition-colors active:scale-90",
                 isRecording
                   ? "border-red-400/40 bg-red-500 hover:brightness-110"
                   : "border-white/15 bg-black/55 hover:bg-white/15"
@@ -179,11 +179,11 @@ export function RealtimeTryOnOverlay({
           <button
             type="button"
             onClick={onFlipCamera}
-            className="absolute right-4 top-24 z-20 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/15 bg-black/55 text-white shadow-lg backdrop-blur-xl transition-colors hover:bg-white/15 active:scale-90"
+            className="absolute right-4 top-[124px] z-20 inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-black/55 text-white shadow-lg backdrop-blur-xl transition-colors hover:bg-white/15 active:scale-90"
             aria-label={facingMode === "user" ? "Switch to rear camera" : "Switch to front camera"}
             title={facingMode === "user" ? "Switch to rear camera" : "Switch to front camera"}
           >
-            <SwitchCamera className="h-3.5 w-3.5" />
+            <SwitchCamera className="h-4 w-4" />
           </button>
         </>
       )}
