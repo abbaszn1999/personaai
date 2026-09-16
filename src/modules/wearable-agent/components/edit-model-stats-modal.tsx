@@ -42,6 +42,8 @@ const THEME_STYLES = {
   },
 } as const;
 
+type ModalStyles = (typeof THEME_STYLES)[keyof typeof THEME_STYLES];
+
 function FieldInput({
   label,
   unit,
@@ -53,7 +55,7 @@ function FieldInput({
   unit: string;
   value: number | null;
   onChange: (value: number | null) => void;
-  styles: (typeof THEME_STYLES)["dark"];
+  styles: ModalStyles;
 }) {
   return (
     <label className="flex flex-col gap-1.5">
