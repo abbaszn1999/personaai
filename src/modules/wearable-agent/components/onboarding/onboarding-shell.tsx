@@ -44,7 +44,7 @@ export function OnboardingShell({ step, onBack, footer, children }: OnboardingSh
   useKeepFocusedFieldVisible(rootRef);
 
   return (
-    <div ref={rootRef} className="flex flex-col gap-6 px-6 py-8 overscroll-contain">
+    <div ref={rootRef} className="flex flex-col gap-6 px-6 py-8">
       {stepIndex > 0 && (
         <div className="flex items-center gap-3">
           <button

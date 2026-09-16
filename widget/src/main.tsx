@@ -123,8 +123,19 @@ function boot() {
     }
   }
 
+  // Mobile browsers fire `resize` continuously while the page is scrolled, purely because the
+  // address bar/toolbar collapses or expands — `window.innerHeight` grows or shrinks with it,
+  // with the *width* staying identical. Recomputing `fullpageHeightPx()` on every one of those
+  // made the widget's own block (and the avatar image filling it) visibly grow/shrink while a
+  // shopper was mid-scroll, which read as the image "zooming" on scroll. A real resize — window
+  // resize, orientation change, devtools opening — always changes the width too, so gating on
+  // that filters out the toolbar-only noise without missing a real layout change.
+  let lastResizeWidth = window.innerWidth;
   let resizeTimer: ReturnType<typeof setTimeout> | undefined;
   window.addEventListener("resize", () => {
+    const width = window.innerWidth;
+    if (width === lastResizeWidth) return;
+    lastResizeWidth = width;
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(applyFullpageHeight, 150);
   });
