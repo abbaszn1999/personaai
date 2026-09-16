@@ -50,10 +50,22 @@ function isOnboardingStep(phase: OnboardingPhase): boolean {
 export function TryOnLayout({ viewportMode = "desktop", embed, theme = "dark", branding, workspaceId }: TryOnLayoutProps) {
   const agent = useTryOnAgent(embed, branding?.welcomeMessage, workspaceId);
 
+  const activeProfileLabel = agent.profiles.find((p) => p.id === agent.activeProfileId)?.label ?? "";
+  // The auto-assigned placeholder ("Profile 1", "Profile 2"...) isn't a name the shopper
+  // chose — show the field empty so typing doesn't feel like editing existing text.
+  const hasCustomLabel = activeProfileLabel !== "" && !/^Profile \d+$/.test(activeProfileLabel);
+
   function renderStepBody() {
     switch (agent.onboardingPhase) {
       case "welcome":
-        return <WelcomeStep />;
+        return (
+          <WelcomeStep
+            key={agent.activeProfileId}
+            showNameField={agent.profiles.length > 1}
+            name={hasCustomLabel ? activeProfileLabel : ""}
+            onNameChange={(name) => agent.renameProfile(agent.activeProfileId, name)}
+          />
+        );
       case "audience":
         return <AudienceStep value={agent.profile.audience} onSelect={agent.selectAudience} />;
       case "measurements":

@@ -16,6 +16,21 @@ interface AvatarVariationPickerProps {
   onConfirm: () => void;
 }
 
+/** Establishes each grid cell's 3:4 portrait ratio via the padding-top percentage hack
+ *  instead of the `aspect-[…]` utility. Every child here is absolutely positioned (the
+ *  photos, the label bar), so nothing in the cell actually contributes to its own height —
+ *  if the aspect ratio it depends on ever fails to apply, the cell collapses to zero and
+ *  the label disappears with it. Padding-percentage sizing has no such dependency: it's
+ *  resolved from the element's own width by the box model directly, not a separate CSS
+ *  property that a stale stylesheet could be missing. */
+function AvatarCardFrame({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="relative w-full" style={{ paddingTop: "133.333%" }}>
+      {children}
+    </div>
+  );
+}
+
 export function AvatarVariationPicker({
   variations,
   selectedId,
@@ -49,77 +64,82 @@ export function AvatarVariationPicker({
         {variations.map((variation) => {
           const isSelected = selectedId === variation.id;
           return (
-            <button
-              key={variation.id}
-              type="button"
-              onClick={() => onSelect(variation.id)}
-              className={cn(
-                "group relative aspect-[3/4] rounded-[var(--radius-xl)] overflow-hidden border-2 transition-all",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]",
-                isSelected
-                  ? "border-[var(--color-wearable-from)] shadow-[0_0_0_3px_rgba(107,53,141,0.25)]"
-                  : "border-[var(--color-border)] hover:border-[var(--color-wearable-from)]/60"
-              )}
-            >
-              {/* Real Persona Agent renders are subject-only cutouts on a transparent
-                  background — layer the paired fixed backdrop plate underneath so the card
-                  shows the actual studio scene instead of any un-keyed chroma-key residue. */}
-              {variation.backdropUrl && (
-                <Image src={variation.backdropUrl} alt="" fill className="object-cover object-top" unoptimized />
-              )}
-              <Image
-                src={variation.imageUrl}
-                alt={variation.label}
-                fill
-                className="object-cover object-top"
-                unoptimized
-              />
-              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2.5 py-2">
-                <span className="text-xs font-medium text-white">{variation.label}</span>
-              </div>
-              {isSelected && (
-                <div className="absolute top-2 right-2 h-6 w-6 rounded-full gradient-wearable flex items-center justify-center shadow-md">
-                  <Check className="h-3.5 w-3.5 text-white" />
+            <AvatarCardFrame key={variation.id}>
+              <button
+                type="button"
+                onClick={() => onSelect(variation.id)}
+                className={cn(
+                  "group absolute inset-0 rounded-[var(--radius-xl)] overflow-hidden border-2 transition-all",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]",
+                  isSelected
+                    ? "border-[var(--color-wearable-from)] shadow-[0_0_0_3px_rgba(107,53,141,0.25)]"
+                    : "border-[var(--color-border)] hover:border-[var(--color-wearable-from)]/60"
+                )}
+              >
+                {/* Real Persona Agent renders are subject-only cutouts on a transparent
+                    background — layer the paired fixed backdrop plate underneath so the card
+                    shows the actual studio scene instead of any un-keyed chroma-key residue. */}
+                {variation.backdropUrl && (
+                  <Image src={variation.backdropUrl} alt="" fill sizes="220px" className="object-cover object-top" unoptimized />
+                )}
+                <Image
+                  src={variation.imageUrl}
+                  alt={variation.label}
+                  fill
+                  sizes="220px"
+                  className="object-cover object-top"
+                  unoptimized
+                />
+                <div className="absolute inset-x-0 bottom-0 z-[1] bg-gradient-to-t from-black/75 via-black/25 to-transparent px-2.5 pt-6 pb-2">
+                  <span className="text-xs font-medium text-white drop-shadow-sm">{variation.label}</span>
                 </div>
-              )}
-            </button>
+                {isSelected && (
+                  <div className="absolute top-2 right-2 h-6 w-6 rounded-full gradient-wearable flex items-center justify-center shadow-md">
+                    <Check className="h-3.5 w-3.5 text-white" />
+                  </div>
+                )}
+              </button>
+            </AvatarCardFrame>
           );
         })}
 
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          className={cn(
-            "relative aspect-[3/4] rounded-[var(--radius-xl)] overflow-hidden border-2 border-dashed transition-all",
-            "flex flex-col items-center justify-center gap-2 px-3",
-            selectedId === "custom"
-              ? "border-[var(--color-wearable-from)] bg-[var(--color-accent-light)] shadow-[0_0_0_3px_rgba(107,53,141,0.25)]"
-              : "border-[var(--color-border)] hover:border-[var(--color-wearable-from)]/60 hover:bg-[var(--color-accent-light)]/40"
-          )}
-        >
-          {customAvatarUrl && selectedId === "custom" ? (
-            <>
-              <Image
-                src={customAvatarUrl}
-                alt="Your uploaded avatar"
-                fill
-                className="object-cover object-top"
-                unoptimized
-              />
-              <div className="absolute top-2 right-2 h-6 w-6 rounded-full gradient-wearable flex items-center justify-center shadow-md z-10">
-                <Check className="h-3.5 w-3.5 text-white" />
-              </div>
-            </>
-          ) : (
-            <>
-              <Upload className="h-6 w-6 text-[var(--color-text-muted)]" />
-              <span className="text-xs font-medium text-[var(--color-text-secondary)] text-center">
-                Upload your own
-              </span>
-              <span className="text-[10px] text-[var(--color-text-muted)]">JPEG, PNG</span>
-            </>
-          )}
-        </button>
+        <AvatarCardFrame>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className={cn(
+              "absolute inset-0 rounded-[var(--radius-xl)] overflow-hidden border-2 border-dashed transition-all",
+              "flex flex-col items-center justify-center gap-2 px-3",
+              selectedId === "custom"
+                ? "border-[var(--color-wearable-from)] bg-[var(--color-accent-light)] shadow-[0_0_0_3px_rgba(107,53,141,0.25)]"
+                : "border-[var(--color-border)] hover:border-[var(--color-wearable-from)]/60 hover:bg-[var(--color-accent-light)]/40"
+            )}
+          >
+            {customAvatarUrl && selectedId === "custom" ? (
+              <>
+                <Image
+                  src={customAvatarUrl}
+                  alt="Your uploaded avatar"
+                  fill
+                  sizes="220px"
+                  className="object-cover object-top"
+                  unoptimized
+                />
+                <div className="absolute top-2 right-2 h-6 w-6 rounded-full gradient-wearable flex items-center justify-center shadow-md z-10">
+                  <Check className="h-3.5 w-3.5 text-white" />
+                </div>
+              </>
+            ) : (
+              <>
+                <Upload className="h-6 w-6 text-[var(--color-text-muted)]" />
+                <span className="text-xs font-medium text-[var(--color-text-secondary)] text-center">
+                  Upload your own
+                </span>
+                <span className="text-[10px] text-[var(--color-text-muted)]">JPEG, PNG</span>
+              </>
+            )}
+          </button>
+        </AvatarCardFrame>
       </div>
 
       <input

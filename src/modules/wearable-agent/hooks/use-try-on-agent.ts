@@ -41,9 +41,12 @@ export interface EmbedRuntimeConfig {
 export const MAX_TRYON_PROFILES = 3;
 const DEFAULT_PROFILE_ID = "default";
 
-/** Per-profile slice of persisted state — everything that's genuinely "whose body this is":
- *  measurements/avatar and the try-on renders made for them. Chat, cart, and catalog knowledge
- *  stay shared across profiles (same shopping session, same person browsing). */
+/** Per-profile slice of persisted state — everything that's genuinely "whose this is":
+ *  measurements/avatar, the try-on renders made for them, and their own conversation with the
+ *  agent. Cart and catalog knowledge stay shared across profiles (same shopping session, same
+ *  browser tab, same real cart at checkout) — but the chat itself is a conversation *about* one
+ *  profile's fit and outfit, so switching profiles now switches it too instead of leaving a
+ *  parent's chat history showing while their kid's profile is active. */
 interface StoredProfileSlot {
   id: string;
   label: string;
@@ -52,6 +55,7 @@ interface StoredProfileSlot {
   selectedAvatarId: string | null;
   tryOnImages: GeneratedTryOn[];
   currentImageIndex: number;
+  messages: ChatMessage[];
 }
 
 /** Shape persisted to localStorage for an embedded session — deliberately a subset of the
@@ -59,7 +63,6 @@ interface StoredProfileSlot {
 interface PersistedEmbedState {
   profiles: StoredProfileSlot[];
   activeProfileId: string;
-  messages: ChatMessage[];
   outfitItems: Product[];
   cartItems: Product[];
   intakeAnswers: IntakeState;
@@ -86,7 +89,14 @@ interface LegacyPersistedEmbedStateV1 {
 }
 
 function blankProfileSlotData(): Omit<StoredProfileSlot, "id" | "label"> {
-  return { profile: INITIAL_PROFILE, profileSubmitted: false, selectedAvatarId: null, tryOnImages: [], currentImageIndex: 0 };
+  return {
+    profile: INITIAL_PROFILE,
+    profileSubmitted: false,
+    selectedAvatarId: null,
+    tryOnImages: [],
+    currentImageIndex: 0,
+    messages: [],
+  };
 }
 
 /** Strips the raw body photo before anything touches localStorage. The merchant's own page
@@ -123,10 +133,23 @@ export function normalizePersistedState(raw: unknown): PersistedEmbedState | nul
   const obj = raw as Record<string, unknown>;
 
   if (Array.isArray(obj.profiles) && typeof obj.activeProfileId === "string") {
-    const shaped = obj as unknown as PersistedEmbedState;
+    // A profile slot written before this fix has no `messages` of its own — the whole
+    // session's chat was a single top-level field back then. Hand it to whichever profile
+    // was active at the time (the only one it could actually belong to) instead of either
+    // duplicating it into every profile or silently dropping a shopper's real history.
+    const shaped = obj as unknown as PersistedEmbedState & { messages?: ChatMessage[] };
+    const preMigrationMessages = Array.isArray(shaped.messages) ? shaped.messages : [];
     return {
       ...shaped,
-      profiles: shaped.profiles.map((slot) => ({ ...slot, profile: normalizeProfileFields(slot.profile) })),
+      profiles: shaped.profiles.map((slot) => ({
+        ...slot,
+        profile: normalizeProfileFields(slot.profile),
+        messages: Array.isArray(slot.messages)
+          ? slot.messages
+          : slot.id === shaped.activeProfileId
+            ? preMigrationMessages
+            : [],
+      })),
     };
   }
 
@@ -142,10 +165,10 @@ export function normalizePersistedState(raw: unknown): PersistedEmbedState | nul
           selectedAvatarId: legacy.selectedAvatarId,
           tryOnImages: legacy.tryOnImages ?? [],
           currentImageIndex: legacy.currentImageIndex ?? 0,
+          messages: legacy.messages ?? [],
         },
       ],
       activeProfileId: DEFAULT_PROFILE_ID,
-      messages: legacy.messages ?? [],
       outfitItems: legacy.outfitItems ?? [],
       cartItems: legacy.cartItems ?? [],
       intakeAnswers: legacy.intakeAnswers ?? {},
@@ -447,7 +470,7 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
     avatarGenerationError: null,
     selectedAvatarId: activeSlot?.selectedAvatarId ?? null,
     customAvatarUrl: null,
-    messages: persisted?.messages ?? [],
+    messages: activeSlot?.messages ?? [],
     outfitItems: persisted?.outfitItems ?? [],
     input: "",
     isTyping: false,
@@ -488,6 +511,7 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
           selectedAvatarId: slot.selectedAvatarId,
           tryOnImages: slot.tryOnImages,
           currentImageIndex: slot.currentImageIndex,
+          messages: slot.messages,
         };
       }
     }
@@ -584,9 +608,9 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
         selectedAvatarId: state.selectedAvatarId,
         tryOnImages: state.tryOnImages,
         currentImageIndex: state.currentImageIndex,
+        messages: state.messages,
       }),
       activeProfileId,
-      messages: state.messages,
       outfitItems: state.outfitItems,
       cartItems: state.cartItems,
       intakeAnswers: state.intakeAnswers,
@@ -628,9 +652,9 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
         selectedAvatarId: state.selectedAvatarId,
         tryOnImages: state.tryOnImages,
         currentImageIndex: state.currentImageIndex,
+        messages: messagesRef.current,
       }),
       activeProfileId,
-      messages: messagesRef.current,
       outfitItems: outfitRef.current,
       cartItems: nextCartItems,
       intakeAnswers: intakeAnswersRef.current,
@@ -652,6 +676,7 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
       selectedAvatarId: state.selectedAvatarId,
       tryOnImages: state.tryOnImages,
       currentImageIndex: state.currentImageIndex,
+      messages: messagesRef.current,
     });
   }
 
@@ -667,13 +692,25 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
       selectedAvatarId: data.selectedAvatarId,
       tryOnImages: data.tryOnImages,
       currentImageIndex: data.currentImageIndex,
+      messages: data.messages,
       avatarVariations: [],
       customAvatarUrl: null,
       avatarGenerationError: null,
+      // A pinned anchor/bundle and mid-flight typing indicator belong to the conversation
+      // that's being swapped out — carrying them into the incoming profile's fresh chat
+      // would show a "still thinking" bubble or a pinned product nobody there ever discussed.
+      selectedAnchor: null,
+      discussedBundle: null,
+      isTyping: false,
+      isScanning: false,
     }));
     // Force the next chat turn to (re-)send this profile's own avatar rather than trusting the
     // server's cache, which is now keyed per-profile too (see avatarCacheKey in the wearable route).
     lastSentAvatarUrlRef.current = null;
+    // The retrieval context (pinned anchor/bundle, already-shown product ids) is per-conversation
+    // state that just got reset above — mirror that here too, or the next turn on the incoming
+    // profile's fresh chat would still carry the outgoing one's anchor/history into the prompt.
+    retrievalStateRef.current = { anchorId: null, anchorPinned: false, bundleState: null, shownProductIds: [] };
   }
 
   /** Switches which local profile ("who's trying this on") is active — up to MAX_TRYON_PROFILES

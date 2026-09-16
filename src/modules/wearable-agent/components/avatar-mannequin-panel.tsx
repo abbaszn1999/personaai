@@ -1068,7 +1068,15 @@ function MobileAvatarStrip({
   }
 
   return (
-    <div className="relative w-full h-full min-h-0 overflow-hidden" style={{ background: panelBg }}>
+    // `touch-action: pan-x pan-y` is the actual fix for the reported "zoom on scroll": with
+    // no restriction, a two-finger touch anywhere on this full-screen photo is the browser's
+    // own pinch-zoom gesture, and double-tapping it zooms the page too — neither goes through
+    // React at all, so there is no state to turn off, only this CSS to stop the browser from
+    // ever starting the gesture here in the first place. Panning/scrolling stays allowed.
+    <div
+      className="relative w-full h-full min-h-0 overflow-hidden [touch-action:pan-x_pan-y]"
+      style={{ background: panelBg }}
+    >
       {/* ── Avatar photo — object-cover fills the full frame; since the container is
            taller than a 2:3 image scaled to width, object-cover scales by height so
            the full body (head → feet) is always visible, sides trimmed slightly.
