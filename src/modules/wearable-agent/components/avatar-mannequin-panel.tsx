@@ -15,12 +15,9 @@ import {
   Maximize2,
   Palette,
   Pencil,
-  RotateCcw,
   Share2,
   ShoppingBag,
   X,
-  ZoomIn,
-  ZoomOut,
 } from "lucide-react";
 import type { GeneratedTryOn } from "../hooks/use-try-on-agent";
 import type { TryOnProfile } from "../types";
@@ -87,15 +84,10 @@ interface AvatarMannequinPanelProps {
   workspaceId?: string;
 }
 
-const ZOOM_MIN = 1;
-const ZOOM_MAX = 2;
-const ZOOM_STEP = 0.25;
-
-/** Toolbar actions that actually do something useful on a static 2D photo —
- *  zoom + fullscreen only apply while viewing a photo. */
+/** Toolbar action that applies to the static 2D photo. Zoom was deliberately removed:
+ *  shoppers scroll the host page over this large image, so any image zoom/pan interaction
+ *  competes with the page's primary gesture and feels like the widget hijacked scrolling. */
 const TOOLBAR_ACTIONS = [
-  { id: "zoom-in", icon: ZoomIn, label: "Zoom In" },
-  { id: "zoom-out", icon: ZoomOut, label: "Zoom Out" },
   { id: "fullscreen", icon: Maximize2, label: "Fullscreen" },
 ] as const;
 
@@ -165,83 +157,13 @@ export function AvatarMannequinPanel({
   const [isSizeGuideOpen, setIsSizeGuideOpen] = React.useState(false);
   const [isFullscreen, setIsFullscreen] = React.useState(false);
   const [justAddedAll, setJustAddedAll] = React.useState(false);
-  const [zoomLevel, setZoomLevel] = React.useState(1);
-  /** Pan offset (px) applied on top of the zoom scale — lets the shopper drag around a
-   *  zoomed-in photo instead of always scaling from the same fixed spot. */
-  const [pan, setPan] = React.useState({ x: 0, y: 0 });
-  const [isPanning, setIsPanning] = React.useState(false);
-  const photoAreaRef = React.useRef<HTMLElement | null>(null);
-  const panDragRef = React.useRef<{ startX: number; startY: number; startPanX: number; startPanY: number } | null>(null);
   const [isBgPickerOpen, setIsBgPickerOpen] = React.useState(false);
   const [viewMode, setViewMode] = React.useState<"photo" | "live">("photo");
   const realtime = useRealtimeTryOn({ embed, workspaceId });
   const bgPickerRef = React.useRef<HTMLDivElement>(null);
   const backdropFileInputRef = React.useRef<HTMLInputElement>(null);
 
-  const setPhotoAreaRef = React.useCallback((el: HTMLElement | null) => {
-    photoAreaRef.current = el;
-  }, []);
-
-  /** Keeps the image from being dragged so far it leaves a visible gap at any edge —
-   *  the further zoomed in, the more room there is to pan before hitting that limit. */
-  const clampPan = React.useCallback((next: { x: number; y: number }, zoom: number) => {
-    const rect = photoAreaRef.current?.getBoundingClientRect();
-    if (!rect) return { x: 0, y: 0 };
-    const maxX = (rect.width * (zoom - 1)) / 2;
-    const maxY = (rect.height * (zoom - 1)) / 2;
-    return {
-      x: maxX <= 0 ? 0 : Math.max(-maxX, Math.min(maxX, next.x)),
-      y: maxY <= 0 ? 0 : Math.max(-maxY, Math.min(maxY, next.y)),
-    };
-  }, []);
-
-  // Re-clamp whenever the zoom level changes so panning out then zooming out doesn't
-  // leave the photo stuck off-center.
-  React.useEffect(() => {
-    setPan((p) => clampPan(p, zoomLevel));
-  }, [zoomLevel, clampPan]);
-
-  const handlePhotoPointerDown = React.useCallback(
-    (e: React.PointerEvent<HTMLElement>) => {
-      if (zoomLevel <= ZOOM_MIN) return;
-      e.currentTarget.setPointerCapture(e.pointerId);
-      panDragRef.current = { startX: e.clientX, startY: e.clientY, startPanX: pan.x, startPanY: pan.y };
-      setIsPanning(true);
-    },
-    [zoomLevel, pan.x, pan.y]
-  );
-  const handlePhotoPointerMove = React.useCallback(
-    (e: React.PointerEvent<HTMLElement>) => {
-      if (!panDragRef.current) return;
-      const dx = e.clientX - panDragRef.current.startX;
-      const dy = e.clientY - panDragRef.current.startY;
-      setPan(clampPan({ x: panDragRef.current.startPanX + dx, y: panDragRef.current.startPanY + dy }, zoomLevel));
-    },
-    [clampPan, zoomLevel]
-  );
-  const handlePhotoPointerUp = React.useCallback((e: React.PointerEvent<HTMLElement>) => {
-    if (panDragRef.current && e.currentTarget.hasPointerCapture(e.pointerId)) {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    }
-    panDragRef.current = null;
-    setIsPanning(false);
-  }, []);
-
   useClickOutside(bgPickerRef, React.useCallback(() => setIsBgPickerOpen(false), []), isBgPickerOpen);
-
-  const canZoomIn = zoomLevel < ZOOM_MAX;
-  const canZoomOut = zoomLevel > ZOOM_MIN;
-
-  const handleZoomIn = React.useCallback(() => {
-    setZoomLevel((z) => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2)));
-  }, []);
-  const handleZoomOut = React.useCallback(() => {
-    setZoomLevel((z) => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2)));
-  }, []);
-  const handleResetZoom = React.useCallback(() => {
-    setZoomLevel(1);
-    setPan({ x: 0, y: 0 });
-  }, []);
 
   React.useEffect(() => {
     if (!isFullscreen) return;
@@ -253,9 +175,7 @@ export function AvatarMannequinPanel({
   }, [isFullscreen]);
 
   function handleToolbarAction(id: string) {
-    if (id === "zoom-in") handleZoomIn();
-    else if (id === "zoom-out") handleZoomOut();
-    else if (id === "fullscreen") setIsFullscreen(true);
+    if (id === "fullscreen") setIsFullscreen(true);
     // "3d" is disabled — coming soon, intentionally not wired up.
   }
 
@@ -279,10 +199,6 @@ export function AvatarMannequinPanel({
 
   React.useEffect(() => {
     setImgSrc(displayImage);
-    // New photo (new try-on render, regenerated avatar, etc.) — any previous pan offset
-    // is meaningless for different content, so start fresh rather than showing it cropped.
-    setZoomLevel(1);
-    setPan({ x: 0, y: 0 });
   }, [displayImage]);
 
   function handleImageError() {
@@ -453,23 +369,8 @@ export function AvatarMannequinPanel({
         </div>
       ) : hasFixedBackdrop ? (
         <div
-          ref={setPhotoAreaRef}
-          className={cn(
-            "absolute inset-y-0 left-0 h-full select-none touch-none",
-            isPanning ? "transition-none" : "transition-transform duration-300 ease-out",
-            zoomLevel > ZOOM_MIN && (isPanning ? "cursor-grabbing" : "cursor-grab")
-          )}
-          style={{
-            aspectRatio: "3 / 4",
-            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoomLevel})`,
-            // Center-anchored so zoom scales in place — an off-center origin makes the
-            // whole frame visibly shift on every zoom step, which reads as the panel "moving".
-            transformOrigin: "50% 50%",
-          }}
-          onPointerDown={handlePhotoPointerDown}
-          onPointerMove={handlePhotoPointerMove}
-          onPointerUp={handlePhotoPointerUp}
-          onPointerCancel={handlePhotoPointerUp}
+          className="absolute inset-y-0 left-0 h-full select-none"
+          style={{ aspectRatio: "3 / 4" }}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={profile.backdropUrl!} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover select-none" />
@@ -485,21 +386,11 @@ export function AvatarMannequinPanel({
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          ref={setPhotoAreaRef}
           src={imgSrc}
           alt="Standing avatar in studio"
           onError={handleImageError}
           draggable={false}
-          onPointerDown={handlePhotoPointerDown}
-          onPointerMove={handlePhotoPointerMove}
-          onPointerUp={handlePhotoPointerUp}
-          onPointerCancel={handlePhotoPointerUp}
-          className={cn(
-            "absolute inset-y-0 left-0 h-full w-auto select-none touch-none",
-            isPanning ? "transition-none" : "transition-transform duration-300 ease-out",
-            zoomLevel > ZOOM_MIN && (isPanning ? "cursor-grabbing" : "cursor-grab")
-          )}
-          style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoomLevel})`, transformOrigin: "50% 50%" }}
+          className="absolute inset-y-0 left-0 h-full w-auto select-none"
         />
       )}
 
@@ -576,22 +467,15 @@ export function AvatarMannequinPanel({
 
               <div className="h-px w-5 bg-white/[0.1]" />
 
-              {/* Zoom + fullscreen */}
+              {/* Fullscreen */}
               {TOOLBAR_ACTIONS.map((mode) => {
-                const isZoomDisabled = (mode.id === "zoom-in" && !canZoomIn) || (mode.id === "zoom-out" && !canZoomOut);
                 return (
                   <button
                     key={mode.id}
                     type="button"
                     title={mode.label}
-                    disabled={isZoomDisabled}
-                    onClick={() => !isZoomDisabled && handleToolbarAction(mode.id)}
-                    className={cn(
-                      "relative h-9 w-9 rounded-full flex items-center justify-center transition-all",
-                      isZoomDisabled
-                        ? "text-white/20 cursor-not-allowed"
-                        : "text-white/50 hover:text-white/90 hover:bg-white/[0.08] active:scale-90"
-                    )}
+                    onClick={() => handleToolbarAction(mode.id)}
+                    className="relative h-9 w-9 rounded-full flex items-center justify-center transition-all text-white/50 hover:text-white/90 hover:bg-white/[0.08] active:scale-90"
                   >
                     <mode.icon className="h-[17px] w-[17px]" strokeWidth={1.6} />
                   </button>
@@ -624,19 +508,6 @@ export function AvatarMannequinPanel({
             </button>
           ))}
 
-          {/* Absolutely positioned (not a normal flex child) so it never changes the height
-              of this toolbar pill — that was shifting the whole toolbar's vertical-centered
-              position every time it appeared/disappeared on zoom. */}
-          {zoomLevel !== 1 && (
-            <button
-              type="button"
-              onClick={handleResetZoom}
-              className="absolute left-1/2 top-full mt-2 -translate-x-1/2 flex items-center gap-1 rounded-full border border-white/15 bg-black/50 backdrop-blur-xl px-2 py-1 text-[10px] font-semibold text-white/70 hover:text-white transition-colors whitespace-nowrap"
-            >
-              <RotateCcw className="h-2.5 w-2.5" />
-              {Math.round(zoomLevel * 100)}%
-            </button>
-          )}
         </div>
 
         {/* Background picker popover */}

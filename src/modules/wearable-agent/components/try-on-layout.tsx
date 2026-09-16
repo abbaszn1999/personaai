@@ -53,7 +53,9 @@ export function TryOnLayout({ viewportMode = "desktop", embed, theme = "dark", b
   const activeProfileLabel = agent.profiles.find((p) => p.id === agent.activeProfileId)?.label ?? "";
   // The auto-assigned placeholder ("Profile 1", "Profile 2"...) isn't a name the shopper
   // chose — show the field empty so typing doesn't feel like editing existing text.
-  const hasCustomLabel = activeProfileLabel !== "" && !/^Profile \d+$/.test(activeProfileLabel);
+  const hasCustomLabel =
+    activeProfileLabel.trim() !== "" && !/^Profile \d+$/.test(activeProfileLabel.trim());
+  const profileNameComplete = agent.profiles.length === 1 || hasCustomLabel;
 
   function renderStepBody() {
     switch (agent.onboardingPhase) {
@@ -83,14 +85,20 @@ export function TryOnLayout({ viewportMode = "desktop", embed, theme = "dark", b
     switch (agent.onboardingPhase) {
       case "welcome":
         return (
-          <Button
-            size="lg"
-            onClick={() => agent.goToStep("audience")}
-            className="gradient-wearable text-white border-0"
-          >
-            Get started
-            <ArrowRight className="h-4 w-4" />
-          </Button>
+          <>
+            <Button
+              size="lg"
+              onClick={() => agent.goToStep("audience")}
+              disabled={!profileNameComplete}
+              className={cn(profileNameComplete ? "gradient-wearable text-white border-0" : "")}
+            >
+              Get started
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+            {!profileNameComplete && (
+              <p className="text-xs text-[var(--color-text-muted)]">Add a name for this profile to continue</p>
+            )}
+          </>
         );
       // Picking an audience card advances on its own, so this step has no footer at all.
       case "audience":

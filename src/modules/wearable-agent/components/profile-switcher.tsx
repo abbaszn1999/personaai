@@ -94,7 +94,8 @@ export function ProfileSwitcher({
   const active = profiles.find((p) => p.id === activeProfileId);
 
   function commitRename(id: string) {
-    onRename(id, draftLabel);
+    const trimmed = draftLabel.trim();
+    if (trimmed) onRename(id, trimmed);
     setEditingId(null);
   }
 
@@ -113,7 +114,7 @@ export function ProfileSwitcher({
         )}
       >
         <User className="h-3.5 w-3.5 shrink-0" />
-        <span className="max-w-[88px] truncate">{active?.label ?? "Profile"}</span>
+        <span className="max-w-[88px] truncate">{active?.label || "Profile"}</span>
       </button>
 
       {open && (

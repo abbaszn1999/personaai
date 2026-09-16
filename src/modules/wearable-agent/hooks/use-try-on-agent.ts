@@ -56,6 +56,12 @@ interface StoredProfileSlot {
   tryOnImages: GeneratedTryOn[];
   currentImageIndex: number;
   messages: ChatMessage[];
+  input: string;
+  outfitItems: Product[];
+  intakeAnswers: IntakeState;
+  selectedAnchor: Product | null;
+  discussedBundle: BundleSuggestion | null;
+  retrievalState: RetrievalState;
 }
 
 /** Shape persisted to localStorage for an embedded session — deliberately a subset of the
@@ -63,13 +69,8 @@ interface StoredProfileSlot {
 interface PersistedEmbedState {
   profiles: StoredProfileSlot[];
   activeProfileId: string;
-  outfitItems: Product[];
   cartItems: Product[];
-  intakeAnswers: IntakeState;
   knownProducts: Record<string, Product>;
-  /** The pinned product survives a reload for the same reason the messages do — the shopper can
-   *  see it, so losing it silently reads as the widget forgetting what they were discussing. */
-  selectedAnchor: Product | null;
 }
 
 /** Pre-multi-profile shape, kept only to migrate a shopper's existing localStorage entry
@@ -96,6 +97,12 @@ function blankProfileSlotData(): Omit<StoredProfileSlot, "id" | "label"> {
     tryOnImages: [],
     currentImageIndex: 0,
     messages: [],
+    input: "",
+    outfitItems: [],
+    intakeAnswers: {},
+    selectedAnchor: null,
+    discussedBundle: null,
+    retrievalState: { anchorId: null, anchorPinned: false, bundleState: null, shownProductIds: [] },
   };
 }
 
@@ -139,6 +146,13 @@ export function normalizePersistedState(raw: unknown): PersistedEmbedState | nul
     // duplicating it into every profile or silently dropping a shopper's real history.
     const shaped = obj as unknown as PersistedEmbedState & { messages?: ChatMessage[] };
     const preMigrationMessages = Array.isArray(shaped.messages) ? shaped.messages : [];
+    const preMigrationOutfit = Array.isArray((obj as { outfitItems?: unknown }).outfitItems)
+      ? ((obj as { outfitItems: Product[] }).outfitItems)
+      : [];
+    const preMigrationIntake =
+      (obj as { intakeAnswers?: IntakeState }).intakeAnswers ?? {};
+    const preMigrationAnchor =
+      (obj as { selectedAnchor?: Product | null }).selectedAnchor ?? null;
     return {
       ...shaped,
       profiles: shaped.profiles.map((slot) => ({
@@ -149,6 +163,26 @@ export function normalizePersistedState(raw: unknown): PersistedEmbedState | nul
           : slot.id === shaped.activeProfileId
             ? preMigrationMessages
             : [],
+        input: typeof slot.input === "string" ? slot.input : "",
+        outfitItems: Array.isArray(slot.outfitItems)
+          ? slot.outfitItems
+          : slot.id === shaped.activeProfileId
+            ? preMigrationOutfit
+            : [],
+        intakeAnswers:
+          slot.intakeAnswers ??
+          (slot.id === shaped.activeProfileId ? preMigrationIntake : {}),
+        selectedAnchor:
+          slot.selectedAnchor ??
+          (slot.id === shaped.activeProfileId ? preMigrationAnchor : null),
+        discussedBundle: slot.discussedBundle ?? null,
+        retrievalState:
+          slot.retrievalState ?? {
+            anchorId: slot.id === shaped.activeProfileId ? preMigrationAnchor?.id ?? null : null,
+            anchorPinned: slot.id === shaped.activeProfileId && preMigrationAnchor != null,
+            bundleState: null,
+            shownProductIds: [],
+          },
       })),
     };
   }
@@ -166,14 +200,22 @@ export function normalizePersistedState(raw: unknown): PersistedEmbedState | nul
           tryOnImages: legacy.tryOnImages ?? [],
           currentImageIndex: legacy.currentImageIndex ?? 0,
           messages: legacy.messages ?? [],
+          input: "",
+          outfitItems: legacy.outfitItems ?? [],
+          intakeAnswers: legacy.intakeAnswers ?? {},
+          selectedAnchor: legacy.selectedAnchor ?? null,
+          discussedBundle: null,
+          retrievalState: {
+            anchorId: legacy.selectedAnchor?.id ?? null,
+            anchorPinned: legacy.selectedAnchor != null,
+            bundleState: null,
+            shownProductIds: [],
+          },
         },
       ],
       activeProfileId: DEFAULT_PROFILE_ID,
-      outfitItems: legacy.outfitItems ?? [],
       cartItems: legacy.cartItems ?? [],
-      intakeAnswers: legacy.intakeAnswers ?? {},
       knownProducts: legacy.knownProducts ?? {},
-      selectedAnchor: legacy.selectedAnchor ?? null,
     };
   }
 
@@ -471,8 +513,8 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
     selectedAvatarId: activeSlot?.selectedAvatarId ?? null,
     customAvatarUrl: null,
     messages: activeSlot?.messages ?? [],
-    outfitItems: persisted?.outfitItems ?? [],
-    input: "",
+    outfitItems: activeSlot?.outfitItems ?? [],
+    input: activeSlot?.input ?? "",
     isTyping: false,
     typingStage: "thinking",
     isGenerating: false,
@@ -481,13 +523,13 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
     currentImageIndex: activeSlot?.currentImageIndex ?? 0,
     cartItems: persisted?.cartItems ?? [],
     pendingCartItemIds: [],
-    intakeAnswers: persisted?.intakeAnswers ?? {},
+    intakeAnswers: activeSlot?.intakeAnswers ?? {},
     isScanning: false,
     scanStageIndex: 0,
     scanResultCount: null,
     knownProducts: persisted?.knownProducts ?? {},
-    selectedAnchor: persisted?.selectedAnchor ?? null,
-    discussedBundle: null,
+    selectedAnchor: activeSlot?.selectedAnchor ?? null,
+    discussedBundle: activeSlot?.discussedBundle ?? null,
     isUploadingBackdrop: false,
     backdropUploadError: null,
     cartSyncError: null,
@@ -512,6 +554,12 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
           tryOnImages: slot.tryOnImages,
           currentImageIndex: slot.currentImageIndex,
           messages: slot.messages,
+          input: slot.input,
+          outfitItems: slot.outfitItems,
+          intakeAnswers: slot.intakeAnswers,
+          selectedAnchor: slot.selectedAnchor,
+          discussedBundle: slot.discussedBundle,
+          retrievalState: slot.retrievalState,
         };
       }
     }
@@ -548,10 +596,12 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
   /** Retrieval's cross-turn memory, echoed straight back to the server next turn. A ref rather
    *  than state: nothing renders from it, and it must be current the moment a turn starts. */
   const retrievalStateRef = React.useRef<RetrievalState>({
-    anchorId: persisted?.selectedAnchor?.id ?? null,
-    anchorPinned: persisted?.selectedAnchor != null,
-    bundleState: null,
-    shownProductIds: [],
+    ...(activeSlot?.retrievalState ?? {
+      anchorId: null,
+      anchorPinned: false,
+      bundleState: null,
+      shownProductIds: [],
+    }),
   });
   // Serializes every real-cart mutation (across separate "Add to Cart" clicks, not just
   // products within one click) so they never hit the store's cart endpoint concurrently — see
@@ -609,13 +659,16 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
         tryOnImages: state.tryOnImages,
         currentImageIndex: state.currentImageIndex,
         messages: state.messages,
+        input: state.input,
+        outfitItems: state.outfitItems,
+        intakeAnswers: state.intakeAnswers,
+        selectedAnchor: state.selectedAnchor,
+        discussedBundle: state.discussedBundle,
+        retrievalState: retrievalStateRef.current,
       }),
       activeProfileId,
-      outfitItems: state.outfitItems,
       cartItems: state.cartItems,
-      intakeAnswers: state.intakeAnswers,
       knownProducts: state.knownProducts,
-      selectedAnchor: state.selectedAnchor,
     };
     saveEmbedState(embed.embedToken, snapshot);
   }, [
@@ -625,11 +678,13 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
     state.profile,
     state.profileSubmitted,
     state.messages,
+    state.input,
     state.outfitItems,
     state.cartItems,
     state.intakeAnswers,
     state.knownProducts,
     state.selectedAnchor,
+    state.discussedBundle,
     state.tryOnImages,
     state.currentImageIndex,
     state.selectedAvatarId,
@@ -653,13 +708,16 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
         tryOnImages: state.tryOnImages,
         currentImageIndex: state.currentImageIndex,
         messages: messagesRef.current,
+        input: state.input,
+        outfitItems: outfitRef.current,
+        intakeAnswers: intakeAnswersRef.current,
+        selectedAnchor: state.selectedAnchor,
+        discussedBundle: state.discussedBundle,
+        retrievalState: retrievalStateRef.current,
       }),
       activeProfileId,
-      outfitItems: outfitRef.current,
       cartItems: nextCartItems,
-      intakeAnswers: intakeAnswersRef.current,
       knownProducts: knownProductsRef.current,
-      selectedAnchor: state.selectedAnchor,
     });
   }
 
@@ -677,6 +735,12 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
       tryOnImages: state.tryOnImages,
       currentImageIndex: state.currentImageIndex,
       messages: messagesRef.current,
+      input: state.input,
+      outfitItems: outfitRef.current,
+      intakeAnswers: intakeAnswersRef.current,
+      selectedAnchor: state.selectedAnchor,
+      discussedBundle: state.discussedBundle,
+      retrievalState: retrievalStateRef.current,
     });
   }
 
@@ -693,14 +757,17 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
       tryOnImages: data.tryOnImages,
       currentImageIndex: data.currentImageIndex,
       messages: data.messages,
+      input: data.input,
+      outfitItems: data.outfitItems,
+      intakeAnswers: data.intakeAnswers,
       avatarVariations: [],
       customAvatarUrl: null,
       avatarGenerationError: null,
       // A pinned anchor/bundle and mid-flight typing indicator belong to the conversation
       // that's being swapped out — carrying them into the incoming profile's fresh chat
       // would show a "still thinking" bubble or a pinned product nobody there ever discussed.
-      selectedAnchor: null,
-      discussedBundle: null,
+      selectedAnchor: data.selectedAnchor,
+      discussedBundle: data.discussedBundle,
       isTyping: false,
       isScanning: false,
     }));
@@ -710,7 +777,7 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
     // The retrieval context (pinned anchor/bundle, already-shown product ids) is per-conversation
     // state that just got reset above — mirror that here too, or the next turn on the incoming
     // profile's fresh chat would still carry the outgoing one's anchor/history into the prompt.
-    retrievalStateRef.current = { anchorId: null, anchorPinned: false, bundleState: null, shownProductIds: [] };
+    retrievalStateRef.current = data.retrievalState;
   }
 
   /** Switches which local profile ("who's trying this on") is active — up to MAX_TRYON_PROFILES
@@ -747,9 +814,11 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
   }
 
   function renameProfile(id: string, label: string) {
-    const trimmed = label.trim().slice(0, 40);
-    if (!trimmed) return;
-    setProfilesMeta((m) => m.map((p) => (p.id === id ? { ...p, label: trimmed } : p)));
+    // Keep an empty draft while the added-profile onboarding field is being edited so its
+    // Continue button can truthfully stay disabled after the shopper clears the name. The
+    // profile switcher's inline rename validates before calling this function.
+    const next = label.slice(0, 40);
+    setProfilesMeta((m) => m.map((p) => (p.id === id ? { ...p, label: next } : p)));
   }
 
   /** Onboarding steps before avatar generation kicks in — used by goBack to step to the
