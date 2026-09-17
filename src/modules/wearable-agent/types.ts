@@ -1,8 +1,9 @@
+// "measurements" now covers both the numeric fields and the photo upload on one combined
+// screen — there's no separate "photo" phase anymore (fewer taps to reach avatar generation).
 export type OnboardingPhase =
   | "welcome"
   | "audience"
   | "measurements"
-  | "photo"
   | "generating"
   | "avatar-selection";
 

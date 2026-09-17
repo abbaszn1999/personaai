@@ -65,21 +65,19 @@ describe("resumeOnboardingPhase", () => {
     expect(resumeOnboardingPhase({ ...BASE_PROFILE, ...COMPLETE_MEASUREMENTS })).toBe("welcome");
   });
 
-  it("resumes at measurements once an audience is picked but the numbers are incomplete", () => {
+  it("resumes at the combined measurements+photo step once an audience is picked, regardless of how complete the numbers are", () => {
     expect(resumeOnboardingPhase({ ...BASE_PROFILE, audience: "woman" })).toBe("measurements");
     expect(
       resumeOnboardingPhase({ ...BASE_PROFILE, audience: "woman", ...COMPLETE_MEASUREMENTS, chestCm: null })
     ).toBe("measurements");
-  });
-
-  it("resumes at the photo step when everything but the photo is present", () => {
     expect(
       resumeOnboardingPhase({ ...BASE_PROFILE, audience: "kids-girl", ...COMPLETE_MEASUREMENTS })
-    ).toBe("photo");
+    ).toBe("measurements");
   });
 
-  it("never resumes past photo, since the raw photo is intentionally never persisted", () => {
-    // Even a profile that still carries a (dead) photoUrl stops at the photo step.
+  it("never resumes past measurements, since the raw photo is intentionally never persisted", () => {
+    // Even a profile that still carries a (dead) photoUrl stops at the combined step so the
+    // shopper can re-pick a photo before an avatar can be generated.
     expect(
       resumeOnboardingPhase({
         ...BASE_PROFILE,
@@ -87,7 +85,7 @@ describe("resumeOnboardingPhase", () => {
         ...COMPLETE_MEASUREMENTS,
         photoUrl: "blob:stale",
       })
-    ).toBe("photo");
+    ).toBe("measurements");
   });
 });
 

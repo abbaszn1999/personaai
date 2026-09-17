@@ -16,6 +16,7 @@ import {
   mergeGarmentIntoOutfit,
 } from "@/lib/recommendations";
 import { getOrCreateEmbedSessionId, loadEmbedState, saveEmbedState } from "@/lib/embed/client/embed-storage";
+import type { ShopperProfileDraft } from "@/lib/embed/client/shopper-api";
 import { addItemToWooCommerceCart } from "@/lib/woocommerce/store-api-client";
 import { addItemToShopifyCart } from "@/lib/shopify/ajax-cart-client";
 
@@ -28,9 +29,9 @@ const GENERIC_AVATAR_ERROR = "We couldn't generate your avatar. Please try again
 const GENERIC_TRYON_ERROR = "Sorry, I couldn't generate your try-on preview. Please try again.";
 const GENERIC_CHAT_ERROR = "Sorry, something went wrong on my end. Please try that again.";
 
-/** Passed only when this hook is powering the public, no-login `/embed/[token]` page or
- *  widget.js — swaps every `/api/agents/*` call for its public `/api/embed/*` counterpart and
- *  includes the embed token (plus a per-shopper session id) on every request. */
+/** Passed only when this hook is powering the public `/embed/[token]` page or widget.js —
+ *  swaps every `/api/agents/*` call for its public `/api/embed/*` counterpart and includes the
+ *  embed token (plus a per-shopper session id) on every request. */
 export interface EmbedRuntimeConfig {
   apiBase: string;
   embedToken: string;
@@ -40,9 +41,32 @@ export interface EmbedRuntimeConfig {
   enableRealCart?: boolean;
 }
 
-/** Up to this many separate local profiles (e.g. a parent shopping for themselves + up to
- *  2 kids) can share one embed token/browser — see docs/notes on the sign-in decision: this
- *  intentionally stays login-free and device-local rather than becoming a shopper account. */
+/** Server-backed identity for an embedded shopper who has already signed in — the source of
+ *  truth for the 3 profiles (name, audience, measurements, hosted avatar). Chat, outfit and
+ *  cart stay in localStorage as this-device session convenience only. */
+export interface ShopperProfileBridge {
+  profiles: Array<{
+    id: string;
+    label: string;
+    profile: TryOnProfile;
+    profileSubmitted: boolean;
+  }>;
+  createProfile: (draft: ShopperProfileDraft) => Promise<{
+    id: string;
+    label: string;
+    profile: TryOnProfile;
+    profileSubmitted: boolean;
+  } | null>;
+  updateProfile: (id: string, draft: ShopperProfileDraft) => Promise<{
+    id: string;
+    label: string;
+    profile: TryOnProfile;
+    profileSubmitted: boolean;
+  } | null>;
+}
+
+/** Up to this many separate profiles (e.g. a parent shopping for themselves + up to 2 kids)
+ *  can share one shopper account at a store. The same ceiling is enforced server-side. */
 export const MAX_TRYON_PROFILES = 3;
 const DEFAULT_PROFILE_ID = "default";
 
@@ -420,12 +444,8 @@ interface TryOnAgentState {
   cartSyncError: string | null;
 }
 
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** Just the numeric fields, gating the Continue button on the measurements step — the photo
- *  is asked for separately, one step later. */
+/** Just the numeric fields — the photo lives on the same combined screen but is gated
+ *  separately via `isProfileComplete` below. */
 export function isMeasurementsComplete(profile: TryOnProfile): boolean {
   return (
     profile.heightCm !== null &&
@@ -449,13 +469,13 @@ export function isProfileComplete(profile: TryOnProfile): boolean {
  *  holds — so someone who filled in their measurements and then reloaded (or switched away and
  *  back) doesn't have to click through the welcome and audience screens again just to reach the
  *  one thing still missing. A blank/absent profile still starts at the welcome screen, which is
- *  also what a freshly-added profile gets. Note this can never resolve to a step *after*
- *  `photo`: the raw photo is deliberately never persisted (see sanitizeProfileForStorage), so a
- *  returning shopper always has to re-pick one before an avatar can be generated. */
+ *  also what a freshly-added profile gets. Never resolves past `measurements`: the raw photo is
+ *  deliberately never persisted (see sanitizeProfileForStorage), so a returning shopper always
+ *  lands back on the combined measurements+photo screen to re-pick one before an avatar can be
+ *  generated, even if their numeric measurements are already filled in from before. */
 export function resumeOnboardingPhase(profile: TryOnProfile | null | undefined): OnboardingPhase {
   if (!profile?.audience) return "welcome";
-  if (!isMeasurementsComplete(profile)) return "measurements";
-  return "photo";
+  return "measurements";
 }
 
 /** Parses one `\n\n`-delimited SSE chunk buffer into whole `data:` frames, returning the
@@ -503,12 +523,65 @@ type AvatarStreamEvent =
   | { type: "error"; message: string }
   | { type: "done"; successCount: number; creditsRemaining: number };
 
-export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: string, workspaceId?: string) {
+function overlayServerProfiles(
+  seeds: ShopperProfileBridge["profiles"],
+  local: PersistedEmbedState | null
+): PersistedEmbedState {
+  const base =
+    seeds.length > 0
+      ? seeds
+      : [{ id: DEFAULT_PROFILE_ID, label: "Profile 1", profile: INITIAL_PROFILE, profileSubmitted: false }];
+
+  const profiles: StoredProfileSlot[] = base.map((seed) => {
+    const localSlot = local?.profiles.find((slot) => slot.id === seed.id);
+    return {
+      id: seed.id,
+      label: seed.label,
+      profile: seed.profile,
+      profileSubmitted: seed.profileSubmitted,
+      selectedAvatarId: localSlot?.selectedAvatarId ?? null,
+      tryOnImages: localSlot?.tryOnImages ?? [],
+      currentImageIndex: localSlot?.currentImageIndex ?? 0,
+      messages: localSlot?.messages ?? [],
+      input: localSlot?.input ?? "",
+      outfitItems: localSlot?.outfitItems ?? [],
+      intakeAnswers: localSlot?.intakeAnswers ?? {},
+      selectedAnchor: localSlot?.selectedAnchor ?? null,
+      discussedBundle: localSlot?.discussedBundle ?? null,
+      retrievalState: localSlot?.retrievalState ?? {
+        anchorId: null,
+        anchorPinned: false,
+        bundleState: null,
+        shownProductIds: [],
+      },
+    };
+  });
+
+  const submitted = profiles.find((slot) => slot.profileSubmitted);
+  const activeProfileId = profiles.some((slot) => slot.id === local?.activeProfileId)
+    ? local!.activeProfileId
+    : submitted?.id ?? profiles[0].id;
+
+  return {
+    profiles,
+    activeProfileId,
+    cartItems: local?.cartItems ?? [],
+    knownProducts: local?.knownProducts ?? {},
+  };
+}
+
+export function useTryOnAgent(
+  embed?: EmbedRuntimeConfig,
+  welcomeMessage?: string,
+  workspaceId?: string,
+  shopper?: ShopperProfileBridge
+) {
   // The embedded page has no shopper login, so there's no `/api/account/api-key` to check —
   // the server already guarantees the merchant has one configured before enabling the embed.
   const geminiKey = useGeminiApiKey(!embed);
 
-  const persisted = embed ? normalizePersistedState(loadEmbedState<unknown>(embed.embedToken)) : null;
+  const localPersisted = embed ? normalizePersistedState(loadEmbedState<unknown>(embed.embedToken)) : null;
+  const persisted = shopper ? overlayServerProfiles(shopper.profiles, localPersisted) : localPersisted;
   const activeSlot = persisted ? (persisted.profiles.find((p) => p.id === persisted.activeProfileId) ?? null) : null;
 
   const [state, setState] = React.useState<TryOnAgentState>({
@@ -574,6 +647,17 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
       }
     }
   }
+
+  const shopperRef = React.useRef(shopper);
+  shopperRef.current = shopper;
+  const unsavedIdsRef = React.useRef<Set<string>>(
+    new Set(shopper && shopper.profiles.length === 0 ? [DEFAULT_PROFILE_ID] : [])
+  );
+  const persistTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeProfileIdRef = React.useRef(activeProfileId);
+  const profilesMetaRef = React.useRef(profilesMeta);
+  activeProfileIdRef.current = activeProfileId;
+  profilesMetaRef.current = profilesMeta;
 
   const generationTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const scanTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
@@ -642,6 +726,7 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
     return () => {
       if (generationTimerRef.current) clearInterval(generationTimerRef.current);
       if (scanTimerRef.current) clearInterval(scanTimerRef.current);
+      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
     };
   }, []);
 
@@ -733,6 +818,83 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
 
   function updateProfile(patch: Partial<TryOnProfile>) {
     setState((s) => ({ ...s, profile: { ...s.profile, ...patch } }));
+    scheduleShopperPersist();
+  }
+
+  function toProfileDraft(
+    label: string,
+    profile: TryOnProfile,
+    sortOrder: number,
+    options?: { includeAvatar?: boolean }
+  ): ShopperProfileDraft {
+    return {
+      label,
+      audience: profile.audience,
+      heightCm: profile.heightCm,
+      weightKg: profile.weightKg,
+      chestCm: profile.chestCm,
+      waistCm: profile.waistCm,
+      hipsCm: profile.hipsCm,
+      shoeSizeEu: profile.shoeSizeEu,
+      ...(options?.includeAvatar ? { avatarUrl: profile.avatarUrl } : {}),
+      backdropUrl: profile.backdropUrl,
+      sortOrder,
+    };
+  }
+
+  function replaceProfileId(from: string, to: string) {
+    if (from === to) return;
+    unsavedIdsRef.current.delete(from);
+    setProfilesMeta((m) => m.map((p) => (p.id === from ? { ...p, id: to } : p)));
+    setActiveProfileId((id) => (id === from ? to : id));
+    if (inactiveProfilesRef.current?.[from]) {
+      inactiveProfilesRef.current[to] = inactiveProfilesRef.current[from];
+      delete inactiveProfilesRef.current[from];
+    }
+  }
+
+  async function flushShopperProfile(
+    id: string,
+    snapshot: { label: string; profile: TryOnProfile },
+    options?: { includeAvatar?: boolean }
+  ) {
+    const bridge = shopperRef.current;
+    if (!bridge) return id;
+    const idx = profilesMetaRef.current.findIndex((p) => p.id === id);
+    const draft = toProfileDraft(
+      snapshot.label,
+      snapshot.profile,
+      idx < 0 ? profilesMetaRef.current.length : idx,
+      options
+    );
+    if (unsavedIdsRef.current.has(id)) {
+      const created = await bridge.createProfile(draft);
+      if (!created) return id;
+      replaceProfileId(id, created.id);
+      if (created.profile.avatarUrl && created.profile.avatarUrl !== snapshot.profile.avatarUrl) {
+        setState((s) => ({ ...s, profile: { ...s.profile, avatarUrl: created.profile.avatarUrl } }));
+      }
+      return created.id;
+    }
+    const updated = await bridge.updateProfile(id, draft);
+    if (updated?.profile.avatarUrl && updated.profile.avatarUrl !== snapshot.profile.avatarUrl) {
+      setState((s) =>
+        s.profile.avatarUrl === snapshot.profile.avatarUrl
+          ? { ...s, profile: { ...s.profile, avatarUrl: updated.profile.avatarUrl } }
+          : s
+      );
+    }
+    return updated?.id ?? id;
+  }
+
+  function scheduleShopperPersist() {
+    if (!shopperRef.current) return;
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    persistTimerRef.current = setTimeout(() => {
+      const id = activeProfileIdRef.current;
+      const label = profilesMetaRef.current.find((p) => p.id === id)?.label ?? "Me";
+      void flushShopperProfile(id, { label, profile: profileRef.current });
+    }, 700);
   }
 
   /** Stashes the currently-active profile's data into `inactiveProfilesRef` before switching
@@ -791,8 +953,8 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
     retrievalStateRef.current = data.retrievalState;
   }
 
-  /** Switches which local profile ("who's trying this on") is active — up to MAX_TRYON_PROFILES
-   *  can share one browser/embed token, entirely device-local, no login required. */
+  /** Switches which profile is active — up to MAX_TRYON_PROFILES can share one shopper
+   *  account at this store. */
   function switchProfile(id: string) {
     if (id === activeProfileId) return;
     stashActiveProfile();
@@ -802,14 +964,31 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
 
   function addProfile() {
     if (profilesMeta.length >= MAX_TRYON_PROFILES) return;
-    const id =
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `profile-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const label = `Profile ${profilesMeta.length + 1}`;
-    stashActiveProfile();
-    setProfilesMeta((m) => [...m, { id, label }]);
-    activateProfileData(id, blankProfileSlotData());
+    void (async () => {
+      if (profilesMetaRef.current.length >= MAX_TRYON_PROFILES) return;
+      stashActiveProfile();
+      const currentId = activeProfileIdRef.current;
+      const currentLabel = profilesMetaRef.current.find((p) => p.id === currentId)?.label ?? "Me";
+      await flushShopperProfile(currentId, { label: currentLabel, profile: profileRef.current });
+
+      const nextLabel = `Profile ${profilesMetaRef.current.length + 1}`;
+      const created = shopperRef.current
+        ? await shopperRef.current.createProfile({ label: nextLabel, sortOrder: profilesMetaRef.current.length })
+        : null;
+      const id =
+        created?.id ??
+        (typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `profile-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      if (!created) unsavedIdsRef.current.add(id);
+      setProfilesMeta((m) => [...m, { id, label: created?.label ?? nextLabel }]);
+      activateProfileData(
+        id,
+        created
+          ? { ...blankProfileSlotData(), profile: created.profile, profileSubmitted: created.profileSubmitted }
+          : blankProfileSlotData()
+      );
+    })();
   }
 
   function removeProfile(id: string) {
@@ -830,16 +1009,18 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
     // profile switcher's inline rename validates before calling this function.
     const next = label.slice(0, 40);
     setProfilesMeta((m) => m.map((p) => (p.id === id ? { ...p, label: next } : p)));
+    scheduleShopperPersist();
   }
 
   /** Onboarding steps before avatar generation kicks in — used by goBack to step to the
    *  previous one. Generation/avatar-selection aren't in here: there's no "back" out of a
    *  request already in flight, and confirmAvatar/the error path handle those transitions. */
-  const ONBOARDING_STEP_ORDER: OnboardingPhase[] = ["welcome", "audience", "measurements", "photo"];
+  const ONBOARDING_STEP_ORDER: OnboardingPhase[] = ["welcome", "audience", "measurements"];
 
   // Navigating between steps clears any previous avatar-generation failure: the message is
-  // pinned to the photo step, so leaving and coming back would otherwise re-surface a stale
-  // error the shopper has already moved on from (a retry clears it too, but only on retry).
+  // pinned to the combined measurements+photo step, so leaving and coming back would otherwise
+  // re-surface a stale error the shopper has already moved on from (a retry clears it too, but
+  // only on retry).
   function goToStep(phase: OnboardingPhase) {
     setState((s) => ({ ...s, onboardingPhase: phase, avatarGenerationError: null }));
   }
@@ -878,6 +1059,7 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
           : p
       )
     );
+    scheduleShopperPersist();
   }
 
   function startAvatarGeneration() {
@@ -895,14 +1077,17 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
       avatarPartialNote: null,
     }));
 
-    // The first few stages ("analyzing photo", "mapping measurements", "building body model")
-    // are purely cosmetic scene-setting with no real signal to drive them — a short fake timer
-    // covers those. Past that point, progress is driven by real variations actually streaming
-    // back from the server (see streamAvatarVariations), so the bar never lies about a
-    // multi-minute wait by pretending to be done at a fixed, made-up duration.
-    const PREAMBLE_STAGE_COUNT = 3;
-    const PREAMBLE_CAP = AVATAR_GENERATION_STAGES[PREAMBLE_STAGE_COUNT - 1].progress;
-    const PREAMBLE_DURATION_MS = 2400;
+    // There's no real progress signal until a variation actually streams back (see
+    // streamAvatarVariations below), so this whole bar is necessarily a guess. But a guess that
+    // freezes dead solid at a fixed percentage the moment Pruna takes longer than expected reads
+    // as broken, not "still working" — so instead of stopping at a hard cap, it creeps
+    // asymptotically toward 95% for as long as the real request takes, calibrated (via
+    // `PROGRESS_TAU_MS`) so it lands right around each stage's threshold at roughly the time
+    // Pruna's own "Try-Sync" fast path normally takes, then keeps crawling — slower and slower,
+    // never fully stopping — if the real call runs long. It only ever jumps to 100% for real,
+    // the instant the first variation actually lands.
+    const PROGRESS_CAP = 95;
+    const PROGRESS_TAU_MS = 1900;
     const startedAt = Date.now();
 
     const stopTimer = () => {
@@ -912,69 +1097,62 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
 
     generationTimerRef.current = setInterval(() => {
       const elapsed = Date.now() - startedAt;
-      const progress = Math.min(PREAMBLE_CAP, (elapsed / PREAMBLE_DURATION_MS) * PREAMBLE_CAP);
+      const progress = PROGRESS_CAP * (1 - Math.exp(-elapsed / PROGRESS_TAU_MS));
 
       let stageIndex = 0;
-      for (let i = PREAMBLE_STAGE_COUNT - 1; i >= 0; i--) {
+      for (let i = AVATAR_GENERATION_STAGES.length - 2; i >= 0; i--) {
         if (progress >= AVATAR_GENERATION_STAGES[i].progress) {
           stageIndex = i;
           break;
         }
       }
 
-      if (progress >= PREAMBLE_CAP) stopTimer();
-
       setState((s) =>
         s.onboardingPhase === "generating"
           ? { ...s, generationProgress: progress, generationStageIndex: stageIndex }
           : s
       );
-    }, 50);
+    }, 100);
 
     let receivedAny = false;
+    const collected: AvatarVariation[] = [];
 
-    // All 4 Gemini calls already fire in parallel (see generateAvatarVariationsStream) — the
-    // remaining wait is each call's own latency, not a concurrency limit on our side. So rather
-    // than making the shopper wait for the *slowest* of the 4 to finish before they can do
-    // anything, unlock the picker screen the moment the *first* one lands; the other 2-3 just
-    // keep streaming in and appending to the grid behind it (see the `!isFirst` branch below).
+    // All 4 Pruna calls already fire in parallel (see generateAvatarVariationsStream).
+    // Keep the loading screen up until the whole batch settles, then reveal every
+    // style together. Only the cutout the shopper confirms is persisted.
     void streamAvatarVariations(state.profile, embed, (variation) => {
-      const isFirst = !receivedAny;
       receivedAny = true;
-      if (isFirst) stopTimer();
-
-      setState((s) => {
-        const avatarVariations = [...s.avatarVariations, variation];
-        if (isFirst && s.onboardingPhase === "generating") {
-          return {
-            ...s,
-            onboardingPhase: "avatar-selection",
-            generationProgress: 100,
-            generationStageIndex: AVATAR_GENERATION_STAGES.length - 1,
-            avatarVariations,
-            selectedAvatarId: variation.id,
-          };
-        }
-        return { ...s, avatarVariations };
-      });
+      collected.push(variation);
+      const arrived = Math.min(96, (collected.length / EXPECTED_AVATAR_VARIATION_COUNT) * 92);
+      setState((s) =>
+        s.onboardingPhase === "generating"
+          ? { ...s, generationProgress: Math.max(s.generationProgress, arrived) }
+          : s
+      );
     }).then((result) => {
       stopTimer();
 
-      // Only a real failure if literally nothing came back — if at least one variation
-      // already landed and unlocked the picker, a later straggler failing is a non-event.
       if ("error" in result && !receivedAny) {
-        setState((s) => ({ ...s, onboardingPhase: "photo", avatarGenerationError: result.error, avatarVariations: [] }));
+        setState((s) => ({ ...s, onboardingPhase: "measurements", avatarGenerationError: result.error, avatarVariations: [] }));
         return;
       }
-      if ("successCount" in result && result.successCount > 0 && result.successCount < EXPECTED_AVATAR_VARIATION_COUNT) {
-        setState((s) => ({
-          ...s,
-          avatarPartialNote:
-            result.successCount === 1
-              ? "We could only generate 1 style this time — feel free to retake the photo for more options."
-              : `We generated ${result.successCount} of ${EXPECTED_AVATAR_VARIATION_COUNT} styles this time — you can still pick your favorite below.`,
-        }));
-      }
+
+      const partialNote =
+        "successCount" in result && result.successCount > 0 && result.successCount < EXPECTED_AVATAR_VARIATION_COUNT
+          ? result.successCount === 1
+            ? "We could only generate 1 style this time — feel free to retake the photo for more options."
+            : `We generated ${result.successCount} of ${EXPECTED_AVATAR_VARIATION_COUNT} styles this time — you can still pick your favorite below.`
+          : null;
+
+      setState((s) => ({
+        ...s,
+        onboardingPhase: "avatar-selection",
+        avatarVariations: collected,
+        generationProgress: 100,
+        generationStageIndex: AVATAR_GENERATION_STAGES.length - 1,
+        selectedAvatarId: collected[0]?.id ?? null,
+        avatarPartialNote: partialNote,
+      }));
     });
   }
 
@@ -1003,11 +1181,18 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
       const backdropUrl = s.selectedAvatarId === "custom" ? null : selectedVariation?.backdropUrl ?? null;
       lastSentAvatarUrlRef.current = null;
 
+      const nextProfile = { ...s.profile, avatarUrl, backdropUrl };
+      const label = profilesMetaRef.current.find((p) => p.id === activeProfileIdRef.current)?.label ?? "Me";
+      void flushShopperProfile(activeProfileIdRef.current, { label, profile: nextProfile }, { includeAvatar: true });
+
       return {
         ...s,
         profileSubmitted: true,
         onboardingPhase: "welcome",
-        profile: { ...s.profile, avatarUrl, backdropUrl },
+        profile: nextProfile,
+        // Drop the unchosen styles — only the confirmed cutout is stored on the account.
+        avatarVariations: [],
+        customAvatarUrl: null,
         messages: [
           welcomeMessage
             ? { ...INITIAL_WEARABLE_MESSAGE, content: welcomeMessage }
@@ -1021,6 +1206,7 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
    *  4 studio plates or a previously-uploaded custom backdrop URL. */
   function changeBackdrop(url: string) {
     setState((s) => ({ ...s, profile: { ...s.profile, backdropUrl: url } }));
+    scheduleShopperPersist();
   }
 
   /** Uploads a custom background photo. Stored server-side in a process-memory-only cache
@@ -1111,7 +1297,9 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
       (selectedAvatarIdRef.current === "custom" && customAvatarUrlRef.current) ||
       !profileRef.current.photoBase64
     ) {
-      await sleep(1200);
+      const saved = { ...profileRef.current, ...patch };
+      const label = profilesMetaRef.current.find((p) => p.id === activeProfileIdRef.current)?.label ?? "Me";
+      void flushShopperProfile(activeProfileIdRef.current, { label, profile: saved });
       setState((s) => ({
         ...s,
         isRegeneratingAvatar: false,
@@ -1167,13 +1355,27 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
         timestamp: new Date().toISOString(),
       };
 
+      const nextProfile = { ...s.profile, avatarUrl: nextAvatarUrl };
+      const label = profilesMetaRef.current.find((p) => p.id === activeProfileIdRef.current)?.label ?? "Me";
+      void flushShopperProfile(activeProfileIdRef.current, { label, profile: nextProfile }, { includeAvatar: true });
+
       return {
         ...s,
         isRegeneratingAvatar: false,
-        profile: { ...s.profile, avatarUrl: nextAvatarUrl },
+        profile: nextProfile,
         messages: [...s.messages, confirmMsg],
       };
     });
+  }
+
+  /** Writes measurement edits from the Model Stats popup to the signed-in shopper account.
+   *  Does not regenerate the avatar — the source photo is not stored, and the shopper asked
+   *  to save numbers, not to spend another render. */
+  function saveMeasurements(patch: Partial<TryOnProfile>) {
+    const nextProfile = { ...profileRef.current, ...patch };
+    setState((s) => ({ ...s, profile: { ...s.profile, ...patch } }));
+    const label = profilesMetaRef.current.find((p) => p.id === activeProfileIdRef.current)?.label ?? "Me";
+    void flushShopperProfile(activeProfileIdRef.current, { label, profile: nextProfile });
   }
 
   async function generateTryOn(productsOverride?: Product[]) {
@@ -2043,6 +2245,7 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
     setInput,
     sendMessage,
     regenerateAvatar,
+    saveMeasurements,
     changeBackdrop,
     uploadCustomBackdrop,
     addToOutfit,
@@ -2061,7 +2264,7 @@ export function useTryOnAgent(embed?: EmbedRuntimeConfig, welcomeMessage?: strin
     clearDiscussedBundle,
     profileComplete,
     measurementsComplete,
-    // Local, login-free multi-profile support (up to MAX_TRYON_PROFILES per browser/embed token).
+    // Up to MAX_TRYON_PROFILES per shopper account at this store.
     profiles: profilesMeta,
     activeProfileId,
     maxProfiles: MAX_TRYON_PROFILES,

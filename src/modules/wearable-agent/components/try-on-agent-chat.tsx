@@ -8,6 +8,7 @@ import { PinnedAnchorBar, PinnedBundleBar, WearableChatMessage, WearableScanning
 import { AvatarMannequinPanel } from "./avatar-mannequin-panel";
 import { NoApiKeyGate } from "./no-api-key-gate";
 import { ProfileSwitcher } from "./profile-switcher";
+import { useEmbedShopperSession } from "../hooks/embed-shopper-session";
 import { WEARABLE_QUICK_REPLIES } from "../mocks/responses";
 import { useBottomSheet } from "../hooks/use-bottom-sheet";
 import { MOBILE_SURFACE, NO_IOS_ZOOM_TEXT, SAFE_BOTTOM, SHEET_H } from "../mobile-surface";
@@ -132,7 +133,7 @@ export function TryOnAgentChat({ agent, viewportMode = "desktop", embed, workspa
       onNext={agent.nextImage}
       onSelectImage={agent.selectImage}
       onRemoveFromOutfit={agent.removeFromOutfit}
-      onRegenerateAvatar={agent.regenerateAvatar}
+      onSaveMeasurements={agent.saveMeasurements}
       onAddToCart={picker.requestAddToCart}
       onBulkAddToCart={agent.addToCart}
       onChangeBackdrop={agent.changeBackdrop}
@@ -230,6 +231,7 @@ function ChatProfileSwitcher({
   agent: UseTryOnAgentReturn;
   menuPlacement?: "down" | "up";
 }) {
+  const shopper = useEmbedShopperSession();
   return (
     <ProfileSwitcher
       profiles={agent.profiles}
@@ -237,8 +239,9 @@ function ChatProfileSwitcher({
       maxProfiles={agent.maxProfiles}
       onSwitch={agent.switchProfile}
       onAdd={agent.addProfile}
-      onRemove={agent.removeProfile}
       onRename={agent.renameProfile}
+      accountEmail={shopper?.email}
+      onSignOut={shopper?.signOut}
       menuPlacement={menuPlacement}
     />
   );
@@ -280,25 +283,30 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
         ? "rounded-none border-0 bg-[var(--color-surface-card)]"
         : "rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)]"
     )}>
-      {/* Header */}
-      <div className={cn("flex items-center gap-3 border-b border-[var(--color-border)] shrink-0", compact ? "px-3 py-3" : "px-5 py-4")}>
-        {branding.logoUrl ? (
-          <img src={branding.logoUrl} alt="" className="h-8 w-8 rounded-full object-cover shrink-0 shadow-sm" />
-        ) : (
-          <AgentOrb mode="wearable" size="sm" animated />
-        )}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-baseline gap-2">
-            <span className="text-base font-bold gradient-text-brand truncate">{branding.agentName}</span>
-          </div>
-          <div className="flex items-center gap-1.5 mt-0.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-success)] animate-pulse-dot" />
-            <span className="text-xs text-[var(--color-text-muted)]">
-              Online — personalised for your profile
-            </span>
+      {/* Header — the profile switcher sits where a logo would normally go (top-left), and the
+          branding itself is centered, so the one interactive control in this row reads as the
+          primary "you are here" anchor instead of competing off to one side. */}
+      <div className={cn("flex items-center border-b border-[var(--color-border)] shrink-0", compact ? "px-3 py-3" : "px-5 py-4")}>
+        <div className="flex flex-1 min-w-0 items-center justify-start">
+          {embed && <ChatProfileSwitcher agent={agent} />}
+        </div>
+        <div className="flex shrink-0 items-center gap-2.5">
+          {branding.logoUrl ? (
+            <img src={branding.logoUrl} alt="" className="h-8 w-8 rounded-full object-cover shrink-0 shadow-sm" />
+          ) : (
+            <AgentOrb mode="wearable" size="sm" animated />
+          )}
+          <div className="min-w-0 text-left">
+            <span className="text-base font-bold gradient-text-brand truncate block">{branding.agentName}</span>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-success)] animate-pulse-dot" />
+              <span className="text-xs text-[var(--color-text-muted)] whitespace-nowrap">
+                Online — personalised for your profile
+              </span>
+            </div>
           </div>
         </div>
-        {embed && <ChatProfileSwitcher agent={agent} />}
+        <div className="flex-1" aria-hidden />
       </div>
 
       {/* Messages — only this area scrolls as the conversation grows */}
@@ -475,7 +483,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
           onNext={agent.nextImage}
           onSelectImage={agent.selectImage}
           onRemoveFromOutfit={agent.removeFromOutfit}
-          onRegenerateAvatar={agent.regenerateAvatar}
+          onSaveMeasurements={agent.saveMeasurements}
           onAddToCart={handleAddToCart}
           onBulkAddToCart={handleBulkAddToCart}
           onChangeBackdrop={agent.changeBackdrop}
@@ -514,9 +522,16 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
         <div
           ref={sheet.headerRef}
           {...sheet.handleProps}
-          className={cn("relative flex touch-none items-center gap-2 px-4 pt-3 pb-3 shrink-0", styles.headerPress)}
+          className={cn("relative flex touch-none items-center gap-2 px-3 pt-3 pb-3 shrink-0", styles.headerPress)}
         >
           <div className={cn("pointer-events-none absolute left-1/2 top-2 h-1 w-10 -translate-x-1/2 rounded-full", styles.grabber)} />
+          {/* Profile switcher takes the logo's old top-left spot; the branding itself moves to
+              the center of the header button below. */}
+          {embed && (
+            <div className="mt-1 shrink-0">
+              <ChatProfileSwitcher agent={agent} menuPlacement={sheet.snap === "full" ? "down" : "up"} />
+            </div>
+          )}
           <button
             type="button"
             aria-expanded={sheet.expanded}
@@ -524,7 +539,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
             onClick={() => {
               if (!sheet.consumedDrag()) sheet.toggle();
             }}
-            className="mt-1 flex min-h-11 min-w-0 flex-1 items-center justify-between"
+            className="relative mt-1 flex min-h-11 min-w-0 flex-1 items-center justify-center"
           >
             <div className="flex min-w-0 items-center gap-2">
               {branding.logoUrl ? (
@@ -535,7 +550,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
               <span className={cn("truncate text-[14px] font-semibold", styles.headerTitle)}>{branding.agentName}</span>
               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-success)] animate-pulse-dot" />
             </div>
-            <div className={cn("flex items-center gap-2", styles.headerMeta)}>
+            <div className={cn("absolute right-0 flex items-center gap-2", styles.headerMeta)}>
               {!sheet.expanded && unread > 0 && (
                 <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--color-brand)] px-1.5 text-[11px] font-bold text-white">
                   {unread}
@@ -544,7 +559,6 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
               {sheet.expanded ? <ChevronDown className="h-5 w-5" /> : <ChevronUp className="h-5 w-5" />}
             </div>
           </button>
-          {embed && <ChatProfileSwitcher agent={agent} menuPlacement={sheet.snap === "full" ? "down" : "up"} />}
         </div>
 
         {/* ── Messages + quick replies + input (only visible when expanded) ── */}

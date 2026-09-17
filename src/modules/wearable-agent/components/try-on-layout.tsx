@@ -2,7 +2,10 @@
 
 import * as React from "react";
 import { ArrowRight } from "lucide-react";
-import { useTryOnAgent, type EmbedRuntimeConfig } from "../hooks/use-try-on-agent";
+import { useTryOnAgent, type EmbedRuntimeConfig, type ShopperProfileBridge } from "../hooks/use-try-on-agent";
+import { useShopperAuth } from "../hooks/use-shopper-auth";
+import { EmbedShopperSessionContext } from "../hooks/embed-shopper-session";
+import { ShopperSignIn } from "./onboarding/shopper-sign-in";
 import { OnboardingShell } from "./onboarding/onboarding-shell";
 import { WelcomeStep } from "./onboarding/welcome-step";
 import { AudienceStep } from "./onboarding/audience-step";
@@ -23,7 +26,8 @@ import { cn } from "@/lib/utils/cn";
 interface TryOnLayoutProps {
   viewportMode?: PreviewViewportMode;
   /** Set only by the public `/embed/[token]` page and widget.js — swaps every backend call
-   *  for its public, no-login `/api/embed/*` counterpart. */
+   *  for its public `/api/embed/*` counterpart, and requires a shopper sign-in before the
+   *  fitting-room UI mounts. */
   embed?: EmbedRuntimeConfig;
   /** "dark" (default, matches the dashboard's own studio look) or "light" — set from
    *  workspace branding for the embed page / widget so the whole preview is one consistent
@@ -41,14 +45,101 @@ interface TryOnLayoutProps {
  *  single, persistent element: rendering a separate `<OnboardingShell>` per step would make
  *  React unmount and remount it on every transition, resetting the shell's own slide-direction
  *  state so back navigation could never animate backwards. */
-const ONBOARDING_STEPS = ["welcome", "audience", "measurements", "photo"] as const;
+const ONBOARDING_STEPS = ["welcome", "audience", "measurements"] as const;
 
 function isOnboardingStep(phase: OnboardingPhase): boolean {
   return (ONBOARDING_STEPS as readonly OnboardingPhase[]).includes(phase);
 }
 
 export function TryOnLayout({ viewportMode = "desktop", embed, theme = "dark", branding, workspaceId }: TryOnLayoutProps) {
-  const agent = useTryOnAgent(embed, branding?.welcomeMessage, workspaceId);
+  return (
+    <WearableThemeProvider theme={theme}>
+      <WearableBrandingProvider branding={branding}>
+        <div
+          className={cn("relative h-full min-h-0 overflow-hidden", theme === "dark" && "dark")}
+          style={branding?.borderRadius ? { borderRadius: branding.borderRadius } : undefined}
+        >
+          {embed ? (
+            <EmbeddedTryOn
+              viewportMode={viewportMode}
+              embed={embed}
+              branding={branding}
+              workspaceId={workspaceId}
+            />
+          ) : (
+            <TryOnExperience viewportMode={viewportMode} branding={branding} workspaceId={workspaceId} />
+          )}
+        </div>
+      </WearableBrandingProvider>
+    </WearableThemeProvider>
+  );
+}
+
+function EmbeddedTryOn({
+  viewportMode,
+  embed,
+  branding,
+  workspaceId,
+}: {
+  viewportMode: PreviewViewportMode;
+  embed: EmbedRuntimeConfig;
+  branding?: TryOnLayoutProps["branding"];
+  workspaceId?: string;
+}) {
+  const shopper = useShopperAuth(embed);
+
+  if (shopper.status === "loading") {
+    return (
+      <PreviewViewportShell mode={viewportMode} layout="card" frameless>
+        <div className="flex min-h-[320px] items-center justify-center py-16">
+          <div className="h-8 w-8 rounded-full border-2 border-[var(--color-brand)] border-t-transparent animate-spin" />
+        </div>
+      </PreviewViewportShell>
+    );
+  }
+
+  if (shopper.status === "signed-out") {
+    return (
+      <PreviewViewportShell mode={viewportMode} layout="card" frameless>
+        <ShopperSignIn error={shopper.error} onRequestCode={shopper.requestCode} onVerifyCode={shopper.verifyCode} />
+      </PreviewViewportShell>
+    );
+  }
+
+  return (
+    <EmbedShopperSessionContext.Provider
+      value={{ email: shopper.account?.email ?? "", signOut: () => void shopper.signOut() }}
+    >
+      <TryOnExperience
+        viewportMode={viewportMode}
+        embed={embed}
+        branding={branding}
+        workspaceId={workspaceId}
+        shopper={{
+          profiles: shopper.profiles,
+          createProfile: shopper.createProfile,
+          updateProfile: shopper.updateProfile,
+        }}
+      />
+    </EmbedShopperSessionContext.Provider>
+  );
+}
+
+function TryOnExperience({
+  viewportMode,
+  embed,
+  branding,
+  workspaceId,
+  shopper,
+}: {
+  viewportMode: PreviewViewportMode;
+  embed?: EmbedRuntimeConfig;
+  branding?: TryOnLayoutProps["branding"];
+  workspaceId?: string;
+  shopper?: ShopperProfileBridge;
+}) {
+  const agent = useTryOnAgent(embed, branding?.welcomeMessage, workspaceId, shopper);
+  const shopperSession = React.useContext(EmbedShopperSessionContext);
 
   const activeProfileLabel = agent.profiles.find((p) => p.id === agent.activeProfileId)?.label ?? "";
   // The auto-assigned placeholder ("Profile 1", "Profile 2"...) isn't a name the shopper
@@ -70,11 +161,15 @@ export function TryOnLayout({ viewportMode = "desktop", embed, theme = "dark", b
         );
       case "audience":
         return <AudienceStep value={agent.profile.audience} onSelect={agent.selectAudience} />;
+      // Measurements + photo now share one screen — one fewer tap between "who's this for"
+      // and avatar generation actually kicking off.
       case "measurements":
-        return <MeasurementsStep profile={agent.profile} onChange={agent.updateProfile} />;
-      case "photo":
         return (
-          <PhotoStep profile={agent.profile} error={agent.avatarGenerationError} onChange={agent.updateProfile} />
+          <div className="flex flex-col gap-6">
+            <MeasurementsStep profile={agent.profile} onChange={agent.updateProfile} />
+            <div className="h-px bg-[var(--color-border)]" />
+            <PhotoStep profile={agent.profile} error={agent.avatarGenerationError} onChange={agent.updateProfile} />
+          </div>
         );
       default:
         return null;
@@ -108,23 +203,6 @@ export function TryOnLayout({ viewportMode = "desktop", embed, theme = "dark", b
           <>
             <Button
               size="lg"
-              onClick={() => agent.goToStep("photo")}
-              disabled={!agent.measurementsComplete}
-              className={cn(agent.measurementsComplete ? "gradient-wearable text-white border-0" : "")}
-            >
-              Continue
-              <ArrowRight className="h-4 w-4" />
-            </Button>
-            {!agent.measurementsComplete && (
-              <p className="text-xs text-[var(--color-text-muted)]">Fill in all fields to continue</p>
-            )}
-          </>
-        );
-      case "photo":
-        return (
-          <>
-            <Button
-              size="lg"
               onClick={agent.startAvatarGeneration}
               disabled={!agent.profileComplete}
               className={cn(agent.profileComplete ? "gradient-wearable text-white border-0" : "")}
@@ -133,7 +211,9 @@ export function TryOnLayout({ viewportMode = "desktop", embed, theme = "dark", b
               <ArrowRight className="h-4 w-4" />
             </Button>
             {!agent.profileComplete && (
-              <p className="text-xs text-[var(--color-text-muted)]">Add a photo to continue</p>
+              <p className="text-xs text-[var(--color-text-muted)]">
+                {agent.measurementsComplete ? "Add a photo to continue" : "Fill in all fields and add a photo to continue"}
+              </p>
             )}
           </>
         );
@@ -143,22 +223,18 @@ export function TryOnLayout({ viewportMode = "desktop", embed, theme = "dark", b
   }
 
   return (
-    <WearableThemeProvider theme={theme}>
-      <WearableBrandingProvider branding={branding}>
-        <div
-          className={cn("relative h-full min-h-0 overflow-hidden", theme === "dark" && "dark")}
-          style={branding?.borderRadius ? { borderRadius: branding.borderRadius } : undefined}
-        >
+    <>
           {embed && !agent.profileSubmitted && (
             <ProfileSwitcher
-              className="absolute right-3 top-3"
+              className="absolute left-3 top-3"
               profiles={agent.profiles}
               activeProfileId={agent.activeProfileId}
               maxProfiles={agent.maxProfiles}
               onSwitch={agent.switchProfile}
               onAdd={agent.addProfile}
-              onRemove={agent.removeProfile}
               onRename={agent.renameProfile}
+              accountEmail={shopperSession?.email}
+              onSignOut={shopperSession?.signOut}
             />
           )}
           {agent.profileSubmitted ? (
@@ -197,8 +273,6 @@ export function TryOnLayout({ viewportMode = "desktop", embed, theme = "dark", b
               )}
             </PreviewViewportShell>
           )}
-        </div>
-      </WearableBrandingProvider>
-    </WearableThemeProvider>
+    </>
   );
 }

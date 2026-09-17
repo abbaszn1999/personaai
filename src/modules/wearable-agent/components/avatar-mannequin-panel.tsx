@@ -64,7 +64,7 @@ interface AvatarMannequinPanelProps {
   onNext: () => void;
   onSelectImage: (index: number) => void;
   onRemoveFromOutfit: (id: string) => void;
-  onRegenerateAvatar: (patch: Partial<TryOnProfile>) => void;
+  onSaveMeasurements: (patch: Partial<TryOnProfile>) => void;
   onAddToCart: (product: Product) => void;
   /** Bulk "Add all to cart" — bypasses the variant picker and keeps today's
    *  auto-pick-first-in-stock-variant behavior. Falls back to `onAddToCart` when omitted. */
@@ -135,7 +135,7 @@ export function AvatarMannequinPanel({
   onNext,
   onSelectImage,
   onRemoveFromOutfit,
-  onRegenerateAvatar,
+  onSaveMeasurements,
   onAddToCart,
   onBulkAddToCart,
   onChangeBackdrop,
@@ -185,14 +185,6 @@ export function AvatarMannequinPanel({
     if (id === "fullscreen") setIsFullscreen(true);
     // "3d" is disabled — coming soon, intentionally not wired up.
   }
-
-  const wasRegeneratingRef = React.useRef(false);
-  React.useEffect(() => {
-    if (wasRegeneratingRef.current && !isRegeneratingAvatar) {
-      setIsEditOpen(false);
-    }
-    wasRegeneratingRef.current = isRegeneratingAvatar;
-  }, [isRegeneratingAvatar]);
 
   const fit = getProfileFitSummary(profile);
   const defaultSize = recommendSize(profile);
@@ -348,7 +340,7 @@ export function AvatarMannequinPanel({
         onAddToCart={onAddToCart}
         handleAddAllToCart={handleAddAllToCart}
         lookLabel={lookLabel}
-        onRegenerateAvatar={onRegenerateAvatar}
+        onSaveMeasurements={onSaveMeasurements}
         viewMode={viewMode}
         onViewModeChange={changeViewMode}
         realtime={realtime}
@@ -789,9 +781,8 @@ export function AvatarMannequinPanel({
       {isEditOpen && (
         <EditModelStatsModal
           profile={profile}
-          isRegenerating={isRegeneratingAvatar}
           onClose={() => setIsEditOpen(false)}
-          onRegenerate={onRegenerateAvatar}
+          onSave={onSaveMeasurements}
         />
       )}
 
@@ -875,7 +866,7 @@ interface MobileAvatarStripProps {
   onAddToCart: (p: Product) => void;
   handleAddAllToCart: () => void;
   lookLabel: string;
-  onRegenerateAvatar: (patch: Partial<TryOnProfile>) => void;
+  onSaveMeasurements: (patch: Partial<TryOnProfile>) => void;
   viewMode: "photo" | "live";
   onViewModeChange: (mode: "photo" | "live") => void;
   realtime: ReturnType<typeof useRealtimeTryOn>;
@@ -911,7 +902,7 @@ function MobileAvatarStrip({
   onAddToCart,
   handleAddAllToCart,
   lookLabel,
-  onRegenerateAvatar,
+  onSaveMeasurements,
   viewMode,
   onViewModeChange,
   realtime,
@@ -938,15 +929,15 @@ function MobileAvatarStrip({
   React.useEffect(() => { setEditDraft(profile); }, [profile]);
 
   function handleSaveEdit() {
-    const {
-      photoUrl: _p,
-      photoBase64: _pb64,
-      photoMimeType: _pmt,
-      avatarUrl: _a,
-      backdropUrl: _bg,
-      ...measurements
-    } = editDraft;
-    onRegenerateAvatar(measurements);
+    // Measurements only — see EditModelStatsModal's desktop counterpart.
+    onSaveMeasurements({
+      heightCm: editDraft.heightCm,
+      weightKg: editDraft.weightKg,
+      chestCm: editDraft.chestCm,
+      waistCm: editDraft.waistCm,
+      hipsCm: editDraft.hipsCm,
+      shoeSizeEu: editDraft.shoeSizeEu,
+    });
     setPanel(null);
   }
 
@@ -1223,15 +1214,15 @@ function MobileAvatarStrip({
               className={cn("flex-1 h-11 rounded-[12px] border text-[13px] transition-colors", styles.panelSecondaryButton)}>
               Cancel
             </button>
-            <button type="button" onClick={handleSaveEdit} disabled={isRegeneratingAvatar}
+            <button
+              type="button"
+              onClick={handleSaveEdit}
               className={cn(
-                "flex-1 h-11 rounded-[12px] text-[13px] font-semibold text-white flex items-center justify-center gap-1.5 transition-all",
-                "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] shadow-[var(--shadow-glow)]",
-                "disabled:opacity-60"
-              )}>
-              {isRegeneratingAvatar
-                ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…</>
-                : "Regenerate Avatar"}
+                "flex-1 h-11 rounded-[12px] text-[13px] font-semibold text-white flex items-center justify-center gap-1.5",
+                "gradient-wearable bg-[var(--color-wearable-from)]"
+              )}
+            >
+              Save
             </button>
           </div>
         </MobileInlinePanel>

@@ -1,16 +1,16 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, Sparkles, X } from "lucide-react";
+import { Check, Loader2, Sparkles, X } from "lucide-react";
 import type { TryOnProfile } from "../types";
 import { cn } from "@/lib/utils/cn";
 import { useWearableTheme } from "../theme-context";
 
 interface EditModelStatsModalProps {
   profile: TryOnProfile;
-  isRegenerating: boolean;
+  isSaving?: boolean;
   onClose: () => void;
-  onRegenerate: (patch: Partial<TryOnProfile>) => void;
+  onSave: (patch: Partial<TryOnProfile>) => void;
 }
 
 const THEME_STYLES = {
@@ -78,31 +78,29 @@ function FieldInput({
 
 export function EditModelStatsModal({
   profile,
-  isRegenerating,
+  isSaving = false,
   onClose,
-  onRegenerate,
+  onSave,
 }: EditModelStatsModalProps) {
   const [draft, setDraft] = React.useState<TryOnProfile>(profile);
   const styles = THEME_STYLES[useWearableTheme()];
-  // The original selfie is deliberately never persisted (see sanitizeProfileForStorage) — once
-  // a shopper reloads or switches profiles and comes back, there's nothing left to re-render
-  // the avatar from, so this edit only ever updates measurements/size recs in that case.
-  const canRegenerateAvatar = Boolean(profile.photoBase64);
 
   function patch(p: Partial<TryOnProfile>) {
     setDraft((d) => ({ ...d, ...p }));
   }
 
   function handleSubmit() {
-    const {
-      photoUrl: _photoUrl,
-      photoBase64: _photoBase64,
-      photoMimeType: _photoMimeType,
-      avatarUrl: _avatarUrl,
-      backdropUrl: _backdropUrl,
-      ...measurements
-    } = draft;
-    onRegenerate(measurements);
+    // Only the measurement fields — the photo/avatar/backdrop on `draft` are untouched by this
+    // form, and sending them back would overwrite the shopper's confirmed avatar.
+    onSave({
+      heightCm: draft.heightCm,
+      weightKg: draft.weightKg,
+      chestCm: draft.chestCm,
+      waistCm: draft.waistCm,
+      hipsCm: draft.hipsCm,
+      shoeSizeEu: draft.shoeSizeEu,
+    });
+    onClose();
   }
 
   return (
@@ -110,7 +108,7 @@ export function EditModelStatsModal({
       {/* Backdrop */}
       <div
         className={cn("absolute inset-0 backdrop-blur-sm animate-fade-in", styles.overlay)}
-        onClick={() => !isRegenerating && onClose()}
+        onClick={() => !isSaving && onClose()}
       />
 
       {/* Modal */}
@@ -124,16 +122,14 @@ export function EditModelStatsModal({
             <div>
               <h3 className={cn("text-sm font-bold", styles.title)}>Edit Model Stats</h3>
               <p className={cn("text-[11px]", styles.subtitle)}>
-                {canRegenerateAvatar
-                  ? "Update measurements to regenerate your avatar"
-                  : "Update measurements to refresh your fit & size recommendations"}
+                Save measurements to update fit and size recommendations
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            disabled={isRegenerating}
+            disabled={isSaving}
             aria-label="Close"
             className={cn(
               "h-9 w-9 rounded-full flex items-center justify-center transition-colors disabled:opacity-30",
@@ -146,12 +142,6 @@ export function EditModelStatsModal({
 
         {/* Body */}
         <div className="px-5 py-5 space-y-4">
-          {!canRegenerateAvatar && (
-            <p className={cn("text-[11px] leading-relaxed rounded-lg px-3 py-2", styles.subtitle, styles.input)}>
-              Your original photo isn&apos;t stored, so we can&apos;t redraw the avatar itself — but your
-              measurements below still drive fit analysis and size recommendations.
-            </p>
-          )}
           <div className="grid grid-cols-2 gap-3">
             <FieldInput styles={styles} label="Height" unit="cm" value={draft.heightCm} onChange={(v) => patch({ heightCm: v })} />
             <FieldInput styles={styles} label="Weight" unit="kg" value={draft.weightKg} onChange={(v) => patch({ weightKg: v })} />
@@ -166,7 +156,7 @@ export function EditModelStatsModal({
           <button
             type="button"
             onClick={onClose}
-            disabled={isRegenerating}
+            disabled={isSaving}
             className={cn(
               "flex-1 h-11 rounded-lg border text-sm font-medium transition-colors disabled:opacity-40",
               styles.cancelButton
@@ -177,22 +167,18 @@ export function EditModelStatsModal({
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={isRegenerating}
-            className={cn(
-              "flex-1 h-11 rounded-lg text-sm font-semibold text-white flex items-center justify-center gap-2 transition-all",
-              "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] shadow-[var(--shadow-glow)]",
-              "hover:brightness-105 disabled:opacity-60"
-            )}
+            disabled={isSaving}
+            className="flex-1 h-11 rounded-lg text-sm font-semibold text-white flex items-center justify-center gap-2 gradient-wearable bg-[var(--color-wearable-from)] disabled:opacity-60"
           >
-            {isRegenerating ? (
+            {isSaving ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                {canRegenerateAvatar ? "Regenerating…" : "Saving…"}
+                Saving…
               </>
             ) : (
               <>
-                <Sparkles className="h-4 w-4" />
-                {canRegenerateAvatar ? "Regenerate Avatar" : "Save Measurements"}
+                <Check className="h-4 w-4" />
+                Save
               </>
             )}
           </button>

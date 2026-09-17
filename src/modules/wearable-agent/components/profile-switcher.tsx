@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, Pencil, Plus, User, X } from "lucide-react";
+import { Check, Pencil, Plus, User } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { useClickOutside } from "@/lib/hooks/use-click-outside";
 import { useWearableTheme } from "../theme-context";
@@ -25,7 +25,6 @@ const SWITCHER_STYLES = {
     rowText: "text-white/85",
     renameInput: "bg-white/10 text-white",
     iconButton: "text-white/35 hover:bg-white/[0.08] hover:text-white/80",
-    removeButton: "text-white/35 hover:bg-white/[0.08] hover:text-red-400",
     addButton: "border-white/[0.1] text-white/70 hover:bg-white/[0.06] hover:text-white",
   },
   light: {
@@ -37,7 +36,6 @@ const SWITCHER_STYLES = {
     rowText: "text-[var(--color-text-primary)]",
     renameInput: "bg-black/[0.06] text-[var(--color-text-primary)]",
     iconButton: "text-[var(--color-text-muted)] hover:bg-black/[0.06] hover:text-[var(--color-text-primary)]",
-    removeButton: "text-[var(--color-text-muted)] hover:bg-black/[0.06] hover:text-[var(--color-error)]",
     addButton:
       "border-black/10 text-[var(--color-text-secondary)] hover:bg-black/[0.04] hover:text-[var(--color-text-primary)]",
   },
@@ -49,8 +47,9 @@ interface ProfileSwitcherProps {
   maxProfiles: number;
   onSwitch: (id: string) => void;
   onAdd: () => void;
-  onRemove: (id: string) => void;
   onRename: (id: string, label: string) => void;
+  accountEmail?: string | null;
+  onSignOut?: () => void;
   /** Positioning only — the popover itself is always `absolute` under the pill so it never
    *  stretches a chat header. Pass `absolute right-3 top-3` for the onboarding overlay. */
   className?: string;
@@ -59,23 +58,24 @@ interface ProfileSwitcherProps {
   menuPlacement?: "down" | "up";
 }
 
-/** Pill + popover for switching between up to `maxProfiles` local, login-free profiles
- *  (e.g. a parent shopping for themselves and their kids on one shared device). */
+/** Pill + popover for switching between up to `maxProfiles` profiles on a signed-in shopper
+ *  account (e.g. a parent shopping for themselves and their kids). Profiles can only ever be
+ *  created, switched between, and renamed here — never deleted. */
 export function ProfileSwitcher({
   profiles,
   activeProfileId,
   maxProfiles,
   onSwitch,
   onAdd,
-  onRemove,
   onRename,
+  accountEmail,
+  onSignOut,
   className,
   menuPlacement = "down",
 }: ProfileSwitcherProps) {
   const [open, setOpen] = React.useState(false);
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [draftLabel, setDraftLabel] = React.useState("");
-  const [confirmRemoveId, setConfirmRemoveId] = React.useState<string | null>(null);
   const rootRef = React.useRef<HTMLDivElement>(null);
   const panelRef = React.useRef<HTMLDivElement>(null);
   const [panelOffsetX, setPanelOffsetX] = React.useState(0);
@@ -86,7 +86,6 @@ export function ProfileSwitcher({
     React.useCallback(() => {
       setOpen(false);
       setEditingId(null);
-      setConfirmRemoveId(null);
     }, []),
     open
   );
@@ -178,10 +177,6 @@ export function ProfileSwitcher({
                       styles.renameInput
                     )}
                   />
-                ) : confirmRemoveId === p.id ? (
-                  <p className={cn("flex-1 min-w-0 truncate text-[12px] font-medium", styles.rowText)}>
-                    Delete &ldquo;{p.label}&rdquo;? Chat &amp; avatar can&apos;t be recovered.
-                  </p>
                 ) : (
                   <button
                     type="button"
@@ -196,7 +191,7 @@ export function ProfileSwitcher({
                   </button>
                 )}
 
-                {editingId !== p.id && confirmRemoveId !== p.id && (
+                {editingId !== p.id && (
                   <button
                     type="button"
                     title="Rename"
@@ -212,48 +207,6 @@ export function ProfileSwitcher({
                   >
                     <Pencil className="h-3.5 w-3.5" />
                   </button>
-                )}
-                {profiles.length > 1 && editingId !== p.id && confirmRemoveId !== p.id && (
-                  <button
-                    type="button"
-                    title="Remove profile"
-                    aria-label={`Remove ${p.label}`}
-                    onClick={() => setConfirmRemoveId(p.id)}
-                    className={cn(
-                      "h-10 w-10 shrink-0 rounded-full flex items-center justify-center transition-colors",
-                      styles.removeButton
-                    )}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                )}
-                {confirmRemoveId === p.id && (
-                  <div className="flex shrink-0 items-center gap-1">
-                    <button
-                      type="button"
-                      title={`Confirm removing ${p.label}`}
-                      aria-label={`Confirm removing ${p.label}`}
-                      onClick={() => {
-                        onRemove(p.id);
-                        setConfirmRemoveId(null);
-                      }}
-                      className="h-10 rounded-full bg-red-500/90 px-3 text-[11px] font-semibold text-white hover:bg-red-500 transition-colors"
-                    >
-                      Remove
-                    </button>
-                    <button
-                      type="button"
-                      title="Cancel"
-                      aria-label="Cancel removing profile"
-                      onClick={() => setConfirmRemoveId(null)}
-                      className={cn(
-                        "h-10 w-10 shrink-0 rounded-full flex items-center justify-center transition-colors",
-                        styles.iconButton
-                      )}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
                 )}
               </div>
             ))}
@@ -272,6 +225,21 @@ export function ProfileSwitcher({
               )}
             >
               <Plus className="h-3.5 w-3.5" /> Add profile
+            </button>
+          )}
+          {onSignOut && (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                onSignOut();
+              }}
+              className={cn(
+                "mt-1 min-h-11 w-full rounded-xl px-2 text-[12px] font-medium transition-colors",
+                styles.addButton
+              )}
+            >
+              {accountEmail ? `Sign out · ${accountEmail}` : "Sign out"}
             </button>
           )}
         </div>
