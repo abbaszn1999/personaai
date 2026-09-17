@@ -431,6 +431,13 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
   const hasStartedChat = agent.messages.some((m) => m.role === "user");
   const canShowQuickReplies = !hasStartedChat && !agent.isScanning && !agent.isTyping && !agent.isGenerating;
   const showKeyGate = !agent.apiKeyLoading && !agent.hasApiKey;
+  // The full header bar (title, profile switcher, grab handle) only makes sense once there's
+  // an actual panel underneath it to be the header *of* — at rest, collapsed, it used to
+  // render that same edge-to-edge bar with nothing open below it, which read as a flat,
+  // slightly-broken strip glued to the bottom of the screen rather than an intentional
+  // control. Mid-drag is treated as "chrome" too so the bar doesn't pop between the two
+  // looks while the sheet is visibly resizing under the shopper's finger.
+  const showSheetChrome = sheet.expanded || sheet.isDragging;
 
   React.useEffect(() => {
     const el = messagesRef.current;
@@ -511,54 +518,98 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
       {/* ── Layer 1: Bottom sheet chat ── */}
       <div
         className={cn(
-          "absolute inset-x-0 bottom-0 z-[30] flex flex-col rounded-t-[22px] border-t backdrop-blur-2xl",
-          styles.sheet,
-          !sheet.isDragging && "transition-[height] duration-300 ease-out motion-reduce:transition-none"
+          "absolute inset-x-0 bottom-0 z-[30] flex flex-col backdrop-blur-2xl",
+          showSheetChrome ? cn("rounded-t-[22px] border-t", styles.sheet) : "border-t border-transparent bg-transparent",
+          !sheet.isDragging &&
+            "transition-[height,background-color,border-color] duration-300 ease-out motion-reduce:transition-none"
         )}
         style={{ height: SHEET_H }}
       >
         {/* ── Grab handle + header row. The whole row is the drag surface, so the sheet can be
-             flicked between snap points from anywhere along it, not just the 40px pill. ── */}
+             flicked between snap points from anywhere along it, not just the 40px pill.
+             At rest and collapsed, this is a floating launcher button instead — see
+             showSheetChrome above for why the two need to look nothing alike. ── */}
         <div
           ref={sheet.headerRef}
           {...sheet.handleProps}
-          className={cn("relative flex touch-none items-center gap-2 px-3 pt-3 pb-3 shrink-0", styles.headerPress)}
-        >
-          <div className={cn("pointer-events-none absolute left-1/2 top-2 h-1 w-10 -translate-x-1/2 rounded-full", styles.grabber)} />
-          {/* Profile switcher takes the logo's old top-left spot; the branding itself moves to
-              the center of the header button below. */}
-          {embed && (
-            <div className="mt-1 shrink-0">
-              <ChatProfileSwitcher agent={agent} menuPlacement={sheet.snap === "full" ? "down" : "up"} />
-            </div>
+          className={cn(
+            "relative flex touch-none items-center shrink-0",
+            showSheetChrome ? cn("gap-2 px-3 pt-3 pb-3", styles.headerPress) : "justify-center px-3 pb-4 pt-2",
+            !showSheetChrome && SAFE_BOTTOM
           )}
-          <button
-            type="button"
-            aria-expanded={sheet.expanded}
-            aria-label={sheet.expanded ? "Collapse chat" : "Expand chat"}
-            onClick={() => {
-              if (!sheet.consumedDrag()) sheet.toggle();
-            }}
-            className="relative mt-1 flex min-h-11 min-w-0 flex-1 items-center justify-center"
-          >
-            <div className="flex min-w-0 items-center gap-2">
-              {branding.logoUrl ? (
-                <img src={branding.logoUrl} alt="" className="h-5 w-5 shrink-0 rounded-full object-cover" />
-              ) : (
-                <MessageCircle className="h-5 w-5 shrink-0 text-[var(--color-brand)]" />
+        >
+          {showSheetChrome ? (
+            <>
+              <div className={cn("pointer-events-none absolute left-1/2 top-2 h-1 w-10 -translate-x-1/2 rounded-full", styles.grabber)} />
+              {/* Profile switcher takes the logo's old top-left spot; the branding itself moves
+                  to the center of the header button below. Only reachable once the sheet has
+                  actually opened — the collapsed launcher button below is chat-only, on
+                  purpose, so it stays a single, unambiguous action. */}
+              {embed && (
+                <div className="mt-1 shrink-0">
+                  <ChatProfileSwitcher agent={agent} menuPlacement={sheet.snap === "full" ? "down" : "up"} />
+                </div>
               )}
-              <span className={cn("truncate text-[14px] font-semibold", styles.headerTitle)}>{branding.agentName}</span>
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-success)] animate-pulse-dot" />
-            </div>
-            <div className={cn("absolute right-0 flex items-center gap-2", styles.headerMeta)}>
-              {!sheet.expanded && unread > 0 && (
-                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--color-brand)] px-1.5 text-[11px] font-bold text-white">
-                  {unread}
+              <button
+                type="button"
+                aria-expanded={sheet.expanded}
+                aria-label={sheet.expanded ? "Collapse chat" : "Expand chat"}
+                onClick={() => {
+                  if (!sheet.consumedDrag()) sheet.toggle();
+                }}
+                className="relative mt-1 flex min-h-11 min-w-0 flex-1 items-center justify-center"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  {branding.logoUrl ? (
+                    <img src={branding.logoUrl} alt="" className="h-5 w-5 shrink-0 rounded-full object-cover" />
+                  ) : (
+                    <MessageCircle className="h-5 w-5 shrink-0 text-[var(--color-brand)]" />
+                  )}
+                  <span className={cn("truncate text-[14px] font-semibold", styles.headerTitle)}>{branding.agentName}</span>
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-success)] animate-pulse-dot" />
+                </div>
+                <div className={cn("absolute right-0 flex items-center gap-2", styles.headerMeta)}>
+                  {sheet.expanded ? <ChevronDown className="h-5 w-5" /> : <ChevronUp className="h-5 w-5" />}
+                </div>
+              </button>
+            </>
+          ) : (
+            // Floating chat launcher — a self-contained pill (not an edge-to-edge bar) so it
+            // reads as a deliberate, tappable control sitting *on* the photo rather than a
+            // strip glued to the bottom of the screen. Drag-up from here still opens the
+            // sheet (same handleProps as the expanded header), a plain tap snaps it to "half".
+            <button
+              type="button"
+              aria-label="Open chat"
+              onClick={() => {
+                if (!sheet.consumedDrag()) sheet.toggle();
+              }}
+              className={cn(
+                "relative flex min-h-14 items-center gap-2.5 rounded-full pl-2.5 pr-5 shadow-[0_10px_32px_rgba(0,0,0,0.35)] backdrop-blur-2xl transition-transform active:scale-[0.97]",
+                styles.launcher
+              )}
+            >
+              <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full gradient-wearable">
+                {branding.logoUrl ? (
+                  <img src={branding.logoUrl} alt="" className="h-9 w-9 rounded-full object-cover" />
+                ) : (
+                  <MessageCircle className="h-[18px] w-[18px] text-white" />
+                )}
+                {unread > 0 && (
+                  <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-[var(--color-surface-base)] bg-[var(--color-error,#ef4444)] px-1 text-[10px] font-bold text-white">
+                    {unread}
+                  </span>
+                )}
+              </span>
+              <span className="flex flex-col items-start leading-tight">
+                <span className={cn("text-[13px] font-semibold", styles.headerTitle)}>{branding.agentName}</span>
+                <span className={cn("flex items-center gap-1 text-[11px]", styles.headerMeta)}>
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-success)] animate-pulse-dot" />
+                  Chat with us
                 </span>
-              )}
-              {sheet.expanded ? <ChevronDown className="h-5 w-5" /> : <ChevronUp className="h-5 w-5" />}
-            </div>
-          </button>
+              </span>
+            </button>
+          )}
         </div>
 
         {/* ── Messages + quick replies + input (only visible when expanded) ── */}

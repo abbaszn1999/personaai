@@ -15,6 +15,7 @@ export const MOBILE_SURFACE = {
     headerTitle: "text-white",
     headerMeta: "text-white/45",
     headerPress: "active:bg-white/[0.04]",
+    launcher: "bg-[#151320]/95 border border-white/[0.12]",
     inputRow: "border-white/[0.07]",
     input:
       "bg-white/[0.07] border-white/[0.12] text-white placeholder:text-white/35 focus:border-[var(--color-brand)]/60",
@@ -40,6 +41,7 @@ export const MOBILE_SURFACE = {
     headerTitle: "text-[var(--color-text-primary)]",
     headerMeta: "text-[var(--color-text-muted)]",
     headerPress: "active:bg-black/[0.04]",
+    launcher: "bg-white/95 border border-black/[0.08]",
     inputRow: "border-black/[0.07]",
     input:
       "bg-black/[0.04] border-black/[0.10] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-brand)]",
