@@ -11,6 +11,28 @@ interface ProfileMeta {
   label: string;
 }
 
+/** Finds the nearest ancestor that actually clips overflowing content (`overflow: hidden` /
+ *  `clip` / `scroll` / `auto`), and returns its horizontal bounds. The popover below used to
+ *  clamp itself against `window.innerWidth` instead — correct for a widget that fills the
+ *  whole browser tab, but wrong the moment it's rendered inside a narrower clipping box (a
+ *  phone-sized mobile preview frame in the dashboard, an iframe, a scrollable card): the panel
+ *  would measure itself as "well within the window" and never shift, while the actual visible
+ *  boundary — the frame's own edge — had already clipped half of it off-screen. Falls back to
+ *  the full window when no clipping ancestor exists, which keeps the original full-width
+ *  widget behavior unchanged. */
+function getClippingBounds(el: HTMLElement): { left: number; right: number } {
+  let node = el.parentElement;
+  while (node && node !== document.body) {
+    const style = window.getComputedStyle(node);
+    if (/(hidden|clip|scroll|auto)/.test(style.overflowX) || /(hidden|clip|scroll|auto)/.test(style.overflow)) {
+      const rect = node.getBoundingClientRect();
+      return { left: rect.left, right: rect.right };
+    }
+    node = node.parentElement;
+  }
+  return { left: 0, right: window.innerWidth };
+}
+
 /** This control floats over two very different surfaces — the onboarding card and the avatar
  *  panel — so it can't inherit a background. The dark set is the original glass treatment
  *  (correct over a photo-backed avatar panel and a dark embed); the light set exists because
@@ -92,18 +114,19 @@ export function ProfileSwitcher({
 
   // The popover is anchored `right-0` under the pill, which overflows the widget's left edge
   // once the pill itself sits close to that edge (narrow mobile frames, or the switcher docked
-  // top-left elsewhere). Nudge it back inside the nearest scrollable/embed boundary instead of
-  // letting it clip.
+  // top-left elsewhere). Nudge it back inside the nearest clipping boundary instead of letting
+  // it get cut off — see getClippingBounds for why that boundary isn't always the window.
   React.useLayoutEffect(() => {
     if (!open || !panelRef.current) {
       setPanelOffsetX(0);
       return;
     }
     const rect = panelRef.current.getBoundingClientRect();
+    const bounds = getClippingBounds(panelRef.current);
     const margin = 8;
     let shift = 0;
-    if (rect.left < margin) shift = margin - rect.left;
-    else if (rect.right > window.innerWidth - margin) shift = window.innerWidth - margin - rect.right;
+    if (rect.left < bounds.left + margin) shift = bounds.left + margin - rect.left;
+    else if (rect.right > bounds.right - margin) shift = bounds.right - margin - rect.right;
     setPanelOffsetX(shift);
   }, [open]);
 
