@@ -271,6 +271,7 @@ function TryOnExperience({
                   step={agent.onboardingPhase}
                   onBack={agent.goBack}
                   footer={renderStepFooter()}
+                  reserveTopSpace={Boolean(embed)}
                 >
                   {renderStepBody()}
                 </OnboardingShell>
