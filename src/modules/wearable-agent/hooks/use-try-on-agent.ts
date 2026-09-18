@@ -467,14 +467,14 @@ export function isProfileComplete(profile: TryOnProfile): boolean {
 
 /** Picks which onboarding step to drop a shopper on, given whatever their profile already
  *  holds — so someone who filled in their measurements and then reloaded (or switched away and
- *  back) doesn't have to click through the welcome and audience screens again just to reach the
- *  one thing still missing. A blank/absent profile still starts at the welcome screen, which is
- *  also what a freshly-added profile gets. Never resolves past `measurements`: the raw photo is
+ *  back) doesn't have to click through the audience screen again just to reach the one thing
+ *  still missing. A blank/absent profile still starts at the audience screen, which is also
+ *  what a freshly-added profile gets. Never resolves past `measurements`: the raw photo is
  *  deliberately never persisted (see sanitizeProfileForStorage), so a returning shopper always
  *  lands back on the combined measurements+photo screen to re-pick one before an avatar can be
  *  generated, even if their numeric measurements are already filled in from before. */
 export function resumeOnboardingPhase(profile: TryOnProfile | null | undefined): OnboardingPhase {
-  if (!profile?.audience) return "welcome";
+  if (!profile?.audience) return "audience";
   return "measurements";
 }
 
@@ -1015,7 +1015,7 @@ export function useTryOnAgent(
   /** Onboarding steps before avatar generation kicks in — used by goBack to step to the
    *  previous one. Generation/avatar-selection aren't in here: there's no "back" out of a
    *  request already in flight, and confirmAvatar/the error path handle those transitions. */
-  const ONBOARDING_STEP_ORDER: OnboardingPhase[] = ["welcome", "audience", "measurements"];
+  const ONBOARDING_STEP_ORDER: OnboardingPhase[] = ["audience", "measurements"];
 
   // Navigating between steps clears any previous avatar-generation failure: the message is
   // pinned to the combined measurements+photo step, so leaving and coming back would otherwise
@@ -1188,7 +1188,7 @@ export function useTryOnAgent(
       return {
         ...s,
         profileSubmitted: true,
-        onboardingPhase: "welcome",
+        onboardingPhase: "audience",
         profile: nextProfile,
         // Drop the unchosen styles — only the confirmed cutout is stored on the account.
         avatarVariations: [],

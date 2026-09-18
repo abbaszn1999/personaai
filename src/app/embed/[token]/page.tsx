@@ -28,6 +28,7 @@ export default function EmbedPage({ params }: Props) {
   const { token } = use(params);
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [rootRef, viewportMode] = useResponsiveViewportMode<HTMLDivElement>();
+  const [fillViewport, setFillViewport] = useState(false);
 
   useEmbedHeartbeat("/api/embed", token);
 
@@ -76,19 +77,22 @@ export default function EmbedPage({ params }: Props) {
   }
 
   const isFloating = state.mode === "unwearable" && state.branding.displayMode === "floating";
+  const isCompact = !isFloating && !fillViewport && state.mode === "wearable";
 
   return (
     <div
       ref={rootRef}
       className={cn(
-        "h-screen bg-[var(--color-surface-base)] box-border",
+        "bg-[var(--color-surface-base)] box-border",
+        isCompact ? "h-auto" : "h-screen",
         // This padding exists to preview how the widget sits inside a desktop page's own
         // margins — on an actual mobile device (or any real embed, which always renders
         // edge-to-edge on the host page) it just eats into the already-tight viewport, leaves
         // a background-colored gap the shopper can't scroll from within the widget itself, and
         // shoves absolutely-positioned corner controls (e.g. the profile switcher pill) away
-        // from the real screen edge they're meant to dock to.
-        !isFloating && viewportMode !== "mobile" && "p-4 sm:p-6",
+        // from the real screen edge they're meant to dock to. Compact onboarding keeps a
+        // little inset so the short form doesn't glue itself to the screen edges.
+        !isFloating && (viewportMode !== "mobile" || isCompact) && "p-4 sm:p-6",
         state.branding.theme === "dark" && "dark"
       )}
       style={{
@@ -120,6 +124,7 @@ export default function EmbedPage({ params }: Props) {
             logoUrl: state.branding.logoUrl,
             borderRadius: state.branding.borderRadius,
           }}
+          onFillViewportChange={setFillViewport}
         />
       ) : (
         <ChatInterface

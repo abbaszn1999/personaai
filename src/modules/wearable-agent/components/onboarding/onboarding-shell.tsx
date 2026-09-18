@@ -9,7 +9,7 @@ import { SAFE_BOTTOM } from "../../mobile-surface";
 
 /** Steps that get the shared chrome (back button + progress dots + slide transition). Avatar
  *  generation and selection keep their own full-bleed screens, unchanged from before. */
-const STEP_SEQUENCE: OnboardingPhase[] = ["welcome", "audience", "measurements"];
+const STEP_SEQUENCE: OnboardingPhase[] = ["audience", "measurements"];
 
 interface OnboardingShellProps {
   step: OnboardingPhase;

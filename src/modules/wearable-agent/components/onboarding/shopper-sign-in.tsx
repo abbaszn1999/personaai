@@ -3,10 +3,9 @@
 import * as React from "react";
 import { ArrowRight, Mail } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { OtpInput } from "@/components/ui/otp-input";
 import { Button } from "@/components/ui/button";
 import { useWearableBranding } from "../../branding-context";
-import { cn } from "@/lib/utils/cn";
-import { SAFE_BOTTOM } from "../../mobile-surface";
 
 interface ShopperSignInProps {
   error: string | null;
@@ -32,6 +31,8 @@ export function ShopperSignIn({ error, onRequestCode, onVerifyCode }: ShopperSig
   const [busy, setBusy] = React.useState(false);
   const [localError, setLocalError] = React.useState<string | null>(null);
 
+  const submittingRef = React.useRef(false);
+
   const displayError = localError || error;
 
   async function handleSendCode(e: React.FormEvent) {
@@ -51,9 +52,8 @@ export function ShopperSignIn({ error, onRequestCode, onVerifyCode }: ShopperSig
     }
   }
 
-  async function handleVerify(e: React.FormEvent) {
-    e.preventDefault();
-    const trimmedCode = code.replace(/\s/g, "");
+  async function submitCode(rawCode: string) {
+    const trimmedCode = rawCode.replace(/\s/g, "");
     if (!/^\d{6}$/.test(trimmedCode)) {
       setLocalError("Enter the 6-digit code from your email.");
       return;
@@ -62,18 +62,29 @@ export function ShopperSignIn({ error, onRequestCode, onVerifyCode }: ShopperSig
       setLocalError("Please accept the privacy notice to continue.");
       return;
     }
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setLocalError(null);
     setBusy(true);
-    const result = await onVerifyCode(email, trimmedCode, acceptPrivacy || undefined);
-    setBusy(false);
-    if (result.privacyRequired) {
-      setNeedsPrivacy(true);
-      setLocalError("Please accept the privacy notice to create your account.");
+    try {
+      const result = await onVerifyCode(email, trimmedCode, acceptPrivacy || undefined);
+      if (result.privacyRequired) {
+        setNeedsPrivacy(true);
+        setLocalError("Please accept the privacy notice to create your account.");
+      }
+    } finally {
+      submittingRef.current = false;
+      setBusy(false);
     }
   }
 
+  function handleVerify(e: React.FormEvent) {
+    e.preventDefault();
+    void submitCode(code);
+  }
+
   return (
-    <div className={cn("flex flex-col items-center gap-6 px-6 py-10 text-center", SAFE_BOTTOM)}>
+    <div className="flex flex-col items-center gap-6 px-6 pt-10 pb-[max(2.5rem,env(safe-area-inset-bottom))] text-center">
       {branding.logoUrl ? (
         <img src={branding.logoUrl} alt="" className="h-16 w-16 rounded-2xl object-cover shadow-lg" />
       ) : (
@@ -113,16 +124,16 @@ export function ShopperSignIn({ error, onRequestCode, onVerifyCode }: ShopperSig
         </form>
       ) : (
         <form onSubmit={handleVerify} className="flex w-full max-w-sm flex-col items-stretch gap-4 text-left">
-          <Input
-            inputSize="touch"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            label="Code"
-            placeholder="000000"
-            maxLength={6}
+          <OtpInput
             value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            onChange={(next) => {
+              setCode(next);
+              if (localError) setLocalError(null);
+            }}
+            onComplete={(full) => void submitCode(full)}
+            disabled={busy}
             autoFocus
+            error={Boolean(displayError)}
           />
           {needsPrivacy && (
             <label className="flex items-start gap-2.5 text-sm text-[var(--color-text-secondary)]">
@@ -144,7 +155,7 @@ export function ShopperSignIn({ error, onRequestCode, onVerifyCode }: ShopperSig
             type="submit"
             size="lg"
             loading={busy}
-            disabled={needsPrivacy && !acceptPrivacy}
+            disabled={code.length !== 6 || (needsPrivacy && !acceptPrivacy)}
             className="gradient-wearable text-white border-0"
           >
             Sign in
