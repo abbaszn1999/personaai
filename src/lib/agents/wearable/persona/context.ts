@@ -1,6 +1,6 @@
 import { isAcsConfigured } from "@/lib/catalog/acs/config";
 import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
-import { expandCategorySelection } from "@/lib/catalog/category-scope";
+import { mappedSourceCategoryIds } from "@/lib/catalog/persona-mapping";
 import type { BundleState, CatalogFacets, ConversationTurn } from "@/lib/retrieval/types";
 import { rehydrateAnchor, rehydrateProducts } from "./engine";
 import { toAnchor } from "./anchor";
@@ -51,11 +51,10 @@ export async function buildWearableChatContext(input: BuildContextInput): Promis
     ? connection.categories.filter((category) => connection.selectedCategoryIds.includes(category.id))
     : [];
 
-  // Resolved once per turn and threaded through every retrieval read. The merchant selects parent
-  // categories, but products are indexed under whichever descendant they actually sit in, so the
-  // unexpanded selection would match almost nothing.
-  const categoryScope = connection
-    ? expandCategorySelection(connection.selectedCategoryIds, connection.categories)
+  // Every imported product has the universal Persona root. Merchant isolation remains a separate,
+  // mandatory ACS clause; an empty mapping still means an empty scope.
+  const categoryScope = connection && mappedSourceCategoryIds(connection.personaCategoryMap).length > 0
+    ? ["persona"]
     : [];
 
   // Facets are deliberately not loaded here. `getCatalogFacets` browses up to 2,000 products;

@@ -1,9 +1,9 @@
 import { importProducts, markOutOfStock } from "./client";
 import { isAcsConfigured } from "./config";
 import { ensureDynamicAttributeRegistered } from "./attributes-config";
-import { getAcsProductSourceCategoryIds, markAcsProductOutOfStockIfExists } from "./catalog-reads";
+import { getAcsProductSourceCategoryIds, getAcsVariantIds, markAcsProductOutOfStockIfExists } from "./catalog-reads";
 import { buildAcsProductId } from "./isolation";
-import { CUSTOM_OPTION_ATTRIBUTE_PREFIX, rawCatalogProductToAcsProduct, type MapProductInput } from "./map-product";
+import { PIPELINE_ATTRIBUTE_KEYS, rawCatalogProductToAcsProducts, type MapProductInput } from "./map-product";
 import type { AcsProduct } from "./types";
 
 /**
@@ -20,20 +20,25 @@ function logAcsError(op: string, connectionId: string, detail: string, err: unkn
   console.error(`[acs/sync ${op}]`, connectionId, detail, err);
 }
 
-/** Collects the distinct `opt_*` attribute keys a batch of mapped products actually carries —
- *  the merchant-specific option groups (fit, style, ...) `map-product.ts` had no predefined ACS
- *  field for — and registers each with the catalog before the import that writes their values.
+/** Collects the distinct merchant-specific attribute keys a batch of mapped products actually
+ *  carries — the `opt_*` catch-alls for option groups `map-product.ts` has no predefined ACS field
+ *  for, plus whatever a merchant declared in Stage 1's Table 2 — and registers each with the catalog
+ *  before the import that writes their values. Identified by excluding this app's own bookkeeping
+ *  keys rather than by matching a prefix, so a newly declared attribute is never left unregistered
+ *  (and therefore unfilterable) just because its key does not look like an option group's.
+ *
  *  Registration only has to happen once per key per process (see `ensureDynamicAttributeRegistered`'s
- *  own cache), so this is cheap on every call after the first that sees a given option name. */
+ *  own cache), so this is cheap on every call after the first that sees a given key. */
 async function ensureDynamicAttributesRegistered(products: AcsProduct[]): Promise<void> {
-  const keys = new Set<string>();
+  const keys = new Map<string, "TEXTUAL" | "NUMERICAL">();
   for (const product of products) {
-    for (const key of Object.keys(product.attributes ?? {})) {
-      if (key.startsWith(CUSTOM_OPTION_ATTRIBUTE_PREFIX)) keys.add(key);
+    for (const [key, attribute] of Object.entries(product.attributes ?? {})) {
+      if (PIPELINE_ATTRIBUTE_KEYS.has(key) || keys.has(key)) continue;
+      keys.set(key, attribute.numbers ? "NUMERICAL" : "TEXTUAL");
     }
   }
 
-  await Promise.all([...keys].map((key) => ensureDynamicAttributeRegistered(key)));
+  await Promise.all([...keys].map(([key, type]) => ensureDynamicAttributeRegistered(key, type)));
 }
 
 /** Full upsert for one product — the webhook path's create-or-update. Uses `products:import`
@@ -43,9 +48,11 @@ async function ensureDynamicAttributesRegistered(products: AcsProduct[]): Promis
 export async function syncProductToAcs(input: MapProductInput): Promise<boolean> {
   if (!isAcsConfigured()) return false;
   try {
-    const product = rawCatalogProductToAcsProduct(input);
-    await ensureDynamicAttributesRegistered([product]);
-    await importProducts([product]);
+    // PRIMARY plus every real VARIANT child (see `rawCatalogProductToAcsProducts`) — one product
+    // in the merchant's store can be several documents in ACS once it has real per-SKU variants.
+    const products = rawCatalogProductToAcsProducts(input);
+    await ensureDynamicAttributesRegistered(products);
+    await importProducts(products);
     return true;
   } catch (err) {
     logAcsError("syncProductToAcs", input.connectionId, input.raw.externalId, err);
@@ -59,7 +66,7 @@ export async function syncProductsToAcs(inputs: MapProductInput[]): Promise<bool
   if (inputs.length === 0) return true;
   if (!isAcsConfigured()) return false;
   try {
-    const products = inputs.map(rawCatalogProductToAcsProduct);
+    const products = inputs.flatMap(rawCatalogProductToAcsProducts);
     await ensureDynamicAttributesRegistered(products);
     await importProducts(products);
     return true;
@@ -78,7 +85,11 @@ export async function syncProductsToAcs(inputs: MapProductInput[]): Promise<bool
 export async function markAcsProductOutOfStock(connectionId: string, externalId: string): Promise<void> {
   if (!isAcsConfigured()) return;
   try {
-    await markOutOfStock(buildAcsProductId(connectionId, externalId));
+    const variantIds = await getAcsVariantIds(connectionId, externalId);
+    await Promise.all([
+      markOutOfStock(buildAcsProductId(connectionId, externalId)),
+      ...variantIds.map((variantId) => markOutOfStock(variantId)),
+    ]);
   } catch (err) {
     logAcsError("markAcsProductOutOfStock", connectionId, externalId, err);
   }

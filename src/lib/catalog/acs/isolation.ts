@@ -72,7 +72,7 @@ export function escapeFilterLiteral(value: string): string {
 export function categoryScopeFilterClause(scope: readonly string[]): string | null {
   if (scope.length === 0) return null;
   const literals = scope.map((id) => `"${escapeFilterLiteral(id)}"`).join(",");
-  return `(attributes.source_category_ids: ANY(${literals}))`;
+  return `(categories: ANY(${literals}))`;
 }
 
 /**

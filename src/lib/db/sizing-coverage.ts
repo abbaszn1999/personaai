@@ -31,9 +31,19 @@ export interface SizingCoverageRow extends CoverageRow {
   id: string;
   connectionId: string;
   brandType: BrandType;
+  /** The established brand `brandName` refers to, when the classifier could name one — "Claudie
+   *  Pierlot" for a store filing it as "CLAUDIE". Null for private and unbranded rows, and for
+   *  anything not classified yet. Phase 4 searches under this in preference to `brandName`. */
+  brandCanonicalName: string | null;
   researchStatus: ResearchStatus;
   researchNote: string | null;
   updatedAt: string;
+}
+
+/** A brand's classification: what it is, and which company it turned out to be. */
+export interface BrandClassification {
+  brandType: BrandType;
+  canonicalName: string | null;
 }
 
 function rowToCoverage(row: Record<string, unknown>): SizingCoverageRow {
@@ -43,6 +53,7 @@ function rowToCoverage(row: Record<string, unknown>): SizingCoverageRow {
     brandKey: (row.brand_key as string) ?? "",
     brandName: (row.brand_name as string | null) ?? null,
     brandType: (row.brand_type as BrandType) ?? "unclassified",
+    brandCanonicalName: (row.brand_canonical_name as string | null) ?? null,
     sizingCategory: row.sizing_category as string,
     skuCount: (row.sku_count as number) ?? 0,
     storeCategoryPaths: (row.store_category_paths as string[][]) ?? [],
@@ -90,7 +101,8 @@ export async function replaceSizingCoverage(connectionId: string, rows: Coverage
       connection_id: connectionId,
       brand_key: row.brandKey,
       brand_name: row.brandName,
-      brand_type: previousTypes.get(row.brandKey) ?? "unclassified",
+      brand_type: previousTypes.get(row.brandKey)?.brandType ?? "unclassified",
+      brand_canonical_name: previousTypes.get(row.brandKey)?.canonicalName ?? null,
       sizing_category: row.sizingCategory,
       sku_count: row.skuCount,
       store_category_paths: row.storeCategoryPaths,
@@ -114,11 +126,15 @@ export async function replaceSizingCoverage(connectionId: string, rows: Coverage
  *
  * Keyed on brand rather than (brand, category) because global/private is a property of the brand
  * itself — Nike does not become a private label in the category a merchant added yesterday.
+ *
+ * The canonical name travels with the type because it is part of the same answer: the classifier
+ * worked out *which company* this is in order to say it was global, and re-reading the catalog does
+ * not change that.
  */
-async function getBrandTypes(connectionId: string): Promise<Map<string, BrandType>> {
+async function getBrandTypes(connectionId: string): Promise<Map<string, BrandClassification>> {
   const { data, error } = await db
     .from("sizing_coverage")
-    .select("brand_key, brand_type")
+    .select("brand_key, brand_type, brand_canonical_name")
     .eq("connection_id", connectionId)
     .neq("brand_type", "unclassified");
 
@@ -127,9 +143,12 @@ async function getBrandTypes(connectionId: string): Promise<Map<string, BrandTyp
     return new Map();
   }
 
-  const types = new Map<string, BrandType>();
+  const types = new Map<string, BrandClassification>();
   for (const row of (data as Array<Record<string, unknown>>) ?? []) {
-    types.set((row.brand_key as string) ?? "", row.brand_type as BrandType);
+    types.set((row.brand_key as string) ?? "", {
+      brandType: row.brand_type as BrandType,
+      canonicalName: (row.brand_canonical_name as string | null) ?? null,
+    });
   }
   return types;
 }
@@ -150,31 +169,64 @@ export async function listSizingCoverage(connectionId: string): Promise<SizingCo
 }
 
 /**
- * Which of these brands any store has already established to be global.
+ * Which of these brands are *provably* global, because a public guide was found and stored for them.
  *
  * A deliberate cross-merchant read, and the only one in this module. That a brand is a real
  * manufacturer publishing a public size guide is objective and store-independent, so the second store
  * to sell Nike should not pay to work that out again. Nothing merchant-specific crosses the boundary
  * — only the brand key, which came off a public label in the first place.
  *
- * Scoped to `global` on purpose: two merchants can carry unrelated house labels under the same name,
- * so inheriting a `private` verdict would hand one merchant's decision to another.
+ * Proof is a chart in the shared registry, not a `brand_type` of `global`. This used to read the
+ * classification, which meant one model's guess about one store's catalog became every later store's
+ * answer without anything ever checking it: a house label called "Haus" classified global here was
+ * inherited by the next merchant with a "Haus" label, and inherited *before* the model was asked, so
+ * the mistake could not be revisited. A stored chart is the one artifact that says the brand really
+ * does publish a guide, and it is also what survives a re-scan — `research_status` does not.
+ *
+ * Restricted to the shared rows (`connection_id is null`), which is what research writes for a global
+ * brand. A merchant's own hand-filled chart is connection-scoped, and counting it as proof would let
+ * one merchant filling in a chart for their own label promote that label globally for everyone.
+ *
+ * Returns the canonical name alongside each key, taken from whichever store already resolved it, so
+ * the inheriting store does not have to ask a model the same question again. Null where nobody has one
+ * yet — the caller decides what to record in that case.
  */
-export async function getGlobalBrandKeys(brandKeys: string[]): Promise<Set<string>> {
-  if (brandKeys.length === 0) return new Set();
+export async function getProvenGlobalBrands(brandKeys: string[]): Promise<Map<string, string | null>> {
+  if (brandKeys.length === 0) return new Map();
 
   const { data, error } = await db
-    .from("sizing_coverage")
+    .from("sizing_charts")
     .select("brand_key")
-    .eq("brand_type", "global")
+    .is("connection_id", null)
     .in("brand_key", brandKeys);
 
   if (error) {
-    console.error("[db/sizing-coverage getGlobalBrandKeys]", error);
-    return new Set();
+    console.error("[db/sizing-coverage getProvenGlobalBrands charts]", error);
+    return new Map();
   }
 
-  return new Set(((data as Array<Record<string, unknown>>) ?? []).map((row) => row.brand_key as string));
+  const proven = [...new Set(((data as Array<Record<string, unknown>>) ?? []).map((row) => row.brand_key as string))];
+  const names = new Map<string, string | null>(proven.map((key) => [key, null]));
+  if (proven.length === 0) return names;
+
+  const { data: named, error: namedError } = await db
+    .from("sizing_coverage")
+    .select("brand_key, brand_canonical_name")
+    .in("brand_key", proven)
+    .not("brand_canonical_name", "is", null);
+
+  if (namedError) {
+    // The types are still usable without the names, and the caller falls back to the store's own
+    // string — a worse search key for a brand that, having a chart already, is never searched.
+    console.error("[db/sizing-coverage getProvenGlobalBrands names]", namedError);
+    return names;
+  }
+
+  for (const row of (named as Array<Record<string, unknown>>) ?? []) {
+    names.set(row.brand_key as string, row.brand_canonical_name as string);
+  }
+
+  return names;
 }
 
 /**
@@ -183,16 +235,38 @@ export async function getGlobalBrandKeys(brandKeys: string[]): Promise<Set<strin
  * Per brand rather than per row because that is how the model is asked: one decision per distinct
  * brand string, applied deterministically to all of its categories. A brand with 50 categories costs
  * one classification, not 50.
+ *
+ * `canonicalName` is written whenever it is given, including as `null`. That matters for the demotion
+ * path: a brand research proved publishes nothing is no longer the company the classifier thought it
+ * was, and leaving a stale canonical name behind would keep sending the next search after it.
  */
-export async function setBrandType(connectionId: string, brandKey: string, brandType: BrandType): Promise<boolean> {
-  const { error } = await db
+export async function setBrandType(
+  connectionId: string,
+  brandKey: string,
+  brandType: BrandType,
+  canonicalName?: string | null
+): Promise<boolean> {
+  const patch: Record<string, unknown> = { brand_type: brandType, updated_at: new Date().toISOString() };
+  if (canonicalName !== undefined) patch.brand_canonical_name = canonicalName;
+
+  const { data, error } = await db
     .from("sizing_coverage")
-    .update({ brand_type: brandType, updated_at: new Date().toISOString() })
+    .update(patch)
     .eq("connection_id", connectionId)
-    .eq("brand_key", brandKey);
+    .eq("brand_key", brandKey)
+    .select("id")
+    .limit(1);
 
   if (error) {
     console.error("[db/sizing-coverage setBrandType]", connectionId, brandKey, error);
+    return false;
+  }
+
+  // An update matching zero rows is a successful HTTP/database operation, but it did not persist
+  // the verdict. Reporting it as success lets the sizing run advance with that brand still marked
+  // `unclassified`, so require evidence that at least one coverage row was actually touched.
+  if (!data || data.length === 0) {
+    console.error("[db/sizing-coverage setBrandType] no matching rows", connectionId, brandKey);
     return false;
   }
 

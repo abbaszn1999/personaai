@@ -89,8 +89,8 @@ const GET_CONCURRENCY = 20;
  *  test `categoryScopeFilterClause` applies server-side for a search, reimplemented here because
  *  a direct `GetProduct` (see below) has no filter clause of its own to enforce it. */
 function isInCategoryScope(product: AcsProduct, scope: CategoryScope): boolean {
-  const sourceCategoryIds = product.attributes?.source_category_ids?.text ?? [];
-  return sourceCategoryIds.some((id) => scope.includes(id));
+  const categories = product.categories ?? [];
+  return categories.some((category) => scope.includes(category));
 }
 
 /**
@@ -199,7 +199,7 @@ export async function pruneOutOfScopeAcsProducts(connectionId: string, newScope:
     const literals = newScope.map((id) => `"${escapeFilterLiteral(id)}"`).join(",");
     const filter = [
       merchantFilterClause(connectionId),
-      `(NOT attributes.source_category_ids: ANY(${literals}))`,
+      `(NOT categories: ANY(${literals}))`,
       `(availability: ANY("IN_STOCK"))`,
     ].join(" AND ");
 
@@ -220,6 +220,45 @@ export async function pruneOutOfScopeAcsProducts(connectionId: string, newScope:
     // risk by an ACS hiccup on the cleanup step that follows it (see the caller in
     // `store-connection/route.ts`, which persists the selection before pruning runs).
     console.error("[acs/catalog-reads pruneOutOfScopeAcsProducts]", connectionId, err);
+    return 0;
+  }
+}
+
+/** Mapping saves invalidate every previously indexed category path. Keep the documents for ACS
+ * event history, but make all of them unavailable until the next approved full Persona re-index.
+ * List the catalog source directly instead of searching: custom-attribute indexing changes can
+ * take hours to propagate, while the connection-prefixed product id is immediately reliable. */
+export async function deactivateAcsCatalogForRemapping(connectionId: string): Promise<number> {
+  if (!isAcsConfigured()) return 0;
+  try {
+    let deactivated = 0;
+    const seenTokens = new Set<string>();
+    let pageToken: string | undefined;
+    do {
+      const response = await listProducts(pageToken);
+      const matchingIds = (response.products ?? [])
+        .filter((product) => {
+          const merchantIds = product.attributes?.merchant_id?.text ?? [];
+          return (
+            product.availability === "IN_STOCK" &&
+            (product.id.startsWith(`${connectionId}_`) || merchantIds.includes(connectionId))
+          );
+        })
+        .map((product) => product.id);
+
+      await Promise.all(matchingIds.map((id) => markOutOfStock(id)));
+      deactivated += matchingIds.length;
+
+      pageToken = response.nextPageToken;
+      if (pageToken && seenTokens.has(pageToken)) {
+        throw new Error("ACS ListProducts returned a repeated page token");
+      }
+      if (pageToken) seenTokens.add(pageToken);
+    } while (pageToken);
+
+    return deactivated;
+  } catch (error) {
+    console.error("[acs/catalog-reads deactivateAcsCatalogForRemapping]", connectionId, error);
     return 0;
   }
 }
@@ -282,14 +321,37 @@ export async function getAcsProductSourceCategoryIds(connectionId: string, exter
   return product?.attributes?.source_category_ids?.text ?? [];
 }
 
-/** Marks a product out of stock only if it actually exists in ACS yet — `patchProduct` 404s on a
- *  product that was never imported, which is exactly the case a webhook's "recategorised out of
- *  scope before ever being indexed" path can hit. */
+/**
+ * The ACS ids of every `VARIANT` child a product's own `map-product.ts` may have written for it —
+ * found by `primary_external_id` rather than by reconstructing each variant's own external id
+ * (which the caller here, a webhook delete or an out-of-scope downgrade, usually does not have).
+ *
+ * A `browseAll`-style scoped search rather than a full-catalog listing: bounded to this one
+ * merchant and this one product, so a single-product downgrade never has to walk the shared
+ * catalog the way `deleteAllAcsProductsForConnection` does for a whole-connection sweep. One page
+ * of 100 is generous headroom past any real storefront's colour/size matrix.
+ */
+export async function getAcsVariantIds(connectionId: string, primaryExternalId: string): Promise<string[]> {
+  if (!isAcsConfigured()) return [];
+  const filter = `(attributes.primary_external_id: ANY("${escapeFilterLiteral(primaryExternalId)}"))`;
+  const response = await searchProductsRaw(`${merchantFilterClause(connectionId)} AND ${filter}`, {
+    visitorId: SYSTEM_VISITOR_ID,
+    query: "",
+    pageSize: 100,
+  });
+  return (response.results ?? []).map((item) => item.id);
+}
+
+/** Marks a product — and every `VARIANT` child `map-product.ts` may have written for it — out of
+ *  stock only if the parent actually exists in ACS yet. `patchProduct` 404s on a product that was
+ *  never imported, which is exactly the case a webhook's "recategorised out of scope before ever
+ *  being indexed" path can hit. */
 export async function markAcsProductOutOfStockIfExists(connectionId: string, externalId: string): Promise<boolean> {
   if (!isAcsConfigured()) return false;
   const id = buildAcsProductId(connectionId, externalId);
   const product = await getProduct(id);
   if (!product) return false;
-  await markOutOfStock(id);
+  const variantIds = await getAcsVariantIds(connectionId, externalId);
+  await Promise.all([markOutOfStock(id), ...variantIds.map((variantId) => markOutOfStock(variantId))]);
   return true;
 }

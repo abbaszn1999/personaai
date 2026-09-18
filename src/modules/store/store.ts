@@ -1,20 +1,25 @@
 "use client";
 
-import { create } from "zustand";
+import { create, type StoreApi } from "zustand";
 import type {
   StoreConnection,
   StorePlatform,
   StoreCategory,
-  CategoryParentMap,
   SkuParentOverrides,
-  MerchantTreeNode,
   CatalogSyncState,
-  MappingPreviewSample,
   AcsMappingState,
-  OptionGroupInfo,
-  VariantRole,
+  CmsColumn,
+  SizeChartCoverage,
 } from "@/modules/store/types";
-import { DEFAULT_SIZE_TYPE, type SizeType, type SizeTypeOverrides } from "@/lib/sizing/size-types";
+import {
+  EMPTY_ACS_MAPPING,
+  type AcsFieldMapping,
+  type CmsColumnRef,
+  type CustomAttributeDef,
+  type CustomAttributeType,
+} from "@/lib/catalog/acs-mapping";
+import { DEFAULT_SIZE_SETTINGS, type SizeSettings } from "@/lib/sizing/size-types";
+import type { SizingBrand } from "@/lib/sizing/brand-list";
 
 /**
  * Everything Setup Stage 1 renders, in one place. Stage 1 used to fetch its own samples with local
@@ -23,16 +28,37 @@ import { DEFAULT_SIZE_TYPE, type SizeType, type SizeTypeOverrides } from "@/lib/
  * gone and this is the only copy.
  */
 interface MappingState {
-  /** Real products from the merchant's store, mapped through the actual indexer. */
-  samples: MappingPreviewSample[];
-  /** Option groups discovered live on their catalog, each reassignable to an ACS role. */
-  groups: OptionGroupInfo[];
-  optionRoles: Record<string, VariantRole>;
+  /** Every column of the merchant's catalog an ACS field can be bound to, discovered live. */
+  columns: CmsColumn[];
+  /** Every brand the store knows about, for the Part 2 per-brand sizing exceptions. */
+  brands: SizingBrand[];
+  /** The saved mapping itself: which column feeds each ACS field, plus declared custom attributes. */
+  document: AcsFieldMapping;
+  /** How much of the sample carries per-product size charts, once a column is bound to that row. */
+  sizeChart: SizeChartCoverage;
+  /** How many products the discovery scan read, so the table can qualify its own numbers. */
+  sampled: number;
+  /** A real sampled product's resolved Persona taxonomy path ("Women > Tops"), for the `categories`
+   *  row's sample cell — that row has no CMS column behind it, so its evidence comes from the same
+   *  resolution the real index uses instead. Null before anything in the sample resolves anywhere. */
+  categoriesSample: string | null;
+  /** The full-catalog coverage walk's own state — see `discover-cms-columns.ts`. `idle` means
+   *  every column's `presence`/`sampled` above still comes from the 25-product sample alone. */
+  discoveryStatus: "idle" | "running" | "done" | "error";
+  /** How many products the walk has read so far. Only meaningful while `discoveryStatus` is
+   *  `"running"` — a merchant's whole catalog, not the fixed 25 the initial load samples. */
+  discoveryScanned: number;
   isLoading: boolean;
   hasLoaded: boolean;
-  /** Normalized name of the group currently being saved, for a per-row spinner. */
-  savingGroup: string | null;
+  /** The ACS field key or custom attribute key currently being saved, for a per-row spinner. */
+  savingKey: string | null;
+  /** True while "Add Custom Attribute" is saving, so the modal can disable its own submit button. */
+  isAddingCustomAttribute: boolean;
   isApproving: boolean;
+  /** True while `resetFieldMappings` is in flight, for the "Reset Defaults" button's own spinner —
+   *  distinct from `isLoading`, which gates the whole stage's initial loading state and would
+   *  otherwise flash that message over a table that already has data to show. */
+  isResetting: boolean;
   error: string | null;
 }
 
@@ -45,16 +71,11 @@ interface StoreConnectionState {
   connection: StoreConnection | null;
   selectedCategoryIds: string[];
   categories: StoreCategory[];
-  /** Categories step 2: platform category id to one of the five parent sizing categories. */
-  categoryParentMap: CategoryParentMap;
-  /** The hierarchy the merchant built by hand. Empty on platforms that publish their own. */
-  categoryTree: MerchantTreeNode[];
   /** Stage 2 corrections: product external id to the parent it sizes on, beating its path. */
   skuParentOverrides: SkuParentOverrides;
-  /** Doc Part 2: the sizing system this catalog's size labels are written in. */
-  storeSizeType: SizeType;
-  /** Brand key to sizing system, for brands whose labels differ from the store default. */
-  storeSizeTypeOverrides: SizeTypeOverrides;
+  /** Doc Part 2: the sizing system this catalog's size labels are written in, plus the brands
+   *  whose labels differ from it. */
+  storeSizeSettings: SizeSettings;
   productCount: number;
   syncedAt: string | null;
   catalogSync: CatalogSyncState;
@@ -79,16 +100,6 @@ interface StoreConnectionState {
   syncNow: () => Promise<void>;
   reindex: () => Promise<void>;
   refreshCatalogSync: () => Promise<void>;
-  /** Saves the whole Categories tab in one write: which paths are in scope, which parent sizing
-   *  category each was mapped to, and the hierarchy the merchant built to express them. They are
-   *  edited as one screen and are only meaningful together — a scope saved without its mapping is a
-   *  catalog that indexes and cannot be sized. Does not trigger an index; that is Setup's final
-   *  step. */
-  saveCategoryScope: (input: {
-    selectedCategoryIds: string[];
-    categoryParentMap: CategoryParentMap;
-    categoryTree?: MerchantTreeNode[];
-  }) => Promise<boolean>;
   /** Stage 2: pin one product to a parent, or pass `null` to drop the correction and let it inherit
    *  from its category path again. Optimistic — the row re-renders immediately and rolls back if the
    *  save fails, because this is a per-row control a merchant will use in bursts. */
@@ -96,32 +107,82 @@ interface StoreConnectionState {
   /** Stage 1, doc Part 2. Saves the store-wide sizing system, its per-brand exceptions, or both.
    *  Optimistic like `setSkuParent`, and for the same reason: these are small controls a merchant
    *  flips several times in a row while reading their own size labels. */
-  saveSizeTypes: (input: {
-    storeSizeType?: SizeType;
-    storeSizeTypeOverrides?: SizeTypeOverrides;
-  }) => Promise<boolean>;
+  saveSizeTypes: (input: Partial<SizeSettings>) => Promise<boolean>;
   /** Returns `true` on success. `null` clears the style guide. */
   updateStyleGuide: (value: string | null) => Promise<boolean>;
-  /** Loads Stage 1's samples and option groups together. Safe to call repeatedly. */
+  /** Loads Stage 1's columns and saved mapping. Safe to call repeatedly. */
   loadMapping: () => Promise<void>;
-  /** Reassigns one option group, or clears the override with `null` to fall back to auto-detect.
-   *  Re-reads the samples afterwards so the table shows the mapping it just changed. */
-  setOptionRole: (normalized: string, role: VariantRole | null) => Promise<void>;
+  /** Starts (or restarts) a full-catalog CMS column coverage walk, then polls it to completion and
+   *  reloads the columns with its real numbers — the "Scan full catalog" action in Stage 1's header.
+   *  Safe to call again while one is already running; the server treats a second start as a plain
+   *  restart. */
+  refreshColumnCoverage: () => Promise<void>;
+  /** Binds one ACS field to one of the merchant's columns. `null` clears the binding, putting the row
+   *  back on auto-mapping — which is not the same as binding it to "unmapped", where the merchant is
+   *  saying they want that field left empty. */
+  setAcsSource: (acsKey: string, ref: CmsColumnRef | null) => Promise<void>;
+  /** Declares a Table 2 custom attribute. Returns an error string on failure (duplicate name, network
+   *  error, ...) or `null` on success. */
+  addCustomAttribute: (input: { name: string; type: CustomAttributeType; source: CmsColumnRef }) => Promise<string | null>;
+  /** Changes a declared attribute's type or bound column. */
+  updateCustomAttribute: (key: string, patch: Partial<Pick<CustomAttributeDef, "type" | "source">>) => Promise<boolean>;
+  removeCustomAttribute: (key: string) => Promise<boolean>;
+  /** Clears the whole saved mapping in one call, restoring Stage 1 to what auto-mapping alone would
+   *  produce — the demo's "Reset Defaults" action. */
+  resetFieldMappings: () => Promise<boolean>;
   approveMapping: () => Promise<boolean>;
 }
 
 const IDLE_SYNC: CatalogSyncState = { status: "idle", progress: 0, total: 0 };
 const IDLE_MAPPING: AcsMappingState = { approved: false, mapperVersion: 0 };
 const IDLE_MAPPING_STATE: MappingState = {
-  samples: [],
-  groups: [],
-  optionRoles: {},
+  columns: [],
+  brands: [],
+  document: EMPTY_ACS_MAPPING,
+  sizeChart: { bound: false, withData: 0, sampled: 0 },
+  sampled: 0,
+  categoriesSample: null,
+  discoveryStatus: "idle",
+  discoveryScanned: 0,
   isLoading: false,
   hasLoaded: false,
-  savingGroup: null,
+  savingKey: null,
+  isAddingCustomAttribute: false,
   isApproving: false,
+  isResetting: false,
   error: null,
 };
+
+/**
+ * Saves a whole mapping document.
+ *
+ * One writer for every Stage 1 edit, because they all mean the same thing to the server: the document
+ * changed, so the approval hash no longer matches and the gate reopens. Sending the parts that did not
+ * change costs nothing and keeps each action from having to know which half the route would preserve.
+ */
+async function saveAcsMapping(
+  next: AcsFieldMapping
+): Promise<{ mapping?: AcsFieldMapping; sizeChart?: SizeChartCoverage; error?: string }> {
+  try {
+    const res = await fetch("/api/store-connection/mapping-options", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sources: next.sources,
+        customAttributes: next.customAttributes,
+        optionRoles: next.optionRoles,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: data.error ?? "Could not save that change" };
+    // `sizeChart` is only present when this save actually moved the size-chart binding — see the
+    // route's own comment. Absent means nothing here changed and `mapping.sizeChart` should stay
+    // exactly what the last load already put there.
+    return { mapping: data.mapping ?? next, sizeChart: data.sizeChart };
+  } catch {
+    return { error: "Network error — please try again" };
+  }
+}
 
 function toCatalogSync(value: unknown): CatalogSyncState {
   if (!value || typeof value !== "object") return IDLE_SYNC;
@@ -140,15 +201,46 @@ function toCatalogSync(value: unknown): CatalogSyncState {
  * WordPress, `connect` and `syncNow` hit the real Admin/WooCommerce REST
  * APIs; other platforms remain simulated.
  */
+type SetMappingState = StoreApi<StoreConnectionState>["setState"];
+type GetMappingState = StoreApi<StoreConnectionState>["getState"];
+
+/**
+ * Polls a full-catalog CMS column walk to completion, then reloads the columns once so
+ * `presence`/`sample` pick up the real numbers the walk just wrote (`cms-column-store.ts`).
+ *
+ * A fixed interval rather than backoff: the walk runs for minutes at best, so there is no idle
+ * case here worth economizing on. Shared by `refreshColumnCoverage` (which starts a walk) and
+ * `loadMapping` (which resumes polling one that was already running before this page load).
+ */
+async function pollColumnDiscovery(set: SetMappingState, get: GetMappingState): Promise<void> {
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+
+    let status: MappingState["discoveryStatus"] = "error";
+    let scanned = 0;
+    try {
+      const res = await fetch("/api/store-connection/cms-columns/discover");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) break;
+      status = data.status ?? "error";
+      scanned = data.scanned ?? 0;
+    } catch {
+      break;
+    }
+
+    set((s) => ({ mapping: { ...s.mapping, discoveryStatus: status, discoveryScanned: scanned } }));
+    if (status !== "running") break;
+  }
+
+  await get().loadMapping();
+}
+
 export const useStoreConnectionStore = create<StoreConnectionState>((set, get) => ({
   connection: null,
   selectedCategoryIds: [],
   categories: [],
-  categoryParentMap: {},
-  categoryTree: [],
   skuParentOverrides: {},
-  storeSizeType: DEFAULT_SIZE_TYPE,
-  storeSizeTypeOverrides: {},
+  storeSizeSettings: DEFAULT_SIZE_SETTINGS,
   productCount: 0,
   syncedAt: null,
   catalogSync: IDLE_SYNC,
@@ -173,11 +265,8 @@ export const useStoreConnectionStore = create<StoreConnectionState>((set, get) =
           connection: data.connection ?? null,
           selectedCategoryIds: data.selectedCategoryIds ?? [],
           categories: data.categories ?? [],
-          categoryParentMap: data.categoryParentMap ?? {},
-          categoryTree: data.categoryTree ?? [],
           skuParentOverrides: data.skuParentOverrides ?? {},
-          storeSizeType: data.storeSizeType ?? DEFAULT_SIZE_TYPE,
-          storeSizeTypeOverrides: data.storeSizeTypeOverrides ?? {},
+          storeSizeSettings: data.storeSizeSettings ?? DEFAULT_SIZE_SETTINGS,
           productCount: data.productCount ?? 0,
           syncedAt: data.syncedAt ?? null,
           catalogSync: toCatalogSync(data.catalogSync),
@@ -211,11 +300,8 @@ export const useStoreConnectionStore = create<StoreConnectionState>((set, get) =
         connection: data.connection ?? null,
         selectedCategoryIds: data.selectedCategoryIds ?? [],
         categories: data.categories ?? [],
-        categoryParentMap: data.categoryParentMap ?? {},
-        categoryTree: data.categoryTree ?? [],
         skuParentOverrides: data.skuParentOverrides ?? {},
-        storeSizeType: data.storeSizeType ?? DEFAULT_SIZE_TYPE,
-        storeSizeTypeOverrides: data.storeSizeTypeOverrides ?? {},
+        storeSizeSettings: data.storeSizeSettings ?? DEFAULT_SIZE_SETTINGS,
         productCount: data.productCount ?? 0,
         syncedAt: data.syncedAt ?? null,
         catalogSync: toCatalogSync(data.catalogSync),
@@ -247,11 +333,8 @@ export const useStoreConnectionStore = create<StoreConnectionState>((set, get) =
         connection: null,
         selectedCategoryIds: [],
         categories: [],
-        categoryParentMap: {},
-        categoryTree: [],
         skuParentOverrides: {},
-        storeSizeType: DEFAULT_SIZE_TYPE,
-        storeSizeTypeOverrides: {},
+        storeSizeSettings: DEFAULT_SIZE_SETTINGS,
         productCount: 0,
         syncedAt: null,
         catalogSync: IDLE_SYNC,
@@ -333,29 +416,6 @@ export const useStoreConnectionStore = create<StoreConnectionState>((set, get) =
     }
   },
 
-  saveCategoryScope: async ({ selectedCategoryIds, categoryParentMap, categoryTree }) => {
-    const res = await fetch("/api/store-connection", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        selectedCategoryIds,
-        categoryParentMap,
-        ...(categoryTree ? { categoryTree } : {}),
-      }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) return false;
-    // Echo back what the server stored rather than what we sent: it drops mappings naming a parent
-    // this build no longer has, and those paths need to read as unmapped again straight away.
-    set({
-      selectedCategoryIds,
-      categoryParentMap: data.categoryParentMap ?? categoryParentMap,
-      categoryTree: data.categoryTree ?? categoryTree ?? get().categoryTree,
-      catalogSync: toCatalogSync(data.catalogSync),
-    });
-    return true;
-  },
-
   setSkuParent: async (externalId, group) => {
     const previous = get().skuParentOverrides;
     const next = { ...previous };
@@ -384,39 +444,34 @@ export const useStoreConnectionStore = create<StoreConnectionState>((set, get) =
     }
   },
 
-  saveSizeTypes: async ({ storeSizeType, storeSizeTypeOverrides }) => {
-    const previous = {
-      storeSizeType: get().storeSizeType,
-      storeSizeTypeOverrides: get().storeSizeTypeOverrides,
+  saveSizeTypes: async ({ default: nextDefault, overrides: nextOverrides }) => {
+    const previous = get().storeSizeSettings;
+    // Merged client-side into the one whole-document field the API now takes — the caller may
+    // touch only the default or only the overrides, same independence the two columns used to give
+    // for free, just resolved here instead of by the server merging two separate patches.
+    const merged: SizeSettings = {
+      default: nextDefault ?? previous.default,
+      overrides: nextOverrides ?? previous.overrides,
     };
 
-    set({
-      storeSizeType: storeSizeType ?? previous.storeSizeType,
-      storeSizeTypeOverrides: storeSizeTypeOverrides ?? previous.storeSizeTypeOverrides,
-    });
+    set({ storeSizeSettings: merged });
 
     try {
       const res = await fetch("/api/store-connection", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...(storeSizeType !== undefined ? { storeSizeType } : {}),
-          ...(storeSizeTypeOverrides !== undefined ? { storeSizeTypeOverrides } : {}),
-        }),
+        body: JSON.stringify({ storeSizeSettings: merged }),
       });
       if (!res.ok) {
-        set(previous);
+        set({ storeSizeSettings: previous });
         return false;
       }
       const data = await res.json().catch(() => ({}));
       // The server drops overrides naming a system this build does not have, so its copy wins.
-      set({
-        storeSizeType: data.storeSizeType ?? get().storeSizeType,
-        storeSizeTypeOverrides: data.storeSizeTypeOverrides ?? get().storeSizeTypeOverrides,
-      });
+      set({ storeSizeSettings: data.storeSizeSettings ?? merged });
       return true;
     } catch {
-      set(previous);
+      set({ storeSizeSettings: previous });
       return false;
     }
   },
@@ -440,46 +495,48 @@ export const useStoreConnectionStore = create<StoreConnectionState>((set, get) =
   loadMapping: async () => {
     set((s) => ({ mapping: { ...s.mapping, isLoading: true, error: null } }));
     try {
-      // In parallel: the two endpoints are independent, and Stage 1 can't render a useful table
-      // without both — the samples show where data lands, the groups say where it may be sent.
-      const [previewRes, optionsRes] = await Promise.all([
-        fetch("/api/store-connection/mapping-preview"),
+      const [mappingRes, discoveryRes] = await Promise.all([
         fetch("/api/store-connection/mapping-options"),
+        // Hydrates a walk already in flight from a previous visit, so a merchant who refreshes
+        // mid-scan sees the progress bar resume rather than a state that looks like nothing is
+        // happening until they press "Scan" again.
+        fetch("/api/store-connection/cms-columns/discover").catch(() => null),
       ]);
+      const data = await mappingRes.json().catch(() => ({}));
+      const discovery = discoveryRes ? await discoveryRes.json().catch(() => ({})) : {};
 
-      const preview = await previewRes.json().catch(() => ({}));
-      const options = await optionsRes.json().catch(() => ({}));
-
-      if (!previewRes.ok) {
+      if (!mappingRes.ok) {
         set((s) => ({
           mapping: {
             ...s.mapping,
             isLoading: false,
             hasLoaded: true,
-            error: preview.error ?? "Could not read a product from your store",
+            error: data.error ?? "Could not read your store's columns",
           },
         }));
         return;
       }
 
       set((s) => ({
-        acsMapping: {
-          approved: Boolean(preview.alreadyApproved),
-          mapperVersion: preview.mapperVersion ?? s.acsMapping.mapperVersion,
-        },
         mapping: {
           ...s.mapping,
-          samples: preview.samples ?? [],
-          // Option-group discovery reads 25 products and can fail on its own (a slow store, a
-          // timeout) without making the samples useless, so it degrades to an empty list rather
-          // than failing the whole stage.
-          groups: optionsRes.ok ? (options.groups ?? []) : [],
-          optionRoles: optionsRes.ok ? (options.overrides?.optionRoles ?? {}) : {},
+          columns: data.columns ?? [],
+          brands: data.brands ?? [],
+          document: data.mapping ?? EMPTY_ACS_MAPPING,
+          sizeChart: data.sizeChart ?? s.mapping.sizeChart,
+          sampled: data.sampled ?? 0,
+          categoriesSample: data.categoriesSample ?? null,
+          discoveryStatus: discovery.status ?? s.mapping.discoveryStatus,
+          discoveryScanned: discovery.scanned ?? s.mapping.discoveryScanned,
           isLoading: false,
           hasLoaded: true,
           error: null,
         },
       }));
+
+      // A walk was already running before this load — pick its polling back up rather than leaving
+      // the merchant to notice it stalled and press "Scan" a second time.
+      if (discovery.status === "running") void pollColumnDiscovery(set, get);
     } catch {
       set((s) => ({
         mapping: { ...s.mapping, isLoading: false, hasLoaded: true, error: "Network error — please try again" },
@@ -487,46 +544,155 @@ export const useStoreConnectionStore = create<StoreConnectionState>((set, get) =
     }
   },
 
-  setOptionRole: async (normalized, role) => {
-    const nextRoles = { ...get().mapping.optionRoles };
-    if (role === null) delete nextRoles[normalized];
-    else nextRoles[normalized] = role;
-
-    set((s) => ({ mapping: { ...s.mapping, savingGroup: normalized, error: null } }));
-
+  refreshColumnCoverage: async () => {
     try {
-      const res = await fetch("/api/store-connection/mapping-options", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ optionRoles: nextRoles }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        set((s) => ({
-          mapping: { ...s.mapping, savingGroup: null, error: data.error ?? "Could not save that change" },
-        }));
-        return;
-      }
-
-      const data = await res.json();
-      // The save invalidated the approval hash, so reflect that immediately rather than leaving a
-      // stale "Approved" badge above a mapping that is no longer the approved one.
-      set((s) => ({
-        acsMapping: { ...s.acsMapping, approved: false },
-        mapping: { ...s.mapping, optionRoles: data.overrides?.optionRoles ?? nextRoles, savingGroup: null },
-      }));
-
-      // Re-read the samples so the destination cells show the change. This is what makes the edit
-      // verifiable in place: reassigning "Talla" to size moves its values onto the Size row.
-      const previewRes = await fetch("/api/store-connection/mapping-preview");
-      if (previewRes.ok) {
-        const preview = await previewRes.json();
-        set((s) => ({ mapping: { ...s.mapping, samples: preview.samples ?? s.mapping.samples } }));
-      }
+      const res = await fetch("/api/store-connection/cms-columns/discover", { method: "POST" });
+      if (!res.ok) return;
+      set((s) => ({ mapping: { ...s.mapping, discoveryStatus: "running", discoveryScanned: 0 } }));
     } catch {
-      set((s) => ({ mapping: { ...s.mapping, savingGroup: null, error: "Network error — please try again" } }));
+      return;
     }
+
+    await pollColumnDiscovery(set, get);
   },
+
+  setAcsSource: async (acsKey, ref) => {
+    const current = get().mapping.document;
+    const sources = { ...current.sources };
+    if (ref === null) delete sources[acsKey];
+    else sources[acsKey] = ref;
+    const next: AcsFieldMapping = { ...current, sources };
+
+    // Applied before the round trip so the dropdown reflects the click immediately; the response
+    // replaces it with whatever the server actually stored.
+    set((s) => ({ mapping: { ...s.mapping, document: next, savingKey: acsKey, error: null } }));
+
+    const result = await saveAcsMapping(next);
+    if (result.error) {
+      set((s) => ({ mapping: { ...s.mapping, document: current, savingKey: null, error: result.error ?? null } }));
+      return;
+    }
+
+    // The save invalidated the approval hash, so reflect that immediately rather than leaving a stale
+    // "Approved" badge above a mapping that is no longer the approved one.
+    set((s) => ({
+      acsMapping: { ...s.acsMapping, approved: false },
+      mapping: {
+        ...s.mapping,
+        document: result.mapping ?? next,
+        sizeChart: result.sizeChart ?? s.mapping.sizeChart,
+        savingKey: null,
+      },
+    }));
+  },
+
+  addCustomAttribute: async ({ name, type, source }) => {
+    const trimmed = name.trim();
+    if (!trimmed) return "Give the attribute a name";
+
+    const current = get().mapping.document;
+    // Compared on the sanitized key rather than the name, because that is what would actually
+    // collide: "Heel Height" and "heel height" are one ACS attribute however differently they read.
+    const key = trimmed
+      .toLowerCase()
+      .replace(/[^a-z0-9_]+/g, "_")
+      .replace(/^_|_$/g, "");
+    if (!key) return "Use at least one letter or number in the name";
+    if (current.customAttributes.some((attribute) => attribute.key === key)) {
+      return `"${trimmed}" already has a row in the mapping table`;
+    }
+
+    const next: AcsFieldMapping = {
+      ...current,
+      customAttributes: [...current.customAttributes, { key, name: trimmed, type, source }],
+    };
+
+    set((s) => ({ mapping: { ...s.mapping, isAddingCustomAttribute: true, error: null } }));
+
+    const result = await saveAcsMapping(next);
+    if (result.error) {
+      set((s) => ({ mapping: { ...s.mapping, isAddingCustomAttribute: false } }));
+      return result.error;
+    }
+
+    set((s) => ({
+      acsMapping: { ...s.acsMapping, approved: false },
+      mapping: { ...s.mapping, document: result.mapping ?? next, isAddingCustomAttribute: false },
+    }));
+    return null;
+  },
+
+  updateCustomAttribute: async (key, patch) => {
+    const current = get().mapping.document;
+    if (!current.customAttributes.some((attribute) => attribute.key === key)) return false;
+
+    const next: AcsFieldMapping = {
+      ...current,
+      customAttributes: current.customAttributes.map((attribute) =>
+        attribute.key === key ? { ...attribute, ...patch } : attribute
+      ),
+    };
+
+    set((s) => ({ mapping: { ...s.mapping, document: next, savingKey: key, error: null } }));
+
+    const result = await saveAcsMapping(next);
+    if (result.error) {
+      set((s) => ({ mapping: { ...s.mapping, document: current, savingKey: null, error: result.error ?? null } }));
+      return false;
+    }
+
+    set((s) => ({
+      acsMapping: { ...s.acsMapping, approved: false },
+      mapping: { ...s.mapping, document: result.mapping ?? next, savingKey: null },
+    }));
+    return true;
+  },
+
+  removeCustomAttribute: async (key) => {
+    const current = get().mapping.document;
+    const next: AcsFieldMapping = {
+      ...current,
+      customAttributes: current.customAttributes.filter((attribute) => attribute.key !== key),
+    };
+
+    set((s) => ({ mapping: { ...s.mapping, document: next, savingKey: key, error: null } }));
+
+    const result = await saveAcsMapping(next);
+    if (result.error) {
+      set((s) => ({ mapping: { ...s.mapping, document: current, savingKey: null, error: result.error ?? null } }));
+      return false;
+    }
+
+    set((s) => ({
+      acsMapping: { ...s.acsMapping, approved: false },
+      mapping: { ...s.mapping, document: result.mapping ?? next, savingKey: null },
+    }));
+    return true;
+  },
+
+  resetFieldMappings: async () => {
+    set((s) => ({ mapping: { ...s.mapping, isResetting: true, error: null } }));
+
+    // Sending every part explicitly empty — rather than omitting them — is what makes this a reset
+    // rather than a no-op: the route only replaces a part it receives.
+    const result = await saveAcsMapping(EMPTY_ACS_MAPPING);
+    if (result.error) {
+      set((s) => ({ mapping: { ...s.mapping, isResetting: false, error: result.error ?? null } }));
+      return false;
+    }
+
+    set((s) => ({
+      acsMapping: { ...s.acsMapping, approved: false },
+      mapping: {
+        ...s.mapping,
+        document: result.mapping ?? EMPTY_ACS_MAPPING,
+        sizeChart: result.sizeChart ?? s.mapping.sizeChart,
+        isResetting: false,
+      },
+    }));
+    return true;
+  },
+
 
   approveMapping: async () => {
     set((s) => ({ mapping: { ...s.mapping, isApproving: true, error: null } }));

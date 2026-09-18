@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 import { DELETE, PATCH, sanitizeStyleGuide } from "./route";
 import { STYLE_GUIDE_MAX_LENGTH } from "@/modules/store/types";
 import { MAPPER_VERSION } from "@/lib/catalog/acs/map-product";
-import { EMPTY_FIELD_OVERRIDES } from "@/lib/catalog/option-groups";
+import { EMPTY_ACS_MAPPING } from "@/lib/catalog/acs-mapping";
 import type { StoreConnectionRow } from "@/lib/db/store-connections";
 
 vi.mock("@/modules/auth/lib/get-user", () => ({
@@ -44,13 +44,14 @@ function baseRow(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRo
     apiKeyEncrypted: null,
     status: "connected",
     selectedCategoryIds: [],
-    categorySelectionGranularity: "leaf",
     categories: [],
-    categoryParentMap: {},
-    categoryTree: [],
     skuParentOverrides: {},
-    storeSizeType: "Alpha",
-    storeSizeTypeOverrides: {},
+    personaTaxonomyVersion: 1,
+    personaTaxonomyScope: { configured: false, enabledDeptIds: [], enabledLeafKeys: [], customLeaves: [], customCategories: [] },
+    personaCategoryMap: {},
+    personaMappingUpdatedAt: null,
+    personaAutoMatchCompletedAt: null,
+    storeSizeSettings: { default: "Alpha", overrides: {} },
     productCount: 0,
     syncedAt: null,
     hardRules: [],
@@ -61,8 +62,16 @@ function baseRow(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRo
     catalogPendingCategoryIds: [],
     acsMappingApprovedAt: null,
     acsMapperVersionApproved: null,
-    acsFieldOverrides: EMPTY_FIELD_OVERRIDES,
+    acsFieldMapping: EMPTY_ACS_MAPPING,
+    sizingSource: "ai_pipeline",
+    sizingStagesSkippedAt: null,
     acsFieldOverridesApprovedHash: null,
+    cmsColumnDiscoveryStatus: "idle",
+    cmsColumnDiscoveryGroupIndex: 0,
+    cmsColumnDiscoveryCursor: null,
+    cmsColumnDiscoveryScanned: 0,
+    cmsColumnDiscoveryError: null,
+    cmsColumnDiscoveryUpdatedAt: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
@@ -157,7 +166,7 @@ describe("PATCH /api/store-connection — styleGuide", () => {
   });
 });
 
-describe("PATCH /api/store-connection — leaf category selection", () => {
+describe("PATCH /api/store-connection — category cutover", () => {
   const HIERARCHY = [
     { id: "women", name: "Women", productCount: 40, parentId: null },
     { id: "women-tops", name: "Tops", productCount: 25, parentId: "women" },
@@ -169,56 +178,17 @@ describe("PATCH /api/store-connection — leaf category selection", () => {
     vi.mocked(getCurrentUser).mockResolvedValue({ id: "user-1" } as never);
   });
 
-  it("treats a migrated selection re-sent by the picker as a no-op", async () => {
-    // The guarantee the leaf-selection migration exists to provide: because the stored value was
-    // already expanded, the first save from the new picker adds nothing and removes nothing, so no
-    // prune is scheduled against a selection that never changed.
-    const migrated = ["women", "women-tops", "women-tees"];
-    vi.mocked(getStoreConnectionByOwner).mockResolvedValue(
-      baseRow({
-        selectedCategoryIds: migrated,
-        categories: HIERARCHY,
-        catalogSyncStatus: "ready",
-        acsMappingApprovedAt: "2026-01-01T00:00:00.000Z",
-        acsMapperVersionApproved: MAPPER_VERSION,
-      })
-    );
-    vi.mocked(updateStoreConnection).mockResolvedValue(baseRow({ selectedCategoryIds: migrated }));
+  it("rejects legacy category writes so Mapping remains the only source of truth", async () => {
+    const res = await PATCH(patchRequest({
+      selectedCategoryIds: ["women"],
+      categoryParentMap: { women: "tops" },
+      categoryTree: HIERARCHY,
+    }));
+    const data = await res.json();
 
-    const res = await PATCH(patchRequest({ selectedCategoryIds: migrated }));
-
-    expect(res.status).toBe(200);
-    const patch = vi.mocked(updateStoreConnection).mock.calls[0][1];
-    expect(patch.catalogSyncStatus).toBeUndefined();
-    expect(patch.catalogPendingCategoryIds).toBeUndefined();
-  });
-
-  it("stamps the granularity marker on every category save", async () => {
-    vi.mocked(getStoreConnectionByOwner).mockResolvedValue(
-      baseRow({ selectedCategoryIds: ["women"], categories: HIERARCHY })
-    );
-    vi.mocked(updateStoreConnection).mockResolvedValue(baseRow());
-
-    await PATCH(patchRequest({ selectedCategoryIds: ["women"] }));
-
-    expect(vi.mocked(updateStoreConnection).mock.calls[0][1].categorySelectionGranularity).toBe("leaf");
-  });
-
-  it("saves a genuine category addition without starting an index or demanding approval", async () => {
-    // Indexing moved to Setup's final step, so saving scope is now just a save. It used to 409 with
-    // `mapping_approval_required` here, which meant an unapproved merchant could not even record
-    // which categories they wanted — the approval gate still exists, but on the index itself.
-    vi.mocked(getStoreConnectionByOwner).mockResolvedValue(
-      baseRow({ selectedCategoryIds: ["women"], categories: HIERARCHY, acsMappingApprovedAt: null })
-    );
-    vi.mocked(updateStoreConnection).mockResolvedValue(baseRow());
-
-    const res = await PATCH(patchRequest({ selectedCategoryIds: ["women", "women-tops"] }));
-
-    expect(res.status).toBe(200);
-    const patch = vi.mocked(updateStoreConnection).mock.calls[0][1];
-    expect(patch.selectedCategoryIds).toEqual(["women", "women-tops"]);
-    expect(patch.catalogSyncStatus).toBeUndefined();
+    expect(res.status).toBe(410);
+    expect(data.error).toContain("Mapping");
+    expect(updateStoreConnection).not.toHaveBeenCalled();
   });
 
   it("still blocks a manual re-index until the mapping is approved", async () => {

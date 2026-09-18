@@ -53,6 +53,12 @@ export type CategoryPath = string[];
 
 export interface CatalogCandidate {
   externalId: string;
+  /** The real store variant id, when this candidate was matched off (or rolled up from) an ACS
+   *  `VARIANT` record rather than only ever the `PRIMARY` — see `map-product.ts`'s
+   *  `buildVariantAcsProducts` and `search-adapter.ts`'s `toCandidate`. Null for a `PRIMARY`-only
+   *  match, which is every candidate before real per-SKU variants existed and still most of them
+   *  after: this is additive metadata, not yet consumed by add-to-cart resolution or ranking. */
+  variantExternalId?: string | null;
   productGroupId: string | null;
   title: string;
   brand: string | null;

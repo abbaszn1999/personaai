@@ -12,7 +12,6 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronUp,
-  ScanSearch,
   CircleDashed,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -96,7 +95,7 @@ const TONE_CLASSES: Record<
 
 const ROUTE_BUCKETS: ServerBrandType[] = ["global", "private", "none"];
 
-type BrandTypeFilter = "all" | ServerBrandType;
+type BrandTypeFilter = "all" | Exclude<ServerBrandType, "none">;
 
 /**
  * Stage 3 — who made what, and therefore where every later dollar goes.
@@ -128,6 +127,7 @@ export function StageBrandDiscovery() {
   }, [loadRun, stopPolling]);
 
   const brands = summary.brands;
+  const namedBrands = React.useMemo(() => brands.filter((brand) => brand.brandType !== "none"), [brands]);
 
   const byType = React.useMemo(() => {
     const groups: Record<ServerBrandType, CoverageBrand[]> = { global: [], private: [], none: [], unclassified: [] };
@@ -137,12 +137,12 @@ export function StageBrandDiscovery() {
 
   const filtered = React.useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return brands.filter((brand) => {
+    return namedBrands.filter((brand) => {
       if (typeFilter !== "all" && brand.brandType !== typeFilter) return false;
       if (!needle) return true;
-      return (brand.name ?? "no brand").toLowerCase().includes(needle);
+      return (brand.name ?? "").toLowerCase().includes(needle);
     });
-  }, [brands, typeFilter, query]);
+  }, [namedBrands, typeFilter, query]);
 
   const visibleBrands = showAll ? filtered : filtered.slice(0, 8);
 
@@ -157,8 +157,8 @@ export function StageBrandDiscovery() {
       <StageHeaderBanner
         stageNumber={3}
         eyebrow="Autonomous Classification"
-        title={`${brands.length} brand${brands.length === 1 ? "" : "s"} across ${summary.chartsNeeded} size chart${summary.chartsNeeded === 1 ? "" : "s"}`}
-        description={`Found in ${summary.totalSkus.toLocaleString()} sized items. Each brand and category pair becomes one chart, not one per product — that is what keeps research cost flat as your catalog grows.`}
+        title={`${namedBrands.length} brand${namedBrands.length === 1 ? "" : "s"} across ${summary.chartsNeeded} size chart${summary.chartsNeeded === 1 ? "" : "s"}`}
+        description={`Found in ${summary.totalSkus.toLocaleString()} sized items. Each brand/category pair—or unbranded category—becomes one chart, not one per product.`}
         aiPowered
         actions={
           <Button variant="ghost" size="sm" onClick={() => void loadRun()}>
@@ -199,14 +199,14 @@ export function StageBrandDiscovery() {
           <span className="flex items-center gap-1 pl-1 font-medium text-[var(--color-text-muted)]">
             <Tag className="h-3.5 w-3.5" /> Filter by type:
           </span>
-          {(["all", ...ROUTE_BUCKETS, "unclassified"] as BrandTypeFilter[]).map((id) => {
+          {(["all", "global", "private", "unclassified"] as BrandTypeFilter[]).map((id) => {
             // Hidden rather than shown as a zero: an "Unclassified 0" chip invites a merchant to
             // hunt for a problem that isn't there.
             if (id === "unclassified" && byType.unclassified.length === 0) return null;
 
             const active = typeFilter === id;
             const tone = id === "all" ? null : TONE_CLASSES[TYPE_META[id].tone];
-            const count = id === "all" ? brands.length : byType[id].length;
+            const count = id === "all" ? namedBrands.length : byType[id].length;
 
             return (
               <button
@@ -277,7 +277,7 @@ export function StageBrandDiscovery() {
               {visibleBrands.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-6 py-10 text-center text-xs text-[var(--color-text-muted)]">
-                    {brands.length === 0
+                    {namedBrands.length === 0
                       ? "The scan found no sized stock in your selected categories."
                       : "No brands match the active filter."}
                   </td>
@@ -309,60 +309,6 @@ export function StageBrandDiscovery() {
           </div>
         )}
       </div>
-
-      <UnbrandedByCategory />
-
-      {summary.categories.length > 0 && <CategoryBreakdown />}
-    </div>
-  );
-}
-
-/**
- * The doc's `null_records`, grouped the only way they can be.
- *
- * Every other route keys on a brand name, so one entry covers however many products carry it. These
- * have no brand at all, which is exactly why the doc singles them out as needing row-level detail —
- * and why they route to manual fill "grouped by category instead of brand". Shown separately from
- * the brand table because a single "No brand" row there says nothing about which of the merchant's
- * products are actually affected.
- */
-function UnbrandedByCategory() {
-  const nulls = useSizingStore((s) => s.routing.manualFillNulls);
-  const records = useSizingStore((s) => s.identification.null_records);
-
-  if (nulls.groups.length === 0) return null;
-
-  return (
-    <div className="overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--color-error)]/25 bg-[var(--color-surface-card)] shadow-[var(--shadow-card)] backdrop-blur-xl">
-      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-error-light)] px-6 py-4">
-        <HelpCircle className="h-4 w-4 text-[var(--color-error)]" />
-        <h3 className="text-sm font-bold text-[var(--color-error)]">Items with no identifiable brand</h3>
-        <span className="text-xs font-medium text-[var(--color-error)]/80">
-          ({nulls.skuCount.toLocaleString()} item{nulls.skuCount === 1 ? "" : "s"} · filled by category, not by brand)
-        </span>
-      </div>
-
-      <div className="grid grid-cols-1 divide-y divide-[var(--color-border)] sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-3">
-        {nulls.groups.map((group) => (
-          <div key={group.sizingCategory} className="p-4">
-            <div className="flex items-baseline justify-between gap-2">
-              <p className="text-sm font-semibold capitalize text-[var(--color-text-primary)]">{group.label}</p>
-              <span className="shrink-0 font-mono text-xs text-[var(--color-text-muted)]">
-                {group.productCount.toLocaleString()}
-              </span>
-            </div>
-            <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
-              One chart you fill once covers all {group.productCount.toLocaleString()} of them.
-            </p>
-          </div>
-        ))}
-      </div>
-
-      <p className="border-t border-[var(--color-border)] bg-[var(--color-surface-elevated)]/60 px-6 py-3 text-[11px] text-[var(--color-text-muted)]">
-        These are never sent to web research — there is no brand to search for, so a request would
-        cost money and return nothing. {records.length.toLocaleString()} product
-        {records.length === 1 ? " is" : "s are"} listed individually for stage 5.
-      </p>
     </div>
   );
 }
@@ -474,45 +420,5 @@ function BrandTableRow({ brand }: { brand: CoverageBrand }) {
         </span>
       </td>
     </tr>
-  );
-}
-
-/**
- * What the store carries per sizing category, and which body measurements each needs.
- *
- * Worth showing because the category split is not the merchant's own taxonomy and can surprise them:
- * their single "Accessories" collection becomes separate hat and belt charts, because a head
- * circumference and a waist share nothing.
- */
-function CategoryBreakdown() {
-  const categories = useSizingStore((s) => s.summary.categories);
-
-  return (
-    <div className="overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] shadow-[var(--shadow-card)] backdrop-blur-xl">
-      <div className="flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-6 py-4">
-        <ScanSearch className="h-4 w-4 text-[var(--color-brand)]" />
-        <h3 className="text-sm font-bold text-[var(--color-text-primary)]">Sizing categories found</h3>
-        <span className="text-xs font-medium text-[var(--color-text-muted)]">
-          ({categories.length} — each needs its own chart per brand)
-        </span>
-      </div>
-
-      <div className="grid grid-cols-1 divide-y divide-[var(--color-border)] sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-3">
-        {categories.map((category) => (
-          <div key={category.key} className="p-4">
-            <div className="flex items-baseline justify-between gap-2">
-              <p className="text-sm font-semibold capitalize text-[var(--color-text-primary)]">{category.label}</p>
-              <span className="shrink-0 font-mono text-xs text-[var(--color-text-muted)]">
-                {category.skuCount.toLocaleString()}
-              </span>
-            </div>
-            <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
-              {category.brandCount} brand{category.brandCount === 1 ? "" : "s"} · measured on{" "}
-              {category.measurements.join(", ").replace(/_/g, " ")}
-            </p>
-          </div>
-        ))}
-      </div>
-    </div>
   );
 }

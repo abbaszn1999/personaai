@@ -1,13 +1,18 @@
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
-import { resumeBlockedRun } from "@/lib/db/sizing-runs";
+import { advanceBlockedRun } from "@/lib/db/sizing-runs";
 
 /**
- * Unblocks the pipeline's current stage — what a merchant clicking "Continue" past a stage that
- * spends real money (classify -> research today; more will follow as later phases land) does on
- * the server. Kept as its own route rather than a body flag on `POST /sizing/run`, since that route
- * *starts* a run and this one only ever advances an existing one; conflating them would make one
- * endpoint mean two different things depending on a hidden parameter.
+ * Moves a parked run on to the next stage — what "Continue" records server-side.
+ *
+ * It no longer starts anything, and that is the change. Continuing past Stage 3 used to be the
+ * authorisation to spend on chart research, so one press meant both "I have read the brand list" and
+ * "search every one of them". Stage 4 now owns the second half of that decision, per brand
+ * (`POST /sizing/research`), so this endpoint's only job is to record where the merchant got to.
+ *
+ * Deliberately stage-aware rather than taking a target from the client: the pipeline's order is a
+ * server fact, and a body parameter would let a client skip `assign` — the stage that decides which
+ * chart governs which products — by naming a later one.
  */
 export async function POST() {
   try {
@@ -21,10 +26,13 @@ export async function POST() {
       return Response.json({ error: "Store connection not found" }, { status: 404 });
     }
 
-    const run = await resumeBlockedRun(connection.id);
+    // `gap_fill` is included because runs parked there predate Stage 4 owning its own parked state.
+    // They belong on the assignment stage too, and leaving them out would strand exactly the runs that
+    // finished research before this change.
+    const run = await advanceBlockedRun(connection.id, ["research", "gap_fill"], "assign");
     if (!run) {
-      // Not an error: the run may already have been resumed by an earlier click, or may not be
-      // blocked yet because the previous stage is still running. Either way there is nothing to do.
+      // Not an error: the run may already have been advanced by an earlier click, or may not be parked
+      // yet because the stage before it is still working. Either way there is nothing to do.
       return Response.json({ run: null });
     }
 

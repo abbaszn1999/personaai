@@ -97,12 +97,46 @@ export interface CustomParentCategory {
 export interface StoreSizingSystemConfig {
   defaultSystem: SizingSystemOption;
   brandOverrides: Record<string, SizingSystemOption>;
+  sizeChart?: string;
 }
 
 export interface GoogleSchemaOption {
   value: string;
   label: string;
   description: string;
+}
+
+export interface AcsRequiredField {
+  id: string;
+  acsField: string;
+  cmsField?: string;
+  shopify?: string;
+  wooCommerce?: string;
+  description?: string;
+  sample?: string;
+}
+
+export interface AcsNativeAttribute {
+  id: string;
+  acsField: string;
+  cmsField?: string;
+  shopify?: string;
+  wooCommerce?: string;
+  resolverRule?: string;
+  sample?: string;
+}
+
+export interface AcsCustomAttribute {
+  id: string;
+  acsKey: string;
+  name: string;
+  type: 'text' | 'number' | 'boolean';
+  indexable: boolean;
+  searchable: boolean;
+  sample: string;
+  cmsField?: string;
+  shopifySource?: string;
+  wooCommerceSource?: string;
 }
 
 export interface StoreFieldMapping {

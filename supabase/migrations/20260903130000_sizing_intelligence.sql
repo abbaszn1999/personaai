@@ -7,7 +7,7 @@
 -- A store's per-product `final_chart` is not persisted at all: it is a pure function of
 -- (brand, sizing category, raw size string), every one of which is an aggregate below, so it is
 -- resolved during the ACS index pass and lives only on the ACS document. For a 10,000-SKU store
-    10|-- these three tables hold roughly 1,200 rows between them.
+-- these three tables hold roughly 1,200 rows between them.
 
 -- ─── sizing_runs ──────────────────────────────────────────────────────────────
 -- One row per pipeline run. Exists so the setup pipeline resumes from the server rather than from
@@ -18,7 +18,7 @@ create table public.sizing_runs (
   id                uuid primary key default gen_random_uuid(),
   connection_id     uuid not null references public.store_connections(id) on delete cascade,
 
-    20|  -- 'delta' is unused for now (daily sync is deliberately out of scope) but the column costs
+  -- 'delta' is unused for now (daily sync is deliberately out of scope) but the column costs
   -- nothing today and avoids a migration when it lands.
   kind              text not null default 'setup' check (kind in ('setup', 'delta')),
 
@@ -28,7 +28,7 @@ create table public.sizing_runs (
   status            text not null default 'pending'
                       check (status in ('pending', 'running', 'blocked', 'complete', 'failed')),
   stage             text not null default 'scan'
-    30|                      check (stage in ('scan', 'classify', 'research', 'gap_fill', 'resolve', 'publish')),
+                      check (stage in ('scan', 'classify', 'research', 'gap_fill', 'resolve', 'publish')),
 
   -- The one counter kept here rather than derived. Brand and chart totals are deliberately *not*
   -- stored: they are a group-by over the two tables below, and duplicating them as counters only
@@ -39,7 +39,7 @@ create table public.sizing_runs (
   -- Set once the index carrying sizing attributes finishes. Phase 8's Size Filter tab unlocks off
   -- this instead of an ephemeral client flag.
   published_at      timestamptz,
-    40|  created_at        timestamptz not null default now(),
+  created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now()
 );
 
@@ -50,7 +50,7 @@ create unique index sizing_runs_active_idx
   where status in ('pending', 'running', 'blocked');
 
 create index sizing_runs_connection_idx
-    50|  on public.sizing_runs (connection_id, created_at desc);
+  on public.sizing_runs (connection_id, created_at desc);
 
 -- ─── sizing_coverage ──────────────────────────────────────────────────────────
 -- What this store actually carries, one row per (brand x audience-scoped sizing category). This is
@@ -61,7 +61,7 @@ create index sizing_runs_connection_idx
 -- and by a future delta sync to tell a genuinely new brand from an already-covered one.
 create table public.sizing_coverage (
   id                    uuid primary key default gen_random_uuid(),
-    60|  connection_id         uuid not null references public.store_connections(id) on delete cascade,
+  connection_id         uuid not null references public.store_connections(id) on delete cascade,
 
   -- Normalized by `normalizeBrandKey` (src/lib/sizing/keys.ts). Empty string is the sentinel for
   -- the doc's `null_records` — rows where no brand could be identified. Not nullable, because
@@ -71,7 +71,7 @@ create table public.sizing_coverage (
   -- The brand as the merchant writes it, for display only. Null for the unbranded sentinel row.
   brand_name            text,
   -- 'unclassified' until Phase 3's Gemini pass runs. 'none' means no brand exists on these rows,
-    70|  -- which is a different thing from "not yet classified" — routing reads this column directly, so
+  -- which is a different thing from "not yet classified" — routing reads this column directly, so
   -- collapsing the two would send unbranded rows to the web-search queue.
   brand_type            text not null default 'unclassified'
                           check (brand_type in ('unclassified', 'global', 'private', 'none')),
@@ -81,7 +81,7 @@ create table public.sizing_coverage (
   -- ACS: a men's and a women's top with the same 'M' label have different chest ranges, and a hat
   -- and a belt share no measurement at all, so both the audience and the measurement set have to be
   -- part of the key a chart is stored against.
-    80|  sizing_category       text not null,
+  sizing_category       text not null,
 
   sku_count             integer not null default 0,
   -- The merchant's own category paths that rolled up into this row, so the UI can speak the
@@ -92,7 +92,7 @@ create table public.sizing_coverage (
   sample_skus           jsonb not null default '[]'::jsonb,
 
   -- Step 5b-i, free: { "<raw size string>": { "count": n, "canonical": ["S","M"] | null } }.
-    90|  -- Deduplicating here is what makes the size-resolution LLM call scale with distinct formats
+  -- Deduplicating here is what makes the size-resolution LLM call scale with distinct formats
   -- instead of rows — the store writing "S,M,L" on 940 products is one entry, not 940.
   raw_formats           jsonb not null default '{}'::jsonb,
 
@@ -103,7 +103,7 @@ create table public.sizing_coverage (
 );
 
 -- Routing and the stage tables both read "all rows of this type for this store".
-   100|create index sizing_coverage_routing_idx
+create index sizing_coverage_routing_idx
   on public.sizing_coverage (connection_id, brand_type);
 
 -- ─── sizing_charts ────────────────────────────────────────────────────────────
@@ -114,7 +114,7 @@ create table public.sizing_charts (
 
   -- NULL means a shared, cross-merchant chart. A global brand's chart is a transcription of a
   -- public manufacturer size guide and contains no merchant data, so the second store to sell Nike
-   110|  -- inherits it for free rather than paying to research it again. Private-label and unbranded
+  -- inherits it for free rather than paying to research it again. Private-label and unbranded
   -- charts always carry a real connection_id and are never visible to another store, so a
   -- merchant's hand-filled template stays theirs.
   connection_id    uuid references public.store_connections(id) on delete cascade,
@@ -125,7 +125,7 @@ create table public.sizing_charts (
   -- Which regional label set `size` values are drawn from (EU 38 vs US 8). Never a unit: all bounds
   -- are cm/kg, converted at normalization time, so no consumer has to convert.
   region           text,
-   120|  -- SizeChartRow[] in the flat `<measurement>_min`/`_max` shape from
+  -- SizeChartRow[] in the flat `<measurement>_min`/`_max` shape from
   -- src/lib/sizing/chart-schema.ts. Named chart_rows because `rows` is a SQL keyword.
   chart_rows       jsonb not null default '[]'::jsonb,
 
@@ -135,7 +135,7 @@ create table public.sizing_charts (
   -- Bumped on revision. Written into each product's ACS `sizing_chart_key` so everything still
   -- carrying a superseded chart is findable with one filter, making a targeted republish possible
   -- instead of a full reindex.
-   130|  version          integer not null default 1,
+  version          integer not null default 1,
 
   created_at       timestamptz not null default now(),
   updated_at       timestamptz not null default now()
@@ -145,7 +145,7 @@ create table public.sizing_charts (
 -- `unique (connection_id, brand_key, sizing_category)` would not constrain the shared rows at all,
 -- because every NULL connection_id counts as distinct — so the global registry would silently
 -- accumulate a duplicate Nike chart per research run.
-   140|create unique index sizing_charts_global_idx
+create unique index sizing_charts_global_idx
   on public.sizing_charts (brand_key, sizing_category)
   where connection_id is null;
 
@@ -155,7 +155,7 @@ create unique index sizing_charts_scoped_idx
 
 -- The resolver's hot path during an index: look up a chart by brand + category, preferring this
 -- store's own row over the shared one.
-   150|create index sizing_charts_lookup_idx
+create index sizing_charts_lookup_idx
   on public.sizing_charts (brand_key, sizing_category);
 
 -- ─── Access ───────────────────────────────────────────────────────────────────
@@ -165,7 +165,7 @@ create unique index sizing_charts_scoped_idx
 alter table public.sizing_runs enable row level security;
 alter table public.sizing_coverage enable row level security;
 alter table public.sizing_charts enable row level security;
-   160|
+
 -- ─── store_connections: Size Filter margins ───────────────────────────────────
 -- Owner-set per-category slack in cm, widening each size's range before the exclusion filter checks
 -- whether a shopper can wear it — final_chart doesn't know about cut or fabric, so without margin a
@@ -175,7 +175,7 @@ alter table public.sizing_charts enable row level security;
 --
 -- Per the doc, this affects the exclusion filter and nothing else — it never modifies a stored
 -- chart, and Persona never reads it directly, only ever seeing what survived.
-   170|alter table public.store_connections
+alter table public.store_connections
   add column if not exists sizing_margins jsonb not null default '{}'::jsonb;
 
 comment on column public.store_connections.sizing_margins is
@@ -186,6 +186,6 @@ comment on table public.sizing_runs is
 
 comment on table public.sizing_coverage is
   'Aggregate of what a store carries, one row per (brand x audience-scoped sizing category), with the distinct raw size strings that roll up into it. Replaces a product mirror.';
-   180|
+
 comment on table public.sizing_charts is
   'Measurement bounds per (brand x sizing category). connection_id NULL = shared global-brand chart reused across merchants; non-null = private-label or hand-filled, scoped to one store.';

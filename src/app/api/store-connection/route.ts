@@ -27,11 +27,9 @@ import {
   WooCommerceApiError,
 } from "@/lib/woocommerce/client";
 import { purgeConnectionFromQueue } from "@/lib/db/catalog-queue";
-import { deleteAllAcsProductsForConnection, pruneOutOfScopeAcsProducts } from "@/lib/catalog/acs/catalog-reads";
-import { expandCategorySelection } from "@/lib/catalog/category-scope";
-import { parseCategoryParentMap, parseSkuParentOverrides } from "@/lib/catalog/category-parents";
-import { DEFAULT_SIZE_TYPE, parseSizeType, parseSizeTypeOverrides } from "@/lib/sizing/size-types";
-import { parseMerchantTree } from "@/lib/catalog/merchant-tree";
+import { deleteAllAcsProductsForConnection } from "@/lib/catalog/acs/catalog-reads";
+import { parseSkuParentOverrides } from "@/lib/catalog/category-parents";
+import { DEFAULT_SIZE_SETTINGS, parseSizeSettings } from "@/lib/sizing/size-types";
 import { deriveWebhookSecret } from "@/lib/utils/internal-auth";
 import { MAPPER_VERSION } from "@/lib/catalog/acs/map-product";
 import { hasApprovedCurrentMapping } from "@/lib/catalog/acs/field-overrides";
@@ -62,13 +60,9 @@ function toResponse(row: StoreConnectionRow) {
   return {
     connection: toPublicConnection(row),
     selectedCategoryIds: row.selectedCategoryIds,
-    categorySelectionGranularity: row.categorySelectionGranularity,
     categories: row.categories,
-    categoryParentMap: row.categoryParentMap,
-    categoryTree: row.categoryTree,
     skuParentOverrides: row.skuParentOverrides,
-    storeSizeType: row.storeSizeType,
-    storeSizeTypeOverrides: row.storeSizeTypeOverrides,
+    storeSizeSettings: row.storeSizeSettings,
     productCount: row.productCount,
     syncedAt: row.syncedAt,
     catalogSync: {
@@ -131,11 +125,8 @@ export async function GET() {
         connection: null,
         selectedCategoryIds: [],
         categories: [],
-        categoryParentMap: {},
-        categoryTree: [],
         skuParentOverrides: {},
-        storeSizeType: DEFAULT_SIZE_TYPE,
-        storeSizeTypeOverrides: {},
+        storeSizeSettings: DEFAULT_SIZE_SETTINGS,
         productCount: 0,
         syncedAt: null,
         styleGuide: null,
@@ -273,49 +264,15 @@ export async function PATCH(req: NextRequest) {
     const body = await req.json();
     const patch: UpdateStoreConnectionInput = {};
 
-    // Deferred until after the write, so the prune runs against the selection that was saved.
-    let pruneScope: string[] | null = null;
-
-    if (Array.isArray(body.selectedCategoryIds)) {
-      const current = await getStoreConnectionByOwner(user.id);
-      if (!current) {
-        return Response.json({ error: "Store connection not found" }, { status: 404 });
-      }
-
-      const next: string[] = [
-        ...new Set((body.selectedCategoryIds as unknown[]).filter((id): id is string => typeof id === "string")),
-      ];
-      const previous = current.selectedCategoryIds;
-
-      patch.selectedCategoryIds = next;
-      // The picker writes leaves directly. Stamping it on every save also self-heals any row the
-      // one-time migration couldn't reach, rather than leaving it silently mislabelled.
-      patch.categorySelectionGranularity = "leaf";
-
-      const removed = previous.filter((id) => !next.includes(id));
-
-      // Only worth a pass when something was actually dropped. The prune keeps any product another
-      // selected category still covers, so this is not the same as deleting the removed categories'
-      // products outright.
-      if (removed.length > 0 && next.length > 0) {
-        pruneScope = expandCategorySelection(next, current.categories);
-      }
-
-      // Saving a selection deliberately does *not* start an index any more. Indexing is the last
-      // step of the Setup pipeline, which is the only place it can carry sizing attributes and the
-      // only place the merchant has approved the mapping it would run under. Two entry points meant
-      // a merchant could index from here, skip Setup, and end up with a catalog ACS could search but
-      // Persona could not size.
-    }
-
-    // Categories step 2. Both are whole-document saves rather than diffs: the merchant edits them
-    // as one screen and there is no partial state worth expressing.
-    if (body.categoryParentMap !== undefined) {
-      patch.categoryParentMap = parseCategoryParentMap(body.categoryParentMap);
-    }
-
-    if (body.categoryTree !== undefined) {
-      patch.categoryTree = parseMerchantTree(body.categoryTree);
+    if (
+      body.selectedCategoryIds !== undefined ||
+      body.categoryParentMap !== undefined ||
+      body.categoryTree !== undefined
+    ) {
+      return Response.json(
+        { error: "Legacy Categories setup is retired. Save category scope and mappings from Mapping." },
+        { status: 410 },
+      );
     }
 
     // Stage 2 corrections. Also a whole-document save: the client holds every override it knows
@@ -324,14 +281,12 @@ export async function PATCH(req: NextRequest) {
       patch.skuParentOverrides = parseSkuParentOverrides(body.skuParentOverrides);
     }
 
-    // Doc Part 2. Independent of each other — a merchant can change the store default without
-    // touching their exceptions, and vice versa — so neither is implied by the other's presence.
-    if (body.storeSizeType !== undefined) {
-      patch.storeSizeType = parseSizeType(body.storeSizeType);
-    }
-
-    if (body.storeSizeTypeOverrides !== undefined) {
-      patch.storeSizeTypeOverrides = parseSizeTypeOverrides(body.storeSizeTypeOverrides);
+    // Doc Part 2. One whole-document field like `skuParentOverrides` above: the client sends its
+    // full current settings (default plus every exception), which is what makes clearing an
+    // exception expressible — omitting it from a partial merge could never distinguish "leave this
+    // brand alone" from "remove this brand's exception".
+    if (body.storeSizeSettings !== undefined) {
+      patch.storeSizeSettings = parseSizeSettings(body.storeSizeSettings);
     }
 
     if (body.styleGuide !== undefined) {
@@ -432,15 +387,6 @@ export async function PATCH(req: NextRequest) {
 
     if (!row) {
       return Response.json({ error: "Store connection not found or update failed" }, { status: 404 });
-    }
-
-    // After the write so the new selection is what gets enforced, and after the response shape is
-    // settled so a prune failure can't cost the merchant their saved selection.
-    if (pruneScope) {
-      const removedProducts = await pruneOutOfScopeAcsProducts(row.id, pruneScope);
-      if (removedProducts > 0) {
-        console.log(`[store-connection PATCH] pruned ${removedProducts} product(s) outside the selection for ${row.id}`);
-      }
     }
 
     return Response.json(toResponse(row));

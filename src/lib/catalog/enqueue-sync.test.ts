@@ -53,7 +53,9 @@ function product(id: string, sourceCategoryIds: string[] = []): RawCatalogProduc
     imageUrl: null,
     images: [],
     variantOptions: {},
+    customFields: {},
     updatedAt: null,
+    variants: [],
   };
 }
 

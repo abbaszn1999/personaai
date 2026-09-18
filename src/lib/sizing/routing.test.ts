@@ -10,6 +10,7 @@ function coverage(overrides: Partial<SizingCoverageRow> = {}): SizingCoverageRow
     brandKey: "nike",
     brandName: "Nike",
     brandType: "global",
+    brandCanonicalName: null,
     sizingCategory: "tops",
     skuCount: 10,
     storeCategoryPaths: [["Men", "Tops"]],

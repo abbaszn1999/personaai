@@ -3,15 +3,9 @@
 import * as React from "react";
 import { ChevronDown, Globe2, Loader2, Plus, Settings2, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
-import {
-  SIZE_TYPES,
-  SIZE_TYPE_EXAMPLES,
-  SIZE_TYPE_LABELS,
-  isSizeType,
-  type SizeType,
-  type SizeTypeOverrides,
-} from "@/lib/sizing/size-types";
+import { SIZE_TYPES, SIZE_TYPE_EXAMPLES, SIZE_TYPE_LABELS, isSizeType, type SizeType } from "@/lib/sizing/size-types";
 import { useStoreConnectionStore } from "@/modules/store/store";
+import { MappingSelect, type SelectOption } from "./mapping-select";
 
 /** A brand the scan discovered, as this panel needs it: a stable key to store the override against
  *  and a name to show. */
@@ -32,8 +26,8 @@ export interface OverridableBrand {
  * column of a brand's published guide this catalog's labels line up with.
  */
 export function SizeTypePanel({ brands }: { brands: readonly OverridableBrand[] }) {
-  const storeSizeType = useStoreConnectionStore((s) => s.storeSizeType);
-  const overrides = useStoreConnectionStore((s) => s.storeSizeTypeOverrides);
+  const storeSizeType = useStoreConnectionStore((s) => s.storeSizeSettings.default);
+  const overrides = useStoreConnectionStore((s) => s.storeSizeSettings.overrides);
   const saveSizeTypes = useStoreConnectionStore((s) => s.saveSizeTypes);
 
   const [open, setOpen] = React.useState(false);
@@ -53,7 +47,7 @@ export function SizeTypePanel({ brands }: { brands: readonly OverridableBrand[] 
   const unassigned = brands.filter((brand) => !(brand.brandKey in overrides));
 
   const commit = React.useCallback(
-    async (next: { storeSizeType?: SizeType; storeSizeTypeOverrides?: SizeTypeOverrides }) => {
+    async (next: Parameters<typeof saveSizeTypes>[0]) => {
       setSaving(true);
       await saveSizeTypes(next);
       setSaving(false);
@@ -63,14 +57,14 @@ export function SizeTypePanel({ brands }: { brands: readonly OverridableBrand[] 
 
   function addOverride() {
     if (!brandToAdd) return;
-    void commit({ storeSizeTypeOverrides: { ...overrides, [brandToAdd]: systemToAdd } });
+    void commit({ overrides: { ...overrides, [brandToAdd]: systemToAdd } });
     setBrandToAdd("");
   }
 
   function removeOverride(brandKey: string) {
     const next = { ...overrides };
     delete next[brandKey];
-    void commit({ storeSizeTypeOverrides: next });
+    void commit({ overrides: next });
   }
 
   return (
@@ -81,7 +75,7 @@ export function SizeTypePanel({ brands }: { brands: readonly OverridableBrand[] 
           <span className="font-bold text-[var(--color-text-primary)]">Sizing type:</span>
           <SizeTypeSelect
             value={storeSizeType}
-            onChange={(system) => void commit({ storeSizeType: system })}
+            onChange={(system) => void commit({ default: system })}
             ariaLabel="The sizing system this store's size labels use"
           />
           {saving && <Loader2 className="h-3 w-3 animate-spin text-[var(--color-text-muted)]" />}
@@ -138,9 +132,7 @@ export function SizeTypePanel({ brands }: { brands: readonly OverridableBrand[] 
                   <div className="flex shrink-0 items-center gap-1.5">
                     <SizeTypeSelect
                       value={system}
-                      onChange={(next) =>
-                        void commit({ storeSizeTypeOverrides: { ...overrides, [brandKey]: next } })
-                      }
+                      onChange={(next) => void commit({ overrides: { ...overrides, [brandKey]: next } })}
                       ariaLabel={`Sizing system for ${nameFor(brandKey)}`}
                     />
                     <button
@@ -162,28 +154,27 @@ export function SizeTypePanel({ brands }: { brands: readonly OverridableBrand[] 
             </p>
           )}
 
-          {/* Brands come from the scan, so before it runs there is nothing honest to list — offering
-              a free-text brand box here would invite a typo that silently never matches a SKU. */}
+          {/* A picked brand, never a free-text box: exceptions are stored under a normalized brand
+              key, so a typed name that is one character off saves cleanly and then silently matches
+              no SKU. Empty only when the sampled products carry no brand at all. */}
           {brands.length === 0 ? (
             <p className="text-[11px] text-[var(--color-text-muted)]">
-              Your brands appear here once the catalog has been read in Stage 2.
+              Your store lists no brands, so there is nothing to attach an exception to. Point a field
+              at <span className="font-semibold">Brand</span> above if your catalog keeps it somewhere
+              unexpected.
             </p>
           ) : (
             unassigned.length > 0 && (
               <div className="flex items-center gap-1.5 pt-0.5">
-                <select
+                <MappingSelect
+                  compact
+                  className="min-w-0 flex-1"
+                  options={unassigned.map((brand) => ({ key: brand.brandKey, label: brand.name }))}
                   value={brandToAdd}
-                  onChange={(event) => setBrandToAdd(event.target.value)}
-                  aria-label="Brand to override"
-                  className="min-w-0 flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-card)] px-2.5 py-1 text-xs text-[var(--color-text-primary)] focus:border-[var(--color-brand)] focus:outline-none"
-                >
-                  <option value="">Pick a brand…</option>
-                  {unassigned.map((brand) => (
-                    <option key={brand.brandKey} value={brand.brandKey}>
-                      {brand.name}
-                    </option>
-                  ))}
-                </select>
+                  placeholder="Pick a brand…"
+                  label="Brand to override"
+                  onChange={setBrandToAdd}
+                />
 
                 <SizeTypeSelect
                   value={systemToAdd}
@@ -209,8 +200,14 @@ export function SizeTypePanel({ brands }: { brands: readonly OverridableBrand[] 
   );
 }
 
-/** Five options with no icons and no per-option color, so a plain select is the right control here —
- *  unlike the parent-category picker, whose options carry meaning a native list cannot render. */
+/** Each system with its own labels underneath, because "US sizing" and "UK sizing" are
+ *  indistinguishable as names — the examples are what let a merchant recognize their own column. */
+const SIZE_TYPE_OPTIONS: SelectOption[] = SIZE_TYPES.map((system) => ({
+  key: system,
+  label: SIZE_TYPE_LABELS[system],
+  hint: SIZE_TYPE_EXAMPLES[system],
+}));
+
 function SizeTypeSelect({
   value,
   onChange,
@@ -221,17 +218,14 @@ function SizeTypeSelect({
   ariaLabel: string;
 }) {
   return (
-    <select
+    <MappingSelect
+      compact
+      options={SIZE_TYPE_OPTIONS}
       value={value}
-      aria-label={ariaLabel}
-      onChange={(event) => onChange(event.target.value as SizeType)}
-      className="cursor-pointer rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface-card)] px-2 py-0.5 text-xs font-bold text-[var(--color-text-primary)] focus:border-[var(--color-brand)] focus:outline-none"
-    >
-      {SIZE_TYPES.map((system) => (
-        <option key={system} value={system}>
-          {SIZE_TYPE_LABELS[system]}
-        </option>
-      ))}
-    </select>
+      label={ariaLabel}
+      onChange={(next) => {
+        if (isSizeType(next)) onChange(next);
+      }}
+    />
   );
 }

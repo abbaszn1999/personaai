@@ -90,6 +90,48 @@ export interface ChartResults {
   researched: boolean;
 }
 
+/**
+ * Where one global brand stands, as Stage 4's table shows it.
+ *
+ * Coverage is per (brand x sizing parent), but the merchant presses Generate per *brand* — one web
+ * search covers every parent that brand publishes — so the screen needs a row at that grain. Derived
+ * rather than stored: a status column on the brand would be a second answer that can disagree with
+ * the coverage rows and charts it claims to summarise.
+ */
+export type BrandResearchStatus =
+  /** No pass has touched it. The only state Generate is the obvious action from. */
+  | "pending"
+  /** In the run's authorised scope, waiting for a worker tick. */
+  | "queued"
+  /** The brand the worker is inside right now. */
+  | "researching"
+  /** Every parent this store carries the brand in has a chart. */
+  | "done"
+  /** Some parents charted, some not — a guide that covers tops but not the swimwear this store sells. */
+  | "partial"
+  /** Searched, and the brand publishes nothing findable. Routes to manual fill, not to a retry. */
+  | "not_found"
+  /** The call itself broke. A retry, not a gap. */
+  | "failed";
+
+export interface BrandResearchResult {
+  brandKey: string;
+  brandName: string;
+  /** What the search actually runs on, where classification could name the company behind a store's
+   *  abbreviation. Shown so a merchant can see *why* a search came back empty. */
+  searchName: string;
+  status: BrandResearchStatus;
+  skuCount: number;
+  /** The sizing parents this store carries the brand in, and how many of them have a chart. */
+  sizingCategories: string[];
+  chartedCategories: number;
+  /** Charts stored for this brand, across every parent and variant. */
+  chartCount: number;
+  /** Whatever the last pass recorded, verbatim — the only place a merchant learns that a guide was
+   *  found but covered the wrong categories. */
+  note: string | null;
+}
+
 function lookupKey(brandKey: string, sizingCategory: string): string {
   return `${brandKey}|${sizingCategory}`;
 }
@@ -146,7 +188,12 @@ function gapReason(row: SizingCoverageRow, researched: boolean): string {
     return "No brand on these products — needs a chart per category";
   }
   if (row.brandType === "private") {
-    return "Private label — no public chart exists to find";
+    // A brand research demoted, rather than one the classifier called a house label from the start.
+    // Both hand-fill, but a merchant reading "private label" against a name they know to be a real
+    // brand would reasonably think the classification was wrong, when in fact it was corrected.
+    return row.researchStatus === "not_found"
+      ? "Searched and no public guide exists — hand-fill this one"
+      : "Private label — no public chart exists to find";
   }
   if (row.brandType === "unclassified") {
     return "Brand not classified yet — not routed to research";
@@ -288,4 +335,90 @@ export function buildChartResults(coverage: SizingCoverageRow[], charts: SizingC
     },
     researched,
   };
+}
+
+/**
+ * One row per global brand, at the grain the Generate button actually works on.
+ *
+ * Private and unbranded rows are deliberately absent. A web search cannot help either — a house label
+ * publishes no public guide, and an empty brand field names nothing to search for — so putting them
+ * here would offer an action that can only ever waste a paid request. They keep their manual-fill
+ * tabs, which is where doc Tab 3 routes them.
+ */
+export function buildBrandResearch(
+  coverage: SizingCoverageRow[],
+  charts: SizingChartRow[],
+  live: { scopedBrandKeys?: readonly string[]; currentBrandKey?: string | null } = {}
+): BrandResearchResult[] {
+  const scoped = new Set(live.scopedBrandKeys ?? []);
+  const byKey = indexCharts(charts);
+
+  const chartsPerBrand = new Map<string, number>();
+  for (const chart of charts) {
+    chartsPerBrand.set(chart.brandKey, (chartsPerBrand.get(chart.brandKey) ?? 0) + 1);
+  }
+
+  const brands = new Map<string, BrandResearchResult & { statuses: ResearchStatus[] }>();
+
+  for (const row of coverage) {
+    if (row.brandType !== "global" || row.brandKey === UNKNOWN_BRAND_KEY) continue;
+    if (!isSizingCategory(row.sizingCategory)) continue;
+
+    let brand = brands.get(row.brandKey);
+    if (!brand) {
+      brand = {
+        brandKey: row.brandKey,
+        brandName: row.brandName ?? row.brandKey,
+        searchName: row.brandCanonicalName ?? row.brandName ?? row.brandKey,
+        status: "pending",
+        skuCount: 0,
+        sizingCategories: [],
+        chartedCategories: 0,
+        chartCount: chartsPerBrand.get(row.brandKey) ?? 0,
+        note: null,
+        statuses: [],
+      };
+      brands.set(row.brandKey, brand);
+    }
+
+    brand.skuCount += row.skuCount;
+    if (!brand.sizingCategories.includes(row.sizingCategory)) brand.sizingCategories.push(row.sizingCategory);
+    if ((byKey.get(lookupKey(row.brandKey, row.sizingCategory)) ?? []).length > 0) brand.chartedCategories += 1;
+    brand.statuses.push(row.researchStatus);
+    // First note wins, and coverage arrives biggest-pair-first, so the note a merchant sees belongs to
+    // the parent most of their stock is in rather than whichever row happened to be written last.
+    brand.note ??= row.researchNote;
+  }
+
+  return [...brands.values()]
+    .map(({ statuses, ...brand }) => ({
+      ...brand,
+      sizingCategories: [...brand.sizingCategories].sort(),
+      status: brandStatus(brand, statuses, {
+        researching: live.currentBrandKey === brand.brandKey,
+        queued: scoped.has(brand.brandKey),
+      }),
+    }))
+    .sort((a, b) => b.skuCount - a.skuCount || a.brandName.localeCompare(b.brandName));
+}
+
+function brandStatus(
+  brand: { sizingCategories: string[]; chartedCategories: number },
+  statuses: readonly ResearchStatus[],
+  live: { researching: boolean; queued: boolean }
+): BrandResearchStatus {
+  // Live state outranks stored outcomes: a brand being regenerated still holds last pass's charts, and
+  // showing it as Done while a search is running would make the button look like it did nothing.
+  if (live.researching) return "researching";
+  if (live.queued) return "queued";
+
+  if (brand.chartedCategories >= brand.sizingCategories.length && brand.sizingCategories.length > 0) {
+    return "done";
+  }
+  if (brand.chartedCategories > 0) return "partial";
+  if (statuses.includes("failed")) return "failed";
+  // Every parent still `pending` means nothing has looked yet. Anything else — `not_found`,
+  // `not_covered` — means a pass ran and came back with nothing this store can use.
+  if (statuses.every((status) => status === "pending")) return "pending";
+  return "not_found";
 }

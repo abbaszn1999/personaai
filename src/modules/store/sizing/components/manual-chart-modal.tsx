@@ -42,7 +42,7 @@ function ManualChartForm() {
   const target = useSizingStore((s) => s.manualChartTarget)!;
   const close = useSizingStore((s) => s.closeManualChart);
   const saveChart = useSizingStore((s) => s.saveManualChart);
-  const storeSizeType = useStoreConnectionStore((s) => s.storeSizeType);
+  const storeSizeType = useStoreConnectionStore((s) => s.storeSizeSettings.default);
 
   const group = isSizingGroup(target.sizingCategory) ? target.sizingCategory : "tops";
   const columns = React.useMemo(() => draftColumnsFor(group), [group]);

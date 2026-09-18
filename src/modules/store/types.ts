@@ -1,3 +1,5 @@
+import type { CmsColumnGroup, CmsColumnScope, CmsColumnValueType } from "@/lib/catalog/cms-columns";
+
 export type StorePlatform = "shopify" | "woocommerce" | "wordpress" | "custom";
 
 export type StoreConnectionStatus = "connected" | "disconnected" | "pending" | "error";
@@ -105,8 +107,10 @@ export interface MerchantTreeNode {
  *
  * Keyed on the platform's own category id — a WooCommerce term id, a Shopify collection id — never
  * on a path string, so renaming a collection in the store admin cannot orphan the mapping. The
- * value is a `SizingGroup`, typed as a bare string here to keep this module free of a server
- * import; `isSizingGroup` is the guard on the way in.
+ * value is a `SizingGroup` or `MAIN_CATEGORY` — the latter for a container path that holds several
+ * kinds of garment at once, whose products are left out of sizing rather than sized against the
+ * wrong chart. Typed as a bare string here to keep this module free of a server import;
+ * `isParentAnswer` in `category-parents.ts` is the guard on the way in.
  */
 export type CategoryParentMap = Record<string, string>;
 
@@ -152,24 +156,49 @@ export interface AcsMappingState {
  *  `acs/field-overrides`, which pulls in `crypto`. */
 export type { OptionRole, VariantRole } from "@/lib/catalog/option-groups";
 
-/** One `variantOptions` group discovered on a live sample of the merchant's own catalog — a row in
- *  the Stage 1 mapping table's option-group section, where its destination is reassignable. */
-export interface OptionGroupInfo {
-  /** The group's name exactly as the store returns it — shown to the merchant. */
-  name: string;
-  /** Trim + lowercase of `name`, the key `acs_field_overrides.optionRoles` uses. */
-  normalized: string;
-  /** Where this group lands with no override, from the mapper's built-in name match. */
-  defaultRole: import("@/lib/catalog/option-groups").OptionRole;
+/**
+ * One column of the merchant's own catalog, as Stage 1's dropdowns offer it.
+ *
+ * Discovered from a live sample rather than declared, because only the merchant's platform knows what
+ * exists — which is also why this carries its own sample value and presence count: a column a
+ * merchant has never heard of is only bindable with confidence once they can see what is in it.
+ */
+export interface CmsColumn {
+  /** `field:title`, `option:color`, `meta:metafield.custom.fit`, `variantField:price`,
+   *  `variantMeta:fit_note` — the `columnKey` of a `CmsColumnRef`, which is what a dropdown
+   *  selection sends back. */
+  key: string;
+  /** What the merchant calls it: the field's label, the option group's own capitalization, or the
+   *  metafield identifier without its platform prefix. */
+  label: string;
+  /** Which of the demo-style groups (`cms-columns.ts`'s `CMS_COLUMN_GROUPS`) it belongs under —
+   *  what `MappingSelect` renders a section heading for. */
+  group: CmsColumnGroup;
+  /** Whether this describes the whole product or one purchasable SKU within it — what the
+   *  dropdown badges as "Variant" next to a row. */
+  scope: CmsColumnScope;
+  valueType: CmsColumnValueType;
+  /** One line under the label — see `CmsColumnDef.description`/`aggregationNote`. */
+  description?: string;
+  /** A real value off the sample, truncated for display, or null when nothing sampled carried one. */
+  sample: string | null;
+  /** How many of the sampled products had a value here. Zero means the column exists but is empty
+   *  throughout the sample, which is worth showing rather than hiding. */
+  presence: number;
+  /** How many products the sample itself covered, so a raw `presence` count reads as a fraction
+   *  rather than an absolute the merchant has to guess a denominator for. */
+  sampled: number;
+  /** False for a column this app's discovery cannot actually find evidence of on this platform —
+   *  see `CmsColumnDef.discoverable`. Absent/true means normal. */
+  discoverable?: boolean;
 }
 
-/** Client-side state for the Stage 1 option-group overrides. */
-export interface FieldOverridesState {
-  groups: OptionGroupInfo[];
-  optionRoles: Record<string, import("@/lib/catalog/option-groups").VariantRole>;
-  isLoading: boolean;
-  hasLoaded: boolean;
-  error: string | null;
+/** How much of the sample already carries per-product size charts, when a column is bound to that ACS
+ *  row. What the "skip the chart stages" decision rests on. */
+export interface SizeChartCoverage {
+  bound: boolean;
+  withData: number;
+  sampled: number;
 }
 
 /** Interpolated raw into the stylist's vision prompt (`style-bundle.md`) on every bundle turn,

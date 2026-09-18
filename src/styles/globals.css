@@ -422,6 +422,113 @@ h1, h2, h3, h4, h5, .font-display {
   /* The old glow put a 45%-alpha saturated orange halo under every icon tile and stepper node. */
   --shadow-glow:              0 6px 18px -6px rgb(247 109 1 / 0.28), 0 2px 6px -2px rgb(196 0 0 / 0.16);
   --color-sidebar-active-glow: 0 0 16px -6px rgb(247 109 1 / 0.34), 0 0 6px -2px rgb(196 0 0 / 0.20);
+
+  /* Mapping workspace: richer, fully opaque surfaces. */
+  --color-mapping-canvas:        #101014;
+  --color-mapping-panel:         #17161c;
+  --color-mapping-panel-alt:     #1e1c24;
+  --color-mapping-control:       #25222c;
+  --color-mapping-control-hover: #302b38;
+  --color-mapping-brand-soft:    #351d22;
+  --color-mapping-success-soft:  #17302a;
+  --color-mapping-warning-soft:  #342718;
+  --color-mapping-info-soft:     #17283c;
+  --color-mapping-border:        #34313b;
+  --color-mapping-border-strong: #514b5a;
+}
+
+/* Mapping is intentionally opaque: depth comes from color, borders and motion—not transparency. */
+.mapping-panel {
+  border-color: var(--color-mapping-border) !important;
+  background: var(--color-mapping-panel) !important;
+  box-shadow: 0 22px 48px -36px #000000;
+}
+
+.mapping-panel-alt {
+  background: var(--color-mapping-panel-alt) !important;
+}
+
+.mapping-interactive {
+  transition: transform 180ms ease, border-color 180ms ease, background-color 180ms ease,
+    box-shadow 180ms ease, color 180ms ease;
+}
+
+.mapping-interactive:hover {
+  border-color: var(--color-mapping-border-strong) !important;
+  background: var(--color-mapping-control-hover) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px -18px #000000;
+}
+
+.mapping-interactive:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+.mapping-accent-button {
+  background: linear-gradient(135deg, #ff8a45 0%, #f45135 54%, #d82f45 100%);
+  box-shadow: 0 10px 24px -14px #ff5b3d;
+}
+
+.mapping-accent-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 30px -14px #ff5b3d;
+}
+
+.mapping-status-brand {
+  border-color: #743b42 !important;
+  background: var(--color-mapping-brand-soft) !important;
+}
+
+/* The taxonomy scope dialog keeps the demo's structure with a palette local to the dark store
+   workspace, so it cannot change the Mapping page behind it. */
+.catalog-scope-demo {
+  --color-mapping-panel: #17161c;
+  --color-mapping-panel-alt: #1e1c24;
+  --color-mapping-control: #25222c;
+  --color-mapping-control-hover: #302b38;
+  --color-mapping-brand-soft: #351d22;
+  --color-mapping-border: #34313b;
+  --color-mapping-border-strong: #514b5a;
+  --color-surface-base: #17161c;
+  --color-surface-card: #1e1c24;
+  --color-surface-sticky: #25222c;
+  --color-surface-elevated: #302b38;
+  --color-border: #34313b;
+  --color-border-strong: #514b5a;
+  --color-text-primary: #f8f4f1;
+  --color-text-secondary: #c9c1c6;
+  --color-text-muted: #938a91;
+  --color-brand: #f45135;
+  --color-brand-strong: #c93336;
+  --color-brand-light: #fff1eb;
+  --color-warning: #f4b35d;
+  --color-warning-light: #342718;
+  --color-warning-border: #6a4b25;
+}
+
+.catalog-scope-demo .mapping-accent-button {
+  background: linear-gradient(135deg, #ff8a45 0%, #f45135 54%, #d82f45 100%);
+  box-shadow: 0 8px 20px -12px rgb(244 81 53 / 0.55);
+}
+
+.catalog-scope-demo .gradient-brand {
+  background: linear-gradient(135deg, #ff8a45 0%, #f45135 54%, #d82f45 100%);
+}
+
+.catalog-scope-demo .mapping-status-brand {
+  border-color: #743b42 !important;
+  background: #351d22 !important;
+}
+
+.mapping-status-success {
+  border-color: #315c51 !important;
+  background: var(--color-mapping-success-soft) !important;
+}
+
+.mapping-status-warning {
+  border-color: #624b29 !important;
+  background: var(--color-mapping-warning-soft) !important;
 }
 
 /* Escapes `.dashboard-theme` so a nested embed preview matches the public `/embed/[token]`

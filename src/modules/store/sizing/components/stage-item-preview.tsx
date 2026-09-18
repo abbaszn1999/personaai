@@ -12,12 +12,18 @@ import {
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
+  Filter,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
-import { isSizingGroup, type SizingGroup } from "@/lib/sizing/measurements";
+import { isSizingGroup, SIZING_GROUP_KEYS, type SizingGroup } from "@/lib/sizing/measurements";
 import { labelFor } from "@/lib/sizing/summary";
 import { useStoreConnectionStore } from "@/modules/store/store";
-import { ParentSelect } from "@/modules/store/components/categories/parent-category-ui";
+import {
+  ParentIcon,
+  ParentSelect,
+  parentAccent,
+  parentLabel,
+} from "@/modules/store/components/parent-category-ui";
 import { useSizingStore } from "../store";
 import {
   isScanIncomplete,
@@ -50,7 +56,7 @@ const BRAND_FILTER_META: Record<BrandFilter, { label: string; dotClass: string; 
     idleClass: "bg-[var(--color-warning-light)] text-[var(--color-warning)] border border-[var(--color-warning)]/25 hover:border-[var(--color-warning-border)]",
   },
   none: {
-    label: "No brand",
+    label: "Null / no brand",
     dotClass: "bg-[var(--color-error)]",
     activeClass: "bg-[var(--color-error-fill-strong)] text-[var(--color-error)] border border-[var(--color-error-border)]",
     idleClass: "bg-[var(--color-error-light)] text-[var(--color-error)] border border-[var(--color-error)]/25 hover:border-[var(--color-error-border)]",
@@ -63,7 +69,27 @@ const BRAND_FILTER_META: Record<BrandFilter, { label: string; dotClass: string; 
   },
 };
 
-const FILTERS: BrandFilter[] = ["all", "global", "private", "none", "unclassified"];
+/**
+ * The three buckets doc Part 3 defines, and nothing else.
+ *
+ * `unclassified` is not among them and deliberately has no chip. It is not a fourth kind of brand —
+ * it means the classifier never answered for that name, which after the scan should be nobody. It
+ * used to be offered here as a peer of the other three and was quietly absorbing the private labels,
+ * because the classifier had a "cannot tell" answer that got discarded. It now has to choose, so a
+ * leftover is a failure to report rather than a bucket to browse.
+ */
+const FILTERS: BrandFilter[] = ["all", "global", "private", "none"];
+
+type ParentFilter = "all" | SizingGroup;
+
+/** The ACS field a column was read out of, beside its heading. */
+function HeaderField({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="font-mono text-[9px] font-medium normal-case text-[var(--color-text-muted)] opacity-70">
+      ({children})
+    </span>
+  );
+}
 
 /**
  * Stage 2 — what the sizing pipeline actually sees.
@@ -90,12 +116,17 @@ export function StageItemPreview() {
   const nextCursor = useSizingStore((s) => s.sampleNextCursor);
   const total = useSizingStore((s) => s.sampleTotal);
   const totalExact = useSizingStore((s) => s.sampleTotalExact);
+  const filteredTotal = useSizingStore((s) => s.sampleFilteredTotal);
   const typeCounts = useSizingStore((s) => s.sampleTypeCounts);
+  const typeItemCounts = useSizingStore((s) => s.sampleTypeItemCounts);
+  const parentCounts = useSizingStore((s) => s.sampleParentCounts);
   const brandType = useSizingStore((s) => s.sampleBrandType);
+  const parentType = useSizingStore((s) => s.sampleParent);
   const appliedQuery = useSizingStore((s) => s.sampleQuery);
   const goToPage = useSizingStore((s) => s.goToSamplePage);
   const setPageSize = useSizingStore((s) => s.setSamplePageSize);
   const setBrandType = useSizingStore((s) => s.setSampleBrandType);
+  const setParent = useSizingStore((s) => s.setSampleParent);
   const setQuery = useSizingStore((s) => s.setSampleQuery);
 
   // Local so typing stays responsive. The applied value lives in the store because the server does
@@ -103,6 +134,7 @@ export function StageItemPreview() {
   const [draftQuery, setDraftQuery] = React.useState(appliedQuery);
 
   const scanning = isScanIncomplete(run);
+  const observedScan = React.useRef(scanning);
 
   React.useEffect(() => {
     void loadRun();
@@ -112,11 +144,14 @@ export function StageItemPreview() {
   }, [loadRun, stopPolling]);
 
   React.useEffect(() => {
-    // Held back until the scan finishes. Reading the catalog while the scan is walking it would put
-    // two concurrent paging loops on the merchant's store, and the brand types this table colours
-    // its rows by don't exist until coverage is written.
-    if (scanning) return;
-    void loadSample();
+    // The merchant asked for one complete reveal: no partial table while the catalog is walking,
+    // coverage is aggregating, or Gemini is classifying the full brand list.
+    if (scanning) {
+      observedScan.current = true;
+      return;
+    }
+    void loadSample({ force: observedScan.current });
+    observedScan.current = false;
   }, [scanning, loadSample]);
 
   React.useEffect(() => {
@@ -126,7 +161,13 @@ export function StageItemPreview() {
   }, [draftQuery, appliedQuery, setQuery]);
 
   const filter: BrandFilter = brandType ?? "all";
-  const filtering = brandType !== null || appliedQuery.length > 0;
+  const parent: ParentFilter = isSizingGroup(parentType) ? parentType : "all";
+  const filtering = brandType !== null || parentType !== null || appliedQuery.length > 0;
+
+  // The denominator the footer counts against: the filter's own exact size where coverage knows it,
+  // otherwise the whole selection. Never the other way round — `total` stays the selection's count
+  // so the "All items" chip keeps reporting the catalog rather than the active filter.
+  const denominator = filteredTotal ?? total;
 
   // Position of this page within the selection, derived from the page size rather than tracked. Off
   // by however many rows a short page returned earlier, which only happens where a Shopify
@@ -138,11 +179,7 @@ export function StageItemPreview() {
   // isn't known without walking the whole catalog.
   const totalPages = total === null || filtering ? null : Math.max(1, Math.ceil(total / pageSize));
 
-  const unsized = React.useMemo(() => rows.filter((row) => !row.sizingCategory).length, [rows]);
-
-  // Identification runs inside the scan, so until it finishes this table would show every product's
-  // raw brand field — including the empty ones the agent is in the middle of resolving. Showing that
-  // and then silently changing it is worse than making the merchant wait for the real answer.
+  // Keep the complete table hidden until both scan and bulk brand classification have finished.
   if (runLoading || scanning) {
     return <ScanProgress />;
   }
@@ -152,8 +189,8 @@ export function StageItemPreview() {
       <StageHeaderBanner
         stageNumber={2}
         eyebrow="Live Catalog Sample"
-        title="What the pipeline sees"
-        description="Read live from your store through the field mapping you approved. Page through your selected categories and check the brand and size columns look right — fixing them now is a store edit, later it means redoing paid research."
+        title="Preview — catalog, brands & parent category mapping"
+        description="Read live from your store through the field mapping you approved. Items are sorted into Global, Private and Null brands, and each carries the one of the five parent categories its merchant path was mapped to. Check the brand, path and size columns look right — fixing them now is a store edit, later it means redoing paid research."
         actions={
           <div className="flex w-full items-center gap-2 sm:w-auto">
             <div className="relative w-full sm:w-56">
@@ -185,59 +222,136 @@ export function StageItemPreview() {
         </div>
       )}
 
-      {unsized > 0 && (
-        <div className="flex items-start gap-2.5 rounded-[var(--radius-xl)] border border-[var(--color-border-strong)] bg-[var(--color-surface-elevated)] p-3.5 text-xs text-[var(--color-text-secondary)]">
-          <Layers className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-text-muted)]" />
-          <p>
-            <strong className="text-[var(--color-text-primary)]">
-              {unsized} on this page have no size chart to find.
-            </strong>{" "}
-            Bags, scarves and one-size items are skipped rather than researched — there is no body measurement that
-            decides whether they fit.
-          </p>
-        </div>
-      )}
-
       <div className="flex flex-col gap-2.5 rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] p-4 shadow-[var(--shadow-card)] backdrop-blur-xl">
-        <div className="flex flex-wrap items-center gap-2 text-xs">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="flex items-center gap-1 pl-1 text-xs font-medium text-[var(--color-text-muted)]">
+              <Tag className="h-3.5 w-3.5" /> Brand filter:
+            </span>
+            {FILTERS.map((id) => {
+              // Every chip counts the whole selection, never the loaded page. Brand types come from
+              // the scan's coverage, so before it has run only "All items" carries a number — nothing
+              // has been classified yet, and a page-local tally would just restate the page size back
+              // at the merchant.
+              //
+              // Each badge is in the unit its own label names: items beside "All items", brands beside
+              // "Global brands" and "Private brands", items again beside "Null / no brand", which has
+              // no brand to count. The title spells the unit out, since the badge cannot.
+              const count = id === "all" ? total : (typeCounts?.[id] ?? null);
+              const unit = id === "global" || id === "private" ? "brands" : "items";
+              const meta = BRAND_FILTER_META[id];
+              const active = filter === id;
+              // Shown even at zero, unlike before, but not clickable there. A merchant told their
+              // catalog splits three ways needs to see that one of the three is empty — hiding it
+              // reads as the feature being missing, which is how the private-brand bucket
+              // disappeared. Clickable it would only page the whole catalog to confirm the nothing
+              // this chip already says, which on this store took seven seconds.
+              const empty = id !== "all" && typeCounts !== null && count === 0;
+              const disabled = id !== "all" && (!typeCounts || empty);
+
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  disabled={disabled || loading}
+                  title={
+                    empty
+                      ? "Your catalog has none of these"
+                      : disabled
+                        ? "Brand types are decided by the catalog scan in stage 3"
+                        : count === null
+                          ? undefined
+                          : id === "all"
+                            ? `${count.toLocaleString()} items in your selected categories`
+                            : `${count.toLocaleString()} ${unit} · ${(typeItemCounts?.[id] ?? 0).toLocaleString()} items`
+                  }
+                  onClick={() => void setBrandType(id === "all" ? null : id)}
+                  className={cn(
+                    "flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 font-medium transition-all",
+                    active ? meta.activeClass : meta.idleClass,
+                    disabled && "cursor-not-allowed opacity-40"
+                  )}
+                >
+                  {meta.dotClass && <span className={cn("h-2 w-2 rounded-full", meta.dotClass)} />}
+                  <span>{meta.label}</span>
+                  {count !== null && (
+                    <span
+                      className={cn(
+                        "rounded-full px-1.5 py-0.2 text-[10px] font-bold",
+                        active ? "bg-[var(--color-surface-base)]/60" : "bg-[var(--color-surface-base)]"
+                      )}
+                    >
+                      {count.toLocaleString()}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 pl-1 text-[11px] text-[var(--color-text-muted)]">
+            <span className="font-semibold">Legend:</span>
+            <span className="flex items-center gap-1 font-medium text-[var(--color-success)]">
+              <span className="h-2 w-2 rounded-full bg-[var(--color-success)]" /> Green = Global
+            </span>
+            <span className="flex items-center gap-1 font-medium text-[var(--color-warning)]">
+              <span className="h-2 w-2 rounded-full bg-[var(--color-warning)]" /> Yellow = Private
+            </span>
+            <span className="flex items-center gap-1 font-medium text-[var(--color-error)]">
+              <span className="h-2 w-2 rounded-full bg-[var(--color-error)]" /> Red = Null
+            </span>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 border-t border-[var(--color-border)] pt-2.5 text-xs">
           <span className="flex items-center gap-1 pl-1 text-xs font-medium text-[var(--color-text-muted)]">
-            <Tag className="h-3.5 w-3.5" /> Filter by brand type:
+            <Filter className="h-3.5 w-3.5 text-[var(--color-brand)]" /> Parent category:
           </span>
-          {FILTERS.map((id) => {
-            // Every chip counts the whole selection, never the loaded page. Brand-type counts come
-            // from the scan's coverage, so before it has run only "All items" carries a number —
-            // nothing has been classified yet, and a page-local tally would just restate the page
-            // size back at the merchant.
-            const count = id === "all" ? total : (typeCounts?.[id] ?? null);
-
-            // A bucket this store provably doesn't have is noise. Only hidden once the scan has
-            // established that, never on a missing count.
-            if (id !== "all" && typeCounts && count === 0) return null;
-
-            const meta = BRAND_FILTER_META[id];
-            const active = filter === id;
-            const disabled = id !== "all" && !typeCounts;
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => void setParent(null)}
+            className={cn(
+              "whitespace-nowrap rounded-lg px-2.5 py-1 font-medium transition-all disabled:opacity-50",
+              parent === "all"
+                ? "bg-[var(--color-brand)] text-white"
+                : "bg-[var(--color-surface-elevated)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+            )}
+          >
+            All 5 categories
+          </button>
+          {SIZING_GROUP_KEYS.map((group) => {
+            const active = parent === group;
+            const count = parentCounts?.[group] ?? null;
+            const empty = parentCounts !== null && count === 0;
 
             return (
               <button
-                key={id}
+                key={group}
                 type="button"
-                disabled={disabled || loading}
-                title={disabled ? "Brand types are decided by the catalog scan in stage 3" : undefined}
-                onClick={() => void setBrandType(id === "all" ? null : id)}
-                className={cn(
-                  "flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 font-medium transition-all",
-                  active ? meta.activeClass : meta.idleClass,
-                  disabled && "cursor-not-allowed opacity-40"
-                )}
+                disabled={loading || !parentCounts || empty}
+                title={empty ? "Nothing in your selection maps to this parent" : undefined}
+                onClick={() => void setParent(group)}
+                className="flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1 font-medium transition-all disabled:cursor-not-allowed disabled:opacity-40"
+                style={{
+                  // The same accent the Categories grid and the per-row badge use, so one parent
+                  // reads as one colour across every screen it appears on.
+                  backgroundColor: active
+                    ? parentAccent(group)
+                    : `color-mix(in srgb, ${parentAccent(group)} 12%, transparent)`,
+                  color: active ? "white" : parentAccent(group),
+                  boxShadow: active
+                    ? undefined
+                    : `inset 0 0 0 1px color-mix(in srgb, ${parentAccent(group)} 30%, transparent)`,
+                }}
               >
-                {meta.dotClass && <span className={cn("h-2 w-2 rounded-full", meta.dotClass)} />}
-                <span>{meta.label}</span>
+                <ParentIcon group={group} className="h-3.5 w-3.5" />
+                <span>{parentLabel(group)}</span>
                 {count !== null && (
                   <span
                     className={cn(
                       "rounded-full px-1.5 py-0.2 text-[10px] font-bold",
-                      active ? "bg-[var(--color-surface-base)]/60" : "bg-[var(--color-surface-base)]"
+                      active ? "bg-white/25" : "bg-[var(--color-surface-base)]"
                     )}
                   >
                     {count.toLocaleString()}
@@ -252,6 +366,21 @@ export function StageItemPreview() {
           <p className="pl-1 text-[11px] text-[var(--color-text-muted)]">
             Brand types are decided by the catalog scan in stage 3 — until it runs, every product is
             unclassified and there is nothing to filter by.
+          </p>
+        )}
+
+        {/* Every named brand is global or private, so a leftover means the classifier never got to
+            those names — a re-run picks up exactly them. Reported rather than given a chip, so it
+            reads as something to fix instead of a fourth kind of brand. */}
+        {(typeCounts?.unclassified ?? 0) > 0 && (
+          <p className="flex items-start gap-1.5 pl-1 text-[11px] text-[var(--color-warning)]">
+            <AlertTriangle className="mt-px h-3 w-3 shrink-0" />
+            <span>
+              {typeCounts!.unclassified.toLocaleString()} brand
+              {typeCounts!.unclassified === 1 ? "" : "s"} never got an answer from the classifier
+              {typeItemCounts && ` (${typeItemCounts.unclassified.toLocaleString()} items)`}. Re-run
+              the scan in stage 3 to place them.
+            </span>
           </p>
         )}
       </div>
@@ -269,27 +398,41 @@ export function StageItemPreview() {
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-elevated)] text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">
+              {/* Each column names the mapped field behind it, because that is what this stage is for:
+                  a merchant checking their Stage 1 mapping needs to know which field produced the
+                  column they are reading, and "Brand" alone does not say. */}
               <tr>
-                <th className="px-4 py-3.5">Product</th>
-                <th className="px-3 py-3.5">SKU</th>
-                <th className="px-3 py-3.5">Brand</th>
-                <th className="px-3 py-3.5">Sizing category</th>
-                <th className="px-3 py-3.5">Sizes read</th>
+                <th className="px-4 py-3.5">
+                  Product <HeaderField>title</HeaderField>
+                </th>
+                <th className="px-3 py-3.5">
+                  SKU <HeaderField>id</HeaderField>
+                </th>
+                <th className="px-3 py-3.5">
+                  Brand <HeaderField>brand</HeaderField>
+                </th>
+                <th className="min-w-[210px] px-3 py-3.5">Parent category (1 of 5)</th>
+                {/* No field annotation: this is built from the store's own category tree rather than
+                    read out of one mapped column, so naming a field here would be a lie. */}
+                <th className="px-3 py-3.5">Merchant path</th>
+                <th className="px-3 py-3.5">
+                  Sizes read <HeaderField>size</HeaderField>
+                </th>
                 <th className="px-3 py-3.5">Price</th>
-                <th className="px-3 py-3.5">Stock</th>
+                <th className="px-3 py-3.5">Availability</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--color-border)]">
               {loading && rows.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-10 text-center text-[var(--color-text-muted)]">
+                  <td colSpan={8} className="px-6 py-10 text-center text-[var(--color-text-muted)]">
                     <RefreshCw className="mx-auto mb-2 h-4 w-4 animate-spin" />
                     Reading from your store…
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-10 text-center text-[var(--color-text-muted)]">
+                  <td colSpan={8} className="px-6 py-10 text-center text-[var(--color-text-muted)]">
                     {!filtering
                       ? "No products came back for your selected categories."
                       : nextCursor
@@ -321,14 +464,16 @@ export function StageItemPreview() {
                     </strong>{" "}
                     of{" "}
                     <strong className="text-[var(--color-text-primary)]">
-                      {total === null ? "…" : `${totalExact ? "" : "~"}${total.toLocaleString()}`}
+                      {denominator === null
+                        ? "…"
+                        : `${filteredTotal === null && !totalExact ? "~" : ""}${denominator.toLocaleString()}`}
                     </strong>{" "}
-                    {/* A brand-type filter's total comes straight from the scan's coverage — every
-                        SKU of that type, counted exactly, no store walk required — so it earns plain
-                        "products in this filter" rather than "searched", which is what's left to say
-                        about a free-text query: no index answers that without walking the whole
+                    {/* A brand-type or parent filter's total comes straight from the scan's coverage —
+                        every SKU of that type, counted exactly, no store walk required — so it earns
+                        plain "products in this filter" rather than "searched", which is what's left to
+                        say about a free-text query: no index answers that without walking the whole
                         catalog, so its denominator is still a lower bound found so far. */}
-                    {brandType ? "products in this filter" : "products searched"}
+                    {filteredTotal !== null ? "products in this filter" : "products searched"}
                     <span className="text-[var(--color-text-muted)]"> · page {page}</span>
                   </>
                 ) : (
@@ -389,35 +534,31 @@ export function StageItemPreview() {
             </div>
           </div>
 
-          {typeCounts && (
+          {typeCounts && typeItemCounts && (
             <div className="flex flex-wrap items-center gap-3 text-xs">
-              {/* Written out per type rather than reused from the chip label, which already contains
-                  the word "brands" for some types — appending a unit to it would double up into
-                  "Global brands brands". "none" counts products, since there is no brand name to
-                  count instead; every other type counts distinct brands. */}
+              {/* Spelled out here, because the chips above cannot: a badge is a bare number, so which
+                  of these is a brand count and which is an item count has to be said somewhere. */}
               {(
                 [
                   ["global", "global brand"],
                   ["private", "private brand"],
-                  ["unclassified", "unclassified brand"],
-                  ["none", "unbranded item"],
                 ] as const
-              ).map(([type, noun]) => {
-                const count = typeCounts[type];
-                if (count === 0) return null;
-                return (
-                  <span key={type} className="flex items-center gap-1 font-semibold text-[var(--color-text-secondary)]">
-                    <span className={cn("h-2 w-2 rounded-full", BRAND_FILTER_META[type].dotClass)} />
-                    {count.toLocaleString()} {noun}
-                    {count === 1 ? "" : "s"}
+              ).map(([type, noun]) => (
+                <span key={type} className="flex items-center gap-1 font-semibold text-[var(--color-text-secondary)]">
+                  <span className={cn("h-2 w-2 rounded-full", BRAND_FILTER_META[type].dotClass)} />
+                  {typeCounts[type].toLocaleString()} {noun}
+                  {typeCounts[type] === 1 ? "" : "s"}
+                  <span className="font-normal text-[var(--color-text-muted)]">
+                    ({typeItemCounts[type].toLocaleString()} items)
                   </span>
-                );
-              })}
-              {/* Coverage only holds stock a chart can be found for, so an unsized item — a bag, a
-                  scarf — is in none of these counts even though it is in the total above. */}
-              <span className="text-[var(--color-text-muted)]">
-                among your selection&apos;s sized items
+                </span>
+              ))}
+              <span className="flex items-center gap-1 font-semibold text-[var(--color-text-secondary)]">
+                <span className={cn("h-2 w-2 rounded-full", BRAND_FILTER_META.none.dotClass)} />
+                {typeItemCounts.none.toLocaleString()} unbranded item
+                {typeItemCounts.none === 1 ? "" : "s"}
               </span>
+              <span className="text-[var(--color-text-muted)]">across the five sizing families</span>
             </div>
           )}
         </div>
@@ -453,7 +594,12 @@ function ParentCell({ row }: { row: SizingSampleRow }) {
 
   return (
     <div className={cn("space-y-1", saving && "opacity-60")}>
-      <ParentSelect value={current} onChange={(group) => void choose(group)} label={row.title} />
+      <ParentSelect
+        value={current}
+        onChange={(group) => void choose(group)}
+        options={SIZING_GROUP_KEYS}
+        label={row.title}
+      />
 
       {isCorrected ? (
         <button
@@ -485,9 +631,13 @@ function ProductTableRow({ row }: { row: SizingSampleRow }) {
   const isGlobal = row.brandType === "global";
 
   return (
+    // One height for every row, so the eye can run down a column instead of re-finding it each time.
+    // Cells carry no vertical padding of their own and are middle-aligned by default, which is what
+    // makes this a height rather than a minimum: the tallest content in here is the parent picker with
+    // its note underneath, and it clears 60px with room to spare.
     <tr
       className={cn(
-        "transition-colors",
+        "h-[60px] transition-colors",
         isNone
           ? "bg-[var(--color-error-light)]/30 hover:bg-[var(--color-error-light)]/50"
           : isPrivate
@@ -495,7 +645,7 @@ function ProductTableRow({ row }: { row: SizingSampleRow }) {
             : "hover:bg-[var(--color-brand-light)]/20"
       )}
     >
-      <td className="min-w-[220px] px-4 py-3">
+      <td className="min-w-[220px] px-4">
         <div className="flex items-center gap-3">
           <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-elevated)]">
             {imageFailed || !row.imageUrl ? (
@@ -514,23 +664,24 @@ function ProductTableRow({ row }: { row: SizingSampleRow }) {
               />
             )}
           </div>
-          <div className="min-w-0">
+          {/* Capped rather than left to size itself. A table cell's width comes from its content, and
+              `truncate` sets `white-space: nowrap`, which means an untruncated-at-layout-time title
+              still contributes its full length — one long product name was enough to push the six
+              columns after it off the screen. */}
+          <div className="min-w-0 max-w-[220px]">
             <p className="truncate font-semibold text-[var(--color-text-primary)]" title={row.title}>
               {row.title}
-            </p>
-            <p className="truncate text-[11px] text-[var(--color-text-muted)]">
-              {row.storeCategoryPath.length > 0 ? row.storeCategoryPath.join(" › ") : "—"}
             </p>
           </div>
         </div>
       </td>
 
-      <td className="whitespace-nowrap px-3 py-3 font-mono text-[var(--color-text-secondary)]">{row.sku ?? "—"}</td>
+      <td className="whitespace-nowrap px-3 font-mono text-[var(--color-text-secondary)]">{row.sku ?? "—"}</td>
 
-      <td className="whitespace-nowrap px-3 py-3">
+      <td className="whitespace-nowrap px-3">
         {isNone ? (
           <span className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-error)]/30 bg-[var(--color-error-light)] px-2.5 py-1 text-[11px] font-bold text-[var(--color-error)]">
-            <span className="h-2 w-2 rounded-full bg-[var(--color-error)]" /> No brand
+            <span className="h-2 w-2 rounded-full bg-[var(--color-error)]" /> Null (no brand)
           </span>
         ) : (
           <span
@@ -550,19 +701,48 @@ function ProductTableRow({ row }: { row: SizingSampleRow }) {
               )}
             />
             {row.brand}
+            {/* The classification spelled out on the row, not just implied by its colour. Which of the
+                three a brand landed in decides whether we pay to research it or the merchant fills it
+                by hand, so it is worth reading rather than decoding. */}
+            {(isGlobal || isPrivate) && (
+              <span
+                className={cn(
+                  "rounded px-1 py-0.2 text-[9px] font-semibold uppercase tracking-wider",
+                  isPrivate
+                    ? "bg-[var(--color-warning)]/20 text-[var(--color-warning)]"
+                    : "bg-[var(--color-success)]/20 text-[var(--color-success)]"
+                )}
+              >
+                {isPrivate ? "Private" : "Global"}
+              </span>
+            )}
           </span>
         )}
       </td>
 
-      <td className="min-w-[210px] px-3 py-3">
+      <td className="min-w-[210px] px-3">
         <ParentCell row={row} />
       </td>
 
-      <td className="px-3 py-3">
+      {/* Beside the parent, because the parent is a deterministic lookup from this path — doc Part 3
+          is explicit that it is "not another AI classification" — and putting them side by side is
+          what lets a merchant see a wrong mapping rather than take the parent on faith. */}
+      <td className="max-w-[190px] px-3">
+        <span
+          className="block truncate text-[var(--color-text-secondary)]"
+          title={row.storeCategoryPath.join(" › ")}
+        >
+          {row.storeCategoryPath.length > 0 ? row.storeCategoryPath.join(" › ") : "—"}
+        </span>
+      </td>
+
+      <td className="px-3">
         {row.sizes.length === 0 ? (
           <span className="text-[var(--color-text-muted)]">—</span>
         ) : (
-          <div className="flex max-w-[160px] flex-wrap gap-1">
+          // Deliberately not wrapping: four chips on a second line is the other thing that made rows
+          // different heights, and the "+N" already says the list is longer than what is shown.
+          <div className="flex flex-nowrap items-center gap-1">
             {row.sizes.slice(0, 4).map((size) => (
               <span
                 key={size}
@@ -572,7 +752,7 @@ function ProductTableRow({ row }: { row: SizingSampleRow }) {
               </span>
             ))}
             {row.sizes.length > 4 && (
-              <span className="self-center font-mono text-[10px] text-[var(--color-text-muted)]">
+              <span className="font-mono text-[10px] text-[var(--color-text-muted)]">
                 +{row.sizes.length - 4}
               </span>
             )}
@@ -580,11 +760,11 @@ function ProductTableRow({ row }: { row: SizingSampleRow }) {
         )}
       </td>
 
-      <td className="whitespace-nowrap px-3 py-3 font-bold text-[var(--color-text-primary)]">
+      <td className="whitespace-nowrap px-3 font-bold text-[var(--color-text-primary)]">
         {row.price === null ? "—" : `${row.price.toLocaleString()}${row.currency ? ` ${row.currency}` : ""}`}
       </td>
 
-      <td className="whitespace-nowrap px-3 py-3">
+      <td className="whitespace-nowrap px-3">
         {row.inStock ? (
           <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[var(--color-success)]">
             <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-success)]" /> In stock

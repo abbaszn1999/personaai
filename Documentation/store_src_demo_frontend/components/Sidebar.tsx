@@ -13,10 +13,11 @@ import {
   Lock,
   Tag,
   Plug,
+  FolderTree,
 } from 'lucide-react';
 import { StageNumber, StoreConnectionInfo } from '../types';
 
-export type MainAppTab = 'connect_store' | 'categories' | 'setup' | 'sync';
+export type MainAppTab = 'connect_store' | 'categories' | 'mapping' | 'setup' | 'sync';
 
 interface SidebarProps {
   activeTab: MainAppTab;
@@ -41,6 +42,7 @@ export function Sidebar({
 }: SidebarProps) {
   const isStoreConnected = storeConnection.isConnected;
   const isCategoriesUnlocked = isStoreConnected;
+  const isMappingUnlocked = isStoreConnected;
   const isSetupUnlocked = isStoreConnected && selectedLeafCount > 0;
 
   return (
@@ -156,7 +158,54 @@ export function Sidebar({
             ) : null}
           </button>
 
-          {/* Tab 3: Setup */}
+          {/* Tab: Mapping (Persona Fixed Taxonomy) */}
+          <button
+            type="button"
+            onClick={() => {
+              if (isMappingUnlocked) {
+                onSelectTab('mapping');
+              }
+            }}
+            disabled={!isMappingUnlocked}
+            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left transition-all ${
+              !isMappingUnlocked
+                ? 'opacity-50 cursor-not-allowed text-slate-400'
+                : activeTab === 'mapping'
+                ? 'bg-purple-50 text-purple-950 border border-purple-200/90 shadow-2xs font-semibold cursor-pointer'
+                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 border border-transparent font-medium cursor-pointer'
+            }`}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div
+                className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                  activeTab === 'mapping'
+                    ? 'bg-purple-600 text-white shadow-2xs shadow-purple-600/30'
+                    : 'bg-slate-100 text-slate-500'
+                }`}
+              >
+                <FolderTree className="w-3.5 h-3.5" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold block truncate">3. Mapping</span>
+                  <span className="px-1 py-0.2 rounded-full text-[9px] font-extrabold bg-purple-100 text-purple-700">
+                    Taxonomy
+                  </span>
+                </div>
+                <span className="text-[10px] text-slate-400 block truncate">
+                  Store PLP &rarr; Persona
+                </span>
+              </div>
+            </div>
+
+            {activeTab === 'mapping' ? (
+              <span className="w-1.5 h-1.5 rounded-full bg-purple-600 flex-shrink-0"></span>
+            ) : !isMappingUnlocked ? (
+              <Lock className="w-3 h-3 text-slate-400 flex-shrink-0" />
+            ) : null}
+          </button>
+
+          {/* Tab 4: Setup */}
           <button
             type="button"
             onClick={() => {
@@ -184,7 +233,7 @@ export function Sidebar({
                 <Sliders className="w-3.5 h-3.5" />
               </div>
               <div className="min-w-0">
-                <span className="text-xs font-bold block truncate">3. Setup</span>
+                <span className="text-xs font-bold block truncate">4. Setup</span>
                 <span className="text-[10px] text-slate-400 block truncate">
                   Stage {currentStage}/6
                 </span>
@@ -198,7 +247,7 @@ export function Sidebar({
             ) : null}
           </button>
 
-          {/* Tab 4: Sync */}
+          {/* Tab 5: Sync */}
           <button
             type="button"
             onClick={() => onSelectTab('sync')}
@@ -220,7 +269,7 @@ export function Sidebar({
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-bold block truncate">4. Sync</span>
+                  <span className="text-xs font-bold block truncate">5. Sync</span>
                   <span className="px-1 py-0.2 rounded-full text-[9px] font-extrabold bg-rose-100 text-rose-700">
                     48
                   </span>

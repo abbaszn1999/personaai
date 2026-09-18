@@ -17,11 +17,9 @@ vi.mock("@/lib/db/catalog-queue", () => ({
   getCatalogQueueDepth: () => getCatalogQueueDepth(),
 }));
 
-const fetchExistingAcsSourceCategoryIds = vi.fn();
 const syncProductsToAcs = vi.fn();
 
 vi.mock("@/lib/catalog/acs/sync", () => ({
-  fetchExistingAcsSourceCategoryIds: (...args: unknown[]) => fetchExistingAcsSourceCategoryIds(...args),
   syncProductsToAcs: (...args: unknown[]) => syncProductsToAcs(...args),
 }));
 
@@ -50,6 +48,16 @@ const connection = {
   status: "connected",
   selectedCategoryIds: ["10"],
   categories: [{ id: "10", name: "Men", productCount: 5, parentId: null }],
+  personaTaxonomyScope: {
+    configured: true,
+    enabledDeptIds: ["men"],
+    enabledLeafKeys: ["men:top:shirt"],
+    customLeaves: [],
+    customCategories: [],
+  },
+  personaCategoryMap: {
+    "10": { status: "mapped", departmentId: "men", categoryId: "top", subCategory: "shirt" },
+  },
   catalogSyncTotal: 10,
   catalogSyncProgress: 0,
   catalogSyncStatus: "indexing",
@@ -72,7 +80,9 @@ function product(externalId: string): RawCatalogProduct {
     imageUrl: "https://cdn.example.com/p.webp",
     images: [],
     variantOptions: {},
+    customFields: {},
     updatedAt: null,
+    variants: [],
   };
 }
 
@@ -98,7 +108,6 @@ beforeEach(() => {
   ackCatalogMessages.mockReset().mockResolvedValue(undefined);
   archiveCatalogMessages.mockReset().mockResolvedValue(undefined);
   getCatalogQueueDepth.mockReset().mockResolvedValue(0);
-  fetchExistingAcsSourceCategoryIds.mockReset().mockResolvedValue([]);
   syncProductsToAcs.mockReset().mockResolvedValue(true);
   deleteProduct.mockReset().mockResolvedValue(true);
   getStoreConnectionById.mockReset().mockResolvedValue(connection);
@@ -106,73 +115,25 @@ beforeEach(() => {
   listConnectionsBySyncStatus.mockReset().mockResolvedValue([]);
 });
 
-describe("drainCatalogQueue — a failed category read", () => {
-  it("does not import the product whose read failed", async () => {
-    fetchExistingAcsSourceCategoryIds.mockImplementation((_id: string, externalId: string) =>
-      Promise.resolve(externalId === "p-2" ? null : [])
-    );
-    queueOnce([message(1, "p-1"), message(2, "p-2")]);
-
+describe("drainCatalogQueue — Persona mapping boundary", () => {
+  it("imports only the resolved Persona category path", async () => {
+    queueOnce([message(1, "p-1")]);
     await drainCatalogQueue();
 
-    // Importing p-2 would replace its whole document — and with it whatever categories it
-    // belonged to that this walk knows nothing about.
-    const imported = syncProductsToAcs.mock.calls[0][0] as { raw: RawCatalogProduct }[];
-    expect(imported.map((input) => input.raw.externalId)).toEqual(["p-1"]);
+    const imported = syncProductsToAcs.mock.calls[0][0] as { categoryPaths: string[][] }[];
+    expect(imported[0].categoryPaths).toEqual([["persona", "men", "top", "shirt"]]);
+    expect(imported[0]).not.toHaveProperty("sourceCategoryIds");
   });
 
-  it("leaves that product's message on the queue to be retried", async () => {
-    fetchExistingAcsSourceCategoryIds.mockImplementation((_id: string, externalId: string) =>
-      Promise.resolve(externalId === "p-2" ? null : [])
-    );
-    queueOnce([message(1, "p-1"), message(2, "p-2")]);
+  it("acknowledges an unmapped product without importing or retrying it", async () => {
+    getStoreConnectionById.mockResolvedValue({ ...connection, personaCategoryMap: {} });
+    queueOnce([message(1, "p-1")]);
 
     const result = await drainCatalogQueue();
 
-    expect(ackCatalogMessages).toHaveBeenCalledWith([1]);
-    expect(archiveCatalogMessages).toHaveBeenCalledWith([]);
-    expect(result).toMatchObject({ indexed: 1, failed: 1 });
-  });
-
-  it("counts only what was imported towards sync progress", async () => {
-    fetchExistingAcsSourceCategoryIds.mockImplementation((_id: string, externalId: string) =>
-      Promise.resolve(externalId === "p-2" ? null : [])
-    );
-    queueOnce([message(1, "p-1"), message(2, "p-2")]);
-
-    await drainCatalogQueue();
-
-    expect(updateCatalogSyncState).toHaveBeenCalledWith(CONNECTION_ID, { progress: 1, status: "indexing" });
-  });
-
-  it("retires the message once it has exhausted its attempts, so the run can finish", async () => {
-    fetchExistingAcsSourceCategoryIds.mockResolvedValue(null);
-    queueOnce([message(1, "p-1", 4)]);
-
-    await drainCatalogQueue();
-
-    expect(archiveCatalogMessages).toHaveBeenCalledWith([1]);
     expect(syncProductsToAcs).toHaveBeenCalledWith([]);
-  });
-
-  it("still merges normally when the read succeeds with an empty membership", async () => {
-    fetchExistingAcsSourceCategoryIds.mockResolvedValue([]);
-    queueOnce([message(1, "p-1")]);
-
-    await drainCatalogQueue();
-
-    const imported = syncProductsToAcs.mock.calls[0][0] as { sourceCategoryIds: string[] }[];
-    expect(imported[0].sourceCategoryIds).toEqual(["10"]);
-  });
-
-  it("merges what ACS already recorded with what this walk found", async () => {
-    fetchExistingAcsSourceCategoryIds.mockResolvedValue(["20"]);
-    queueOnce([message(1, "p-1")]);
-
-    await drainCatalogQueue();
-
-    const imported = syncProductsToAcs.mock.calls[0][0] as { sourceCategoryIds: string[] }[];
-    expect(imported[0].sourceCategoryIds.sort()).toEqual(["10", "20"]);
+    expect(ackCatalogMessages).toHaveBeenCalledWith([1]);
+    expect(result).toMatchObject({ indexed: 0, failed: 0 });
   });
 });
 

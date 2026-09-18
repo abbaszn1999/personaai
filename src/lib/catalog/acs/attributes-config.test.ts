@@ -43,11 +43,10 @@ describe("acs/attributes-config", () => {
 
     expect(customResults.map((r) => r.key)).toEqual(REQUIRED_ATTRIBUTES.map((a) => catalogAttributeKey(a.name)));
     expect(customResults.every((r) => r.status === "created")).toBe(true);
-    // merchant_id and source_category_ids are the isolation boundary — a catalog missing either
-    // can't serve a correctly-scoped query at all. Registered under the `attributes.` prefix, the
-    // same path `merchantFilterClause`/`categoryScopeFilterClause` filter on.
+    // merchant_id is the custom-attribute half of the isolation boundary. Persona scope uses the
+    // predefined categories field and therefore needs no custom registration.
     expect(customResults.map((r) => r.key)).toContain("attributes.merchant_id");
-    expect(customResults.map((r) => r.key)).toContain("attributes.source_category_ids");
+    expect(customResults.map((r) => r.key)).not.toContain("attributes.source_category_ids");
 
     // `title`/`price`/etc. default to RETRIEVABLE_DISABLED and `toCandidate` reads every one of
     // them off search results — missing any silently blanks that field for every product.
@@ -98,21 +97,32 @@ describe("acs/attributes-config", () => {
     );
   });
 
-  it("treats an already-registered attribute as success, so it is safe to re-run", async () => {
+  it("refreshes an already-registered attribute so disabled indexing is repaired", async () => {
+    const replacementBodies: unknown[] = [];
     vi.stubGlobal(
       "fetch",
-      mockFetch((url) =>
-        url.includes(":addCatalogAttribute")
-          ? { ok: false, status: 409, text: "already exists" }
-          : { ok: true, status: 200 }
-      )
+      mockFetch((url, body) => {
+        if (url.includes(":addCatalogAttribute")) {
+          return { ok: false, status: 409, text: "already exists" };
+        }
+        if (
+          url.includes(":replaceCatalogAttribute") &&
+          (body as { updateMask?: string }).updateMask !== "retrievableOption"
+        ) {
+          replacementBodies.push(body);
+        }
+        return { ok: true, status: 200 };
+      })
     );
 
     const results = await ensureAcsCatalogAttributes();
 
-    expect(results.filter((r) => r.status !== "retrievable-enabled").every((r) => r.status === "already-present")).toBe(
-      true
-    );
+    expect(results.filter((r) => r.status !== "retrievable-enabled").every((r) => r.status === "configuration-refreshed")).toBe(true);
+    expect(replacementBodies).toHaveLength(REQUIRED_ATTRIBUTES.length);
+    expect(replacementBodies[0]).toMatchObject({
+      catalogAttribute: { indexableOption: "INDEXABLE_ENABLED" },
+      updateMask: "indexableOption,searchableOption,dynamicFacetableOption,retrievableOption",
+    });
   });
 
   it("throws on a genuine failure rather than reporting a half-configured catalog as ready", async () => {
