@@ -25,7 +25,7 @@ export async function OPTIONS() {
  * easily take well over a minute each, and a single silent multi-minute request is exactly
  * the kind of thing intermediary proxies/tunnels kill before it ever resolves. See
  * generateAvatarVariationsStream for why this is also just a better shopper experience
- * (avatars appear one by one instead of one long wait with no feedback).
+ * (the widget now waits for the whole batch, then shows every style together).
  */
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));

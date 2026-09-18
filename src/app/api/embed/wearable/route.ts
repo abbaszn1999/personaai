@@ -18,6 +18,10 @@ interface EmbedWearableRequestBody {
    *  has no shopper login, so it's the only way to key the ephemeral avatar cache per-shopper
    *  instead of per-merchant (many concurrent shoppers can share one embed token). */
   sessionId?: string;
+  /** Which of the shopper's (up to 3) local profiles this turn belongs to — folded into the
+   *  avatar cache key alongside sessionId so switching profiles mid-session doesn't leak one
+   *  profile's cached photo/avatar into another's turn. Optional for older widget builds. */
+  profileId?: string;
   messages?: ChatMessage[];
   profile?: {
     heightCm?: number | null;
@@ -58,7 +62,8 @@ export async function POST(req: NextRequest) {
   const { workspace } = resolution;
 
   const sessionId = typeof body.sessionId === "string" && body.sessionId ? body.sessionId : "anonymous";
-  const avatarCacheKey = `embed:${body.embedToken}:${sessionId}`;
+  const profileId = typeof body.profileId === "string" && body.profileId ? body.profileId : "default";
+  const avatarCacheKey = `embed:${body.embedToken}:${sessionId}:${profileId}`;
 
   const user = await getUserById(workspace.ownerId);
   if (!user) {

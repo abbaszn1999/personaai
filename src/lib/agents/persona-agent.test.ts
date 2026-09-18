@@ -1,44 +1,46 @@
 import { describe, expect, it } from "vitest";
-import { buildTryOnPrompt, type TryOnGarmentRef } from "./persona-agent";
+import { mergeOutfitGarments, type TryOnGarmentRef } from "./persona-agent";
 
 function ref(name: string, slot: TryOnGarmentRef["slot"]): TryOnGarmentRef {
-  return { name, slot, imageUrl: "https://example.com/garment.jpg" };
+  return { name, slot, imageUrl: `https://example.com/${name}.jpg` };
 }
 
-describe("buildTryOnPrompt", () => {
-  it("dresses fully from reference images when nothing was previously worn", () => {
-    const prompt = buildTryOnPrompt([], [ref("Tailored Jacket", "outerwear")]);
+const names = (garments: TryOnGarmentRef[]) => garments.map((g) => g.name);
 
-    expect(prompt).toContain("Dress the person in the exact garment(s) shown in the reference image(s)");
-    expect(prompt).not.toContain("Replace ONLY");
+describe("mergeOutfitGarments", () => {
+  it("dresses from the added items alone when nothing was previously worn", () => {
+    expect(names(mergeOutfitGarments([], [ref("Tailored Jacket", "outerwear")]))).toEqual(["Tailored Jacket"]);
   });
 
-  it("names exactly what stays and what gets replaced when there is a real diff", () => {
-    const kept = [ref("Oxford Shirt", "top"), ref("Chino Pants", "bottom")];
-    const added = [ref("Leather Derby Shoes", "shoes")];
+  it("keeps unrelated slots on and appends the new item", () => {
+    const merged = mergeOutfitGarments(
+      [ref("Oxford Shirt", "top"), ref("Chino Pants", "bottom")],
+      [ref("Leather Derby Shoes", "shoes")]
+    );
 
-    const prompt = buildTryOnPrompt(kept, added);
-
-    expect(prompt).toContain("currently wearing: Oxford Shirt (top), Chino Pants (bottom)");
-    expect(prompt).toContain("Replace ONLY the shoes");
-    expect(prompt).toContain("Leather Derby Shoes (shoes)");
-    expect(prompt).toContain("Keep Oxford Shirt (top), Chino Pants (bottom) and everything else exactly as shown in the avatar photo, unchanged.");
+    expect(names(merged)).toEqual(["Oxford Shirt", "Chino Pants", "Leather Derby Shoes"]);
   });
 
-  it("asks for an unchanged render when nothing new was added", () => {
-    const kept = [ref("Oxford Shirt", "top")];
+  it("drops the kept item whose slot is being replaced, so no category is sent twice", () => {
+    const merged = mergeOutfitGarments(
+      [ref("Old Sneakers", "shoes"), ref("Oxford Shirt", "top")],
+      [ref("New Boots", "shoes")]
+    );
 
-    const prompt = buildTryOnPrompt(kept, []);
-
-    expect(prompt).toContain("Render the person exactly as they currently appear in the avatar photo, wearing Oxford Shirt (top), unchanged.");
-    expect(prompt).not.toContain("Replace ONLY");
+    expect(names(merged)).toEqual(["Oxford Shirt", "New Boots"]);
   });
 
-  it("collapses duplicate slots into one replace clause when multiple items share a slot", () => {
-    const added = [ref("New Blazer", "outerwear"), ref("New Coat", "outerwear")];
+  it("renders the current outfit unchanged when nothing new was added", () => {
+    expect(names(mergeOutfitGarments([ref("Oxford Shirt", "top")], []))).toEqual(["Oxford Shirt"]);
+  });
 
-    const prompt = buildTryOnPrompt([ref("Jeans", "bottom")], added);
+  it("returns nothing to render when both sides are empty", () => {
+    expect(mergeOutfitGarments([], [])).toEqual([]);
+  });
 
-    expect(prompt).toContain("Replace ONLY the outerwear with");
+  it("caps the outfit at the number of garment references try-on accepts", () => {
+    const many = Array.from({ length: 14 }, (_, i) => ref(`Item ${i}`, "other"));
+
+    expect(mergeOutfitGarments([], many)).toHaveLength(11);
   });
 });

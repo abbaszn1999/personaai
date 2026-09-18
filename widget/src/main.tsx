@@ -2,6 +2,7 @@ import * as React from "react";
 import { createRoot } from "react-dom/client";
 import { EmbedApp } from "./embed-app";
 import { setWearableAssetOrigin } from "@/modules/wearable-agent/constants";
+import { setWidgetOrigin } from "./widget-origin";
 // Bundled at build time (see scripts/build-widget.mjs) as raw CSS text so the whole widget
 // ships as one <script> file with zero extra network round-trips or FOUC while a separate
 // stylesheet loads.
@@ -41,6 +42,9 @@ function boot() {
 
   const origin = scriptUrl.origin;
   setWearableAssetOrigin(origin);
+  // Lets the on-demand chunks (currently widget-live.js) build an absolute URL back to us
+  // rather than to the merchant's origin — see widget/src/decart-runtime-shim.ts.
+  setWidgetOrigin(origin);
   const targetSelector = scriptEl.getAttribute("data-target");
   const targetEl = targetSelector ? document.querySelector(targetSelector) : null;
 
@@ -119,8 +123,19 @@ function boot() {
     }
   }
 
+  // Mobile browsers fire `resize` continuously while the page is scrolled, purely because the
+  // address bar/toolbar collapses or expands — `window.innerHeight` grows or shrinks with it,
+  // with the *width* staying identical. Recomputing `fullpageHeightPx()` on every one of those
+  // made the widget's own block (and the avatar image filling it) visibly grow/shrink while a
+  // shopper was mid-scroll, which read as the image "zooming" on scroll. A real resize — window
+  // resize, orientation change, devtools opening — always changes the width too, so gating on
+  // that filters out the toolbar-only noise without missing a real layout change.
+  let lastResizeWidth = window.innerWidth;
   let resizeTimer: ReturnType<typeof setTimeout> | undefined;
   window.addEventListener("resize", () => {
+    const width = window.innerWidth;
+    if (width === lastResizeWidth) return;
+    lastResizeWidth = width;
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(applyFullpageHeight, 150);
   });

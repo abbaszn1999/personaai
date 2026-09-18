@@ -1,14 +1,14 @@
 import sharp from "sharp";
 
 /**
- * `#FF00FF` pure magenta — the one fixed color every avatar/try-on prompt asks Gemini to
- * render the subject against. Chosen because it essentially never occurs in skin tones or
- * clothing (unlike green, which does show up in garments).
+ * `#FF00FF` pure magenta — the one fixed color every avatar prompt asks the model to render
+ * the subject against. Chosen because it essentially never occurs in skin tones or clothing
+ * (unlike green, which does show up in garments).
  */
 export const CHROMA_KEY_COLOR = { r: 255, g: 0, b: 255 } as const;
 
 /**
- * Gemini is a photorealistic generator, not a flat-fill renderer — even told to render a
+ * An image generator is a photorealistic renderer, not a flat-fill one — even told to render a
  * single uniform flat color with "no gradients, shadows, or texture," it still applies its
  * own learned photographic lighting falloff, vignetting, and grain on top, because that's what
  * every real studio photo it was trained on looks like. So the backdrop comes back as a
@@ -33,6 +33,35 @@ export class BackgroundRemovalError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "BackgroundRemovalError";
+  }
+}
+
+/**
+ * Puts a transparent cut-out back on a solid magenta plate, as lossless PNG.
+ *
+ * This is the inverse of {@link stripBackgroundToTransparent} and exists because try-on is a
+ * localised edit: it preserves whatever is outside the garment regions, background included.
+ * Feeding it the stored avatar — a transparent PNG — would hand it an alpha channel it has no
+ * reason to respect, and a model that flattens alpha to black or white leaves nothing for the
+ * chroma key to find on the way back out.
+ *
+ * Re-keying from the stored avatar rather than caching the generator's original backdrop keeps
+ * the round trip stateless, and the plate it lays down is mathematically uniform — cleaner to
+ * key against than the uneven magenta a generator produces.
+ *
+ * A fully opaque input (a shopper's own uploaded avatar, which has a real background) is
+ * returned effectively unchanged: there is no alpha to fill, so nothing is keyed out
+ * afterwards and the render keeps its natural backdrop.
+ */
+export async function flattenOntoChromaKey(imageBase64: string): Promise<Buffer> {
+  try {
+    return await sharp(Buffer.from(imageBase64, "base64"))
+      .flatten({ background: CHROMA_KEY_COLOR })
+      .png()
+      .toBuffer();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Chroma-key flattening failed.";
+    throw new BackgroundRemovalError(message);
   }
 }
 

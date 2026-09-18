@@ -4,7 +4,7 @@ import { consumeImageGeneration } from "@/lib/db/image-generations";
 import { getUserById } from "@/lib/db/users";
 import { canGenerateImage, getAccountBillingContext } from "@/lib/billing/account";
 import { generateTryOnImage, PersonaAgentError } from "@/lib/agents/persona-agent";
-import { GeminiApiError } from "@/lib/ai/gemini";
+import { PrunaApiError } from "@/lib/ai/pruna";
 
 export async function POST(req: NextRequest) {
   try {
@@ -29,8 +29,7 @@ export async function POST(req: NextRequest) {
     }
 
     // This standalone REST route only receives raw image URLs (no Product/slot data), so
-    // there's nothing to diff against a prior render — always dress fully from the images,
-    // same as generateTryOnImage's original "no kept items" behavior.
+    // every image is passed through as part of the outfit to render.
     const { imageUrl } = await generateTryOnImage({
       avatarImageUrl,
       kept: [],
@@ -55,7 +54,7 @@ export async function POST(req: NextRequest) {
     if (err instanceof PersonaAgentError) {
       return Response.json({ error: err.message }, { status: 400 });
     }
-    if (err instanceof GeminiApiError) {
+    if (err instanceof PrunaApiError) {
       return Response.json({ error: err.message }, { status: 502 });
     }
     return Response.json({ error: "Internal server error" }, { status: 500 });

@@ -8,19 +8,14 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Heart,
   Image as ImageIcon,
   ImageUp,
   Loader2,
   Maximize2,
   Palette,
   Pencil,
-  RotateCcw,
-  Share2,
   ShoppingBag,
   X,
-  ZoomIn,
-  ZoomOut,
 } from "lucide-react";
 import type { GeneratedTryOn } from "../hooks/use-try-on-agent";
 import type { TryOnProfile } from "../types";
@@ -44,7 +39,9 @@ import { AvatarWearScanOverlay } from "./avatar-wear-scan-overlay";
 import { GarmentHotspot, type ActiveLookItem } from "./garment-hotspot";
 import { SizeGuideModal } from "./size-guide-modal";
 import { cn } from "@/lib/utils/cn";
+import { useClickOutside } from "@/lib/hooks/use-click-outside";
 import { useWearableTheme } from "../theme-context";
+import { MOBILE_SURFACE, NO_IOS_ZOOM_TEXT, SAFE_BOTTOM, SHEET_H } from "../mobile-surface";
 import type { EmbedRuntimeConfig } from "../hooks/use-try-on-agent";
 import { useRealtimeTryOn } from "../hooks/use-realtime-tryon";
 import { RealtimeTryOnOverlay } from "./realtime-tryon-overlay";
@@ -67,7 +64,7 @@ interface AvatarMannequinPanelProps {
   onNext: () => void;
   onSelectImage: (index: number) => void;
   onRemoveFromOutfit: (id: string) => void;
-  onRegenerateAvatar: (patch: Partial<TryOnProfile>) => void;
+  onSaveMeasurements: (patch: Partial<TryOnProfile>) => void;
   onAddToCart: (product: Product) => void;
   /** Bulk "Add all to cart" — bypasses the variant picker and keeps today's
    *  auto-pick-first-in-stock-variant behavior. Falls back to `onAddToCart` when omitted. */
@@ -77,19 +74,18 @@ interface AvatarMannequinPanelProps {
   isUploadingBackdrop: boolean;
   backdropUploadError: string | null;
   mobile?: boolean;
+  /** Mobile only — asks the parent to collapse the chat sheet. A full-cover panel (Fit
+   *  Analysis, Edit Stats, Size Guide) is unusable in the sliver left above an expanded
+   *  sheet, so opening one reclaims the frame first. */
+  onRequestSpace?: () => void;
   embed?: EmbedRuntimeConfig;
   workspaceId?: string;
 }
 
-const ZOOM_MIN = 1;
-const ZOOM_MAX = 2;
-const ZOOM_STEP = 0.25;
-
-/** Toolbar actions that actually do something useful on a static 2D photo —
- *  zoom + fullscreen only apply while viewing a photo. */
+/** Toolbar action that applies to the static 2D photo. Zoom was deliberately removed:
+ *  shoppers scroll the host page over this large image, so any image zoom/pan interaction
+ *  competes with the page's primary gesture and feels like the widget hijacked scrolling. */
 const TOOLBAR_ACTIONS = [
-  { id: "zoom-in", icon: ZoomIn, label: "Zoom In" },
-  { id: "zoom-out", icon: ZoomOut, label: "Zoom Out" },
   { id: "fullscreen", icon: Maximize2, label: "Fullscreen" },
 ] as const;
 
@@ -139,7 +135,7 @@ export function AvatarMannequinPanel({
   onNext,
   onSelectImage,
   onRemoveFromOutfit,
-  onRegenerateAvatar,
+  onSaveMeasurements,
   onAddToCart,
   onBulkAddToCart,
   onChangeBackdrop,
@@ -147,6 +143,7 @@ export function AvatarMannequinPanel({
   isUploadingBackdrop,
   backdropUploadError,
   mobile = false,
+  onRequestSpace,
   embed,
   workspaceId,
 }: AvatarMannequinPanelProps) {
@@ -158,116 +155,36 @@ export function AvatarMannequinPanel({
   const [isSizeGuideOpen, setIsSizeGuideOpen] = React.useState(false);
   const [isFullscreen, setIsFullscreen] = React.useState(false);
   const [justAddedAll, setJustAddedAll] = React.useState(false);
-  const [zoomLevel, setZoomLevel] = React.useState(1);
-  /** Pan offset (px) applied on top of the zoom scale — lets the shopper drag around a
-   *  zoomed-in photo instead of always scaling from the same fixed spot. */
-  const [pan, setPan] = React.useState({ x: 0, y: 0 });
-  const [isPanning, setIsPanning] = React.useState(false);
-  const photoAreaRef = React.useRef<HTMLElement | null>(null);
-  const panDragRef = React.useRef<{ startX: number; startY: number; startPanX: number; startPanY: number } | null>(null);
   const [isBgPickerOpen, setIsBgPickerOpen] = React.useState(false);
   const [viewMode, setViewMode] = React.useState<"photo" | "live">("photo");
   const realtime = useRealtimeTryOn({ embed, workspaceId });
   const bgPickerRef = React.useRef<HTMLDivElement>(null);
   const backdropFileInputRef = React.useRef<HTMLInputElement>(null);
 
-  const setPhotoAreaRef = React.useCallback((el: HTMLElement | null) => {
-    photoAreaRef.current = el;
-  }, []);
+  useClickOutside(bgPickerRef, React.useCallback(() => setIsBgPickerOpen(false), []), isBgPickerOpen);
 
-  /** Keeps the image from being dragged so far it leaves a visible gap at any edge —
-   *  the further zoomed in, the more room there is to pan before hitting that limit. */
-  const clampPan = React.useCallback((next: { x: number; y: number }, zoom: number) => {
-    const rect = photoAreaRef.current?.getBoundingClientRect();
-    if (!rect) return { x: 0, y: 0 };
-    const maxX = (rect.width * (zoom - 1)) / 2;
-    const maxY = (rect.height * (zoom - 1)) / 2;
-    return {
-      x: maxX <= 0 ? 0 : Math.max(-maxX, Math.min(maxX, next.x)),
-      y: maxY <= 0 ? 0 : Math.max(-maxY, Math.min(maxY, next.y)),
-    };
-  }, []);
-
-  // Re-clamp whenever the zoom level changes so panning out then zooming out doesn't
-  // leave the photo stuck off-center.
-  React.useEffect(() => {
-    setPan((p) => clampPan(p, zoomLevel));
-  }, [zoomLevel, clampPan]);
-
-  const handlePhotoPointerDown = React.useCallback(
-    (e: React.PointerEvent<HTMLElement>) => {
-      if (zoomLevel <= ZOOM_MIN) return;
-      e.currentTarget.setPointerCapture(e.pointerId);
-      panDragRef.current = { startX: e.clientX, startY: e.clientY, startPanX: pan.x, startPanY: pan.y };
-      setIsPanning(true);
-    },
-    [zoomLevel, pan.x, pan.y]
-  );
-  const handlePhotoPointerMove = React.useCallback(
-    (e: React.PointerEvent<HTMLElement>) => {
-      if (!panDragRef.current) return;
-      const dx = e.clientX - panDragRef.current.startX;
-      const dy = e.clientY - panDragRef.current.startY;
-      setPan(clampPan({ x: panDragRef.current.startPanX + dx, y: panDragRef.current.startPanY + dy }, zoomLevel));
-    },
-    [clampPan, zoomLevel]
-  );
-  const handlePhotoPointerUp = React.useCallback((e: React.PointerEvent<HTMLElement>) => {
-    if (panDragRef.current && e.currentTarget.hasPointerCapture(e.pointerId)) {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    }
-    panDragRef.current = null;
-    setIsPanning(false);
-  }, []);
-
-  React.useEffect(() => {
-    if (!isBgPickerOpen) return;
-    function onPointerDown(e: PointerEvent) {
-      if (bgPickerRef.current && !bgPickerRef.current.contains(e.target as Node)) {
-        setIsBgPickerOpen(false);
-      }
-    }
-    window.addEventListener("pointerdown", onPointerDown);
-    return () => window.removeEventListener("pointerdown", onPointerDown);
-  }, [isBgPickerOpen]);
-
-  const canZoomIn = zoomLevel < ZOOM_MAX;
-  const canZoomOut = zoomLevel > ZOOM_MIN;
-
-  const handleZoomIn = React.useCallback(() => {
-    setZoomLevel((z) => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2)));
-  }, []);
-  const handleZoomOut = React.useCallback(() => {
-    setZoomLevel((z) => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2)));
-  }, []);
-  const handleResetZoom = React.useCallback(() => {
-    setZoomLevel(1);
-    setPan({ x: 0, y: 0 });
-  }, []);
-
+  const fullscreenCloseRef = React.useRef<HTMLButtonElement>(null);
   React.useEffect(() => {
     if (!isFullscreen) return;
+    // Single-control dialog — the close button is the only focusable element, so trapping
+    // focus just means grabbing it on open and pulling it back on every Tab press rather
+    // than letting focus escape to whatever sits behind the overlay.
+    fullscreenCloseRef.current?.focus();
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") setIsFullscreen(false);
+      else if (e.key === "Tab") {
+        e.preventDefault();
+        fullscreenCloseRef.current?.focus();
+      }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [isFullscreen]);
 
   function handleToolbarAction(id: string) {
-    if (id === "zoom-in") handleZoomIn();
-    else if (id === "zoom-out") handleZoomOut();
-    else if (id === "fullscreen") setIsFullscreen(true);
+    if (id === "fullscreen") setIsFullscreen(true);
     // "3d" is disabled — coming soon, intentionally not wired up.
   }
-
-  const wasRegeneratingRef = React.useRef(false);
-  React.useEffect(() => {
-    if (wasRegeneratingRef.current && !isRegeneratingAvatar) {
-      setIsEditOpen(false);
-    }
-    wasRegeneratingRef.current = isRegeneratingAvatar;
-  }, [isRegeneratingAvatar]);
 
   const fit = getProfileFitSummary(profile);
   const defaultSize = recommendSize(profile);
@@ -281,10 +198,6 @@ export function AvatarMannequinPanel({
 
   React.useEffect(() => {
     setImgSrc(displayImage);
-    // New photo (new try-on render, regenerated avatar, etc.) — any previous pan offset
-    // is meaningless for different content, so start fresh rather than showing it cropped.
-    setZoomLevel(1);
-    setPan({ x: 0, y: 0 });
   }, [displayImage]);
 
   function handleImageError() {
@@ -378,11 +291,25 @@ export function AvatarMannequinPanel({
     size: item.size,
   }));
 
+  const bulkAddingRef = React.useRef(false);
+
   function handleAddAllToCart() {
+    bulkAddingRef.current = true;
     activeItems.forEach((item) => handleBulkAddToCart(item.product));
-    setJustAddedAll(true);
-    setTimeout(() => setJustAddedAll(false), 2000);
   }
+
+  // Confirms "Added to Cart" against the actual cart state once every item this click
+  // started has finished settling — not a blind timer, so a real add failure (surfaced via
+  // agent.cartSyncError elsewhere) never gets papered over with a false success message.
+  React.useEffect(() => {
+    if (!bulkAddingRef.current || anyPendingInCart) return;
+    bulkAddingRef.current = false;
+    const allAdded = activeItems.length > 0 && activeItems.every((item) => cartItemIds.has(item.product.id));
+    if (!allAdded) return;
+    setJustAddedAll(true);
+    const timer = setTimeout(() => setJustAddedAll(false), 2000);
+    return () => clearTimeout(timer);
+  }, [anyPendingInCart, cartItemIds, activeItems]);
 
   // ─── Mobile avatar strip ─────────────────────────────────────────────────
   if (mobile) {
@@ -413,11 +340,12 @@ export function AvatarMannequinPanel({
         onAddToCart={onAddToCart}
         handleAddAllToCart={handleAddAllToCart}
         lookLabel={lookLabel}
-        onRegenerateAvatar={onRegenerateAvatar}
+        onSaveMeasurements={onSaveMeasurements}
         viewMode={viewMode}
         onViewModeChange={changeViewMode}
         realtime={realtime}
         liveProducts={liveProducts}
+        onRequestSpace={onRequestSpace}
       />
     );
   }
@@ -454,23 +382,8 @@ export function AvatarMannequinPanel({
         </div>
       ) : hasFixedBackdrop ? (
         <div
-          ref={setPhotoAreaRef}
-          className={cn(
-            "absolute inset-y-0 left-0 h-full select-none touch-none",
-            isPanning ? "transition-none" : "transition-transform duration-300 ease-out",
-            zoomLevel > ZOOM_MIN && (isPanning ? "cursor-grabbing" : "cursor-grab")
-          )}
-          style={{
-            aspectRatio: "3 / 4",
-            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoomLevel})`,
-            // Center-anchored so zoom scales in place — an off-center origin makes the
-            // whole frame visibly shift on every zoom step, which reads as the panel "moving".
-            transformOrigin: "50% 50%",
-          }}
-          onPointerDown={handlePhotoPointerDown}
-          onPointerMove={handlePhotoPointerMove}
-          onPointerUp={handlePhotoPointerUp}
-          onPointerCancel={handlePhotoPointerUp}
+          className="absolute inset-y-0 left-0 h-full select-none"
+          style={{ aspectRatio: "3 / 4" }}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={profile.backdropUrl!} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover select-none" />
@@ -486,21 +399,11 @@ export function AvatarMannequinPanel({
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          ref={setPhotoAreaRef}
           src={imgSrc}
           alt="Standing avatar in studio"
           onError={handleImageError}
           draggable={false}
-          onPointerDown={handlePhotoPointerDown}
-          onPointerMove={handlePhotoPointerMove}
-          onPointerUp={handlePhotoPointerUp}
-          onPointerCancel={handlePhotoPointerUp}
-          className={cn(
-            "absolute inset-y-0 left-0 h-full w-auto select-none touch-none",
-            isPanning ? "transition-none" : "transition-transform duration-300 ease-out",
-            zoomLevel > ZOOM_MIN && (isPanning ? "cursor-grabbing" : "cursor-grab")
-          )}
-          style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoomLevel})`, transformOrigin: "50% 50%" }}
+          className="absolute inset-y-0 left-0 h-full w-auto select-none"
         />
       )}
 
@@ -525,7 +428,7 @@ export function AvatarMannequinPanel({
           wrapper so empty space lets clicks/drags reach the photo underneath (e.g. panning);
           each hotspot dot opts back in with its own pointer-events-auto. ── */}
       {viewMode === "photo" && !isGenerating && !isRegeneratingAvatar && (
-        <div className="absolute inset-y-0 left-0 z-[8] pointer-events-none" style={{ aspectRatio: "1024 / 1536" }}>
+        <div className="absolute inset-y-0 left-0 z-[18] pointer-events-none" style={{ aspectRatio: "1024 / 1536" }}>
           {activeItems.map((item) => (
             <GarmentHotspot
               key={item.product.id}
@@ -538,23 +441,6 @@ export function AvatarMannequinPanel({
         </div>
       )}
 
-      {/* ── Top-right: Save / Share ── */}
-      {viewMode === "photo" && <div className="absolute top-5 right-5 z-[20] flex items-center gap-2">
-        {[
-          { icon: Heart, label: "Save Look" },
-          { icon: Share2, label: "Share" },
-        ].map(({ icon: Icon, label }) => (
-          <button
-            key={label}
-            type="button"
-            className="flex items-center gap-1.5 rounded-full border border-white/[0.15] bg-black/40 backdrop-blur-xl px-3 py-1.5 text-[11px] font-medium text-white/75 hover:text-white hover:bg-white/[0.12] transition-colors shadow-[0_4px_12px_rgba(0,0,0,0.3)]"
-          >
-            <Icon className="h-3 w-3" />
-            {label}
-          </button>
-        ))}
-      </div>}
-
       {/* ── Left toolbar ── */}
       <div ref={bgPickerRef} className="absolute left-5 top-1/2 -translate-y-1/2 z-[20] flex flex-col items-center gap-3">
         <div
@@ -566,6 +452,7 @@ export function AvatarMannequinPanel({
               <button
                 type="button"
                 title="Change background"
+                aria-label="Change background"
                 onClick={() => setIsBgPickerOpen((v) => !v)}
                 className={cn(
                   "h-9 w-9 rounded-full flex items-center justify-center transition-all",
@@ -577,22 +464,16 @@ export function AvatarMannequinPanel({
 
               <div className="h-px w-5 bg-white/[0.1]" />
 
-              {/* Zoom + fullscreen */}
+              {/* Fullscreen */}
               {TOOLBAR_ACTIONS.map((mode) => {
-                const isZoomDisabled = (mode.id === "zoom-in" && !canZoomIn) || (mode.id === "zoom-out" && !canZoomOut);
                 return (
                   <button
                     key={mode.id}
                     type="button"
                     title={mode.label}
-                    disabled={isZoomDisabled}
-                    onClick={() => !isZoomDisabled && handleToolbarAction(mode.id)}
-                    className={cn(
-                      "relative h-9 w-9 rounded-full flex items-center justify-center transition-all",
-                      isZoomDisabled
-                        ? "text-white/20 cursor-not-allowed"
-                        : "text-white/50 hover:text-white/90 hover:bg-white/[0.08] active:scale-90"
-                    )}
+                    aria-label={mode.label}
+                    onClick={() => handleToolbarAction(mode.id)}
+                    className="relative h-9 w-9 rounded-full flex items-center justify-center transition-all text-white/50 hover:text-white/90 hover:bg-white/[0.08] active:scale-90"
                   >
                     <mode.icon className="h-[17px] w-[17px]" strokeWidth={1.6} />
                   </button>
@@ -609,6 +490,7 @@ export function AvatarMannequinPanel({
               key={mode.id}
               type="button"
               title={mode.label}
+              aria-label={mode.label}
               onClick={() => changeViewMode(mode.id)}
               className={cn(
                 "h-9 w-9 rounded-full flex items-center justify-center transition-all",
@@ -625,19 +507,6 @@ export function AvatarMannequinPanel({
             </button>
           ))}
 
-          {/* Absolutely positioned (not a normal flex child) so it never changes the height
-              of this toolbar pill — that was shifting the whole toolbar's vertical-centered
-              position every time it appeared/disappeared on zoom. */}
-          {zoomLevel !== 1 && (
-            <button
-              type="button"
-              onClick={handleResetZoom}
-              className="absolute left-1/2 top-full mt-2 -translate-x-1/2 flex items-center gap-1 rounded-full border border-white/15 bg-black/50 backdrop-blur-xl px-2 py-1 text-[10px] font-semibold text-white/70 hover:text-white transition-colors whitespace-nowrap"
-            >
-              <RotateCcw className="h-2.5 w-2.5" />
-              {Math.round(zoomLevel * 100)}%
-            </button>
-          )}
         </div>
 
         {/* Background picker popover */}
@@ -912,9 +781,8 @@ export function AvatarMannequinPanel({
       {isEditOpen && (
         <EditModelStatsModal
           profile={profile}
-          isRegenerating={isRegeneratingAvatar}
           onClose={() => setIsEditOpen(false)}
-          onRegenerate={onRegenerateAvatar}
+          onSave={onSaveMeasurements}
         />
       )}
 
@@ -930,6 +798,9 @@ export function AvatarMannequinPanel({
 
       {isFullscreen && (
         <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Fullscreen avatar preview"
           className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 backdrop-blur-md p-6"
           onClick={() => setIsFullscreen(false)}
         >
@@ -953,10 +824,12 @@ export function AvatarMannequinPanel({
             />
           )}
           <button
+            ref={fullscreenCloseRef}
             type="button"
             onClick={() => setIsFullscreen(false)}
             title="Close (Esc)"
-            className="absolute top-5 right-5 h-10 w-10 rounded-full bg-white/10 border border-white/20 text-white flex items-center justify-center backdrop-blur-md hover:bg-white/20 transition-colors"
+            aria-label="Close fullscreen preview"
+            className="absolute top-5 right-5 h-11 w-11 rounded-full bg-white/10 border border-white/20 text-white flex items-center justify-center backdrop-blur-md hover:bg-white/20 transition-colors"
           >
             <X className="h-4 w-4" />
           </button>
@@ -993,11 +866,12 @@ interface MobileAvatarStripProps {
   onAddToCart: (p: Product) => void;
   handleAddAllToCart: () => void;
   lookLabel: string;
-  onRegenerateAvatar: (patch: Partial<TryOnProfile>) => void;
+  onSaveMeasurements: (patch: Partial<TryOnProfile>) => void;
   viewMode: "photo" | "live";
   onViewModeChange: (mode: "photo" | "live") => void;
   realtime: ReturnType<typeof useRealtimeTryOn>;
   liveProducts: Product[];
+  onRequestSpace?: () => void;
 }
 
 /** What sub-panel is open over the avatar on mobile. */
@@ -1028,35 +902,55 @@ function MobileAvatarStrip({
   onAddToCart,
   handleAddAllToCart,
   lookLabel,
-  onRegenerateAvatar,
+  onSaveMeasurements,
   viewMode,
   onViewModeChange,
   realtime,
   liveProducts,
+  onRequestSpace,
 }: MobileAvatarStripProps) {
   const theme = useWearableTheme();
   const panelBg = PANEL_BG_BY_THEME[theme];
+  const styles = MOBILE_SURFACE[theme];
   const [panel, setPanel] = React.useState<MobilePanel>(null);
   const [editDraft, setEditDraft] = React.useState<TryOnProfile>(profile);
+
+  /** Every path that opens a full-cover panel goes through here so the chat sheet is always
+   *  collapsed out of the way first. */
+  const openPanel = React.useCallback(
+    (next: MobilePanel) => {
+      setPanel(next);
+      if (next) onRequestSpace?.();
+    },
+    [onRequestSpace]
+  );
 
   // Keep draft in sync if profile changes externally
   React.useEffect(() => { setEditDraft(profile); }, [profile]);
 
   function handleSaveEdit() {
-    const {
-      photoUrl: _p,
-      photoBase64: _pb64,
-      photoMimeType: _pmt,
-      avatarUrl: _a,
-      backdropUrl: _bg,
-      ...measurements
-    } = editDraft;
-    onRegenerateAvatar(measurements);
+    // Measurements only — see EditModelStatsModal's desktop counterpart.
+    onSaveMeasurements({
+      heightCm: editDraft.heightCm,
+      weightKg: editDraft.weightKg,
+      chestCm: editDraft.chestCm,
+      waistCm: editDraft.waistCm,
+      hipsCm: editDraft.hipsCm,
+      shoeSizeEu: editDraft.shoeSizeEu,
+    });
     setPanel(null);
   }
 
   return (
-    <div className="relative w-full h-full min-h-0 overflow-hidden" style={{ background: panelBg }}>
+    // `touch-action: pan-x pan-y` is the actual fix for the reported "zoom on scroll": with
+    // no restriction, a two-finger touch anywhere on this full-screen photo is the browser's
+    // own pinch-zoom gesture, and double-tapping it zooms the page too — neither goes through
+    // React at all, so there is no state to turn off, only this CSS to stop the browser from
+    // ever starting the gesture here in the first place. Panning/scrolling stays allowed.
+    <div
+      className="relative w-full h-full min-h-0 overflow-hidden [touch-action:pan-x_pan-y]"
+      style={{ background: panelBg }}
+    >
       {/* ── Avatar photo — object-cover fills the full frame; since the container is
            taller than a 2:3 image scaled to width, object-cover scales by height so
            the full body (head → feet) is always visible, sides trimmed slightly.
@@ -1092,14 +986,17 @@ function MobileAvatarStrip({
             src={imgSrc}
             alt="Avatar"
             onError={onImageError}
-            className="absolute inset-0 w-full h-full object-cover object-center select-none"
+            // Anchored above centre: when the host page gives the widget a frame shorter than
+            // a 2:3 figure, `cover` has to crop vertically, and cropping the feet is far
+            // better than cropping the head and the garment being tried on.
+            className="absolute inset-0 w-full h-full object-cover select-none [object-position:50%_15%]"
           />
         </>
       )}
 
       {/* ── Hotspot pins — absolute inset-0 matches the cover-filled image exactly ── */}
       {viewMode === "photo" && !isGenerating && !isRegeneratingAvatar && (
-        <div className="absolute inset-0 z-[8] pointer-events-none">
+        <div className="absolute inset-0 z-[18] pointer-events-none">
           {activeItems.map((item) => (
             <GarmentHotspot
               key={item.product.id}
@@ -1112,60 +1009,69 @@ function MobileAvatarStrip({
         </div>
       )}
 
-      {/* Top gradient */}
-      <div className="absolute inset-x-0 top-0 h-20 z-[9] pointer-events-none"
-        style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.55), transparent)" }}
+      {/* Top gradient — just enough to seat the badges, kept off the model's face */}
+      <div className="absolute inset-x-0 top-0 h-16 z-[9] pointer-events-none"
+        style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.45), transparent)" }}
       />
-      {/* Bottom gradient — lighter since the sheet handle sits right below */}
-      <div className="absolute inset-x-0 bottom-0 h-16 z-[9] pointer-events-none"
-        style={{ background: "linear-gradient(to top, rgba(0,0,0,0.5), transparent)" }}
+      {/* Bottom gradient — rides on top of the sheet so it always seats the controls below */}
+      <div className="absolute inset-x-0 h-16 z-[9] pointer-events-none"
+        style={{ bottom: SHEET_H, background: "linear-gradient(to top, rgba(0,0,0,0.5), transparent)" }}
       />
 
       {/* ── Top row: Fit badge + Details button ── */}
-      {viewMode === "photo" && <div className="absolute top-3 inset-x-3 z-[10] flex items-center justify-between">
-        <div className="flex items-center gap-1.5 rounded-full bg-black/50 backdrop-blur-md border border-white/[0.12] px-2.5 py-1">
-          <div className="h-2 w-2 rounded-full" style={{
+      {viewMode === "photo" && <div className="absolute top-3 inset-x-3 z-[10] flex items-center justify-between gap-2">
+        <div className="flex min-h-11 min-w-0 items-center gap-1.5 rounded-full bg-black/50 backdrop-blur-md border border-white/[0.12] px-3">
+          <div className="h-2 w-2 shrink-0 rounded-full" style={{
             background: fit.fitScore >= 90 ? "#22c55e" : fit.fitScore >= 75 ? "#f76d01" : "#ef4444",
           }} />
-          <span className="text-[11px] font-bold text-white">{fit.fitScore}% Fit</span>
-          <span className="text-[11px] text-white/50 ml-0.5">{lookLabel}</span>
+          <span className="text-[12px] font-bold text-white">{fit.fitScore}% Fit</span>
+          <span className="ml-0.5 truncate text-[12px] text-white/55">{lookLabel}</span>
         </div>
         <button
           type="button"
-          onClick={() => setPanel(panel === "details" ? null : "details")}
-          className="flex items-center gap-1 rounded-full bg-black/50 backdrop-blur-md border border-white/[0.12] px-2.5 py-1 text-[11px] font-medium text-white/75 hover:text-white transition-colors"
+          onClick={() => openPanel(panel === "details" ? null : "details")}
+          className="flex min-h-11 shrink-0 items-center gap-1 rounded-full bg-black/50 backdrop-blur-md border border-white/[0.12] px-3.5 text-[12px] font-medium text-white/80 hover:text-white transition-colors"
         >
           Details
-          <ChevronDown className={cn("h-3 w-3 transition-transform", panel === "details" && "rotate-180")} />
+          <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", panel === "details" && "rotate-180")} />
         </button>
       </div>}
 
       {/* ── Left toolbar: Image ⇄ Live mode switch — same slot the "3D — coming soon"
-           control will live in later, mirrors the desktop toolbar's left rail. ── */}
-      <div className="absolute left-3 top-1/2 z-[16] flex -translate-y-1/2 flex-col items-center gap-1.5 rounded-full border border-white/[0.12] bg-black/50 p-1 shadow-[0_8px_28px_rgba(0,0,0,0.5)] backdrop-blur-2xl">
+           control will live in later, mirrors the desktop toolbar's left rail.
+           Centred in the space left above the chat sheet, not in the frame, so it stays
+           reachable at every snap point instead of sliding underneath. ── */}
+      <div
+        className="absolute left-3 z-[16] flex -translate-y-1/2 flex-col items-center gap-1 rounded-full border border-white/[0.12] bg-black/50 p-1 shadow-[0_8px_28px_rgba(0,0,0,0.5)] backdrop-blur-2xl"
+        style={{ top: `calc((100% - ${SHEET_H}) / 2)` }}
+      >
         {(["photo", "live"] as const).map((mode) => (
           <button
             key={mode}
             type="button"
             title={mode === "photo" ? "Image" : "Live"}
+            aria-label={mode === "photo" ? "Image view" : "Live camera view"}
             onClick={() => onViewModeChange(mode)}
             className={cn(
-              "flex h-8 w-8 items-center justify-center rounded-full transition-all",
+              "flex h-10 w-10 items-center justify-center rounded-full transition-all",
               viewMode === mode
                 ? "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-[var(--color-brand-contrast)]"
-                : "text-white/50 hover:text-white/90 hover:bg-white/[0.08]"
+                : "text-white/55 hover:text-white/90 hover:bg-white/[0.08]"
             )}
           >
-            {mode === "live" ? <Camera className="h-3.5 w-3.5" /> : <ImageIcon className="h-3.5 w-3.5" />}
+            {mode === "live" ? <Camera className="h-4 w-4" /> : <ImageIcon className="h-4 w-4" />}
           </button>
         ))}
       </div>
 
       {/* ── Bottom row: swatches + cart — only when there is a real outfit / try-on ── */}
       {viewMode === "photo" && (hasGeneratedLooks || activeItems.length > 0) && (
-      <div className="absolute inset-x-0 bottom-2 z-[10] flex items-center justify-between px-3 gap-2">
+      <div
+        className="absolute inset-x-0 z-[10] flex items-center justify-between px-3 gap-2"
+        style={{ bottom: `calc(${SHEET_H} + 10px)` }}
+      >
         {/* Style swatches */}
-        <div className="flex items-center gap-1.5 overflow-x-auto flex-1 scrollbar-none">
+        <div className="flex items-center gap-2 overflow-x-auto flex-1 scrollbar-none overscroll-x-contain [-webkit-overflow-scrolling:touch]">
           {(hasGeneratedLooks ? tryOnImages : activeItems.map((i) => i.product)).map((item, idx) => {
             const isGenerated = hasGeneratedLooks;
             const imgUrl = isGenerated
@@ -1173,9 +1079,10 @@ function MobileAvatarStrip({
               : (item as Product).imageUrl;
             return (
               <button key={idx} type="button"
+                aria-label={isGenerated ? `Look ${idx + 1}` : undefined}
                 onClick={() => isGenerated ? onSelectImage(idx) : undefined}
                 className={cn(
-                  "h-8 w-8 shrink-0 rounded-[7px] overflow-hidden border-2 transition-all",
+                  "h-11 w-11 shrink-0 rounded-[10px] overflow-hidden border-2 transition-all",
                   (isGenerated ? currentImageIndex : activeSwatchIndex) === idx
                     ? "border-[var(--color-brand)] scale-105" : "border-white/20 opacity-70"
                 )}
@@ -1192,12 +1099,12 @@ function MobileAvatarStrip({
           return (
             <button type="button" onClick={handleAddAllToCart} disabled={anyPending}
               className={cn(
-                "shrink-0 flex items-center gap-1.5 rounded-[10px] px-2.5 py-1.5 text-[11px] font-semibold transition-all",
+                "h-11 shrink-0 flex items-center gap-1.5 rounded-[12px] px-3.5 text-[12px] font-semibold transition-all",
                 "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-white shadow-[var(--shadow-glow)]",
                 "hover:brightness-110 active:scale-[0.97] disabled:opacity-70"
               )}
             >
-              {anyPending ? <Loader2 className="h-3 w-3 animate-spin" /> : justAddedAll ? <Check className="h-3 w-3" /> : <ShoppingBag className="h-3 w-3" />}
+              {anyPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : justAddedAll ? <Check className="h-3.5 w-3.5" /> : <ShoppingBag className="h-3.5 w-3.5" />}
               {anyPending ? "Adding…" : justAddedAll ? "Added" : `Cart · ${formatPrice(cartTotal, currency)}`}
             </button>
           );
@@ -1226,24 +1133,24 @@ function MobileAvatarStrip({
         <MobileInlinePanel title="Fit Analysis" onClose={() => setPanel(null)}>
           <div className="flex items-center gap-3 mb-4">
             <div className="h-12 w-12 rounded-full border-2 border-[var(--color-brand)] flex items-center justify-center shrink-0">
-              <span className="text-[15px] font-black text-white">{fit.fitScore}%</span>
+              <span className={cn("text-[15px] font-black", styles.panelValue)}>{fit.fitScore}%</span>
             </div>
             <div>
-              <p className="text-[12px] font-bold text-white">{fit.fitLabel}</p>
+              <p className={cn("text-[13px] font-bold", styles.panelValue)}>{fit.fitLabel}</p>
             </div>
           </div>
-          <div className="space-y-2 mb-4">
+          <div className="space-y-2.5 mb-4">
             {fit.metrics.map((m) => (
               <div key={m.label} className="flex items-center gap-2">
-                <span className="w-20 text-[11px] text-white/45 shrink-0">{m.label}</span>
-                <div className="flex-1 h-1.5 rounded-full bg-white/[0.08]">
+                <span className={cn("w-20 shrink-0 text-[12px]", styles.panelLabel)}>{m.label}</span>
+                <div className={cn("flex-1 h-1.5 rounded-full", styles.panelTrack)}>
                   <div className="h-full rounded-full bg-[var(--color-brand)]" style={{ width: `${m.value}%` }} />
                 </div>
-                <span className="text-[11px] font-semibold text-white/70 w-7 text-right">{m.value}%</span>
+                <span className={cn("w-8 text-right text-[12px] font-semibold", styles.panelValue)}>{m.value}%</span>
               </div>
             ))}
           </div>
-          <div className="h-px bg-white/[0.07] mb-4" />
+          <div className={cn("h-px mb-4", styles.panelDivider)} />
           <div className="grid grid-cols-2 gap-x-4 gap-y-3 mb-5">
             {[
               { id: "height", label: "Height", value: formatHeightCm(profile.heightCm) },
@@ -1254,18 +1161,18 @@ function MobileAvatarStrip({
               ...sizeRows.map((r) => ({ id: `size-${r.id}`, label: r.label, value: r.size })),
             ].map(({ id, label, value }) => (
               <div key={id} className="flex flex-col">
-                <span className="text-[10px] text-white/35 uppercase tracking-[0.12em]">{label}</span>
-                <span className="text-[12px] font-semibold text-white mt-0.5">{value}</span>
+                <span className={cn("text-[11px] uppercase tracking-[0.12em]", styles.panelLabel)}>{label}</span>
+                <span className={cn("mt-0.5 text-[13px] font-semibold", styles.panelValue)}>{value}</span>
               </div>
             ))}
           </div>
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => setPanel("edit")}
-              className="flex-1 h-9 rounded-[10px] bg-white/[0.07] border border-white/[0.10] text-[12px] font-medium text-white/80 hover:bg-white/[0.12] transition-colors">
+              className={cn("flex-1 h-11 rounded-[12px] border text-[13px] font-medium transition-colors", styles.panelSecondaryButton)}>
               Edit Stats
             </button>
             <button type="button" onClick={() => setPanel("size-guide")}
-              className="flex-1 h-9 rounded-[10px] bg-white/[0.07] border border-white/[0.10] text-[12px] font-medium text-white/80 hover:bg-white/[0.12] transition-colors">
+              className={cn("flex-1 h-11 rounded-[12px] border text-[13px] font-medium transition-colors", styles.panelSecondaryButton)}>
               Size Guide
             </button>
           </div>
@@ -1284,33 +1191,38 @@ function MobileAvatarStrip({
               { key: "shoeSizeEu", label: "Shoe Size", unit: "EU" },
             ] as const).map(({ key, label, unit }) => (
               <label key={key} className="flex flex-col gap-1">
-                <span className="text-[10px] text-white/45 uppercase tracking-wide">{label}</span>
+                <span className={cn("text-[11px] uppercase tracking-wide", styles.panelLabel)}>{label}</span>
                 <div className="relative">
                   <input
                     type="number"
+                    inputMode="numeric"
                     value={editDraft[key] ?? ""}
                     onChange={(e) => setEditDraft((d) => ({ ...d, [key]: e.target.value ? Number(e.target.value) : null }))}
-                    className="w-full h-9 pl-3 pr-8 rounded-lg bg-white/[0.07] border border-white/[0.10] text-[13px] text-white focus:outline-none focus:border-[var(--color-brand)] transition-colors"
+                    className={cn(
+                      "w-full h-11 pl-3 pr-9 rounded-[10px] border transition-colors focus:outline-none focus:border-[var(--color-brand)]",
+                      NO_IOS_ZOOM_TEXT,
+                      styles.panelField
+                    )}
                   />
-                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-white/30">{unit}</span>
+                  <span className={cn("absolute right-3 top-1/2 -translate-y-1/2 text-[11px]", styles.panelMuted)}>{unit}</span>
                 </div>
               </label>
             ))}
           </div>
           <div className="flex gap-2">
             <button type="button" onClick={() => setPanel("details")}
-              className="flex-1 h-9 rounded-[10px] border border-white/10 text-[12px] text-white/60 hover:bg-white/[0.06] transition-colors">
+              className={cn("flex-1 h-11 rounded-[12px] border text-[13px] transition-colors", styles.panelSecondaryButton)}>
               Cancel
             </button>
-            <button type="button" onClick={handleSaveEdit} disabled={isRegeneratingAvatar}
+            <button
+              type="button"
+              onClick={handleSaveEdit}
               className={cn(
-                "flex-1 h-9 rounded-[10px] text-[12px] font-semibold text-white flex items-center justify-center gap-1.5 transition-all",
-                "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] shadow-[var(--shadow-glow)]",
-                "disabled:opacity-60"
-              )}>
-              {isRegeneratingAvatar
-                ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…</>
-                : "Regenerate Avatar"}
+                "flex-1 h-11 rounded-[12px] text-[13px] font-semibold text-white flex items-center justify-center gap-1.5",
+                "gradient-wearable bg-[var(--color-wearable-from)]"
+              )}
+            >
+              Save
             </button>
           </div>
         </MobileInlinePanel>
@@ -1320,7 +1232,7 @@ function MobileAvatarStrip({
       {viewMode === "photo" && panel === "size-guide" && (
         <MobileInlinePanel title="Size Guide" onClose={() => setPanel("details")}>
           {activeItems.length === 0 ? (
-            <p className="text-[12px] text-white/40 text-center py-8">Add items to see size recommendations.</p>
+            <p className={cn("py-8 text-center text-[13px]", styles.panelMuted)}>Add items to see size recommendations.</p>
           ) : (
             <div className="space-y-3">
               {activeItems.map((item) => {
@@ -1329,35 +1241,37 @@ function MobileAvatarStrip({
                 const sizeVariants = item.product.variants.filter((v) => v.type === "size");
                 const scale = sizeVariants.length > 0 ? sizeVariants.map((v) => v.label) : ["XS","S","M","L","XL"];
                 return (
-                  <div key={item.product.id} className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
+                  <div key={item.product.id} className={cn("rounded-xl border p-3", styles.panelCard)}>
                     <div className="flex items-start gap-2.5 mb-3">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={item.product.imageUrl} alt={item.product.name}
                         className="h-12 w-12 rounded-lg object-cover shrink-0 border border-white/10" />
                       <div className="flex-1 min-w-0">
-                        <p className="text-[12px] font-semibold text-white leading-snug">{item.product.name}</p>
-                        <p className="text-[11px] text-white/45 mt-0.5">{formatPrice(item.product.price, item.product.currency)}</p>
+                        <p className={cn("text-[13px] font-semibold leading-snug", styles.panelValue)}>{item.product.name}</p>
+                        <p className={cn("mt-0.5 text-[12px]", styles.panelMuted)}>{formatPrice(item.product.price, item.product.currency)}</p>
                       </div>
                       <button type="button" onClick={() => onAddToCart(item.product)} disabled={inCart || isPending}
                         className={cn(
-                          "h-7 shrink-0 px-2.5 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition-all",
-                          inCart ? "bg-white/10 text-white/50" : "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-white"
+                          "h-10 shrink-0 px-3 rounded-[10px] text-[12px] font-semibold flex items-center gap-1 transition-all",
+                          inCart
+                            ? cn("border", styles.panelSecondaryButton)
+                            : "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-white"
                         )}>
-                        {isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : inCart ? <Check className="h-3 w-3" /> : <ShoppingBag className="h-3 w-3" />}
+                        {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : inCart ? <Check className="h-3.5 w-3.5" /> : <ShoppingBag className="h-3.5 w-3.5" />}
                         {isPending ? "Adding…" : inCart ? "Added" : "Add"}
                       </button>
                     </div>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1.5">
                       {scale.map((size) => (
                         <div key={size} className={cn(
-                          "flex-1 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold",
+                          "flex-1 h-9 rounded-[10px] flex items-center justify-center text-[12px] font-bold",
                           size === item.size
                             ? "bg-[var(--color-brand)] text-white"
-                            : "bg-white/[0.05] text-white/35 border border-white/[0.06]"
+                            : cn("border", styles.sizeChipIdle)
                         )}>{size}</div>
                       ))}
                     </div>
-                    <p className="text-[10px] text-white/30 mt-1.5">
+                    <p className={cn("mt-2 text-[11px]", styles.panelMuted)}>
                       Recommended: <span className="text-[var(--color-brand)] font-semibold">{item.size}</span>
                     </p>
                   </div>
@@ -1370,14 +1284,20 @@ function MobileAvatarStrip({
 
       {/* ── Wear scan / regenerating overlays ── */}
       {viewMode === "photo" && isGenerating && !isRegeneratingAvatar && (
-        <AvatarWearScanOverlay itemLabel={
-          outfitItems.length > 0
-            ? outfitItems.map((p) => p.name).join(" · ")
-            : activeItems.map((i) => i.product.name).join(" · ")
-        } />
+        <AvatarWearScanOverlay
+          mobile
+          itemLabel={
+            outfitItems.length > 0
+              ? outfitItems.map((p) => p.name).join(" · ")
+              : activeItems.map((i) => i.product.name).join(" · ")
+          }
+        />
       )}
       {viewMode === "photo" && isRegeneratingAvatar && (
-        <div className="absolute inset-0 z-[30] flex flex-col items-center justify-center gap-3 bg-black/55 backdrop-blur-sm">
+        <div
+          className="absolute inset-x-0 top-0 z-[19] flex flex-col items-center justify-center gap-3 bg-black/55 backdrop-blur-sm"
+          style={{ bottom: SHEET_H }}
+        >
           <Loader2 className="h-8 w-8 text-white animate-spin" />
           <p className="text-sm font-medium text-white">Regenerating…</p>
         </div>
@@ -1386,7 +1306,8 @@ function MobileAvatarStrip({
   );
 }
 
-/** Reusable full-cover overlay panel for mobile — stays within the phone frame. */
+/** Reusable full-cover overlay panel for mobile. Stays inside the widget frame, and stops at
+ *  the top of the chat sheet so its footer buttons are never covered by it. */
 function MobileInlinePanel({
   title,
   onClose,
@@ -1396,16 +1317,20 @@ function MobileInlinePanel({
   onClose: () => void;
   children: React.ReactNode;
 }) {
+  const styles = MOBILE_SURFACE[useWearableTheme()];
   return (
-    <div className="absolute inset-0 z-[20] bg-[#0a0910]/97 backdrop-blur-2xl flex flex-col">
-      <div className="flex items-center justify-between px-4 pt-4 pb-3 shrink-0 border-b border-white/[0.07]">
-        <p className="text-[13px] font-bold text-white">{title}</p>
-        <button type="button" onClick={onClose}
-          className="h-7 w-7 rounded-full bg-white/[0.10] flex items-center justify-center text-white/60 hover:text-white hover:bg-white/[0.16] transition-colors">
-          <X className="h-3.5 w-3.5" />
+    <div
+      className={cn("absolute inset-x-0 top-0 z-[20] flex flex-col backdrop-blur-2xl", styles.panel)}
+      style={{ bottom: SHEET_H }}
+    >
+      <div className={cn("flex items-center justify-between gap-2 border-b px-4 pt-4 pb-3 shrink-0", styles.panelBorder)}>
+        <p className={cn("text-[14px] font-bold", styles.panelTitle)}>{title}</p>
+        <button type="button" onClick={onClose} aria-label="Close"
+          className={cn("h-11 w-11 shrink-0 rounded-full flex items-center justify-center transition-colors", styles.panelClose)}>
+          <X className="h-4 w-4" />
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto px-4 py-4">
+      <div className={cn("flex-1 overflow-y-auto overscroll-contain scrollbar-none px-4 py-4", SAFE_BOTTOM)}>
         {children}
       </div>
     </div>

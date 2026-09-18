@@ -17,6 +17,28 @@ const nextConfig: NextConfig = {
     "/api/agents/wearable": ["./src/lib/agents/wearable/**/*.md"],
     "/api/embed/wearable": ["./src/lib/agents/wearable/**/*.md"],
   },
+  async headers() {
+    // Next serves everything in `public/` as `max-age=0`, which for the widget meant every
+    // shopper re-downloaded the whole bundle on every page view of the merchant's site — and
+    // conditional requests came back 200 with the full body rather than 304.
+    //
+    // Deliberately not `immutable`: merchants paste a fixed `/widget.js?w=<token>` URL that can
+    // never be content-hashed, so a long hard TTL would strand already-deployed snippets on an
+    // old build. A short freshness window plus `stale-while-revalidate` gives repeat views an
+    // instant cache hit while a new build still propagates within minutes, in the background.
+    const widgetCacheControl = "public, max-age=300, stale-while-revalidate=86400";
+
+    return [
+      {
+        source: "/widget.js",
+        headers: [{ key: "Cache-Control", value: widgetCacheControl }],
+      },
+      {
+        source: "/widget-live.js",
+        headers: [{ key: "Cache-Control", value: widgetCacheControl }],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

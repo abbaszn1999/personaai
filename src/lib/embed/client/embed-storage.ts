@@ -11,6 +11,7 @@
 
 const SESSION_ID_PREFIX = "autoshopping_embed_session:";
 const STATE_PREFIX = "autoshopping_embed_state:";
+const SHOPPER_TOKEN_PREFIX = "autoshopping_shopper_token:";
 
 function safeLocalStorage(): Storage | null {
   try {
@@ -65,6 +66,36 @@ export function clearEmbedState(embedToken: string): void {
   if (!storage) return;
   try {
     storage.removeItem(`${STATE_PREFIX}${embedToken}`);
+  } catch {
+    // Non-fatal.
+  }
+}
+
+export function loadShopperToken(embedToken: string): string | null {
+  const storage = safeLocalStorage();
+  if (!storage) return null;
+  try {
+    return storage.getItem(`${SHOPPER_TOKEN_PREFIX}${embedToken}`);
+  } catch {
+    return null;
+  }
+}
+
+export function saveShopperToken(embedToken: string, token: string): void {
+  const storage = safeLocalStorage();
+  if (!storage) return;
+  try {
+    storage.setItem(`${SHOPPER_TOKEN_PREFIX}${embedToken}`, token);
+  } catch {
+    // Non-fatal — the shopper will just have to sign in again next visit.
+  }
+}
+
+export function clearShopperToken(embedToken: string): void {
+  const storage = safeLocalStorage();
+  if (!storage) return;
+  try {
+    storage.removeItem(`${SHOPPER_TOKEN_PREFIX}${embedToken}`);
   } catch {
     // Non-fatal.
   }

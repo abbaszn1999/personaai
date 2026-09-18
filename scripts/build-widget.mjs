@@ -27,6 +27,13 @@ function aliasPlugin() {
       pluginBuild.onResolve({ filter: /^next\/link$/ }, () => ({
         path: path.join(widgetSrcDir, "link-shim.tsx"),
       }));
+      // The dashboard's decart-runtime lazy-loads the SDK with `await import()`, which its
+      // bundler splits into a real chunk. esbuild can't split an IIFE bundle — it would inline
+      // the SDK (and the ~665KB WebRTC stack under it) straight back into widget.js — so the
+      // widget gets a shim that fetches `widget-live.js` on demand instead.
+      pluginBuild.onResolve({ filter: /(^|\/)decart-runtime$/ }, () => ({
+        path: path.join(widgetSrcDir, "decart-runtime-shim.ts"),
+      }));
       pluginBuild.onResolve({ filter: /^@\// }, async (args) => {
         const absoluteTarget = path.join(srcDir, args.path.slice(2));
         const result = await pluginBuild.resolve("./" + path.basename(absoluteTarget), {
@@ -39,11 +46,40 @@ function aliasPlugin() {
   };
 }
 
+/** The only trees whose class names can ever reach the widget's DOM, derived from the real
+ *  esbuild module graph rather than guessed. Tailwind's automatic detection scans the whole
+ *  project, which meant the CSS inlined into widget.js also carried every dashboard-only
+ *  utility — a large share of a stylesheet that every shopper downloads. Paths are relative to
+ *  globals.css (see `from` below), which is what `@source` resolves against. */
+const WIDGET_CSS_SOURCES = [
+  "../../widget/src",
+  "../../src/components/ui",
+  "../../src/lib",
+  "../../src/modules/wearable-agent",
+  "../../src/modules/shopping-agent",
+  "../../src/modules/billing/hooks",
+];
+
 async function buildCss() {
   const inputPath = path.join(srcDir, "styles", "globals.css");
   const css = await readFile(inputPath, "utf8");
 
-  const result = await postcss([tailwindcssPostcss({ base: rootDir })]).process(css, {
+  // globals.css is shared with the dashboard, so the scoping is applied to the copy handed to
+  // PostCSS instead of to the file — the dashboard's own build must keep scanning everything.
+  const scopedImport = [
+    '@import "tailwindcss" source(none);',
+    ...WIDGET_CSS_SOURCES.map((dir) => `@source "${dir}";`),
+  ].join("\n");
+  const scopedCss = css.replace('@import "tailwindcss";', scopedImport);
+  if (scopedCss === css) {
+    throw new Error(
+      "Couldn't scope Tailwind's source detection: the expected `@import \"tailwindcss\";` line " +
+        "is no longer in src/styles/globals.css. Fix this rather than shipping the unscoped " +
+        "stylesheet, which silently inlines every dashboard utility class into widget.js."
+    );
+  }
+
+  const result = await postcss([tailwindcssPostcss({ base: rootDir })]).process(scopedCss, {
     from: inputPath,
   });
 
@@ -57,10 +93,11 @@ async function buildCss() {
   return shadowSafeCss.length;
 }
 
-async function buildJs() {
-  await build({
-    entryPoints: [path.join(widgetSrcDir, "main.tsx")],
-    outfile: path.join(publicDir, "widget.js"),
+/** Shared by both output bundles so they can't drift on target/minification. */
+function bundleOptions(entry, outfile) {
+  return {
+    entryPoints: [path.join(widgetSrcDir, entry)],
+    outfile: path.join(publicDir, outfile),
     bundle: true,
     format: "iife",
     platform: "browser",
@@ -71,7 +108,17 @@ async function buildJs() {
     define: { "process.env.NODE_ENV": '"production"' },
     plugins: [aliasPlugin()],
     logLevel: "info",
-  });
+  };
+}
+
+async function buildJs() {
+  await build(bundleOptions("main.tsx", "widget.js"));
+}
+
+/** Second, on-demand bundle: the Decart realtime SDK and the WebRTC stack beneath it, fetched
+ *  only when a shopper actually starts a live try-on. See widget/src/decart-runtime-shim.ts. */
+async function buildLiveJs() {
+  await build(bundleOptions("live-entry.ts", "widget-live.js"));
 }
 
 async function main() {
@@ -80,6 +127,8 @@ async function main() {
   console.log(`[build-widget] compiled widget.css (${cssBytes} bytes, shadow-scoped)`);
   await buildJs();
   console.log("[build-widget] wrote public/widget.js");
+  await buildLiveJs();
+  console.log("[build-widget] wrote public/widget-live.js (loaded on demand)");
 }
 
 main().catch((err) => {

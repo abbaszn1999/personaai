@@ -61,8 +61,21 @@ export function PreviewViewportShell({
     return <div className={cn("h-full min-h-0", className)}>{children}</div>;
   }
 
+  // A real *mobile* embed (frameless) — onboarding must fill the widget's own box exactly like
+  // the post-onboarding chat ("full") does, not sit centered inside a decorative
+  // dashboard-preview card. That decorative wrapper below is `overflow-y-auto` with visible
+  // margins around it; on a touch device that turns into a dead zone where swipes only scroll
+  // a tiny inner box instead of the host page, and leaves the ProfileSwitcher pill sitting
+  // inset from the real screen corner instead of flush against it. Full-bleed here removes both
+  // problems at once. Desktop frameless embeds keep the boxed card look below — mouse-wheel
+  // scrolling never hit this trap, and a merchant's desktop page may actually want that
+  // card-in-a-page-section appearance.
+  if (frameless && mode === "mobile") {
+    return <div className={cn("h-full min-h-0 overflow-y-auto sidebar-scroll", className)}>{children}</div>;
+  }
+
   return (
-    <div className="flex h-full min-h-0 items-center justify-center overflow-y-auto py-6 sidebar-scroll">
+    <div className="flex h-full min-h-0 items-center justify-center overflow-y-auto overscroll-contain py-6 sidebar-scroll">
       <div
         className={cn(
           "w-full max-w-2xl rounded-[var(--radius-2xl)] border border-[var(--color-border)]",

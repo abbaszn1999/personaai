@@ -1,5 +1,12 @@
-import { fetchImageAsBase64, generateGeminiImage, GeminiApiError, type GeminiImagePart } from "@/lib/ai/gemini";
-import { stripBackgroundToTransparent } from "@/lib/ai/background-removal";
+import sharp from "sharp";
+import {
+  editPrunaImage,
+  MAX_TRY_ON_GARMENTS,
+  PrunaApiError,
+  prunaTryOn,
+  uploadPrunaFile,
+} from "@/lib/ai/pruna";
+import { flattenOntoChromaKey, stripBackgroundToTransparent } from "@/lib/ai/background-removal";
 import type { AvatarVariation } from "@/modules/wearable-agent/types";
 import type { GarmentCategory } from "@/modules/wearable-agent/utils/fit-metrics";
 
@@ -105,7 +112,31 @@ export async function* generateAvatarVariationsStream(
 ): AsyncGenerator<AvatarVariationStreamEvent> {
   const clampedCount = Math.max(0, Math.min(count, DEFAULT_AVATAR_VARIATION_COUNT));
   const stylesToUse = AVATAR_STYLES.slice(0, clampedCount);
+  if (stylesToUse.length === 0) return;
+
   const bodyInstruction = buildIdentityAndBodyInstruction(input);
+
+  // Uploaded once and shared by every variation: the reference photo is identical across the
+  // batch, so re-uploading it per style would cost four round trips for one file. An upload
+  // failure here is fatal to the whole batch by definition — there is nothing to generate
+  // from — so it's reported as a per-variation error for each style rather than thrown, to
+  // keep the streaming contract (callers treat a thrown error as "the request broke").
+  let photoUrl: string;
+  try {
+    photoUrl = await uploadPrunaFile(
+      Buffer.from(input.photoBase64, "base64"),
+      "face.jpg",
+      input.photoMimeType
+    );
+  } catch (err) {
+    console.error("[persona-agent generateAvatarVariationsStream] photo upload failed", err);
+    const message =
+      err instanceof PrunaApiError ? err.message : "Couldn't upload your photo. Please try again.";
+    for (const style of stylesToUse) {
+      yield { type: "variation_error", label: style.label, message };
+    }
+    return;
+  }
 
   const pending = new Map<number, { label: string; promise: Promise<AvatarVariation> }>(
     stylesToUse.map((style, index) => [
@@ -113,13 +144,15 @@ export async function* generateAvatarVariationsStream(
       {
         label: style.label,
         promise: (async (): Promise<AvatarVariation> => {
-          const parts: GeminiImagePart[] = [
-            { type: "text", text: `${bodyInstruction} Full-body standing studio pose, ${style.styleHint}.` },
-            { type: "image", data: input.photoBase64, mimeType: input.photoMimeType },
-          ];
-
-          const generated = await generateGeminiImage(parts, { aspectRatio: AVATAR_ASPECT_RATIO });
-          const stripped = await stripBackgroundToTransparent(generated.imageBase64, generated.mimeType);
+          const generated = await editPrunaImage({
+            prompt: `${bodyInstruction} Full-body standing studio pose, ${style.styleHint}.`,
+            imageUrls: [photoUrl],
+            aspectRatio: AVATAR_ASPECT_RATIO,
+          });
+          const stripped = await stripBackgroundToTransparent(
+            generated.image.toString("base64"),
+            generated.mimeType
+          );
 
           return {
             id: crypto.randomUUID(),
@@ -151,7 +184,7 @@ export async function* generateAvatarVariationsStream(
       yield {
         type: "variation_error",
         label: slot.label,
-        message: err instanceof GeminiApiError ? err.message : "This variation failed to generate.",
+        message: err instanceof PrunaApiError ? err.message : "This variation failed to generate.",
       };
     }
   }
@@ -173,93 +206,92 @@ export interface GenerateTryOnImageInput {
   added: TryOnGarmentRef[];
 }
 
-/** Resolves a `data:` URL or a remote image URL into a Gemini reference-image part. */
-async function resolveImageToPart(urlOrDataUrl: string): Promise<GeminiImagePart> {
-  const dataUrlMatch = /^data:([^;]+);base64,(.+)$/.exec(urlOrDataUrl);
+/** Reads a `data:` URL or a remote image URL into raw bytes. */
+async function readImageBytes(urlOrDataUrl: string): Promise<Buffer> {
+  const dataUrlMatch = /^data:[^;]+;base64,(.+)$/.exec(urlOrDataUrl);
   if (dataUrlMatch) {
-    return { type: "image", data: dataUrlMatch[2], mimeType: dataUrlMatch[1] };
+    return Buffer.from(dataUrlMatch[1], "base64");
   }
-  const { data, mimeType } = await fetchImageAsBase64(urlOrDataUrl);
-  return { type: "image", data, mimeType };
-}
 
-function describeGarments(garments: TryOnGarmentRef[]): string {
-  return garments.map((g) => `${g.name} (${g.slot})`).join(", ");
+  const res = await fetch(urlOrDataUrl);
+  if (!res.ok) {
+    throw new PersonaAgentError(`Couldn't load a reference image (${res.status}).`);
+  }
+  return Buffer.from(await res.arrayBuffer());
 }
-
-const IDENTITY_INSTRUCTION =
-  "This must be the exact same person as the reference photo — identical facial features, identity, skin tone, and hair, with zero beautification or alteration.";
-const BACKDROP_INSTRUCTION =
-  "Render entirely against a single flat, uniform, seamless background of solid color #FF00FF (pure magenta), covering 100% of the space around the subject, with no gradients, shadows, or texture in the background.";
 
 /**
- * Builds the try-on instruction from an explicit kept-vs-added diff instead of just handing
- * Gemini a pile of garment photos and hoping it infers what changed. Pure/deterministic so
- * it's unit-testable without a live Gemini call — see persona-agent.test.ts.
+ * Uploads one garment reference, transcoded to JPEG.
  *
- * - No `kept` items (first-ever dress, or re-rendering with no established prior look):
- *   dress the person fully from the reference images, same as the original behavior.
- * - `kept` items but nothing new (`added` empty — e.g. re-requesting an already-worn item):
- *   explicitly ask for an unchanged render rather than sending a malformed "replace" clause.
- * - Otherwise: name exactly what's currently worn, replace only the slot(s) of the new
- *   item(s), and keep everything else exactly as shown in the avatar photo.
+ * The transcode is the point: catalog images could be passed to Pruna by their public URL and
+ * skip this upload entirely, but most storefronts serve WebP and many block hotlinking, so
+ * handing over the merchant's URL makes the render's success depend on the merchant's CDN
+ * policy. Normalising the bytes here trades one upload for a reference the model is certain to
+ * be able to read.
  */
-export function buildTryOnPrompt(kept: TryOnGarmentRef[], added: TryOnGarmentRef[]): string {
-  if (kept.length === 0) {
-    return [
-      IDENTITY_INSTRUCTION,
-      "Dress the person in the exact garment(s) shown in the reference image(s) — reproduce their exact color, pattern, fabric texture, and silhouette faithfully, not an approximation — while keeping the person's face, body proportions, and pose completely unchanged.",
-      BACKDROP_INSTRUCTION,
-    ].join(" ");
-  }
-
-  const keptDescription = describeGarments(kept);
-
-  if (added.length === 0) {
-    return [
-      IDENTITY_INSTRUCTION,
-      `Render the person exactly as they currently appear in the avatar photo, wearing ${keptDescription}, unchanged.`,
-      BACKDROP_INSTRUCTION,
-    ].join(" ");
-  }
-
-  const addedSlots = [...new Set(added.map((a) => a.slot))].join(", ");
-  const addedDescription = describeGarments(added);
-
-  return [
-    IDENTITY_INSTRUCTION,
-    `The person is currently wearing: ${keptDescription}.`,
-    `Replace ONLY the ${addedSlots} with the new garment(s) shown in the reference image(s) — ${addedDescription} — reproducing their exact color, pattern, fabric texture, and silhouette faithfully, not an approximation.`,
-    `Keep ${keptDescription} and everything else exactly as shown in the avatar photo, unchanged.`,
-    BACKDROP_INSTRUCTION,
-  ].join(" ");
+async function uploadGarmentReference(imageUrl: string, index: number): Promise<string> {
+  const source = await readImageBytes(imageUrl);
+  const jpeg = await sharp(source).rotate().jpeg({ quality: 92 }).toBuffer();
+  return uploadPrunaFile(jpeg, `garment-${index}.jpg`, "image/jpeg");
 }
 
 /**
- * Dresses the shopper's avatar according to an explicit kept-vs-added diff, keeping face,
- * body proportions, and pose unchanged, against the same fixed chroma-key backdrop as the
- * avatar. Only `added` garments are sent as reference images — `kept` garments are described
- * in the prompt as already visible on the avatar photo itself, not re-sent as photos.
+ * Collapses a kept-vs-added diff into the single outfit to render.
+ *
+ * Try-on takes the whole outfit at once rather than a description of what changed, so the diff
+ * the agent reasons in is flattened here. `added` wins on a slot collision: replacing the
+ * shoes means the new shoes are worn, not both pairs — and Pruna rejects two references of the
+ * same category in one request, so letting a stale item survive would fail the call outright.
+ *
+ * Pure and deterministic, so it's unit-testable without a live prediction.
+ */
+export function mergeOutfitGarments(
+  kept: TryOnGarmentRef[],
+  added: TryOnGarmentRef[]
+): TryOnGarmentRef[] {
+  const addedSlots = new Set(added.map((g) => g.slot));
+  return [...kept.filter((g) => !addedSlots.has(g.slot)), ...added].slice(0, MAX_TRY_ON_GARMENTS);
+}
+
+/**
+ * Dresses the shopper's avatar in their current outfit.
+ *
+ * Renders the full outfit against the *stored* avatar every time instead of editing the
+ * previous render. Both halves of that matter: try-on preserves everything outside the
+ * garment regions, so re-dressing the original avatar keeps one identity and pose for the
+ * whole session, and it makes each render a pure function of the outfit — there is no
+ * generation-on-generation chain for face drift and compression artifacts to accumulate
+ * along, which is what a "keep the rest unchanged" instruction was previously working against.
+ *
+ * The avatar is re-keyed onto its magenta plate on the way in and cut back out on the way
+ * out; see flattenOntoChromaKey for why a stored transparent PNG can't be sent as-is.
  */
 export async function generateTryOnImage(input: GenerateTryOnImageInput): Promise<{ imageUrl: string }> {
-  if (input.kept.length === 0 && input.added.length === 0) {
+  const garments = mergeOutfitGarments(input.kept, input.added);
+  if (garments.length === 0) {
     throw new PersonaAgentError("At least one garment is required for a try-on render.");
   }
 
   try {
-    const avatarPart = await resolveImageToPart(input.avatarImageUrl);
-    const garmentParts = await Promise.all(input.added.map((g) => resolveImageToPart(g.imageUrl)));
+    const avatarBytes = await readImageBytes(input.avatarImageUrl);
+    const [personImageUrl, garmentImageUrls] = await Promise.all([
+      flattenOntoChromaKey(avatarBytes.toString("base64")).then((plated) =>
+        uploadPrunaFile(plated, "avatar.png", "image/png")
+      ),
+      Promise.all(garments.map((g, index) => uploadGarmentReference(g.imageUrl, index))),
+    ]);
 
-    const prompt = buildTryOnPrompt(input.kept, input.added);
-
-    const parts: GeminiImagePart[] = [{ type: "text", text: prompt }, avatarPart, ...garmentParts];
-    const generated = await generateGeminiImage(parts, { aspectRatio: AVATAR_ASPECT_RATIO });
-    const stripped = await stripBackgroundToTransparent(generated.imageBase64, generated.mimeType);
+    const generated = await prunaTryOn({ personImageUrl, garmentImageUrls });
+    const stripped = await stripBackgroundToTransparent(
+      generated.image.toString("base64"),
+      generated.mimeType
+    );
 
     return { imageUrl: `data:${stripped.mimeType};base64,${stripped.imageBase64}` };
   } catch (err) {
     if (err instanceof PersonaAgentError) throw err;
-    const message = err instanceof GeminiApiError ? err.message : "Failed to generate the try-on render. Please try again.";
+    const message =
+      err instanceof PrunaApiError ? err.message : "Failed to generate the try-on render. Please try again.";
     throw new PersonaAgentError(message);
   }
 }

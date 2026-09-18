@@ -6,10 +6,14 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
   error?: string;
   hint?: string;
   icon?: React.ReactNode;
+  /** "default" (36px/14px, dashboard forms) or "touch" (48px/16px). Touch avoids two mobile
+   *  papercuts: iOS Safari auto-zooms on focus below 16px, and 36px misses the 44-48px minimum
+   *  tap target. Opt-in only — the dashboard's own forms keep their current density. */
+  inputSize?: "default" | "touch";
 }
 
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(
-  ({ className, label, error, hint, icon, id, ...props }, ref) => {
+  ({ className, label, error, hint, icon, id, inputSize = "default", ...props }, ref) => {
     const inputId = id ?? label?.toLowerCase().replace(/\s+/g, "-");
     return (
       <div className="flex flex-col gap-1.5">
@@ -31,7 +35,8 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
             id={inputId}
             ref={ref}
             className={cn(
-              "w-full h-9 px-3 text-sm bg-[var(--color-surface-card)] border border-[var(--color-border)] rounded-[var(--radius-md)]",
+              "w-full px-3 bg-[var(--color-surface-card)] border border-[var(--color-border)] rounded-[var(--radius-md)]",
+              inputSize === "touch" ? "h-12 text-base" : "h-9 text-sm",
               "text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)]",
               "transition-colors focus:outline-none focus:border-[var(--color-brand)] focus:ring-1 focus:ring-[var(--color-brand)]",
               "disabled:opacity-50 disabled:cursor-not-allowed",
