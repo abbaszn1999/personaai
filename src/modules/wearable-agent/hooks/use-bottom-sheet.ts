@@ -67,10 +67,12 @@ export function useBottomSheet(peekFallback = 72) {
   React.useEffect(() => {
     const el = headerRef.current;
     if (!el) return;
-    const observer = new ResizeObserver(([entry]) => {
-      // Round up: a fractional height would leave a hairline of the sheet's own background
-      // showing through below the header while collapsed.
-      setPeekHeight(Math.ceil(entry.contentRect.height));
+    const observer = new ResizeObserver(() => {
+      // Border box, not contentRect — collapsed padding (the gap that keeps the launcher
+      // from sitting flush on the screen edge) has to count, or extra pb just gets clipped
+      // by `--sheet-h`. Round up so a fractional height can't leave a hairline of the
+      // sheet's own background showing through.
+      setPeekHeight(Math.ceil(el.offsetHeight));
     });
     observer.observe(el);
     return () => observer.disconnect();

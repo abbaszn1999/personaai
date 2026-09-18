@@ -256,7 +256,6 @@ function TryOnExperience({
               onSwitch={agent.switchProfile}
               onAdd={agent.addProfile}
               onRename={agent.renameProfile}
-              accountEmail={shopperSession?.email}
               onSignOut={shopperSession?.signOut}
             />
           )}

@@ -70,14 +70,10 @@ interface ProfileSwitcherProps {
   onSwitch: (id: string) => void;
   onAdd: () => void;
   onRename: (id: string, label: string) => void;
-  accountEmail?: string | null;
   onSignOut?: () => void;
   /** Positioning only — the popover itself is always `absolute` under the pill so it never
    *  stretches a chat header. Pass `absolute right-3 top-3` for the onboarding overlay. */
   className?: string;
-  /** Mobile's collapsed chat sheet is only ~72px tall, so the menu has to open upward
-   *  onto the avatar; everywhere else it opens down. */
-  menuPlacement?: "down" | "up";
 }
 
 /** Pill + popover for switching between up to `maxProfiles` profiles on a signed-in shopper
@@ -90,10 +86,8 @@ export function ProfileSwitcher({
   onSwitch,
   onAdd,
   onRename,
-  accountEmail,
   onSignOut,
   className,
-  menuPlacement = "down",
 }: ProfileSwitcherProps) {
   const [open, setOpen] = React.useState(false);
   const [editingId, setEditingId] = React.useState<string | null>(null);
@@ -168,8 +162,7 @@ export function ProfileSwitcher({
           ref={panelRef}
           style={panelOffsetX ? { transform: `translateX(${panelOffsetX}px)` } : undefined}
           className={cn(
-            "absolute right-0 w-60 rounded-2xl border backdrop-blur-2xl p-2",
-            menuPlacement === "up" ? "bottom-full mb-2" : "top-full mt-2",
+            "absolute right-0 top-full z-50 mt-2 w-60 rounded-2xl border backdrop-blur-2xl p-2",
             styles.panel
           )}
         >
@@ -262,7 +255,7 @@ export function ProfileSwitcher({
                 styles.addButton
               )}
             >
-              {accountEmail ? `Sign out · ${accountEmail}` : "Sign out"}
+              Sign out
             </button>
           )}
         </div>
