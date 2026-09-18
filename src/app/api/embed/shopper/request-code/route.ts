@@ -5,10 +5,15 @@ import {
   consumeShopperLoginCode,
   createShopperLoginCode,
   getLatestShopperLoginCode,
+  getShopperAccountByEmail,
+  touchShopperAccountLastSeen,
 } from "@/lib/db/shopper-accounts";
+import { listShopperProfiles } from "@/lib/db/shopper-profiles";
 import { allowLoginCodeRequest } from "@/lib/shopper-auth/rate-limit";
 import { generateLoginCode, hashToken } from "@/lib/shopper-auth/tokens";
 import { sendShopperLoginCode } from "@/lib/shopper-auth/email";
+import { issueShopperSession } from "@/lib/shopper-auth/session";
+import { serializeShopperProfile } from "@/lib/shopper-auth/serialize-profile";
 
 const CODE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const RESEND_COOLDOWN_MS = 60 * 1000; // 60 seconds
@@ -23,10 +28,12 @@ export async function OPTIONS() {
   return embedOptions();
 }
 
-/** First step of shopper sign-in: emails a 6-digit code for the given (workspace, email) pair.
- *  Always responds 200 on a well-formed email — this endpoint's own rate limits are the abuse
- *  defense, not response-shape secrecy, since an account is only ever created at verify-code
- *  once a code is actually proven, so there's no meaningful "does this email exist" to leak. */
+/** First step of shopper sign-in: emails a 6-digit code for the given (workspace, email) pair —
+ *  but only the *first* time this store has ever seen this email. Per the merchant's own
+ *  explicit call: an email that has already been verified once (on any device, at any point
+ *  in the past) signs straight back in here with no code at all, no device/browser binding
+ *  required. This trades the "possession of the inbox" guarantee for zero-friction return
+ *  visits; a brand-new email still goes through the full code flow below untouched. */
 export async function POST(req: NextRequest) {
   try {
     const body: RequestBody = await req.json().catch(() => ({}));
@@ -38,6 +45,23 @@ export async function POST(req: NextRequest) {
     const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
     if (!email || !EMAIL_RE.test(email)) {
       return embedJson({ error: "Enter a valid email address." }, { status: 400 });
+    }
+
+    const existingAccount = await getShopperAccountByEmail(workspace.workspaceId, email);
+    if (existingAccount?.emailVerifiedAt) {
+      const userAgent = req.headers.get("user-agent");
+      const token = await issueShopperSession(existingAccount.id, userAgent);
+      await touchShopperAccountLastSeen(existingAccount.id);
+      const profiles = (await listShopperProfiles(existingAccount.id)).map(serializeShopperProfile);
+      return embedJson({
+        token,
+        account: {
+          id: existingAccount.id,
+          email: existingAccount.email,
+          createdAt: existingAccount.createdAt,
+        },
+        profiles,
+      });
     }
 
     const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";

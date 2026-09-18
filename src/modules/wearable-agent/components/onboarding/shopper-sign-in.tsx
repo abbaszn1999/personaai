@@ -9,7 +9,7 @@ import { useWearableBranding } from "../../branding-context";
 
 interface ShopperSignInProps {
   error: string | null;
-  onRequestCode: (email: string) => Promise<boolean>;
+  onRequestCode: (email: string) => Promise<{ ok: boolean; signedIn: boolean }>;
   onVerifyCode: (
     email: string,
     code: string,
@@ -44,12 +44,14 @@ export function ShopperSignIn({ error, onRequestCode, onVerifyCode }: ShopperSig
     }
     setLocalError(null);
     setBusy(true);
-    const ok = await onRequestCode(trimmed);
+    const result = await onRequestCode(trimmed);
     setBusy(false);
-    if (ok) {
-      setEmail(trimmed);
-      setStep("code");
-    }
+    if (!result.ok) return;
+    // Already-verified email — the parent's auth status just flipped to "ready" and this
+    // whole screen is about to unmount, so there's no code step to show at all.
+    if (result.signedIn) return;
+    setEmail(trimmed);
+    setStep("code");
   }
 
   async function submitCode(rawCode: string) {
