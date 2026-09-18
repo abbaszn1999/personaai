@@ -1,6 +1,5 @@
 /**
- * How a merchant's `variantOptions` group names resolve to ACS fields, and the per-store overrides
- * on top of that.
+ * What a merchant's `variantOptions` group names mean, and what their names say they mean by default.
  *
  * Extracted here so the indexer and the merchant-facing mapping table share one definition. They
  * were copy-pasted before, which was survivable while the mapping was fixed and global. It stops
@@ -27,14 +26,20 @@ export const VARIANT_ROLES = [
   "gender",
   "age_group",
   "brand",
+  // Storable, not just a fallback: a merchant whose "Color" attribute holds something that is not a
+  // colour needs a way to send it to the catch-all instead, and without this the only alternatives
+  // were a wrong named field or dropping the data.
+  "custom",
   "ignore",
 ] as const;
 
 export type VariantRole = (typeof VARIANT_ROLES)[number];
 
 /** A resolved destination. `"custom"` is the `opt_<name>` catch-all — a real destination, not a
- *  failure: the group still reaches ACS as a searchable custom attribute. */
-export type OptionRole = VariantRole | "custom";
+ *  failure: the group still reaches ACS as a searchable custom attribute. Identical to
+ *  `VariantRole` now that the catch-all is selectable; kept as its own name because the two mean
+ *  different things — one is what a merchant may choose, the other what a group resolved to. */
+export type OptionRole = VariantRole;
 
 export function isVariantRole(value: unknown): value is VariantRole {
   return typeof value === "string" && (VARIANT_ROLES as readonly string[]).includes(value);
@@ -71,28 +76,39 @@ export function detectDefaultVariantRole(normalizedName: string): OptionRole {
   return "custom";
 }
 
-/** The one place that decides where a group goes: the merchant's override if they set one, the
- *  built-in match otherwise. Both the mapper and the Stage 1 table call this. */
-export function resolveOptionRole(normalizedName: string, optionRoles: Record<string, VariantRole>): OptionRole {
-  return optionRoles[normalizedName] ?? detectDefaultVariantRole(normalizedName);
-}
-
 /** Prefix for the catch-all custom attribute any group resolving to `"custom"` lands in —
  *  namespaced so a store's own option name can never collide with this app's internal bookkeeping
  *  attributes (`merchant_id`, `source_category_ids`, ...), and so `attributes-config.ts`'s dynamic
  *  registration can recognize which keys it owns. */
 export const CUSTOM_OPTION_ATTRIBUTE_PREFIX = "opt_";
 
-/** ACS custom-attribute keys may only contain alphanumerics and underscores. Merchant option names
- *  are free text (spacing, punctuation, mixed case), so this collapses anything else to `_` —
- *  lossy, but stable and collision-resistant enough for the option names real storefronts use. */
+/**
+ * ACS `CatalogAttribute.key` is capped at 128 characters. This is called for every custom
+ * attribute key ACS ever sees — a merchant's Table 2 attribute name, an unclassified option
+ * group's `opt_<name>` catch-all (`customAttributeKeyFor`, below) — through one shared sanitizer,
+ * so both callers stay under the limit without each having to know the other's own prefix budget.
+ * Leaves room for `CUSTOM_OPTION_ATTRIBUTE_PREFIX` ("opt_", 4 characters), the longest prefix any
+ * caller adds after this returns.
+ */
+const MAX_ATTRIBUTE_KEY_LENGTH = 124;
+
+/** ACS custom-attribute keys may only contain alphanumerics and underscores, and cannot exceed
+ *  ACS's own 128-character limit (see `MAX_ATTRIBUTE_KEY_LENGTH`). Merchant option names are free
+ *  text (spacing, punctuation, mixed case, occasionally pasted paragraphs), so this collapses
+ *  anything else to `_` and truncates — lossy, but stable and collision-resistant enough for the
+ *  option names and attribute names real storefronts use. */
 export function sanitizeAttributeKeySegment(name: string): string {
   return name
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9_]+/g, "_")
     .replace(/_+/g, "_")
-    .replace(/^_|_$/g, "");
+    .replace(/^_|_$/g, "")
+    .slice(0, MAX_ATTRIBUTE_KEY_LENGTH)
+    // A truncation can itself leave a trailing underscore (the character right after the cut was
+    // about to collapse into one) or start with a digit sequence that split mid-token; only the
+    // trailing case is actually invalid ACS syntax, so only that is re-stripped.
+    .replace(/_+$/, "");
 }
 
 /** The `opt_*` attribute key a group resolving to `"custom"` is written to, or null when its name
@@ -102,46 +118,7 @@ export function customAttributeKeyFor(optionName: string): string | null {
   return key ? `${CUSTOM_OPTION_ATTRIBUTE_PREFIX}${key}` : null;
 }
 
-// ─── Per-store overrides ──────────────────────────────────────────────────────
-
-/**
- * A connection's field-mapping overrides. The empty value reproduces the mapper's default output
- * exactly, so every existing connection has this shape until a merchant changes something.
- *
- * Only option-group routing is overridable. Whole-field suppression was deliberately dropped: the
- * suppressible set included `price`, `images` and `brand`, and hiding those breaks the agent's
- * product cards and brand identification respectively, while `Documentation/persona_sizing.md`
- * asks only that a merchant *map* their columns. The column is jsonb, so adding it back later
- * needs no migration.
- */
-export interface AcsFieldOverrides {
-  /** Keyed by `normalizeOptionGroupName(name)`. An absent key falls back to the built-in match. */
-  optionRoles: Record<string, VariantRole>;
-}
-
-export const EMPTY_FIELD_OVERRIDES: AcsFieldOverrides = { optionRoles: {} };
-
-/**
- * Parses an untrusted `acs_field_overrides` jsonb value (or a request body) into a valid
- * `AcsFieldOverrides`, dropping anything malformed rather than throwing — a bad key in a request
- * body should never be able to break indexing for an otherwise-valid save.
- */
-export function parseFieldOverrides(value: unknown): AcsFieldOverrides {
-  if (!value || typeof value !== "object") return { optionRoles: {} };
-
-  const record = value as Record<string, unknown>;
-  const optionRoles: Record<string, VariantRole> = {};
-
-  if (record.optionRoles && typeof record.optionRoles === "object") {
-    for (const [key, role] of Object.entries(record.optionRoles as Record<string, unknown>)) {
-      const normalized = normalizeOptionGroupName(key);
-      if (normalized && isVariantRole(role)) optionRoles[normalized] = role;
-    }
-  }
-
-  return { optionRoles };
-}
-
-export function fieldOverridesAreEmpty(overrides: AcsFieldOverrides): boolean {
-  return Object.keys(overrides.optionRoles).length === 0;
-}
+// The per-store mapping document that used to live here — which column feeds which ACS field, plus
+// the merchant's declared custom attributes — moved to `acs-mapping.ts` when Stage 1 was inverted.
+// This module is now only the option-group vocabulary: what a group can mean, and what its name says
+// it means by default. `acs-mapping.ts` imports from here, never the other way round.

@@ -3,10 +3,17 @@ import {
   countShopifyCollectionProducts,
   getShopifyAccessToken,
   listShopifyCatalogPage,
+  listShopifyProductsByIds,
   normalizeShopifyDomain,
 } from "@/lib/shopify/client";
-import { countWooCatalogProducts, listWooCatalogPage, normalizeWordPressUrl } from "@/lib/woocommerce/client";
+import {
+  countWooCatalogProducts,
+  listWooCatalogPage,
+  listWooProductsByIds,
+  normalizeWordPressUrl,
+} from "@/lib/woocommerce/client";
 import type { StoreConnectionRow } from "@/lib/db/store-connections";
+import { boundMetafieldKeys } from "./acs-mapping";
 import { expandCategorySelection } from "./category-scope";
 import type { RawCatalogProduct } from "./sync-types";
 
@@ -35,6 +42,12 @@ export interface CatalogPager {
    *  them is counted twice and there is no cross-group deduplication short of the walk itself. The
    *  flag exists so the UI can say "about" instead of quietly overstating a merchant's catalog. */
   countProducts(): Promise<{ total: number; exact: boolean }>;
+  /** Reads exactly these products, one request, no category walk.
+   *
+   *  Used to refresh volatile details for ids already selected by the Stage 2 snapshot. Ignores the
+   *  category selection because those ids came from it. Order is the platform's, not the argument's,
+   *  so a caller that needs its own order has to restore it. */
+  fetchByIds(externalIds: readonly string[]): Promise<RawCatalogProduct[]>;
 }
 
 export interface PagerOptions {
@@ -46,6 +59,14 @@ export interface PagerOptions {
    *  the browsable preview, where a page is what a merchant reads rather than what a worker buffers.
    *  Both clients clamp it to their API's ceiling. */
   pageSize?: number;
+  /**
+   * Read whatever custom fields each product carries instead of only the bound ones, so Stage 1 can
+   * offer them as columns.
+   *
+   * Set by the discovery sample alone. On Shopify it turns the metafields selection from a named list
+   * into an open connection, which is affordable for one small page and ruinous for a full walk.
+   */
+  discoverCustomFields?: boolean;
 }
 
 /** How many category ids to put in one WooCommerce `category` filter. Bounded only to keep the
@@ -79,6 +100,10 @@ export async function createCatalogPager(
     );
 
     const collections = categoryIds.map((id) => [id]);
+    // Derived from the connection rather than taken as an option: every caller wants exactly the
+    // metafields the merchant bound, and one of them forgetting to ask would drop a mapped column
+    // from the index without any error to notice.
+    const metafieldKeys = boundMetafieldKeys(connection.acsFieldMapping);
 
     return {
       // One collection at a time: Shopify has no union filter for collection membership.
@@ -104,7 +129,14 @@ export async function createCatalogPager(
           cursor: cursor ?? undefined,
           updatedAfter: options.updatedAfter,
           pageSize: options.pageSize,
+          metafieldKeys,
+          discoverCustomFields: options.discoverCustomFields,
         }).then((page) => ({ products: page.products, nextCursor: page.nextCursor })),
+      fetchByIds: (externalIds) =>
+        listShopifyProductsByIds(domain, accessToken, externalIds, {
+          metafieldKeys,
+          discoverCustomFields: options.discoverCustomFields,
+        }),
     };
   }
 
@@ -146,6 +178,7 @@ export async function createCatalogPager(
         });
         return { products: result.products, nextCursor: result.hasMore ? String(page + 1) : null };
       },
+      fetchByIds: (externalIds) => listWooProductsByIds(siteUrl, username, appPassword, externalIds),
     };
   }
 

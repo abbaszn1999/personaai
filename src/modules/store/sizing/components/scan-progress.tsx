@@ -5,7 +5,7 @@ import { AlertTriangle, CheckCircle2, RefreshCw, ScanSearch, Sparkles } from "lu
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils/cn";
 import { useSizingStore } from "../store";
-import type { SizingRunStage } from "../server-types";
+import type { SizingRunPhase, SizingRunStage } from "../server-types";
 
 /**
  * The catalog scan and brand classification, reported from the server.
@@ -17,16 +17,56 @@ import type { SizingRunStage } from "../server-types";
  * from the `sizing_runs` row, so closing the tab and coming back shows actual progress.
  */
 
-interface Phase {
+interface Step {
   stage: SizingRunStage;
+  /** Null where the stage is only one thing. See `SizingRunPhase`. */
+  phase: SizingRunPhase | null;
   label: string;
   description: string;
+  /** The heading and subheading shown while this step is the live one. */
+  heading: string;
+  detail: string;
 }
 
-const PHASES: Phase[] = [
-  { stage: "scan", label: "Read catalog", description: "Brands, categories & size formats" },
-  { stage: "classify", label: "Classify brands", description: "Global vs private label" },
+/**
+ * The three real steps: read products, summarise their mapped fields, then classify the complete
+ * distinct non-empty brand list in one Gemini request. Null brand fields bypass Gemini.
+ */
+const STEPS: Step[] = [
+  {
+    stage: "scan",
+    phase: "walking",
+    label: "Read catalog",
+    description: "Brands, categories & size formats",
+    heading: "Reading your catalog",
+    detail: "Paging your store one category at a time.",
+  },
+  {
+    stage: "scan",
+    phase: "aggregating",
+    label: "Summarise coverage",
+    description: "Brands, sizes & categories counted",
+    heading: "Summarising what you carry",
+    detail: "Counting brands, sizes and categories. No model calls, so this is quick.",
+  },
+  {
+    stage: "classify",
+    phase: null,
+    label: "Classify brands",
+    description: "Global vs private label",
+    heading: "Classifying brands",
+    detail: "One Gemini request containing the complete distinct brand list. Empty brands go directly to Null.",
+  },
 ];
+
+function activeStepIndex(stage: SizingRunStage, phase: SizingRunPhase | null): number {
+  const exact = STEPS.findIndex((step) => step.stage === stage && step.phase === phase);
+  if (exact !== -1) return exact;
+  // No phase on a staged run means either a scan no worker has claimed yet or a row written before
+  // phases existed. Resolved to the first step of its stage rather than to nothing, which would grey
+  // out every chip and leave the heading with no step to take its wording from.
+  return STEPS.findIndex((step) => step.stage === stage);
+}
 
 export function ScanProgress() {
   const run = useSizingStore((s) => s.run);
@@ -129,7 +169,8 @@ export function ScanProgress() {
     );
   }
 
-  const activeIndex = PHASES.findIndex((phase) => phase.stage === run.stage);
+  const activeIndex = activeStepIndex(run.stage, run.phase);
+  const active = STEPS[activeIndex] ?? null;
   const isQueued = run.status === "pending";
 
   return (
@@ -142,22 +183,17 @@ export function ScanProgress() {
             </div>
             <div>
               <h3 className="text-base font-semibold text-[var(--color-text-primary)]">
-                {run.stage === "classify" ? "Classifying brands" : "Reading your catalog"}
+                {active?.heading ?? "Reading your catalog"}
               </h3>
               <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">
-                {isQueued
-                  ? "Queued — starting within a few seconds."
-                  : run.stage === "classify"
-                    ? "One decision per brand, not per product."
-                    : "Paging your store one category at a time."}
+                {isQueued ? "Queued — starting within a few seconds." : active?.detail}
               </p>
             </div>
           </div>
 
           <div className="text-right">
-            {/* A count, not a percentage. The total isn't known until the walk ends — a product count
-                from the store's own category totals double-counts anything in two collections — and
-                inventing a denominator is what made the old progress bar lie. */}
+            {/* A count, not a percentage. The total is unknown until the walk finishes because store
+                category totals double-count products filed in more than one selected category. */}
             <span className="gradient-text-brand text-2xl font-bold tabular-nums">
               {run.productsScanned.toLocaleString()}
             </span>
@@ -172,12 +208,12 @@ export function ScanProgress() {
         </div>
 
         <div className="mt-5 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-          {PHASES.map((phase, index) => {
+          {STEPS.map((step, index) => {
             const isPast = index < activeIndex;
             const isCurrent = index === activeIndex;
             return (
               <div
-                key={phase.stage}
+                key={`${step.stage}:${step.phase ?? "only"}`}
                 className={cn(
                   "rounded-[var(--radius-lg)] border p-2.5 text-center transition-all",
                   isPast && "border-[var(--color-success)]/40 bg-[var(--color-success-light)] text-[var(--color-success)]",
@@ -195,9 +231,9 @@ export function ScanProgress() {
                       {index + 1}
                     </span>
                   )}
-                  <span className="truncate">{phase.label}</span>
+                  <span className="truncate">{step.label}</span>
                 </div>
-                <p className="mt-0.5 truncate text-[10px] opacity-80">{phase.description}</p>
+                <p className="mt-0.5 truncate text-[10px] opacity-80">{step.description}</p>
               </div>
             );
           })}

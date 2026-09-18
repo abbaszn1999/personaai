@@ -1,6 +1,11 @@
 import { createChatCompletion, getPlatformOpenAiKey, type ChatCompletionMessage } from "@/lib/ai/openai";
 import type { StoreConnectionRow } from "@/lib/db/store-connections";
-import { listSizingCoverage, setResearchOutcomes, type SizingCoverageRow } from "@/lib/db/sizing-coverage";
+import {
+  listSizingCoverage,
+  setBrandType,
+  setResearchOutcomes,
+  type SizingCoverageRow,
+} from "@/lib/db/sizing-coverage";
 import { listChartsForBrands, upsertChart } from "@/lib/db/sizing-charts";
 import {
   CHART_REGIONS,
@@ -67,6 +72,11 @@ export interface ResearchResult {
   written: number;
   /** Brands the finder could not locate at all. */
   notFound: number;
+  /** Brands reclassified `private` because the search proved they publish nothing. A subset of
+   *  `notFound`, counted separately because it is the pass correcting the classification rather than
+   *  reporting on it — and because a store where this is consistently high has a classifier problem,
+   *  not a research problem. */
+  demoted: number;
   /** Requested categories a found brand's guide did not cover. */
   categoriesNotCovered: number;
   /** Brands whose research errored or came back unstructurable — a retry, not a gap to hand-fill. */
@@ -75,6 +85,25 @@ export interface ResearchResult {
   tablesRejected: number;
   /** Brands this tick did not get to. Non-zero means the caller must queue another tick. */
   brandsRemaining: number;
+  /**
+   * Exactly which brands are still owed work, so the caller can write the shrunken scope back.
+   *
+   * A count alone is not enough now that research is scoped: the next tick has to know *which* two
+   * brands were skipped, and recomputing "whatever still looks outstanding" is how a request for one
+   * brand turns into a bulk pass over the whole catalog.
+   */
+  remainingBrandKeys: string[];
+}
+
+export interface ResearchOptions {
+  /** Brands the merchant asked for. An empty list means do nothing — see `queueScopedResearch`. */
+  brandKeys: readonly string[];
+  /** How many brands this tick may actually search before handing back. */
+  maxBrands?: number;
+  /** Regenerate rather than Generate: ignore charts already in the registry and search again. */
+  force?: boolean;
+  /** Called as each brand's search begins, so the run row can name it while it happens. */
+  onBrandStart?: (brandKey: string) => Promise<void>;
 }
 
 /**
@@ -89,19 +118,32 @@ export interface ResearchResult {
 const BRANDS_PER_TICK = 2;
 
 /**
- * Runs research for every global brand this connection's coverage still needs a chart for.
+ * Runs research for the brands the merchant asked for, and only those.
  *
- * Idempotent by construction: the registry short-circuit means a re-run after a partial failure
+ * The scope used to be implicit — every global brand coverage still needed a chart for — which meant
+ * simply walking forward through the pipeline bought a bulk pass over the whole catalog. Stage 4 now
+ * asks per brand, so an empty scope is a legitimate and common state, and it means do nothing.
+ *
+ * Still idempotent by construction: the registry short-circuit means a re-run after a partial failure
  * only pays for what is still missing, and a brand already resolved for a *different* store is
  * never re-searched at all — that reuse is the point of keying `sizing_charts` on `(brand_key,
- * sizing_category, audience, source_title)` with `connection_id = null` for global brands.
+ * sizing_category, audience, source_title)` with `connection_id = null` for global brands. `force`
+ * is what Regenerate uses to bypass it deliberately.
  */
 export async function runChartResearch(
   connection: StoreConnectionRow,
-  maxBrands: number = BRANDS_PER_TICK
+  options: ResearchOptions
 ): Promise<ResearchResult> {
+  const maxBrands = options.maxBrands ?? BRANDS_PER_TICK;
+  const requested = new Set(options.brandKeys);
+
   const coverage = await listSizingCoverage(connection.id);
-  const needed = groupGlobalBrandsNeeded(coverage);
+  // Intersected with what the store actually carries as `global`, so a stale scope — a brand a
+  // rescan dropped, or reclassified private since the request — cannot spend a search on a brand
+  // this connection has no coverage for.
+  const needed = new Map(
+    [...groupGlobalBrandsNeeded(coverage)].filter(([brandKey]) => requested.has(brandKey))
+  );
   const market = marketHintFor(connection.storeUrl);
 
   const result: ResearchResult = {
@@ -109,19 +151,25 @@ export async function runChartResearch(
     reused: 0,
     written: 0,
     notFound: 0,
+    demoted: 0,
     categoriesNotCovered: 0,
     failed: 0,
     tablesRejected: 0,
     brandsRemaining: 0,
+    remainingBrandKeys: [],
   };
   if (needed.size === 0) return result;
 
-  const existing = await listChartsForBrands(connection.id, [...needed.keys()]);
   const covered = new Map<string, Set<string>>();
-  for (const chart of existing) {
-    if ((chart.confidence ?? 0) < CHART_CONFIDENCE_THRESHOLD) continue;
-    if (!covered.has(chart.brandKey)) covered.set(chart.brandKey, new Set());
-    covered.get(chart.brandKey)!.add(chart.sizingCategory);
+  // Skipped entirely on a forced pass. Regenerate exists precisely because the stored chart is the
+  // problem, and consulting it would make the button skip the brand it was pressed for.
+  if (!options.force) {
+    const existing = await listChartsForBrands(connection.id, [...needed.keys()]);
+    for (const chart of existing) {
+      if ((chart.confidence ?? 0) < CHART_CONFIDENCE_THRESHOLD) continue;
+      if (!covered.has(chart.brandKey)) covered.set(chart.brandKey, new Set());
+      covered.get(chart.brandKey)!.add(chart.sizingCategory);
+    }
   }
 
   // Sequential and per-brand logged. Nothing here is parallelized — two brands researched at once
@@ -133,7 +181,7 @@ export async function runChartResearch(
   let index = 0;
   let searched = 0;
 
-  for (const [brandKey, { brandName, requests }] of needed) {
+  for (const [brandKey, { brandName, searchName, requests }] of needed) {
     index += 1;
     const already = covered.get(brandKey) ?? new Set<string>();
     const reused = requests.filter((req) => already.has(req.sizingCategory));
@@ -142,7 +190,12 @@ export async function runChartResearch(
     // stored charts alone would put the brand back in the queue on the next tick and re-pay for the
     // identical search — for as long as the run exists. `failed` is likewise left alone here and
     // reopened only by an explicit retry, which resets the row to `pending`.
-    const remaining = requests.filter((req) => !already.has(req.sizingCategory) && req.researchStatus === "pending");
+    //
+    // A forced pass takes every requested pair regardless of status: Regenerate is the merchant
+    // saying the recorded conclusion is wrong, so respecting it would make the button do nothing.
+    const remaining = options.force
+      ? requests
+      : requests.filter((req) => !already.has(req.sizingCategory) && req.researchStatus === "pending");
     result.reused += reused.length;
 
     // Recorded even though no search was spent: from the review screen's point of view a reused
@@ -166,14 +219,20 @@ export async function runChartResearch(
     // already-covered brands has done no expensive work and should keep going.
     if (searched >= maxBrands) {
       result.brandsRemaining += 1;
+      result.remainingBrandKeys.push(brandKey);
       continue;
     }
     searched += 1;
+    await options.onBrandStart?.(brandKey);
 
-    console.log(`[sizing research] (${index}/${needed.size}) ${brandName}: searching...`);
+    console.log(
+      `[sizing research] (${index}/${needed.size}) ${brandName}: searching${
+        searchName === brandName ? "" : ` as "${searchName}"`
+      }...`
+    );
     const before = result.written;
     try {
-      await researchOneBrand(connection.id, brandKey, brandName, remaining, market, result);
+      await researchOneBrand(connection.id, brandKey, brandName, searchName, remaining, market, result);
       console.log(
         `[sizing research] (${index}/${needed.size}) ${brandName}: wrote ${result.written - before} chart(s)`
       );
@@ -195,6 +254,14 @@ export async function runChartResearch(
   return result;
 }
 
+/** One brand to research: what the merchant calls it, what to search for, and which categories are
+ *  outstanding. The two names differ whenever the store files a brand under an abbreviation. */
+export interface BrandResearchTarget {
+  brandName: string;
+  searchName: string;
+  requests: CoverageRequest[];
+}
+
 /**
  * Groups a connection's `global`-typed coverage rows by brand, into the doc's Step 0
  * `categories_needed` shape. Pure grouping over an already-classified table — no model call, free.
@@ -205,8 +272,8 @@ export async function runChartResearch(
  */
 export function groupGlobalBrandsNeeded(
   coverage: SizingCoverageRow[]
-): Map<string, { brandName: string; requests: CoverageRequest[] }> {
-  const byBrand = new Map<string, { brandName: string; requests: CoverageRequest[] }>();
+): Map<string, BrandResearchTarget> {
+  const byBrand = new Map<string, BrandResearchTarget>();
 
   for (const row of coverage) {
     if (row.brandType !== "global" || row.brandKey === UNKNOWN_BRAND_KEY) continue;
@@ -214,7 +281,16 @@ export function groupGlobalBrandsNeeded(
 
     let entry = byBrand.get(row.brandKey);
     if (!entry) {
-      entry = { brandName: row.brandName ?? row.brandKey, requests: [] };
+      entry = {
+        brandName: row.brandName ?? row.brandKey,
+        // What the search actually runs on. A store's brand field is whatever their PIM happened to
+        // hold — "CLAUDIE" for Claudie Pierlot, "On Cloud" for On — and searching under that spends a
+        // paid request that can only come back empty, then hands the merchant a chart to hand-fill
+        // that is published on a public website. Falls back to the store's string when classification
+        // predates this or could not name the company.
+        searchName: row.brandCanonicalName ?? row.brandName ?? row.brandKey,
+        requests: [],
+      };
       byBrand.set(row.brandKey, entry);
     }
     if (!entry.requests.some((req) => req.sizingCategory === row.sizingCategory)) {
@@ -256,26 +332,53 @@ export function marketHintFor(storeUrl: string | null | undefined): string {
  * hats" from "the call errored", and those want a retry, a hand-filled template and a retry
  * respectively — so the distinction has to be persisted while it is still known.
  */
+/**
+ * Records that a brand classified `global` publishes no guide after all.
+ *
+ * This is the pipeline's only self-correction, and the reason it belongs here is that research is the
+ * only step with evidence: classification asks a model to recall from a name alone, while this step
+ * actually goes and looks. Before this, a wrong `global` was permanent — the row was marked
+ * `not_found` and left `global`, which meant it sat in Stage 4's "no guide found" list rather than the
+ * manual-fill queue where a house label belongs, and it was re-searched on every pass. Worse, a
+ * re-scan resets `research_status` while deliberately carrying `brand_type` across, so the guess
+ * survived and the evidence did not.
+ *
+ * Demoting to `private` puts it where the merchant can resolve it, stops it costing another search
+ * (`groupGlobalBrandsNeeded` only queues `global`), and — because `brand_type` is the column that
+ * persists — makes the correction the thing that survives the next scan.
+ *
+ * The canonical name is cleared with it. Whatever company the classifier thought this was, the search
+ * for that name came back empty, so keeping it would just aim the next search at the same nothing.
+ */
+async function demoteToPrivate(connectionId: string, brandKey: string): Promise<void> {
+  await setBrandType(connectionId, brandKey, "private", null);
+}
+
 async function researchOneBrand(
   connectionId: string,
   brandKey: string,
   brandName: string,
+  searchName: string,
   requests: CoverageRequest[],
   market: string,
   result: ResearchResult
 ): Promise<void> {
   const allCategories = requests.map((req) => req.sizingCategory);
 
-  const found = await findBrandChart(brandName, market);
+  const found = await findBrandChart(searchName, market);
   if (!found.found || found.tables.length === 0) {
     result.notFound += 1;
-    await setResearchOutcomes(
-      connectionId,
-      brandKey,
-      allCategories,
-      "not_found",
-      "No official size guide for this brand could be found on the web."
-    );
+    result.demoted += 1;
+    await Promise.all([
+      setResearchOutcomes(
+        connectionId,
+        brandKey,
+        allCategories,
+        "not_found",
+        `No size guide for "${searchName}" could be found on the web, so this is being treated as a private label.`
+      ),
+      demoteToPrivate(connectionId, brandKey),
+    ]);
     return;
   }
 
@@ -300,10 +403,16 @@ async function researchOneBrand(
       retryable ? "failed" : "not_found",
       `A guide was found but none of its ${found.tables.length} table(s) could be used: ${rejected[0]?.reason ?? "unknown"}.`
     );
+    // Not demoted, even where this is permanent: a guide *was* located, so the brand is real and
+    // global — what failed is that its published tables are unusable. Calling it a private label
+    // would be a claim about the brand that the evidence contradicts.
     return;
   }
 
-  const normalized = await normalizeTables(brandName, usable, observedLabels(requests));
+  // The canonical name again, not the store's string: this is the second model call, and it is being
+  // told whose tables these are. Log lines above and below stay on `brandName`, which is what the
+  // merchant sees in their own catalog.
+  const normalized = await normalizeTables(searchName, usable, observedLabels(requests));
   if (normalized === null) {
     // Distinct from not_found on purpose: a guide *was* located, so the brand is not a hand-fill
     // candidate — the structuring step is what broke, and that is worth retrying.

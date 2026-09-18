@@ -1,21 +1,21 @@
 import { db } from "@/lib/supabase/server";
 import type { HardRule } from "@/lib/retrieval/types";
-import { parseFieldOverrides, type AcsFieldOverrides } from "@/lib/catalog/option-groups";
+import { parseAcsMapping, type AcsFieldMapping } from "@/lib/catalog/acs-mapping";
 import { hashFieldOverrides } from "@/lib/catalog/acs/field-overrides";
 import type {
   StorePlatform,
   StoreConnectionStatus,
   StoreCategory,
-  CategoryParentMap,
-  MerchantTreeNode,
   SkuParentOverrides,
 } from "@/modules/store/types";
 import {
-  parseSizeType,
-  parseSizeTypeOverrides,
-  type SizeType,
-  type SizeTypeOverrides,
-} from "@/lib/sizing/size-types";
+  PERSONA_TAXONOMY_VERSION,
+  type PersonaCategoryMap,
+  type SerializedTaxonomyScope,
+} from "@/modules/store/mapping/persona-taxonomy";
+import { mappedSourceCategoryIds, parsePersonaCategoryMap, parsePersonaScope } from "@/lib/catalog/persona-mapping";
+import { parseSizeSettings, type SizeSettings } from "@/lib/sizing/size-types";
+import { parseSizingSource, type SizingSource } from "@/lib/sizing/sizing-source";
 
 /**
  * Where the catalog is in its enrichment/embedding lifecycle. Retrieval falls back to the
@@ -29,9 +29,10 @@ import {
  */
 export type CatalogSyncStatus = "idle" | "pending" | "indexing" | "ready" | "error";
 
-/** Whether `selected_category_ids` holds top-level ids the server expands, or the already-expanded
- *  leaf set the category picker writes directly. */
-export type CategorySelectionGranularity = "top_level" | "leaf";
+/** Where a full-catalog CMS column coverage walk is — see `discover-cms-columns.ts`. Distinct
+ *  from `CatalogSyncStatus`: this walk only ever counts and samples columns, never indexes
+ *  anything, so a store can run (or fail, or finish) one independently of ACS sync state. */
+export type CmsColumnDiscoveryStatus = "idle" | "running" | "done" | "error";
 
 /** Raw DB row shape for the `store_connections` table (camelCase, app-facing). */
 export interface StoreConnectionRow {
@@ -42,25 +43,28 @@ export interface StoreConnectionRow {
   apiKeyEncrypted: string | null;
   status: StoreConnectionStatus;
   selectedCategoryIds: string[];
-  /** `leaf` means `selectedCategoryIds` is already the fully expanded set the picker wrote, so
-   *  nothing downstream should re-expand it. `top_level` only survives on rows predating the
-   *  leaf-selection migration. */
-  categorySelectionGranularity: CategorySelectionGranularity;
   categories: StoreCategory[];
-  /** Categories step 2: platform category id to one of the five parent sizing categories. An
-   *  in-scope id missing from here is unmapped, which the Categories tab refuses to leave. */
-  categoryParentMap: CategoryParentMap;
-  /** The Department > Subcategory > Leaf hierarchy the merchant built by hand. Empty on
-   *  WooCommerce, which publishes its own; populated on Shopify, which publishes none. */
-  categoryTree: MerchantTreeNode[];
   /** Stage 2 corrections: product external id to a parent, beating whatever its category path
    *  would give it. The escape hatch for paths that hold more than one kind of garment. */
   skuParentOverrides: SkuParentOverrides;
-  /** Doc Part 2: which sizing system this catalog's size labels are written in. Read through
-   *  `sizeTypeFor`, never directly, so the per-brand exceptions below cannot be skipped. */
-  storeSizeType: SizeType;
-  /** Brand key to sizing system, for the brands whose labels differ from the store default. */
-  storeSizeTypeOverrides: SizeTypeOverrides;
+  personaTaxonomyVersion: number;
+  personaTaxonomyScope: SerializedTaxonomyScope;
+  personaCategoryMap: PersonaCategoryMap;
+  personaMappingUpdatedAt: string | null;
+  /** When AI Auto-Match last successfully classified and saved this store's categories. Null
+   *  means it has never run (or the mapping was cleared since); non-null blocks further runs
+   *  until a clear — see the Mapping page's Auto-Match one-shot rule. */
+  personaAutoMatchCompletedAt: string | null;
+  /** Doc Part 2: which sizing system this catalog's size labels are written in, plus the brands
+   *  whose labels differ from it. Read through `sizeTypeFor`, never directly, so the per-brand
+   *  exceptions cannot be skipped. */
+  storeSizeSettings: SizeSettings;
+  /** Where the charts a shopper is sized against come from — the pipeline's own output, or per-product
+   *  charts the merchant already keeps and bound in Stage 1. */
+  sizingSource: SizingSource;
+  /** When the merchant skipped setup stages 2-5 because their own charts made them redundant; null if
+   *  they never did. Cleared when the size chart binding goes away, since the work is needed again. */
+  sizingStagesSkippedAt: string | null;
   productCount: number;
   syncedAt: string | null;
   hardRules: HardRule[];
@@ -78,16 +82,32 @@ export interface StoreConnectionRow {
   /** The mapper version the approval above was recorded against. A mismatch against the
    *  mapper's current version forces the preview to be re-shown before syncing resumes. */
   acsMapperVersionApproved: number | null;
-  /** Merchant option-group reassignments applied on top of the mapper's built-in name match. */
-  acsFieldOverrides: AcsFieldOverrides;
-  /** Fingerprint of the overrides that were approved. Drifting from a live hash of
-   *  `acsFieldOverrides` reopens the approval gate — see `hasApprovedCurrentMapping`. */
+  /** Which of the merchant's columns feeds each ACS field, plus their declared custom attributes —
+   *  Setup Stage 1's saved answer. Empty means auto-mapping and the built-in name match. */
+  acsFieldMapping: AcsFieldMapping;
+  /** Fingerprint of the mapping that was approved. Drifting from a live hash of `acsFieldMapping`
+   *  reopens the approval gate — see `hasApprovedCurrentMapping`. */
   acsFieldOverridesApprovedHash: string | null;
+  /** Full-catalog CMS column coverage walk state — see `discover-cms-columns.ts`. `idle` means
+   *  Stage 1's column list is still whatever the 25-product sample plus platform-declared schema
+   *  found; `done` means `store_cms_columns` holds real coverage from every product. */
+  cmsColumnDiscoveryStatus: CmsColumnDiscoveryStatus;
+  /** Which of the pager's `groups` (Shopify collection, Woo category chunk) the walk is on. */
+  cmsColumnDiscoveryGroupIndex: number;
+  /** The pager's own opaque cursor within the current group — a Shopify page cursor or a
+   *  WooCommerce page number, exactly as `CatalogPager.fetchPage` returns it. */
+  cmsColumnDiscoveryCursor: string | null;
+  cmsColumnDiscoveryScanned: number;
+  cmsColumnDiscoveryError: string | null;
+  cmsColumnDiscoveryUpdatedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
 function rowToConnection(row: Record<string, unknown>): StoreConnectionRow {
+  const categories = (row.categories as StoreCategory[]) ?? [];
+  const personaTaxonomyScope = parsePersonaScope(row.persona_taxonomy_scope);
+  const personaCategoryMap = parsePersonaCategoryMap(row.persona_category_map, categories);
   return {
     id: row.id as string,
     platform: row.platform as StorePlatform,
@@ -95,15 +115,17 @@ function rowToConnection(row: Record<string, unknown>): StoreConnectionRow {
     storeUrl: row.store_url as string,
     apiKeyEncrypted: (row.api_key_encrypted as string | null) ?? null,
     status: row.status as StoreConnectionStatus,
-    selectedCategoryIds: (row.selected_category_ids as string[]) ?? [],
-    categorySelectionGranularity:
-      (row.category_selection_granularity as CategorySelectionGranularity | null) ?? "leaf",
-    categories: (row.categories as StoreCategory[]) ?? [],
-    categoryParentMap: (row.category_parent_map as CategoryParentMap | null) ?? {},
-    categoryTree: (row.category_tree as MerchantTreeNode[] | null) ?? [],
+    selectedCategoryIds: mappedSourceCategoryIds(personaCategoryMap),
+    categories,
     skuParentOverrides: (row.sku_parent_overrides as SkuParentOverrides | null) ?? {},
-    storeSizeType: parseSizeType(row.store_size_type),
-    storeSizeTypeOverrides: parseSizeTypeOverrides(row.store_size_type_overrides),
+    personaTaxonomyVersion: (row.persona_taxonomy_version as number | null) ?? PERSONA_TAXONOMY_VERSION,
+    personaTaxonomyScope,
+    personaCategoryMap,
+    personaMappingUpdatedAt: (row.persona_mapping_updated_at as string | null) ?? null,
+    personaAutoMatchCompletedAt: (row.persona_auto_match_completed_at as string | null) ?? null,
+    storeSizeSettings: parseSizeSettings(row.store_size_settings),
+    sizingSource: parseSizingSource(row.sizing_source),
+    sizingStagesSkippedAt: (row.sizing_stages_skipped_at as string | null) ?? null,
     productCount: (row.product_count as number) ?? 0,
     syncedAt: (row.synced_at as string | null) ?? null,
     hardRules: (row.hard_rules as HardRule[]) ?? [],
@@ -114,8 +136,14 @@ function rowToConnection(row: Record<string, unknown>): StoreConnectionRow {
     catalogPendingCategoryIds: (row.catalog_pending_category_ids as string[] | null) ?? [],
     acsMappingApprovedAt: (row.acs_mapping_approved_at as string | null) ?? null,
     acsMapperVersionApproved: (row.acs_mapper_version_approved as number | null) ?? null,
-    acsFieldOverrides: parseFieldOverrides(row.acs_field_overrides),
+    acsFieldMapping: parseAcsMapping(row.acs_field_overrides),
     acsFieldOverridesApprovedHash: (row.acs_field_overrides_approved_hash as string | null) ?? null,
+    cmsColumnDiscoveryStatus: (row.cms_column_discovery_status as CmsColumnDiscoveryStatus) ?? "idle",
+    cmsColumnDiscoveryGroupIndex: (row.cms_column_discovery_group_index as number) ?? 0,
+    cmsColumnDiscoveryCursor: (row.cms_column_discovery_cursor as string | null) ?? null,
+    cmsColumnDiscoveryScanned: (row.cms_column_discovery_scanned as number) ?? 0,
+    cmsColumnDiscoveryError: (row.cms_column_discovery_error as string | null) ?? null,
+    cmsColumnDiscoveryUpdatedAt: (row.cms_column_discovery_updated_at as string | null) ?? null,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
   };
@@ -191,8 +219,18 @@ export async function upsertStoreConnection(input: UpsertStoreConnectionInput): 
         store_url: input.storeUrl,
         api_key_encrypted: input.apiKeyEncrypted,
         status: "connected",
-        selected_category_ids: [],
         categories: input.categories ?? [],
+        persona_taxonomy_version: PERSONA_TAXONOMY_VERSION,
+        persona_taxonomy_scope: {
+          configured: false,
+          enabledDeptIds: [],
+          enabledLeafKeys: [],
+          customLeaves: [],
+          customCategories: [],
+        },
+        persona_category_map: {},
+        persona_mapping_updated_at: null,
+        persona_auto_match_completed_at: null,
         product_count: input.productCount ?? 0,
         synced_at: null,
         updated_at: new Date().toISOString(),
@@ -211,14 +249,16 @@ export async function upsertStoreConnection(input: UpsertStoreConnectionInput): 
 }
 
 export interface UpdateStoreConnectionInput {
-  selectedCategoryIds?: string[];
-  categorySelectionGranularity?: CategorySelectionGranularity;
   categories?: StoreCategory[];
-  categoryParentMap?: CategoryParentMap;
-  categoryTree?: MerchantTreeNode[];
   skuParentOverrides?: SkuParentOverrides;
-  storeSizeType?: SizeType;
-  storeSizeTypeOverrides?: SizeTypeOverrides;
+  personaTaxonomyVersion?: number;
+  personaTaxonomyScope?: SerializedTaxonomyScope;
+  personaCategoryMap?: PersonaCategoryMap;
+  personaMappingUpdatedAt?: string | null;
+  personaAutoMatchCompletedAt?: string | null;
+  storeSizeSettings?: SizeSettings;
+  sizingSource?: SizingSource;
+  sizingStagesSkippedAt?: string | null;
   productCount?: number;
   syncedAt?: string | null;
   status?: StoreConnectionStatus;
@@ -235,16 +275,17 @@ export async function updateStoreConnection(
   patch: UpdateStoreConnectionInput
 ): Promise<StoreConnectionRow | null> {
   const dbPatch: Record<string, unknown> = { updated_at: new Date().toISOString() };
-  if (patch.selectedCategoryIds !== undefined) dbPatch.selected_category_ids = patch.selectedCategoryIds;
-  if (patch.categorySelectionGranularity !== undefined)
-    dbPatch.category_selection_granularity = patch.categorySelectionGranularity;
   if (patch.categories !== undefined) dbPatch.categories = patch.categories;
-  if (patch.categoryParentMap !== undefined) dbPatch.category_parent_map = patch.categoryParentMap;
-  if (patch.categoryTree !== undefined) dbPatch.category_tree = patch.categoryTree;
   if (patch.skuParentOverrides !== undefined) dbPatch.sku_parent_overrides = patch.skuParentOverrides;
-  if (patch.storeSizeType !== undefined) dbPatch.store_size_type = patch.storeSizeType;
-  if (patch.storeSizeTypeOverrides !== undefined)
-    dbPatch.store_size_type_overrides = patch.storeSizeTypeOverrides;
+  if (patch.personaTaxonomyVersion !== undefined) dbPatch.persona_taxonomy_version = patch.personaTaxonomyVersion;
+  if (patch.personaTaxonomyScope !== undefined) dbPatch.persona_taxonomy_scope = patch.personaTaxonomyScope;
+  if (patch.personaCategoryMap !== undefined) dbPatch.persona_category_map = patch.personaCategoryMap;
+  if (patch.personaMappingUpdatedAt !== undefined) dbPatch.persona_mapping_updated_at = patch.personaMappingUpdatedAt;
+  if (patch.personaAutoMatchCompletedAt !== undefined)
+    dbPatch.persona_auto_match_completed_at = patch.personaAutoMatchCompletedAt;
+  if (patch.storeSizeSettings !== undefined) dbPatch.store_size_settings = patch.storeSizeSettings;
+  if (patch.sizingSource !== undefined) dbPatch.sizing_source = patch.sizingSource;
+  if (patch.sizingStagesSkippedAt !== undefined) dbPatch.sizing_stages_skipped_at = patch.sizingStagesSkippedAt;
   if (patch.productCount !== undefined) dbPatch.product_count = patch.productCount;
   if (patch.syncedAt !== undefined) dbPatch.synced_at = patch.syncedAt;
   if (patch.status !== undefined) dbPatch.status = patch.status;
@@ -271,20 +312,17 @@ export async function updateStoreConnection(
   return rowToConnection(data);
 }
 
-/** Persists a merchant's option-group reassignments. Deliberately does not touch the approval
- *  columns: the saved overrides now hash differently from the approved hash, which is exactly what
- *  reopens the approval gate. */
-export async function updateAcsFieldOverrides(
-  connectionId: string,
-  overrides: AcsFieldOverrides
-): Promise<boolean> {
+/** Persists a merchant's Stage 1 mapping. Deliberately does not touch the approval columns: the
+ *  saved mapping now hashes differently from the approved hash, which is exactly what reopens the
+ *  approval gate. */
+export async function updateAcsFieldMapping(connectionId: string, mapping: AcsFieldMapping): Promise<boolean> {
   const { error } = await db
     .from("store_connections")
-    .update({ acs_field_overrides: overrides, updated_at: new Date().toISOString() })
+    .update({ acs_field_overrides: mapping, updated_at: new Date().toISOString() })
     .eq("id", connectionId);
 
   if (error) {
-    console.error("[db/store-connections updateAcsFieldOverrides]", error);
+    console.error("[db/store-connections updateAcsFieldMapping]", error);
     return false;
   }
 
@@ -292,12 +330,13 @@ export async function updateAcsFieldOverrides(
 }
 
 /** Records the merchant's approval of the mapping shown in Setup Stage 1, gating indexing.
- *  `mapperVersion` and a hash of the current overrides are stamped alongside, so either a mapper
- *  change on deploy or the merchant editing a role later stops matching and forces a re-approval.
+ *  `mapperVersion` and a hash of the current mapping are stamped alongside, so either a mapper
+ *  change on deploy or the merchant rebinding a column later stops matching and forces a
+ *  re-approval.
  *
- *  The overrides are re-read here rather than passed in by the caller so the hash can never be
- *  stamped against a stale copy: approving what the merchant saw two saves ago would leave the gate
- *  open on a mapping nobody reviewed. */
+ *  The mapping is re-read here rather than passed in by the caller so the hash can never be stamped
+ *  against a stale copy: approving what the merchant saw two saves ago would leave the gate open on a
+ *  mapping nobody reviewed. */
 export async function recordAcsMappingApproval(connectionId: string, mapperVersion: number): Promise<boolean> {
   const current = await getStoreConnectionById(connectionId);
   if (!current) return false;
@@ -307,7 +346,7 @@ export async function recordAcsMappingApproval(connectionId: string, mapperVersi
     .update({
       acs_mapping_approved_at: new Date().toISOString(),
       acs_mapper_version_approved: mapperVersion,
-      acs_field_overrides_approved_hash: hashFieldOverrides(current.acsFieldOverrides),
+      acs_field_overrides_approved_hash: hashFieldOverrides(current.acsFieldMapping),
       updated_at: new Date().toISOString(),
     })
     .eq("id", connectionId);
@@ -345,6 +384,52 @@ export async function updateCatalogSyncState(
   }
 
   return true;
+}
+
+/** Full-catalog CMS column discovery writes come from the background walk (`discover-cms-columns.ts`),
+ *  which — like the catalog sync walk — knows a connection id but has no owner in scope. */
+export async function updateCmsColumnDiscoveryState(
+  connectionId: string,
+  patch: {
+    status?: CmsColumnDiscoveryStatus;
+    groupIndex?: number;
+    cursor?: string | null;
+    scanned?: number;
+    error?: string | null;
+  }
+): Promise<boolean> {
+  const dbPatch: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+    cms_column_discovery_updated_at: new Date().toISOString(),
+  };
+  if (patch.status !== undefined) dbPatch.cms_column_discovery_status = patch.status;
+  if (patch.groupIndex !== undefined) dbPatch.cms_column_discovery_group_index = patch.groupIndex;
+  if (patch.cursor !== undefined) dbPatch.cms_column_discovery_cursor = patch.cursor;
+  if (patch.scanned !== undefined) dbPatch.cms_column_discovery_scanned = patch.scanned;
+  if (patch.error !== undefined) dbPatch.cms_column_discovery_error = patch.error;
+
+  const { error } = await db.from("store_connections").update(dbPatch).eq("id", connectionId);
+
+  if (error) {
+    console.error("[db/store-connections updateCmsColumnDiscoveryState]", error);
+    return false;
+  }
+
+  return true;
+}
+
+/** Stores with a full-catalog column walk waiting for the worker's next tick. */
+export async function listConnectionsByCmsColumnDiscoveryStatus(
+  status: CmsColumnDiscoveryStatus
+): Promise<StoreConnectionRow[]> {
+  const { data, error } = await db.from("store_connections").select("*").eq("cms_column_discovery_status", status);
+
+  if (error) {
+    console.error("[db/store-connections listConnectionsByCmsColumnDiscoveryStatus]", error);
+    return [];
+  }
+
+  return (data ?? []).map(rowToConnection);
 }
 
 /** Every connected store, for the scheduled reconciliation pass — which runs per connection

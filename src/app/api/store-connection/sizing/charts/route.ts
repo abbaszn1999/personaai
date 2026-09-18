@@ -1,11 +1,59 @@
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
 import { listSizingCoverage, setResearchOutcomes } from "@/lib/db/sizing-coverage";
-import { upsertChart } from "@/lib/db/sizing-charts";
+import { listChartsForBrands, upsertChart } from "@/lib/db/sizing-charts";
+import { getLatestSizingRun } from "@/lib/db/sizing-runs";
+import { buildChartResults, buildBrandResearch } from "@/lib/sizing/chart-results";
 import { parseDraft, type ChartDraftRow } from "@/lib/sizing/chart-draft";
 import { chartHasBounds, isChartRegion } from "@/lib/sizing/chart-schema";
 import { isSizingGroup } from "@/lib/sizing/measurements";
 import { isAudience, normalizeBrandKey, UNKNOWN_BRAND_KEY } from "@/lib/sizing/keys";
+
+/**
+ * Stage 4's whole surface: the coverage-driven chart and gap join, plus one row per global brand at
+ * the grain the Generate button works on.
+ *
+ * This route was missing, which the Stage 4 UI had been calling since it was written — every load
+ * came back 405 and the screen showed an empty registry beside real coverage. The brand rows are
+ * computed here rather than in the component because they depend on the run's live research scope,
+ * which the client has no other way to join against.
+ */
+export async function GET() {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const connection = await getStoreConnectionByOwner(user.id);
+    if (!connection) {
+      return Response.json({ error: "Store connection not found" }, { status: 404 });
+    }
+
+    const [coverage, run] = await Promise.all([
+      listSizingCoverage(connection.id),
+      getLatestSizingRun(connection.id),
+    ]);
+
+    // Read for every brand in coverage, not only the global ones: a merchant's hand-filled chart for
+    // a private label is a chart, and omitting it would leave the gap it closed on the screen.
+    const brandKeys = [...new Set(coverage.map((row) => row.brandKey))];
+    const charts = await listChartsForBrands(connection.id, brandKeys);
+
+    const results = buildChartResults(coverage, charts);
+    const brands = buildBrandResearch(coverage, charts, {
+      // Only while research is the live stage. A scope left on a run that has moved past research is
+      // spent, and reading it would show brands as Queued forever.
+      scopedBrandKeys: run?.stage === "research" ? run.researchBrandKeys : [],
+      currentBrandKey: run?.stage === "research" ? run.researchCurrentBrandKey : null,
+    });
+
+    return Response.json({ ...results, brands });
+  } catch (err) {
+    console.error("[store-connection sizing/charts GET]", err);
+    return Response.json({ error: "Could not load the researched charts" }, { status: 500 });
+  }
+}
 
 /**
  * Doc Part 4 — the merchant's own size chart, for stock no research could reach.

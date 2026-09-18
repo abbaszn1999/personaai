@@ -17,6 +17,7 @@ function coverage(overrides: Partial<SizingCoverageRow> = {}): SizingCoverageRow
     brandKey: "nike",
     brandName: "Nike",
     brandType: "global",
+    brandCanonicalName: null,
     sizingCategory: "tops",
     skuCount: 10,
     storeCategoryPaths: [["Clothing"]],
@@ -102,6 +103,18 @@ describe("buildChartResults", () => {
     );
 
     expect(result.notFound[0].reason).toBe("Private label — no public chart exists to find");
+  });
+
+  // A brand research demoted, rather than one the classifier called a house label to begin with. Both
+  // hand-fill, but telling a merchant that a name they recognise is their own "private label" reads as
+  // a classification bug when it is in fact the classification having been corrected.
+  it("distinguishes a brand demoted by research from a merchant's own label", () => {
+    const result = buildChartResults(
+      [coverage({ brandKey: "haus", brandName: "Haus", brandType: "private", researchStatus: "not_found" })],
+      []
+    );
+
+    expect(result.notFound[0].reason).toBe("Searched and no public guide exists — hand-fill this one");
   });
 
   it("routes the unbranded sentinel to its own list, grouped by category", () => {

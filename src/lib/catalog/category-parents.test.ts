@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCategoryIndex,
+  MAIN_CATEGORY,
   mappableCategoryIds,
   parseCategoryParentMap,
   parseSkuParentOverrides,
@@ -116,6 +117,41 @@ describe("mappableCategoryIds", () => {
     // itself is what the merchant has to map.
     expect(mappableCategoryIds(["sale"], index)).toEqual(["sale"]);
   });
+
+  it("adds a branch back once its own leaves have disagreed", () => {
+    // The case that cost one store 2,200 of 5,400 products. Bikini tops went to Tops and trunks to
+    // Bottoms, so `Swimwear` has nothing to inherit — and anything filed straight onto it, rather
+    // than onto either leaf, was leaving sizing with nobody ever being asked about it.
+    const selected = ["swim", "bikini-tops", "trunks"];
+    const map = { "bikini-tops": "tops", trunks: "bottoms" };
+
+    expect(mappableCategoryIds(selected, index, map).sort()).toEqual(["bikini-tops", "swim", "trunks"]);
+  });
+
+  it("leaves the branch out while its leaves agree", () => {
+    // Both leaves under `Tops` say Tops, so products on the branch inherit that and asking about it
+    // would be the same question a third time.
+    const selected = ["tops", "tshirts", "blouses"];
+    const map = { tshirts: "tops", blouses: "tops" };
+
+    expect(mappableCategoryIds(selected, index, map).sort()).toEqual(["blouses", "tshirts"]);
+  });
+
+  it("does not ask about a branch before its leaves have been answered", () => {
+    // An unanswered branch over unanswered leaves is not yet a question — it is the same question as
+    // its leaves. Asking up front would put every interior term of the tree on the grid.
+    expect(mappableCategoryIds(["swim", "bikini-tops", "trunks"], index, {}).sort()).toEqual([
+      "bikini-tops",
+      "trunks",
+    ]);
+  });
+
+  it("leaves the branch out once the merchant has answered it", () => {
+    const selected = ["swim", "bikini-tops", "trunks"];
+    const map = { "bikini-tops": "tops", trunks: "bottoms", swim: "dresses" };
+
+    expect(mappableCategoryIds(selected, index, map)).not.toContain("swim");
+  });
 });
 
 describe("suggestParentCategory", () => {
@@ -215,5 +251,92 @@ describe("unmappedCategoryIds", () => {
     const map = { tshirts: "tops", blouses: "tops" };
 
     expect(unmappedCategoryIds(["tops", "tshirts", "blouses"], map, index)).toEqual([]);
+  });
+
+  it("blocks on a branch its leaves cannot answer for", () => {
+    // Answering every leaf is not enough when the answers disagree: the products sitting on the
+    // branch itself still have no parent, and letting the merchant continue is what hid that.
+    const selected = ["swim", "bikini-tops", "trunks"];
+    const map = { "bikini-tops": "tops", trunks: "bottoms" };
+
+    expect(unmappedCategoryIds(selected, map, index)).toEqual(["swim"]);
+  });
+
+  it("clears once that branch is answered too, without disturbing its leaves", () => {
+    const selected = ["swim", "bikini-tops", "trunks"];
+    const map = { "bikini-tops": "tops", trunks: "bottoms", swim: "dresses" };
+
+    expect(unmappedCategoryIds(selected, map, index)).toEqual([]);
+    // The branch answer covers only products filed directly on it; a product on a leaf keeps the
+    // leaf's answer, which is more specific.
+    expect(resolveParentCategory(["swim"], map, index)).toBe("dresses");
+    expect(resolveParentCategory(["swim", "trunks"], map, index)).toBe("bottoms");
+  });
+});
+
+/**
+ * The container answer, for a branch that genuinely holds several kinds of garment.
+ *
+ * `Swimwear` here stands in for the real case: a `Women > Clothing` term on one store holds 1,185
+ * products whose only category is that term, and among the first fifteen are a t-shirt, a knit maxi
+ * dress, wide-leg trousers and a tweed jacket. No single parent is right for them, so the merchant
+ * says the path is a container and they stay out of sizing rather than being sized wrongly.
+ */
+describe("MAIN_CATEGORY", () => {
+  const selected = ["swim", "bikini-tops", "trunks"];
+
+  it("stops the merchant being blocked by a path that has no right answer", () => {
+    const map = { "bikini-tops": "tops", trunks: "bottoms", swim: MAIN_CATEGORY };
+
+    expect(unmappedCategoryIds(selected, map, index)).toEqual([]);
+  });
+
+  it("gives a product filed only on the container no parent at all", () => {
+    const map = { "bikini-tops": "tops", trunks: "bottoms", swim: MAIN_CATEGORY };
+
+    expect(resolveParentCategory(["swim"], map, index)).toBeNull();
+  });
+
+  it("does not stop a product also filed on a leaf from taking the leaf's answer", () => {
+    const map = { "bikini-tops": "tops", trunks: "bottoms", swim: MAIN_CATEGORY };
+
+    expect(resolveParentCategory(["swim", "trunks"], map, index)).toBe("bottoms");
+  });
+
+  it("is not overridden by leaves that happen to agree", () => {
+    // The answer has to short-circuit rather than fall through. Both leaves saying Tops would
+    // otherwise hand every product on the branch a parent the merchant explicitly declined.
+    const map = { "bikini-tops": "tops", trunks: "tops", swim: MAIN_CATEGORY };
+
+    expect(resolveParentCategory(["swim"], map, index)).toBeNull();
+  });
+
+  it("keeps its row on the grid even once its leaves agree", () => {
+    // So the merchant can still see and change the answer. Dropping the row would leave it applying
+    // invisibly, which is the failure mode this whole screen exists to remove.
+    const map = { "bikini-tops": "tops", trunks: "tops", swim: MAIN_CATEGORY };
+
+    expect(mappableCategoryIds(selected, index, map)).toContain("swim");
+  });
+
+  it("stops an unmapped sub-category reaching past it to a mapped grandparent", () => {
+    // `Swimwear` is the container; `Bikini Tops` was never answered. Inheriting `Women`'s parent
+    // would size it as a dress on the strength of a term two levels up.
+    const map = { women: "dresses", swim: MAIN_CATEGORY };
+
+    expect(resolveParentCategory(["bikini-tops"], map, index)).toBeNull();
+  });
+
+  it("survives the round trip through the wire, unlike a value naming no parent at all", () => {
+    expect(parseCategoryParentMap({ swim: MAIN_CATEGORY, tshirts: "tops", sale: "swimwear" })).toEqual({
+      swim: MAIN_CATEGORY,
+      tshirts: "tops",
+    });
+  });
+
+  it("is never accepted as a product-level override", () => {
+    // A container describes a category in the merchant's taxonomy. An individual product is one
+    // garment, so it always has a parent — the answer to it being wrong is a different parent.
+    expect(parseSkuParentOverrides({ p1: MAIN_CATEGORY, p2: "tops" })).toEqual({ p2: "tops" });
   });
 });

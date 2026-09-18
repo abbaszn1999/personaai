@@ -7,7 +7,7 @@ import { isSizingGroup, type SizingGroup } from "./measurements";
  * and re-researches charts that were already paid for.
  */
 
-/** Sentinel `brand_key` for the doc's `null_records` — rows where no brand could be identified.
+/** Sentinel `brand_key` for the doc's `null_records` — rows where the mapped brand field is empty.
  *
  *  An empty string rather than SQL NULL, because Postgres unique constraints treat NULLs as
  *  distinct from each other: a nullable `brand_key` would let one unbranded coverage row per scan

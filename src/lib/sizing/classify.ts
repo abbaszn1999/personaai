@@ -1,189 +1,174 @@
 import { getPlatformGeminiClient, GeminiApiError } from "@/lib/ai/gemini";
 import type { StoreConnectionRow } from "@/lib/db/store-connections";
-import {
-  getGlobalBrandKeys,
-  listSizingCoverage,
-  setBrandType,
-  type BrandType,
-} from "@/lib/db/sizing-coverage";
+import { listSizingCoverage, setBrandType, type BrandType } from "@/lib/db/sizing-coverage";
 import { UNKNOWN_BRAND_KEY } from "./keys";
 
 /**
- * Decides, per distinct brand, whether a public size chart is worth going to look for.
+ * Stage 3's complete decision:
  *
- * This is the step that decides where every later dollar goes. `global` brands route to a paid web
- * search that is paid for once per brand and reused across stores; `private` labels and unbranded
- * stock route to manual filling, which costs the merchant time and us nothing. Classifying a private
- * label as global buys a research request that can only come back empty; classifying a real brand as
- * private makes a merchant hand-type a chart that was freely available.
+ * 1. Scan coverage contains the mapped brand field exactly as the store supplied it.
+ * 2. Empty fields are marked `none` without involving a model.
+ * 3. Every distinct non-empty brand in the selected, sized catalog is sent to Gemini together.
+ * 4. The one response splits that list into `global_brands` and `private_brands`.
  *
- * Cost scales with distinct brand *strings*, not products and not coverage rows. A brand spanning 50
- * categories and 20,000 SKUs is one decision, applied deterministically to all of it.
+ * There is no product-level brand inference and no per-brand request. Products already carry their
+ * brand; Gemini only decides which of the two routing buckets each distinct name belongs to.
  */
 
-const CLASSIFY_MODEL = process.env.SIZING_CLASSIFY_MODEL ?? "gemini-3.6-flash";
+const CLASSIFY_MODEL = process.env.SIZING_CLASSIFY_MODEL ?? "gemini-3.7-flash";
 
-/** Brands per model call. Large enough that a typical store is a single request, small enough that
- *  one malformed response never costs the whole catalog's classification. */
-const CLASSIFY_CHUNK = 80;
+export interface BrandVerdict {
+  brandType: Extract<BrandType, "global" | "private">;
+}
 
 export interface ClassificationResult {
-  /** Distinct brands whose type was written this run. */
+  /** Distinct non-empty brands classified by the single request. */
   classified: number;
-  /** Brands that skipped the model because another store had already established they are global. */
-  reused: number;
   global: number;
   private: number;
-  /** 1 when this store has unbranded stock, since that collapses to a single sentinel brand. */
+  /** 1 when this store has any Null / No brand stock; it is one sentinel in coverage. */
   none: number;
 }
 
-/**
- * Classifies every brand in a store's coverage that does not already have a type.
- *
- * Idempotent and resumable: rows already carrying a type are skipped, so a re-run after a failure
- * pays only for what is still `unclassified`, and `replaceSizingCoverage` deliberately carries types
- * across a re-scan for the same reason.
- */
 export async function runBrandClassification(connection: StoreConnectionRow): Promise<ClassificationResult> {
   const coverage = await listSizingCoverage(connection.id);
-
-  // Deduplicated to distinct brands: coverage is one row per brand *per category*, and the model is
-  // asked once per brand.
-  const pending = new Map<string, string>();
+  const named = new Map<string, string>();
   let hasUnbranded = false;
 
+  // Coverage has one row per brand x sizing category. Collapse that to one entry per brand before
+  // the request, so Nike spanning five categories appears once in the input and one verdict updates
+  // all five rows.
   for (const row of coverage) {
     if (row.brandKey === UNKNOWN_BRAND_KEY) {
       hasUnbranded = true;
       continue;
     }
+    // A rescan preserves settled classifications. Only send genuinely unanswered brands back to
+    // Gemini: reclassifying all established brands wastes a model call and, more importantly, turns
+    // a retry after one failed database write into ninety writes instead of the one still owed.
     if (row.brandType !== "unclassified") continue;
-    if (!pending.has(row.brandKey)) pending.set(row.brandKey, row.brandName ?? row.brandKey);
+    if (!named.has(row.brandKey)) named.set(row.brandKey, row.brandName ?? row.brandKey);
   }
 
-  const result: ClassificationResult = { classified: 0, reused: 0, global: 0, private: 0, none: 0 };
+  const result: ClassificationResult = {
+    classified: 0,
+    global: 0,
+    private: 0,
+    none: hasUnbranded ? 1 : 0,
+  };
 
-  // Unbranded stock is not a judgement call and never goes to a model — there is no name to reason
-  // about. It is marked `none` rather than left `unclassified` because routing reads this column
-  // directly, and the two are not the same thing: `none` means "manual fill, grouped by category",
-  // while `unclassified` would fall through to the paid research queue.
+  // Null is a fact from the mapped catalog field, not a classification. It never goes into Gemini.
   if (hasUnbranded) {
-    await setBrandType(connection.id, UNKNOWN_BRAND_KEY, "none");
-    result.none = 1;
+    const saved = await setBrandType(connection.id, UNKNOWN_BRAND_KEY, "none", null);
+    if (!saved) throw new Error("Could not save the no-brand classification.");
   }
 
-  if (pending.size === 0) return result;
+  const entries = [...named.entries()];
+  if (entries.length === 0) return result;
 
-  // Cross-store reuse, and only for `global`. That a brand is a real manufacturer with a public size
-  // guide is objective and store-independent, so the second store selling Nike inherits the answer
-  // for free. `private` is deliberately never reused: two merchants can carry unrelated house labels
-  // under the same name, and inheriting that would hand one merchant's chart decision to another.
-  const alreadyGlobal = await getGlobalBrandKeys([...pending.keys()]);
-  for (const brandKey of alreadyGlobal) {
-    if (!pending.has(brandKey)) continue;
-    await setBrandType(connection.id, brandKey, "global");
-    pending.delete(brandKey);
-    result.reused += 1;
-    result.global += 1;
-    result.classified += 1;
-  }
-
-  const store = storeContextFor(connection);
-
-  const entries = [...pending.entries()];
-  for (let i = 0; i < entries.length; i += CLASSIFY_CHUNK) {
-    const chunk = entries.slice(i, i + CLASSIFY_CHUNK);
-    const verdicts = await classifyBrandNames(
-      chunk.map(([, name]) => name),
-      store
+  const names = entries.map(([, name]) => name);
+  const verdicts = await classifyCatalogBrands(names, storeContextFor(connection));
+  const unanswered = verdicts.reduce<number[]>((missing, verdict, index) => {
+    if (!verdict) missing.push(index);
+    return missing;
+  }, []);
+  if (unanswered.length > 0) {
+    // The contract says every input appears exactly once. Treat a partial answer as a failed single
+    // request instead of publishing a half-classified Stage 2 and quietly routing the rest nowhere.
+    throw new GeminiApiError(
+      `Brand classification omitted or duplicated ${unanswered.length} of ${names.length} brand(s).`
     );
+  }
 
-    for (const [index, [brandKey]] of chunk.entries()) {
-      const verdict = verdicts[index];
-      // No verdict means the model returned nothing usable for this brand. Left `unclassified`
-      // rather than defaulted: guessing `global` spends money on a search for a shop's own label,
-      // and guessing `private` makes a merchant hand-fill a chart that exists publicly. An
-      // unclassified row surfaces in the UI as needing a look, which is the honest outcome.
-      if (!verdict) continue;
+  const failedWrites: string[] = [];
+  for (const [index, [brandKey, brandName]] of entries.entries()) {
+    const verdict = verdicts[index];
+    // Proved by the complete-response check above.
+    if (!verdict) continue;
 
-      await setBrandType(connection.id, brandKey, verdict);
-      result.classified += 1;
-      if (verdict === "global") result.global += 1;
-      else if (verdict === "private") result.private += 1;
+    // Research needs a name for global brands; with the requested two-array response the exact
+    // catalog string is that name. Private labels deliberately keep no canonical company name.
+    const saved = await setBrandType(
+      connection.id,
+      brandKey,
+      verdict.brandType,
+      verdict.brandType === "global" ? brandName : null
+    );
+    if (!saved) {
+      failedWrites.push(brandName);
+      continue;
     }
+    result.classified += 1;
+    if (verdict.brandType === "global") result.global += 1;
+    else result.private += 1;
+  }
+
+  // A model response is not a completed classification until every verdict is persisted. The old
+  // code ignored setBrandType's boolean, advanced the run to research, and left the failed brands
+  // permanently `unclassified`. Failing the run keeps Stage 2 blocked and makes the retry explicit.
+  if (failedWrites.length > 0) {
+    throw new Error(
+      `Could not save classifications for ${failedWrites.length} brand(s): ${failedWrites.join(", ")}.`
+    );
   }
 
   return result;
 }
 
-/**
- * The storefront the brand names came from, as one line for the prompt.
- *
- * The rules below lean on a house label "often containing the shop's own name" — a signal the model
- * was never actually given, which is how a bare name like "Haus" comes back `unknown` and strands
- * its products in a queue nothing drains. The store's name and domain are the cheapest evidence
- * there is for that judgement, and both are already on the connection.
- */
 function storeContextFor(connection: StoreConnectionRow): string {
   let domain = connection.storeUrl;
   try {
     domain = new URL(connection.storeUrl).hostname;
   } catch {
-    // A stored URL that will not parse is still worth showing verbatim.
+    // A stored URL that will not parse is still useful context verbatim.
   }
   return `The catalog belongs to "${connection.storeName}" at ${domain}.`;
 }
 
 const CLASSIFY_INSTRUCTIONS = [
-  "You are classifying brand names taken from one online clothing store's catalog.",
+  "Classify the complete brand list from one fashion store catalog.",
   "",
-  'For each name, answer "global" or "private":',
-  '- "global" — an established brand sold through many retailers, whose official size guide is published',
-  "  on its own website. Nike, Zara, Levi's, Uniqlo, Carhartt, Fjällräven.",
-  '- "private" — a house label, own-brand, or small store-specific line with no publicly published',
-  "  size guide. Often contains the shop's own name, or reads like one shop's invention.",
+  "Return exactly two arrays:",
+  '- `global_brands`: independently established third-party brands, including niche, regional, luxury, and mass-market brands.',
+  '- `private_brands`: the storefront\'s own label, a store-exclusive house label, or an unrecognisable local label.',
   "",
   "Rules:",
-  "- Judge the brand, not the product. You are not told what the store sells.",
-  "- A brand being small or regional does not make it private. What matters is whether an official",
-  "  size guide is published somewhere you could find it.",
-  "- A name echoing the storefront named below — its shop name, its domain, or a word from either —",
-  "  is a house label, even when the name alone would look like a real brand.",
-  '- If you genuinely cannot tell, answer "unknown". Do not guess. A wrong "global" wastes a paid',
-  '  search; a wrong "private" makes a shop owner hand-type a chart that already exists.',
-  "- Return one entry per input name, in the same order, and nothing else.",
+  "- Every input brand must appear exactly once across the two arrays.",
+  "- Copy each input string exactly. Do not rename, normalize, expand or invent brands.",
+  "- Judge the brand name, not individual products.",
+  "- A name matching the storefront name or domain is a private brand.",
+  "- Do not require worldwide scale or broad retailer distribution for global_brands.",
+  "- Recognisable shortened or stylised names remain global; for example CLAUDIE (Claudie Pierlot) and ba&sh are global.",
+  "- If a label is not recognisable as an independent established brand, classify it as private.",
+  "- Return only the JSON object.",
 ].join("\n");
 
 const CLASSIFY_SCHEMA = {
   type: "object",
   properties: {
-    brands: {
+    global_brands: {
       type: "array",
-      items: {
-        type: "object",
-        properties: {
-          name: { type: "string" },
-          type: { type: "string", enum: ["global", "private", "unknown"] },
-        },
-        required: ["name", "type"],
-        additionalProperties: false,
-      },
+      items: { type: "string" },
+    },
+    private_brands: {
+      type: "array",
+      items: { type: "string" },
     },
   },
-  required: ["brands"],
+  required: ["global_brands", "private_brands"],
   additionalProperties: false,
 } as const;
 
 /**
- * One model call for a batch of brand names.
+ * The only LLM call in brand identification/classification.
  *
- * Returns a verdict per input position, with `null` wherever the model declined or the response did
- * not line up. Position rather than name matching, because the model echoing a name back slightly
- * altered ("Levis" for "Levi's") would otherwise silently drop that brand — while the *order* is
- * something the schema and instructions both pin down.
+ * The request contains the complete distinct non-empty brand list for the selected, sized catalog.
+ * Its response is the two arrays the product specifies; Null / No brand SKUs bypass this function.
  */
-async function classifyBrandNames(names: string[], store: string): Promise<Array<BrandType | null>> {
+async function classifyCatalogBrands(
+  names: string[],
+  store: string
+): Promise<Array<BrandVerdict | null>> {
   if (names.length === 0) return [];
 
   const ai = getPlatformGeminiClient();
@@ -192,7 +177,7 @@ async function classifyBrandNames(names: string[], store: string): Promise<Array
     "",
     `Storefront: ${store}`,
     "",
-    `Brand names:\n${names.map((name, i) => `${i + 1}. ${name}`).join("\n")}`,
+    `All catalog brands:\n${names.map((name) => `- ${name}`).join("\n")}`,
   ].join("\n");
 
   let text: string | undefined;
@@ -203,31 +188,31 @@ async function classifyBrandNames(names: string[], store: string): Promise<Array
       config: {
         responseMimeType: "application/json",
         responseJsonSchema: CLASSIFY_SCHEMA,
-        // Classification should be reproducible: the same catalog reclassified should not drift
-        // between global and private because of sampling.
         temperature: 0,
       },
     });
     text = response.text?.trim();
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Brand classification failed.";
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Brand classification failed.";
     throw new GeminiApiError(message);
   }
 
   if (!text) return names.map(() => null);
+  return parseClassification(text, names);
+}
 
-  return parseClassification(text, names.length);
+function comparable(value: string): string {
+  return value.trim().toLocaleLowerCase();
 }
 
 /**
- * Reads the model's response into a fixed-length verdict list.
+ * Maps the two returned arrays back to input order.
  *
- * Tolerant by design — a short, over-long or partly malformed response degrades the brands it failed
- * to cover to `null` (left unclassified, surfaced to the merchant) rather than throwing away the
- * batch's good answers.
+ * Name matching is case-insensitive only for resilience, while the stored value stays the exact
+ * catalog string. A missing or duplicated-across-buckets name is null, never silently defaulted.
  */
-export function parseClassification(text: string, expected: number): Array<BrandType | null> {
-  const verdicts: Array<BrandType | null> = Array(expected).fill(null);
+export function parseClassification(text: string, names: readonly string[]): Array<BrandVerdict | null> {
+  const verdicts: Array<BrandVerdict | null> = names.map(() => null);
 
   let parsed: unknown;
   try {
@@ -237,16 +222,28 @@ export function parseClassification(text: string, expected: number): Array<Brand
     return verdicts;
   }
 
-  const brands = (parsed as { brands?: unknown })?.brands;
-  if (!Array.isArray(brands)) {
-    console.error("[sizing classify] response had no brands array");
+  const response = parsed as { global_brands?: unknown; private_brands?: unknown };
+  if (!Array.isArray(response.global_brands) || !Array.isArray(response.private_brands)) {
+    console.error("[sizing classify] response did not contain both brand arrays");
     return verdicts;
   }
 
-  for (let i = 0; i < Math.min(expected, brands.length); i++) {
-    const type = (brands[i] as { type?: unknown })?.type;
-    if (type === "global" || type === "private") verdicts[i] = type;
-  }
+  const global = response.global_brands
+    .filter((value): value is string => typeof value === "string")
+    .map(comparable);
+  const privateLabels = response.private_brands
+    .filter((value): value is string => typeof value === "string")
+    .map(comparable);
+
+  names.forEach((name, index) => {
+    const key = comparable(name);
+    const globalCount = global.filter((value) => value === key).length;
+    const privateCount = privateLabels.filter((value) => value === key).length;
+    if (globalCount + privateCount !== 1) return;
+    verdicts[index] = {
+      brandType: globalCount === 1 ? "global" : "private",
+    };
+  });
 
   return verdicts;
 }

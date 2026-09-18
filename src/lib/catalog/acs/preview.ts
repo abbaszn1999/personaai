@@ -1,8 +1,9 @@
 import type { StoreConnectionRow } from "@/lib/db/store-connections";
 import { decodeCredentials } from "@/lib/utils/crypto";
-import { normalizeWordPressUrl, listWooCatalogPage } from "@/lib/woocommerce/client";
-import { getShopifyAccessToken, listShopifyCatalogPage } from "@/lib/shopify/client";
+import { normalizeWordPressUrl, listWooCatalogPage, getWordPressBrands } from "@/lib/woocommerce/client";
+import { getShopifyAccessToken, listShopifyCatalogPage, getShopifyVendors } from "@/lib/shopify/client";
 import type { RawCatalogProduct } from "@/lib/catalog/sync-types";
+import { boundMetafieldKeys } from "@/lib/catalog/acs-mapping";
 import { resolveCategoryPaths, resolveGarmentCategory } from "@/lib/catalog/index-product";
 import { rawCatalogProductToAcsProduct, type MapProductInput } from "./map-product";
 import type { AcsProduct } from "./types";
@@ -31,7 +32,8 @@ export interface MappingPreviewRow {
 export async function fetchSampleRawProducts(
   connection: StoreConnectionRow,
   categoryIds: string[],
-  sampleSize: number = PREVIEW_SAMPLE_SIZE
+  sampleSize: number = PREVIEW_SAMPLE_SIZE,
+  options: { discoverCustomFields?: boolean } = {}
 ): Promise<RawCatalogProduct[]> {
   if (!connection.apiKeyEncrypted) return [];
 
@@ -41,6 +43,12 @@ export async function fetchSampleRawProducts(
     const { products } = await listShopifyCatalogPage(connection.storeUrl, token, {
       pageSize: sampleSize,
       categoryIds: categoryIds.length > 0 ? categoryIds : undefined,
+      // A sample is worth reading metafields for two different reasons. Discovery wants everything
+      // there is, so a merchant can see which of their metafields exist before binding one; the
+      // mapping preview wants only what is bound, because it has to show exactly what the index will
+      // send. Both are one small page, so neither pays the walk's cost.
+      metafieldKeys: boundMetafieldKeys(connection.acsFieldMapping),
+      discoverCustomFields: options.discoverCustomFields,
     });
     return products.slice(0, sampleSize);
   }
@@ -54,6 +62,39 @@ export async function fetchSampleRawProducts(
       categoryIds: categoryIds.length > 0 ? categoryIds : undefined,
     });
     return products.slice(0, sampleSize);
+  }
+
+  return [];
+}
+
+/**
+ * Every brand the store itself knows about, from whichever index the platform keeps — Woo's
+ * `product_brand` terms, Shopify's vendor list.
+ *
+ * Read from the platform rather than counted off the sampled products because the sample is 25 rows:
+ * a boutique carrying forty labels would be offered four of them, which is what this replaced. Both
+ * platforms maintain the list already, so it costs one cheap request instead of a catalog walk.
+ *
+ * Degrades to an empty list on failure. It feeds an optional control, and the caller unions this with
+ * the brands read off the sample, so a store whose brand lives somewhere non-standard still gets the
+ * brands it can actually see.
+ */
+export async function fetchStoreBrandNames(connection: StoreConnectionRow): Promise<string[]> {
+  if (!connection.apiKeyEncrypted) return [];
+
+  try {
+    if (connection.platform === "shopify") {
+      const { clientId, clientSecret } = decodeCredentials(connection.apiKeyEncrypted);
+      const token = await getShopifyAccessToken(connection.storeUrl, clientId, clientSecret, connection.id);
+      return await getShopifyVendors(connection.storeUrl, token);
+    }
+
+    if (connection.platform === "wordpress" || connection.platform === "woocommerce") {
+      const { wpUsername, wpAppPassword } = decodeCredentials(connection.apiKeyEncrypted);
+      return await getWordPressBrands(normalizeWordPressUrl(connection.storeUrl), wpUsername, wpAppPassword);
+    }
+  } catch (err) {
+    console.error("[preview fetchStoreBrandNames]", err);
   }
 
   return [];
@@ -85,7 +126,7 @@ export async function buildMappingPreview(
       sourceCategoryIds: withMembership.sourceCategoryIds,
       // Without this the preview would show the built-in mapping while the index used the
       // merchant's overrides — the exact disagreement this whole surface exists to prevent.
-      fieldOverrides: connection.acsFieldOverrides,
+      fieldMapping: connection.acsFieldMapping,
     };
 
     return { raw, mapped: rawCatalogProductToAcsProduct(input) };

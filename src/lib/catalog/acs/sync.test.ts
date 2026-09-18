@@ -29,7 +29,9 @@ function raw(overrides: Partial<RawCatalogProduct> = {}): RawCatalogProduct {
     imageUrl: null,
     images: [],
     variantOptions: {},
+    customFields: {},
     updatedAt: null,
+    variants: [],
     ...overrides,
   };
 }
@@ -139,9 +141,31 @@ describe("acs/sync — dynamic attribute registration", () => {
       sourceCategoryIds: ["cat-1"],
     });
 
-    expect(attributesConfig.ensureDynamicAttributeRegistered).toHaveBeenCalledWith("opt_fit");
-    expect(attributesConfig.ensureDynamicAttributeRegistered).toHaveBeenCalledWith("opt_style");
+    expect(attributesConfig.ensureDynamicAttributeRegistered).toHaveBeenCalledWith("opt_fit", "TEXTUAL");
+    expect(attributesConfig.ensureDynamicAttributeRegistered).toHaveBeenCalledWith("opt_style", "TEXTUAL");
     expect(attributesConfig.ensureDynamicAttributeRegistered).toHaveBeenCalledTimes(2);
+  });
+
+  it("registers a merchant-declared numeric attribute as NUMERICAL, which is what makes a range filter work", async () => {
+    // A number-typed attribute registered as text sorts "10" before "7.5", so the type has to travel
+    // all the way to the catalog schema rather than stopping at the payload.
+    await syncProductToAcs({
+      raw: raw({ customFields: { "meta.heel": "7.5" } }),
+      connectionId: "11111111-1111-1111-1111-111111111111",
+      categoryPaths: [["Men"]],
+      garmentCategory: null,
+      garmentSubcategory: null,
+      sourceCategoryIds: ["cat-1"],
+      fieldMapping: {
+        sources: {},
+        optionRoles: {},
+        customAttributes: [
+          { key: "heel_height", name: "Heel Height", type: "number", source: { kind: "meta", key: "meta.heel" } },
+        ],
+      },
+    });
+
+    expect(attributesConfig.ensureDynamicAttributeRegistered).toHaveBeenCalledWith("heel_height", "NUMERICAL");
   });
 
   it("never calls the registration hook when a batch has no custom option groups", async () => {
@@ -178,6 +202,6 @@ describe("acs/sync — dynamic attribute registration", () => {
     ]);
 
     expect(attributesConfig.ensureDynamicAttributeRegistered).toHaveBeenCalledTimes(1);
-    expect(attributesConfig.ensureDynamicAttributeRegistered).toHaveBeenCalledWith("opt_fit");
+    expect(attributesConfig.ensureDynamicAttributeRegistered).toHaveBeenCalledWith("opt_fit", "TEXTUAL");
   });
 });

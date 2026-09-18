@@ -9,8 +9,7 @@ import { MERCHANT_ID_ATTRIBUTE } from "./isolation";
  * created by the current console flow — *ignores* the per-product `indexable`/`searchable` flags
  * that `map-product.ts` sets, and rejects any filter naming an attribute it doesn't already know
  * with `Unsupported field "attributes.<key>" on ":" operator`. Since `merchant_id` is the whole
- * tenant-isolation boundary and `source_category_ids` is the category-scope half of it, an
- * unregistered catalog can't serve a single correctly-scoped query.
+ * tenant-isolation boundary, an unregistered catalog can't serve a correctly-scoped query.
  *
  * Idempotent, so it is safe to re-run against a catalog that is already fully or partly set up:
  * `addCatalogAttribute` 409s on a key that already exists, which is treated as success.
@@ -27,11 +26,11 @@ interface RequiredAttribute {
 
 const REQUIRED_ATTRIBUTES: RequiredAttribute[] = [
   { name: MERCHANT_ID_ATTRIBUTE, purpose: "tenant isolation (merchantFilterClause)" },
-  { name: "source_category_ids", purpose: "merchant category scope (categoryScopeFilterClause)" },
   { name: "garment_category", purpose: "garment-slot filters (filter-expression.ts)" },
   { name: "garment_subcategory", purpose: "garment-slot filters (filter-expression.ts)" },
   { name: "product_group_id", purpose: "variant lookups (getProductGroup)" },
   { name: "sku", purpose: "exact-match product lookups (support tooling)" },
+  { name: "primary_external_id", purpose: "finding a product's VARIANT children (getAcsVariantIds)" },
 ];
 
 /**
@@ -93,7 +92,7 @@ const PREDEFINED_RETRIEVABLE_KEYS = [
 
 export interface AttributeRegistrationResult {
   key: string;
-  status: "created" | "already-present" | "retrievable-enabled";
+  status: "created" | "configuration-refreshed" | "retrievable-enabled";
 }
 
 /**
@@ -140,7 +139,23 @@ export async function ensureAcsCatalogAttributes(): Promise<AttributeRegistratio
 
     const body = await res.text();
     if (res.status === 409 || body.includes("already exists")) {
-      results.push({ key, status: "already-present" });
+      const replaceRes = await fetch(
+        `https://retail.googleapis.com/v2/${catalogPath(getAcsConfig())}/attributesConfig:replaceCatalogAttribute`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...attributeBody(key),
+            updateMask: "indexableOption,searchableOption,dynamicFacetableOption,retrievableOption",
+          }),
+        },
+      );
+      if (!replaceRes.ok) {
+        throw new Error(
+          `[acs/attributes-config] failed to refresh "${key}" (${replaceRes.status}): ${await replaceRes.text()}`,
+        );
+      }
+      results.push({ key, status: "configuration-refreshed" });
       continue;
     }
 
@@ -200,22 +215,29 @@ export async function ensureAcsCatalogAttributes(): Promise<AttributeRegistratio
 const registeredDynamicAttributeKeys = new Set<string>();
 
 /**
- * Unlike `REQUIRED_ATTRIBUTES`, the catch-all `opt_<name>` custom attributes `map-product.ts`
- * emits for a merchant's non-color/size/material/pattern/gender/age-group option groups (fit,
- * style, ...) aren't known ahead of time — they depend on each merchant's own storefront. This
- * registers one on first sight rather than requiring a fixed enumerated list, so a brand-new
- * option name still becomes filterable/facetable without a manual bootstrap step.
+ * Unlike `REQUIRED_ATTRIBUTES`, the merchant-specific custom attributes `map-product.ts` emits
+ * aren't known ahead of time — the catch-all `opt_<name>` keys for option groups it has no
+ * predefined ACS field for (fit, style, ...), and the attributes a merchant declares by hand in
+ * Stage 1's Table 2. This registers one on first sight rather than requiring a fixed enumerated
+ * list, so a brand-new attribute still becomes filterable/facetable without a manual bootstrap step.
  *
  * `searchable`/`dynamicFacetable` enabled here, unlike `attributeBody`'s machine-id treatment:
  * these carry real shopper-facing values (a fit, a style name) worth matching on free-text query
  * and worth surfacing as a facet, not an internal id to hide.
+ *
+ * `type` matters rather than being cosmetic: a declared attribute the merchant typed as a number
+ * arrives in ACS as `numbers`, and a key registered TEXTUAL against numeric values gives range
+ * filters and numeric facets that never match.
  *
  * Best-effort: swallows failures rather than throwing, since this runs inline before every
  * import batch (see `sync.ts`) and a transient registration failure must not block the product
  * write itself — the attribute value still lands on the product either way, just not yet
  * filterable until a later sync's registration attempt succeeds.
  */
-export async function ensureDynamicAttributeRegistered(attributeName: string): Promise<void> {
+export async function ensureDynamicAttributeRegistered(
+  attributeName: string,
+  type: "TEXTUAL" | "NUMERICAL" = "TEXTUAL"
+): Promise<void> {
   const key = catalogAttributeKey(attributeName);
   if (registeredDynamicAttributeKeys.has(key) || !isAcsConfigured()) return;
 
@@ -228,9 +250,11 @@ export async function ensureDynamicAttributeRegistered(attributeName: string): P
       body: JSON.stringify({
         catalogAttribute: {
           key,
-          type: "TEXTUAL",
+          type,
           indexableOption: "INDEXABLE_ENABLED",
-          searchableOption: "SEARCHABLE_ENABLED",
+          // Numeric attributes cannot be free-text searched, and asking for it makes ACS reject the
+          // registration outright rather than ignoring the flag.
+          searchableOption: type === "NUMERICAL" ? "SEARCHABLE_DISABLED" : "SEARCHABLE_ENABLED",
           dynamicFacetableOption: "DYNAMIC_FACETABLE_ENABLED",
           retrievableOption: "RETRIEVABLE_ENABLED",
         },

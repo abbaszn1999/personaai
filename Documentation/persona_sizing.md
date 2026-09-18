@@ -52,10 +52,20 @@ the sizing labels actually used by this merchant's catalog.
 This avoids unnecessary generic conversion.
 
 PART 3 — Tab 2: Brand Identification
-The brand-identification agent continues classifying SKUs into:
-global_brands
-private_brands
-null_records
+Read the mapped brand field from products in the five sizing families.
+Products filed only under a category marked Main Category are outside this tab and the sizing pipeline.
+Collect every distinct non-empty brand and send the complete list to Gemini 3.7 Flash in one request.
+The response is exactly:
+{
+  "global_brands": ["Nike", "Adidas", "Zara"],
+  "private_brands": ["Local Streetwear Co", "Urban Basics Co"]
+}
+Apply each brand verdict to every SKU carrying that brand.
+SKUs whose mapped brand field is empty do not go to Gemini; show them directly under null_records.
+There is no product-level brand inference, no request per brand, and no second classification pass.
+Persist one deduplicated Stage 2 lookup row per included product so every brand, parent, and text
+filter has an exact total and stable 25/50/100-row pagination; refresh volatile product details from
+the store API by product ID when rendering the page.
 The SKU preview also shows its normalized Parent Category.
 That parent is a deterministic lookup from the Categories Tab rather than another AI classification.
 Example:

@@ -6,9 +6,11 @@ const getCatalogQueueDepth = vi.fn(async () => 0);
 const drainCatalogQueue = vi.fn(async () => drainResult());
 const settleFinishedRuns = vi.fn(async () => 0);
 const runSizingJobPass = vi.fn(async () => []);
+const runCmsColumnDiscoveryPass = vi.fn(async () => []);
 
 vi.mock("./jobs", () => ({ runCatalogEnqueuePass: () => runCatalogEnqueuePass() }));
 vi.mock("@/lib/sizing/jobs", () => ({ runSizingJobPass: () => runSizingJobPass() }));
+vi.mock("./discover-cms-columns", () => ({ runCmsColumnDiscoveryPass: () => runCmsColumnDiscoveryPass() }));
 vi.mock("@/lib/db/catalog-queue", () => ({ getCatalogQueueDepth: () => getCatalogQueueDepth() }));
 vi.mock("./process-queue", () => ({
   drainCatalogQueue: () => drainCatalogQueue(),
@@ -81,6 +83,14 @@ describe("runCatalogTick", () => {
     await runCatalogTick();
 
     expect(runSizingJobPass).toHaveBeenCalledTimes(1);
+  });
+
+  // Same reasoning as the sizing pass above: a full-catalog column walk shares this loop rather
+  // than getting its own, so it must advance on every tick regardless of catalog queue depth.
+  it("advances full-catalog column discovery walks every tick", async () => {
+    await runCatalogTick();
+
+    expect(runCmsColumnDiscoveryPass).toHaveBeenCalledTimes(1);
   });
 
   it("still concludes an unfinished run when there is nothing left to drain", async () => {

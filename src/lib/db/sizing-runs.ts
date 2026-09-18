@@ -9,7 +9,17 @@ import { db } from "@/lib/supabase/server";
  * reads: a merchant cannot publish sizing attributes from a run that never finished.
  */
 
-export const SIZING_RUN_STAGES = ["scan", "classify", "research", "gap_fill", "resolve", "publish"] as const;
+export const SIZING_RUN_STAGES = [
+  "scan",
+  "classify",
+  "research",
+  "gap_fill",
+  /** Stage 5's own stage, so a refresh returns to Chart Assignment rather than to the research
+   *  screen the merchant already finished with. */
+  "assign",
+  "resolve",
+  "publish",
+] as const;
 export type SizingRunStage = (typeof SIZING_RUN_STAGES)[number];
 
 /** `blocked` is distinct from `running` on purpose: it means the run is waiting on the merchant to
@@ -18,6 +28,20 @@ export type SizingRunStage = (typeof SIZING_RUN_STAGES)[number];
 export const SIZING_RUN_STATUSES = ["pending", "running", "blocked", "complete", "failed"] as const;
 export type SizingRunStatus = (typeof SIZING_RUN_STATUSES)[number];
 
+/**
+ * What a stage is doing inside itself, and how far through it is.
+ *
+ * `scan` has two because it is two things: it walks the merchant's store and then aggregates the
+ * mapped fields. `researching` is the third, and it exists so Stage 4's progress bar has a real
+ * denominator. A scoped pass spans several worker ticks and the run's brand scope is *drained* as each
+ * brand finishes, so the row alone cannot say how many the merchant asked for — by the time three of
+ * five are done it says two. The size of the request is recorded here once, when it is made.
+ *
+ * Brand classification has no phase: it is one request over the complete distinct brand list.
+ */
+export const SIZING_RUN_PHASES = ["walking", "aggregating", "researching"] as const;
+export type SizingRunPhase = (typeof SIZING_RUN_PHASES)[number];
+
 export interface SizingRunRow {
   id: string;
   connectionId: string;
@@ -25,10 +49,34 @@ export interface SizingRunRow {
   status: SizingRunStatus;
   stage: SizingRunStage;
   productsScanned: number;
+  /** Null between passes, and on any run written before phases existed. */
+  phase: SizingRunPhase | null;
+  /** Units done within the phase, null where the phase cannot count them. */
+  phaseDone: number | null;
+  /** Units the phase expects, null while unknown — the walk has no denominator until it ends. */
+  phaseTotal: number | null;
+  /**
+   * The brands the research stage is authorised to search, drained as each one finishes.
+   *
+   * Empty means "do nothing", and that is the state a parked run sits in — research is no longer an
+   * automatic bulk pass, so a worker that found the stage `pending` with no scope would be spending
+   * the merchant's money on a request nobody made. Null and empty are treated the same by every
+   * reader; null is only what a run written before this column existed reads back as.
+   */
+  researchBrandKeys: string[];
+  /** The brand a tick is inside right now, so Stage 4 can name it. Null between brands. */
+  researchCurrentBrandKey: string | null;
+  /** Regenerate rather than Generate: re-search brands that already hold a chart above the
+   *  confidence bar, instead of reusing what the shared registry already has. */
+  researchForce: boolean;
   error: string | null;
   publishedAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+function toPhase(value: unknown): SizingRunPhase | null {
+  return SIZING_RUN_PHASES.includes(value as SizingRunPhase) ? (value as SizingRunPhase) : null;
 }
 
 function rowToRun(row: Record<string, unknown>): SizingRunRow {
@@ -39,6 +87,14 @@ function rowToRun(row: Record<string, unknown>): SizingRunRow {
     status: row.status as SizingRunStatus,
     stage: row.stage as SizingRunStage,
     productsScanned: (row.products_scanned as number) ?? 0,
+    phase: toPhase(row.phase),
+    phaseDone: (row.phase_done as number | null) ?? null,
+    phaseTotal: (row.phase_total as number | null) ?? null,
+    researchBrandKeys: Array.isArray(row.research_brand_keys)
+      ? (row.research_brand_keys as unknown[]).filter((key): key is string => typeof key === "string")
+      : [],
+    researchCurrentBrandKey: (row.research_current_brand_key as string | null) ?? null,
+    researchForce: row.research_force === true,
     error: (row.error as string | null) ?? null,
     publishedAt: (row.published_at as string | null) ?? null,
     createdAt: row.created_at as string,
@@ -113,6 +169,16 @@ export interface SizingRunPatch {
   status?: SizingRunStatus;
   stage?: SizingRunStage;
   productsScanned?: number;
+  /** Null on leaving the scan stage, for the same reason `error` is cleared: a phase left behind
+   *  describes work that is no longer happening. */
+  phase?: SizingRunPhase | null;
+  phaseDone?: number | null;
+  phaseTotal?: number | null;
+  /** Pass `[]` to revoke the authorisation entirely, which is what parking after a scoped pass does.
+   *  Omitting it leaves the stored scope alone. */
+  researchBrandKeys?: string[];
+  researchCurrentBrandKey?: string | null;
+  researchForce?: boolean;
   /** Cleared by passing null, which every successful transition should do — a stale error left on a
    *  now-running row is indistinguishable from a fresh failure to anything reading the row. */
   error?: string | null;
@@ -124,6 +190,14 @@ export async function updateSizingRun(runId: string, patch: SizingRunPatch): Pro
   if (patch.status !== undefined) update.status = patch.status;
   if (patch.stage !== undefined) update.stage = patch.stage;
   if (patch.productsScanned !== undefined) update.products_scanned = patch.productsScanned;
+  if (patch.phase !== undefined) update.phase = patch.phase;
+  if (patch.phaseDone !== undefined) update.phase_done = patch.phaseDone;
+  if (patch.phaseTotal !== undefined) update.phase_total = patch.phaseTotal;
+  if (patch.researchBrandKeys !== undefined) update.research_brand_keys = patch.researchBrandKeys;
+  if (patch.researchCurrentBrandKey !== undefined) {
+    update.research_current_brand_key = patch.researchCurrentBrandKey;
+  }
+  if (patch.researchForce !== undefined) update.research_force = patch.researchForce;
   if (patch.error !== undefined) update.error = patch.error;
   if (patch.publishedAt !== undefined) update.published_at = patch.publishedAt;
 
@@ -195,24 +269,80 @@ export async function listActionableSizingRuns(
 }
 
 /**
- * Unblocks the live run's current stage so the worker picks it up on its next tick — what a
- * merchant clicking "Continue" past a `blocked` stage (classify -> research being the first one)
- * actually does server-side.
+ * Moves a parked run forward to the next stage the merchant has reached — what "Continue" does
+ * server-side.
  *
- * Guarded on `status = 'blocked'` for the same reason `claimSizingRun` guards on `pending`: two
- * double-fired clicks should not both be reported as having (re)started the same paid work.
+ * Advances the stage rather than unblocking the current one, which is what this used to do. That
+ * older behaviour was written when leaving Stage 3 was also the authorisation to spend on research:
+ * one press meant both "I have seen the brands" and "start searching". Stage 4 now owns the second
+ * half of that (see `queueScopedResearch`), so a Continue press must not start anything — it only
+ * records that the merchant is done with the screen behind them.
+ *
+ * `from` is checked rather than assumed so a double-fired click cannot walk two stages, and so a run
+ * parked somewhere else is left exactly where it is instead of being dragged into `to`.
  */
-export async function resumeBlockedRun(connectionId: string): Promise<SizingRunRow | null> {
+export async function advanceBlockedRun(
+  connectionId: string,
+  from: readonly SizingRunStage[],
+  to: SizingRunStage
+): Promise<SizingRunRow | null> {
   const { data, error } = await db
     .from("sizing_runs")
-    .update({ status: "pending", error: null, updated_at: new Date().toISOString() })
+    .update({ stage: to, status: "blocked", error: null, updated_at: new Date().toISOString() })
     .eq("connection_id", connectionId)
     .eq("status", "blocked")
+    .in("stage", from as SizingRunStage[])
     .select("*")
     .maybeSingle();
 
   if (error) {
-    console.error("[db/sizing-runs resumeBlockedRun]", connectionId, error);
+    console.error("[db/sizing-runs advanceBlockedRun]", connectionId, to, error);
+    return null;
+  }
+
+  return data ? rowToRun(data) : null;
+}
+
+/**
+ * Authorises research for an explicit list of brands and queues the worker to do it.
+ *
+ * The one way research ever starts. Before this, finishing classification left the run
+ * `research`/`pending` and the worker searched every global brand it could find — so a merchant who
+ * simply walked forward through the pipeline paid for a bulk pass they never asked for, and had no
+ * way to try a single brand first.
+ *
+ * The scope is written to the row rather than held by the request, because a pass is bounded per
+ * tick: a store with twenty brands comes back through the worker many times, and a scope living in
+ * the request that started it would be gone by the second tick.
+ */
+export async function queueScopedResearch(
+  connectionId: string,
+  brandKeys: readonly string[],
+  options: { force?: boolean } = {}
+): Promise<SizingRunRow | null> {
+  const { data, error } = await db
+    .from("sizing_runs")
+    .update({
+      stage: "research",
+      status: "pending",
+      error: null,
+      research_brand_keys: [...new Set(brandKeys)],
+      research_force: options.force === true,
+      research_current_brand_key: null,
+      // Recorded here because this is the only moment the size of the request is known: the scope
+      // below is drained brand by brand, so nothing downstream can reconstruct what was asked for.
+      phase: "researching",
+      phase_done: 0,
+      phase_total: new Set(brandKeys).size,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("connection_id", connectionId)
+    .in("status", LIVE_STATUSES)
+    .select("*")
+    .maybeSingle();
+
+  if (error) {
+    console.error("[db/sizing-runs queueScopedResearch]", connectionId, error);
     return null;
   }
 

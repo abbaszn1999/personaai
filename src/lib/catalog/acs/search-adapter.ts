@@ -66,9 +66,14 @@ function extractAttributes(product: AcsProduct): Record<string, string[]> {
  * `catalog-reads.ts`'s direct-by-id reads (`GetProduct`, never a search) — the latter already
  * knows the externalId it asked for, so there is nothing to parse back out of the response.
  */
-export function toCandidateFromProduct(externalId: string, product: AcsProduct): CatalogCandidate {
+export function toCandidateFromProduct(
+  externalId: string,
+  product: AcsProduct,
+  variantExternalId: string | null = null
+): CatalogCandidate {
   return {
     externalId,
+    variantExternalId,
     productGroupId: product.attributes?.product_group_id?.text?.[0] ?? null,
     title: product.title,
     brand: product.brands?.[0] ?? null,
@@ -97,8 +102,18 @@ export function toCandidate(item: AcsSearchResultItem): CatalogCandidate {
   // search result — the nested `product` object only guarantees `product.name` is populated;
   // everything else, including `product.id` itself, depends on that attribute's retrievability
   // config (see `attributes-config.ts`), so reading the id off `product` is not reliable here.
-  const { externalId } = parseAcsProductId(item.id);
-  return toCandidateFromProduct(externalId, item.product);
+  const { externalId: rawExternalId } = parseAcsProductId(item.id);
+
+  // A matched `VARIANT`'s own id carries the composite `<productExternalId>::<variantExternalId>`
+  // this app writes in `buildVariantAcsProducts` — split it back apart so `CatalogCandidate`'s own
+  // `externalId` always names the real store *product*, matching every candidate before per-SKU
+  // variants existed, with the specific matched SKU available separately for a caller that wants
+  // it. A `PRIMARY` match's id has no separator and passes through unchanged.
+  const separator = rawExternalId.indexOf("::");
+  const externalId = separator === -1 ? rawExternalId : rawExternalId.slice(0, separator);
+  const variantExternalId = separator === -1 ? null : rawExternalId.slice(separator + 2);
+
+  return toCandidateFromProduct(externalId, item.product, variantExternalId);
 }
 
 export interface AcsSearchParams {

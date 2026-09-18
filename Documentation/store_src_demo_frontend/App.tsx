@@ -46,6 +46,7 @@ import { GapFillModal } from './components/GapFillModal';
 import { SyncView } from './components/SyncView';
 import { ConnectStoreView } from './components/ConnectStoreView';
 import { CategoriesScopeView } from './components/CategoriesScopeView';
+import { CategoryMappingView } from './components/CategoryMappingView';
 
 export default function App() {
   // Primary Navigation Tab (Connect Store vs Categories vs Setup vs Sync)
@@ -227,6 +228,10 @@ export default function App() {
   };
 
   // Setup Navigation handlers
+  const hasExistingSizeChart = Boolean(
+    sizingConfig.sizeChart && sizingConfig.sizeChart !== 'none'
+  );
+
   const goToStage = (stage: StageNumber) => {
     setIsMappingLoading(false);
     setCurrentStage(stage);
@@ -237,6 +242,10 @@ export default function App() {
   };
 
   const handleNext = () => {
+    if (currentStage === 1 && hasExistingSizeChart) {
+      goToStage(6);
+      return;
+    }
     if (currentStage < 6) {
       const next = (currentStage + 1) as StageNumber;
       goToStage(next);
@@ -244,6 +253,10 @@ export default function App() {
   };
 
   const handlePrev = () => {
+    if (currentStage === 6 && hasExistingSizeChart) {
+      goToStage(1);
+      return;
+    }
     if (currentStage > 1) {
       const prev = (currentStage - 1) as StageNumber;
       goToStage(prev);
@@ -252,13 +265,21 @@ export default function App() {
 
   // Trigger loading between Stage 1 (Mapping) and Stage 2 (Preview)
   const handleConfirmMapping = () => {
-    setIsMappingLoading(true);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (hasExistingSizeChart) {
+      goToStage(6);
+    } else {
+      setIsMappingLoading(true);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
   const handleMappingLoadingComplete = () => {
     setIsMappingLoading(false);
-    goToStage(2);
+    if (hasExistingSizeChart) {
+      goToStage(6);
+    } else {
+      goToStage(2);
+    }
   };
 
   // Reset demo to stage 1
@@ -384,8 +405,7 @@ export default function App() {
               selectedLeafIds={selectedLeafIds}
               onUpdateSelectedLeafIds={setSelectedLeafIds}
               onContinueToSetup={() => {
-                setActiveTab('setup');
-                goToStage(1);
+                setActiveTab('mapping');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               onGoToConnectStore={() => {
@@ -393,6 +413,15 @@ export default function App() {
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
             />
+          </main>
+        )}
+
+        {/* ========================================================================= */}
+        {/* Tab 3: Mapping (Persona Fixed Taxonomy & Store Category Calibration)      */}
+        {/* ========================================================================= */}
+        {activeTab === 'mapping' && (
+          <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6">
+            <CategoryMappingView storeConnection={storeConnection} />
           </main>
         )}
 
@@ -406,6 +435,7 @@ export default function App() {
               currentStage={currentStage}
               highestReachedStage={highestReachedStage}
               onSelectStage={goToStage}
+              hasExistingSizeChart={hasExistingSizeChart}
             />
 
             {/* Main Pipeline Content Area */}
@@ -418,6 +448,7 @@ export default function App() {
                       schemaOptions={GOOGLE_SCHEMA_OPTIONS}
                       sizingConfig={sizingConfig}
                       availableBrands={brands.map((b) => b.name)}
+                      storeConnection={storeConnection}
                       onUpdateMapping={handleUpdateMapping}
                       onUpdateSizingConfig={setSizingConfig}
                       onResetDefaults={handleResetMappings}
@@ -485,7 +516,7 @@ export default function App() {
                   !jsonExtractionDone ? (
                     <JsonExtractorLoading
                       onComplete={() => setJsonExtractionDone(true)}
-                      onCancel={() => goToStage(5)}
+                      onCancel={() => goToStage(hasExistingSizeChart ? 1 : 5)}
                     />
                   ) : (
                     <Stage6Confirmation
@@ -504,6 +535,7 @@ export default function App() {
                       onPrev={handlePrev}
                       onReset={handleResetDemo}
                       onRerunExtraction={() => setJsonExtractionDone(false)}
+                      hasExistingSizeChart={hasExistingSizeChart}
                     />
                   )
                 )}

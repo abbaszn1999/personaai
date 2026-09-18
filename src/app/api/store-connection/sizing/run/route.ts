@@ -7,6 +7,7 @@ import { listSizingCoverage } from "@/lib/db/sizing-coverage";
 import { listSizingNullRecords } from "@/lib/db/sizing-null-records";
 import { summarizeCoverage } from "@/lib/sizing/summary";
 import { buildIdentification, buildRouting } from "@/lib/sizing/routing";
+import { mappedSourceCategoryIds } from "@/lib/catalog/persona-mapping";
 
 /**
  * The size-intelligence pipeline's run state and its results.
@@ -48,6 +49,7 @@ export async function GET() {
       identification: buildIdentification(coverage, nullRecords),
       routing: buildRouting(coverage, nullRecords),
       mappingApproved: hasApprovedCurrentMapping(connection, MAPPER_VERSION),
+      sizingStagesSkipped: connection.sizingStagesSkippedAt !== null,
     });
   } catch (err) {
     console.error("[store-connection sizing/run GET]", err);
@@ -78,9 +80,9 @@ export async function POST() {
       );
     }
 
-    if (connection.selectedCategoryIds.length === 0) {
+    if (mappedSourceCategoryIds(connection.personaCategoryMap).length === 0) {
       return Response.json(
-        { error: "Choose which categories to sell from before scanning.", reason: "no_categories" },
+        { error: "Map at least one store category to Persona before scanning.", reason: "no_categories" },
         { status: 409 }
       );
     }

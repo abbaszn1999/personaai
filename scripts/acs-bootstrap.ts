@@ -12,7 +12,11 @@ async function main() {
   const config = getAcsConfig();
   console.log(`Registering catalog attributes on ${config.projectId}/${config.catalogId}...`);
 
-  const labels = { created: "registered", "already-present": "already present", "retrievable-enabled": "made retrievable" };
+  const labels = {
+    created: "registered",
+    "configuration-refreshed": "configuration refreshed",
+    "retrievable-enabled": "made retrievable",
+  };
   for (const result of await ensureAcsCatalogAttributes()) {
     console.log(`  ${labels[result.status]}: ${result.key}`);
   }

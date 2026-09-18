@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { afterEach, describe, it, expect, vi, beforeEach } from "vitest";
 import { useStoreConnectionStore } from "./store";
+import { EMPTY_ACS_MAPPING } from "@/lib/catalog/acs-mapping";
 
 function jsonResponse(body: unknown, ok = true, status = ok ? 200 : 500) {
   return {
@@ -61,6 +62,279 @@ describe("useStoreConnectionStore.updateStyleGuide", () => {
     const ok = await useStoreConnectionStore.getState().updateStyleGuide("anything");
 
     expect(ok).toBe(false);
+  });
+});
+
+describe("useStoreConnectionStore.saveSizeTypes", () => {
+  beforeEach(() => {
+    useStoreConnectionStore.setState({ storeSizeSettings: { default: "Alpha", overrides: {} } });
+    vi.restoreAllMocks();
+  });
+
+  it("merges a default-only change with the previously saved overrides", async () => {
+    useStoreConnectionStore.setState({ storeSizeSettings: { default: "Alpha", overrides: { nike: "EU" } } });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ storeSizeSettings: { default: "US", overrides: { nike: "EU" } } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const ok = await useStoreConnectionStore.getState().saveSizeTypes({ default: "US" });
+
+    expect(ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/store-connection",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ storeSizeSettings: { default: "US", overrides: { nike: "EU" } } }),
+      })
+    );
+    expect(useStoreConnectionStore.getState().storeSizeSettings).toEqual({ default: "US", overrides: { nike: "EU" } });
+  });
+
+  it("merges an overrides-only change with the previously saved default", async () => {
+    useStoreConnectionStore.setState({ storeSizeSettings: { default: "EU", overrides: {} } });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse({ storeSizeSettings: { default: "EU", overrides: { nike: "US" } } }))
+    );
+
+    const ok = await useStoreConnectionStore.getState().saveSizeTypes({ overrides: { nike: "US" } });
+
+    expect(ok).toBe(true);
+    expect(useStoreConnectionStore.getState().storeSizeSettings).toEqual({ default: "EU", overrides: { nike: "US" } });
+  });
+
+  it("rolls back to the previous settings on a failed response", async () => {
+    const previous = { default: "Alpha" as const, overrides: {} };
+    useStoreConnectionStore.setState({ storeSizeSettings: previous });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ error: "bad" }, false, 400)));
+
+    const ok = await useStoreConnectionStore.getState().saveSizeTypes({ default: "US" });
+
+    expect(ok).toBe(false);
+    expect(useStoreConnectionStore.getState().storeSizeSettings).toEqual(previous);
+  });
+});
+
+describe("useStoreConnectionStore.setAcsSource", () => {
+  beforeEach(() => {
+    useStoreConnectionStore.setState({
+      acsMapping: { approved: true, mapperVersion: 1 },
+      mapping: {
+        columns: [],
+        brands: [],
+        document: EMPTY_ACS_MAPPING,
+        sizeChart: { bound: false, withData: 0, sampled: 0 },
+        sampled: 0,
+        categoriesSample: null,
+        discoveryStatus: "idle",
+        discoveryScanned: 0,
+        isLoading: false,
+        hasLoaded: true,
+        savingKey: null,
+        isAddingCustomAttribute: false,
+        isApproving: false,
+        isResetting: false,
+        error: null,
+      },
+    });
+    vi.restoreAllMocks();
+  });
+
+  // The "Skip to Step 6" button reads `mapping.sizeChart` from this store, not from `document` —
+  // without applying the route's returned `sizeChart`, binding a column here would flip the row to
+  // "Attached" while the skip button stayed stuck on "Confirm mapping & read catalog" until the next
+  // full page load. See the route's own `sizeChartMoved` comment.
+  it("applies the route's recomputed sizeChart coverage when binding the size-chart row", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        mapping: { ...EMPTY_ACS_MAPPING, sources: { sizeChartData: { kind: "meta", key: "meta.chart" } } },
+        sizeChart: { bound: true, withData: 18, sampled: 25 },
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await useStoreConnectionStore.getState().setAcsSource("sizeChartData", { kind: "meta", key: "meta.chart" });
+
+    expect(useStoreConnectionStore.getState().mapping.sizeChart).toEqual({ bound: true, withData: 18, sampled: 25 });
+  });
+
+  it("leaves the existing sizeChart coverage alone when the route omits it", async () => {
+    useStoreConnectionStore.setState((s) => ({
+      mapping: { ...s.mapping, sizeChart: { bound: true, withData: 9, sampled: 25 } },
+    }));
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({ mapping: { ...EMPTY_ACS_MAPPING, sources: { brand: { kind: "field", key: "sku" } } } })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await useStoreConnectionStore.getState().setAcsSource("brand", { kind: "field", key: "sku" });
+
+    expect(useStoreConnectionStore.getState().mapping.sizeChart).toEqual({ bound: true, withData: 9, sampled: 25 });
+  });
+});
+
+describe("useStoreConnectionStore.resetFieldMappings", () => {
+  const saved = {
+    sources: { brand: { kind: "field" as const, key: "sku" } },
+    customAttributes: [
+      { key: "fit_note", name: "Fit Note", type: "text" as const, source: { kind: "meta" as const, key: "meta.fit" } },
+    ],
+    optionRoles: { colour: "color" as const },
+  };
+
+  beforeEach(() => {
+    useStoreConnectionStore.setState({
+      acsMapping: { approved: true, mapperVersion: 1 },
+      mapping: {
+        columns: [],
+        brands: [],
+        document: saved,
+        sizeChart: { bound: false, withData: 0, sampled: 0 },
+        sampled: 0,
+        categoriesSample: null,
+        discoveryStatus: "idle",
+        discoveryScanned: 0,
+        isLoading: false,
+        hasLoaded: true,
+        savingKey: null,
+        isAddingCustomAttribute: false,
+        isApproving: false,
+        isResetting: false,
+        error: null,
+      },
+    });
+    vi.restoreAllMocks();
+  });
+
+  it("clears every part of the mapping and reopens the approval gate", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ mapping: EMPTY_ACS_MAPPING }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const ok = await useStoreConnectionStore.getState().resetFieldMappings();
+
+    expect(ok).toBe(true);
+    // Every part sent explicitly empty rather than omitted: the route only replaces a part it
+    // receives, so omitting one would leave it saved and make this a partial reset.
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/store-connection/mapping-options",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ sources: {}, customAttributes: [], optionRoles: {} }),
+      })
+    );
+    const state = useStoreConnectionStore.getState();
+    expect(state.mapping.document).toEqual(EMPTY_ACS_MAPPING);
+    expect(state.mapping.isResetting).toBe(false);
+    // The saved mapping no longer matches the approved hash, so Stage 1 has to be approved again
+    // before any of this reaches a real index.
+    expect(state.acsMapping.approved).toBe(false);
+  });
+
+  it("leaves the saved mapping untouched and surfaces an error on failure", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ error: "nope" }, false, 500)));
+
+    const ok = await useStoreConnectionStore.getState().resetFieldMappings();
+
+    expect(ok).toBe(false);
+    const state = useStoreConnectionStore.getState();
+    expect(state.mapping.document).toEqual(saved);
+    expect(state.mapping.error).toBe("nope");
+    expect(state.mapping.isResetting).toBe(false);
+  });
+
+  it("returns false on a network error", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
+
+    const ok = await useStoreConnectionStore.getState().resetFieldMappings();
+
+    expect(ok).toBe(false);
+    expect(useStoreConnectionStore.getState().mapping.isResetting).toBe(false);
+  });
+});
+
+describe("useStoreConnectionStore.refreshColumnCoverage", () => {
+  beforeEach(() => {
+    useStoreConnectionStore.setState({
+      mapping: {
+        columns: [],
+        brands: [],
+        document: EMPTY_ACS_MAPPING,
+        sizeChart: { bound: false, withData: 0, sampled: 0 },
+        sampled: 0,
+        categoriesSample: null,
+        discoveryStatus: "idle",
+        discoveryScanned: 0,
+        isLoading: false,
+        hasLoaded: true,
+        savingKey: null,
+        isAddingCustomAttribute: false,
+        isApproving: false,
+        isResetting: false,
+        error: null,
+      },
+    });
+    vi.restoreAllMocks();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // Starts the walk, polls it to "running" then "done", and reloads the columns exactly once —
+  // the full life cycle the "Scan full catalog" button in Stage 1 drives.
+  it("starts a walk, polls it to completion, then reloads the columns", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") return jsonResponse({ status: "running" });
+      if (url === "/api/store-connection/cms-columns/discover") {
+        return jsonResponse({ status: "done", scanned: 500 });
+      }
+      // The reload `loadMapping` triggers once the walk reports done.
+      return jsonResponse({ columns: [], brands: [], mapping: EMPTY_ACS_MAPPING, sampled: 25 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const run = useStoreConnectionStore.getState().refreshColumnCoverage();
+    await vi.advanceTimersByTimeAsync(3000);
+    await run;
+
+    expect(useStoreConnectionStore.getState().mapping.discoveryStatus).toBe("done");
+    expect(useStoreConnectionStore.getState().mapping.discoveryScanned).toBe(500);
+    expect(fetchMock).toHaveBeenCalledWith("/api/store-connection/cms-columns/discover", { method: "POST" });
+  });
+
+  it("keeps polling every tick while the walk is still running, then settles once it finishes", async () => {
+    let discoveryGets = 0;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") return jsonResponse({ status: "running" });
+      if (url === "/api/store-connection/cms-columns/discover") {
+        discoveryGets += 1;
+        // The first two polls see the walk still running; every one after (including the final
+        // hydration read `loadMapping` does once polling stops) sees it done.
+        return jsonResponse({ status: discoveryGets <= 2 ? "running" : "done", scanned: discoveryGets * 100 });
+      }
+      return jsonResponse({ columns: [], brands: [], mapping: EMPTY_ACS_MAPPING, sampled: 25 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const run = useStoreConnectionStore.getState().refreshColumnCoverage();
+    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(3000);
+    await run;
+
+    // At least the two "still running" polls plus the one that finally reports "done".
+    expect(discoveryGets).toBeGreaterThanOrEqual(3);
+    expect(useStoreConnectionStore.getState().mapping.discoveryStatus).toBe("done");
+  });
+
+  it("does nothing further when starting the walk fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ error: "nope" }, false, 500)));
+
+    await useStoreConnectionStore.getState().refreshColumnCoverage();
+
+    expect(useStoreConnectionStore.getState().mapping.discoveryStatus).toBe("idle");
   });
 });
 

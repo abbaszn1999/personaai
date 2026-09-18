@@ -19,7 +19,7 @@ import {
   Gauge,
   ImageIcon,
   Clock3,
-  ListTree,
+  FolderTree,
   Ruler,
   SlidersHorizontal,
 } from "lucide-react";
@@ -118,11 +118,12 @@ export function AppSidebar() {
       icon: <Plug className="h-3.5 w-3.5" />,
       active: storeActive && storeSection === "connection",
     },
+    // Universal category setup: real store PLPs mapped onto Persona's fixed taxonomy.
     {
-      label: "Categories",
-      href: "/store?section=categories",
-      icon: <ListTree className="h-3.5 w-3.5" />,
-      active: storeActive && storeSection === "categories",
+      label: "Mapping",
+      href: "/store?section=mapping",
+      icon: <FolderTree className="h-3.5 w-3.5" />,
+      active: storeActive && storeSection === "mapping",
       disabled: !connection,
     },
     // Setup ends by building the index, so there is no separate Catalog Sync tab above it — having
@@ -233,8 +234,9 @@ export function AppSidebar() {
                   icon={<Plug className="h-4 w-4" />}
                   active={storeActive}
                   collapsed={collapsed}
-                  children={storeChildren}
-                />
+                >
+                  {storeChildren}
+                </SidebarNavGroup>
 
                 <div className={cn("pt-3", collapsed ? "px-0" : "px-0.5")}>
                   {!collapsed && (

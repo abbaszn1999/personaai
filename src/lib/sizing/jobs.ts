@@ -53,8 +53,21 @@ export async function runSizingJobPass(): Promise<SizingPassResult[]> {
   // coverage from the same catalog — so a torn-down worker should cost a merchant a delay, not a
   // failed pipeline they have to restart by hand.
   for (const run of stalled) {
-    console.warn(`[sizing jobs] run ${run.id} stalled at stage "${run.stage}"; returning it to the queue`);
-    await updateSizingRun(run.id, { status: "pending" });
+    console.warn(
+      `[sizing jobs] run ${run.id} stalled at stage "${run.stage}"` +
+        `${run.phase ? ` (phase "${run.phase}")` : ""}; returning it to the queue`
+    );
+    // Phase goes with it: a requeued scan restarts from the walk, so leaving "aggregating" on the row
+    // would have the screen promise to resume work that is about to begin again from the first page.
+    // The in-flight brand goes too, for the same reason — nothing is inside it any more. The scope
+    // itself stays, so a Generate All whose worker died resumes rather than silently stopping.
+    await updateSizingRun(run.id, {
+      status: "pending",
+      phase: null,
+      phaseDone: null,
+      phaseTotal: null,
+      researchCurrentBrandKey: null,
+    });
   }
 
   const results: SizingPassResult[] = [];
@@ -90,12 +103,22 @@ async function advanceRun(run: SizingRunRow): Promise<SizingPassResult> {
         const result = await runSizingScan(connection, run);
         console.log(
           `[sizing jobs] scanned ${result.stats.counted} product(s) for ${connection.id}: ` +
-            `${result.rows} coverage row(s), ${result.stats.unsized} unsized, ${result.stats.sizeless} sizeless, ` +
+            `${result.rows} coverage row(s), ${result.pathRows} category-path row(s), ` +
+            `${result.stats.unsized} unsized, ${result.stats.sizeless} sizeless, ` +
             `${result.stats.unbranded} unbranded`
         );
         // Straight into classification rather than handing back to the merchant: both are automatic,
         // and stopping between them would show a brand list that is still entirely unclassified.
-        await updateSizingRun(run.id, { stage: "classify", status: "pending", error: null });
+        // Phase is cleared for the same reason `error` is: only the scan has sub-steps, so one left
+        // behind would have the screen reporting work that is no longer happening.
+        await updateSizingRun(run.id, {
+          stage: "classify",
+          status: "pending",
+          error: null,
+          phase: null,
+          phaseDone: null,
+          phaseTotal: null,
+        });
         return { ...base, outcome: "advanced" };
       }
 
@@ -103,36 +126,108 @@ async function advanceRun(run: SizingRunRow): Promise<SizingPassResult> {
         const result = await runBrandClassification(connection);
         console.log(
           `[sizing jobs] classified ${result.classified} brand(s) for ${connection.id}: ` +
-            `${result.global} global, ${result.private} private, ${result.none} unbranded, ${result.reused} reused`
+            `${result.global} global, ${result.private} private, ${result.none} unbranded`
         );
         // `blocked` means waiting on the merchant, which is exactly right here: the next step spends
-        // money on chart research, so it happens when they continue past the brand list, not before.
-        await updateSizingRun(run.id, { stage: "research", status: "blocked", error: null });
+        // money on chart research, so it happens when they ask for a brand on Stage 4, not before.
+        // The empty scope is what enforces that — see the research case below.
+        await updateSizingRun(run.id, {
+          stage: "research",
+          status: "blocked",
+          error: null,
+          researchBrandKeys: [],
+          researchCurrentBrandKey: null,
+          researchForce: false,
+        });
         return { ...base, outcome: "advanced" };
       }
 
       case "research": {
-        const result = await runChartResearch(connection);
+        // The gate that stops research being automatic. Reaching this stage used to be enough to
+        // start searching every global brand in the catalog; now a brand is only searched because a
+        // merchant named it, and an empty scope parks rather than inventing one. It is also what
+        // stops a legacy bulk pass, claimed before this change, from picking up a second brand: it
+        // finishes the brand it is inside and finds nothing authorised on its next tick.
+        if (run.researchBrandKeys.length === 0) {
+          await updateSizingRun(run.id, {
+            status: "blocked",
+            researchCurrentBrandKey: null,
+            phase: null,
+            phaseDone: null,
+            phaseTotal: null,
+            error: null,
+          });
+          return { ...base, outcome: "skipped" };
+        }
+
+        // `phaseTotal` is the whole request, set once when it was made; `researchBrandKeys` is what is
+        // still owed. Their difference is what earlier ticks already finished, so progress accumulates
+        // across ticks instead of restarting at zero on each one. The fallback covers a pass claimed
+        // before this stage counted anything.
+        const scopeTotal = run.phaseTotal ?? run.researchBrandKeys.length;
+        const doneBefore = Math.max(scopeTotal - run.researchBrandKeys.length, 0);
+        let startedThisTick = 0;
+
+        const result = await runChartResearch(connection, {
+          brandKeys: run.researchBrandKeys,
+          force: run.researchForce,
+          // Written before the search rather than after, so Stage 4 can name the brand it is inside
+          // for the several minutes that search takes instead of showing a blank queue.
+          onBrandStart: async (brandKey) => {
+            await updateSizingRun(run.id, {
+              researchCurrentBrandKey: brandKey,
+              phase: "researching",
+              phaseTotal: scopeTotal,
+              phaseDone: doneBefore + startedThisTick,
+            });
+            startedThisTick += 1;
+          },
+        });
         console.log(
           `[sizing jobs] researched ${result.brandsConsidered} brand(s) for ${connection.id}: ` +
-            `${result.written} chart(s) written, ${result.reused} reused, ${result.notFound} not found, ` +
+            `${result.written} chart(s) written, ${result.reused} reused, ${result.notFound} not found ` +
+            `(${result.demoted} reclassified private), ` +
             `${result.categoriesNotCovered} categor(y/ies) not covered, ${result.failed} failed, ` +
             `${result.tablesRejected} table(s) rejected, ${result.brandsRemaining} brand(s) left`
         );
 
-        // Research is bounded per tick, so a catalog with a long brand tail comes back here several
-        // times. Re-queued at the same stage rather than advanced, which is also what makes the work
-        // survivable on a platform that caps a request at five minutes: each tick either finishes a
-        // brand or loses only that brand's progress.
-        if (result.brandsRemaining > 0) {
-          await updateSizingRun(run.id, { stage: "research", status: "pending", error: null });
+        // Research is bounded per tick, so a Generate All over a long brand tail comes back here
+        // several times. The scope is narrowed to what is still owed rather than left as it was: that
+        // is what makes each tick's cost predictable, and what makes the work survivable on a platform
+        // that caps a request at five minutes — a tick either finishes a brand or loses only that one.
+        if (result.remainingBrandKeys.length > 0) {
+          await updateSizingRun(run.id, {
+            stage: "research",
+            status: "pending",
+            error: null,
+            researchBrandKeys: result.remainingBrandKeys,
+            researchCurrentBrandKey: null,
+            // Total stays; only what is done moves. Recomputed from the new scope so a brand the tick
+            // finished counts even if it was the last thing the tick managed.
+            phase: "researching",
+            phaseTotal: scopeTotal,
+            phaseDone: Math.max(scopeTotal - result.remainingBrandKeys.length, 0),
+          });
           return { ...base, outcome: "advanced" };
         }
 
-        // `gap_fill` is next in the stage list, but Phase 5 is what builds its real backend — parked
-        // `blocked` here rather than advancing status, so it reads as "waiting on the merchant" for
-        // the same reason `classify` -> `research` did, until that phase lands.
-        await updateSizingRun(run.id, { stage: "gap_fill", status: "blocked", error: null });
+        // Back to waiting on the merchant at the same stage, with the authorisation spent. Stage 4 is
+        // now a screen they stay on — generating one brand at a time, reviewing what came back — so
+        // finishing a request must return them to it rather than move the pipeline on. Continue is
+        // what advances to `assign`.
+        await updateSizingRun(run.id, {
+          stage: "research",
+          status: "blocked",
+          error: null,
+          researchBrandKeys: [],
+          researchCurrentBrandKey: null,
+          researchForce: false,
+          // Cleared for the same reason the scan clears its own: a phase left on a parked row describes
+          // work that is no longer happening, and Stage 4 would keep a progress bar on screen at rest.
+          phase: null,
+          phaseDone: null,
+          phaseTotal: null,
+        });
         return { ...base, outcome: "advanced" };
       }
 

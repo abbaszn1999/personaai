@@ -52,6 +52,7 @@ describe("acs search adapter", () => {
     expect(candidates).toEqual([
       {
         externalId: "ext-1",
+        variantExternalId: null,
         productGroupId: "group-9",
         title: "Linen Shirt",
         brand: "Acme",

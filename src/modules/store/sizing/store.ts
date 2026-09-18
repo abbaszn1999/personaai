@@ -10,16 +10,23 @@ import type {
 } from "./types";
 import { LAST_STAGE } from "./types";
 import {
+  EMPTY_ASSIGNMENT_TOTALS,
   EMPTY_CHARTS_RESPONSE,
   EMPTY_COVERAGE_SUMMARY,
   EMPTY_IDENTIFICATION,
   EMPTY_ROUTING,
+  isScanIncomplete,
   isRunWorking,
+  stageForRun,
+  type AssignmentTotals,
   type BrandIdentification,
+  type BrandResearchRow,
   type ChartGap,
   type CoverageSummary,
+  type PathAssignment,
   type ResearchedChart,
   type RoutingPlan,
+  type SizingAssignmentsResponse,
   type SizingChartsResponse,
   type SizingRun,
   type ServerBrandType,
@@ -69,6 +76,15 @@ interface SizingUiState {
   stage: StageNumber;
   /** High-water mark, so a merchant can revisit a finished stage but not skip ahead. */
   highestStage: StageNumber;
+  /**
+   * Whether the first run read has already placed the merchant on a stage.
+   *
+   * One-shot on purpose. The run is re-read every two seconds while it works, and a later read doing
+   * this would yank the merchant out of whatever stage they had navigated to, mid-review. Not cleared
+   * by `resetPipeline` either — "Run setup again" walks them back to stage 1 deliberately, and the
+   * next poll must not undo that.
+   */
+  stageRestored: boolean;
   extractionDone: boolean;
   gapItems: GapItem[];
   filterConfigs: CategoryFilterConfig[];
@@ -84,6 +100,9 @@ interface SizingUiState {
   /** Tab 3's deterministic routing of those lists. */
   routing: RoutingPlan;
   mappingApproved: boolean;
+  /** True when the merchant skipped stages 2-5 on the strength of their own per-product size charts.
+   *  Read by the stepper, which marks those stages skipped rather than unreached. */
+  sizingStagesSkipped: boolean;
   /** True only for the initial read, so a poll refresh never blanks the stage back to a spinner. */
   runLoading: boolean;
   runError: string | null;
@@ -92,12 +111,25 @@ interface SizingUiState {
 
   loadRun: () => Promise<void>;
   startRun: () => Promise<void>;
+  /**
+   * Takes the Stage 1 shortcut: records that this store's own charts stand in for stages 2-5, parks
+   * the run at the last stage and lands the merchant there.
+   *
+   * Server-side rather than a client-only jump, because "these stages do not apply here" is a fact
+   * about the store and has to survive a refresh — and because the recommendation path reads the same
+   * column to know which charts to size against.
+   */
+  skipSizingStages: () => Promise<void>;
   /** Unblocks the run's current stage server-side, then resumes polling so the new stage's progress
    *  is visible immediately instead of waiting a full poll interval. */
   continueRun: () => Promise<void>;
   stopPolling: () => void;
 
   // ─── Stage 4: researched charts ────────────────────────────────────────────
+  /** One row per global brand — the grain Generate works on, since one search covers every parent a
+   *  brand publishes. Always present, including before anything has been researched: this is the
+   *  queue the merchant works from, not a report on a pass that already ran. */
+  chartBrands: BrandResearchRow[];
   /** Charts research produced, one per (brand x sizing category). */
   charts: ResearchedChart[];
   /** Global brands research came back empty on, plus every private label — doc Tab 3 sends both to
@@ -113,15 +145,16 @@ interface SizingUiState {
   chartsLoaded: boolean;
   loadCharts: (options?: { force?: boolean }) => Promise<void>;
   /**
-   * Sends the run back to the research stage, for every global brand or for one.
+   * Asks the server to research one brand, or every brand still outstanding.
    *
-   * Needed because Stage 4 previously had no way to try again: the run parked at `gap_fill` and the
-   * only route that moved it advanced rather than rewound. The server clears the recorded outcomes
-   * and the researched charts as part of this, so the registry short-circuit does not skip exactly
-   * the brands whose charts prompted the re-run.
+   * The only way research starts. It used to start by itself when the merchant left stage 3, which
+   * bought a bulk pass over the whole catalog on a click that read as navigation. `force` is
+   * Regenerate: search a brand again even though it already holds a chart.
    */
-  rerunResearch: (brandKey?: string) => Promise<void>;
-  rerunning: boolean;
+  startResearch: (options?: { brandKey?: string; force?: boolean }) => Promise<void>;
+  /** The brand whose Generate request is in flight, or `"__all__"` for Generate All. Null when idle.
+   *  Held per brand so one row's spinner does not disable every other row's button. */
+  researchStarting: string | null;
 
   // ─── Stage 4: manual chart entry (doc Part 4) ──────────────────────────────
   /** The gap being hand-filled, or the researched chart being forked. Null when the modal is shut. */
@@ -136,6 +169,22 @@ interface SizingUiState {
    *  the gap tab and into the chart list without a manual refresh. */
   saveManualChart: (input: { rows: ChartDraftRow[]; variantName: string }) => Promise<string | null>;
 
+  // ─── Stage 5: chart assignment (doc Part 7) ────────────────────────────────
+  /** Every merchant category path the scan found, with its bound variant and its options. */
+  assignmentPaths: PathAssignment[];
+  assignmentTotals: AssignmentTotals;
+  /** How many paths the last read resolved by itself. Reported once so the merchant knows the table
+   *  arrived partly filled rather than wondering who chose those. */
+  assignmentAutoMatched: number;
+  assignmentsLoading: boolean;
+  assignmentsError: string | null;
+  assignmentsLoaded: boolean;
+  loadAssignments: (options?: { force?: boolean }) => Promise<void>;
+  /** Binds one path to a variant, or to nothing when `variantName` is null. */
+  setPathVariant: (pathId: string, variantName: string | null) => Promise<void>;
+  /** The path whose save is in flight, so only its own row shows as busy. */
+  assignmentSaving: string | null;
+
   /** The page of the live catalog currently shown in stage 2. Held here rather than in the component
    *  so switching stages doesn't re-page the merchant's store every time, and so the fetch follows
    *  the same pattern as the run poll. */
@@ -149,26 +198,42 @@ interface SizingUiState {
   sampleCursors: (string | null)[];
   /** Null once the last page is reached, which is what disables Next. */
   sampleNextCursor: string | null;
-  /** Products across the whole selection, null until the first page has come back with a count. */
+  /** Products across the whole selection, null until the first page has come back with a count.
+   *  Never narrowed by a filter — this is what "All items" reports. */
   sampleTotal: number | null;
   /** False when the total is a sum across category groups and so overstates any product filed in
    *  more than one. */
   sampleTotalExact: boolean;
-  /** Sized stock per brand type across the whole selection, null before a scan has classified. */
+  /** How many products the active brand-type or parent filter matches, exactly, from coverage. Null
+   *  when neither is on, or under a text search, which has no countable denominator. */
+  sampleFilteredTotal: number | null;
+  /** What each brand chip's badge shows: distinct brands for the buckets named after brands, items
+   *  for unbranded stock. Null before a scan has classified. */
   sampleTypeCounts: Record<ServerBrandType, number> | null;
+  /** Items per brand type, for the wording that talks about stock rather than brands. */
+  sampleTypeItemCounts: Record<ServerBrandType, number> | null;
+  /** Sized stock per parent sizing category, on the same basis. */
+  sampleParentCounts: Record<string, number> | null;
   /** Applied filters. Held here rather than in the component because the server does the filtering —
    *  a brand type only some later page carries would be invisible to a filter over the loaded page. */
   sampleBrandType: ServerBrandType | null;
+  sampleParent: string | null;
   sampleQuery: string;
   sampleLoading: boolean;
   sampleError: string | null;
   /** Distinguishes "not read yet" from "read and genuinely empty", so an empty selection doesn't
    *  re-request the store on every mount. */
   sampleLoaded: boolean;
+  /** Whether classified coverage existed when this page was read — i.e. whether the brand column has
+   *  its Global/Private/Null answer. False while the one bulk classification request is pending:
+   *  the page is shown with those cells marked pending rather than holding back columns that never
+   *  needed classification. */
+  sampleScanned: boolean;
   loadSample: (options?: { force?: boolean }) => Promise<void>;
   goToSamplePage: (page: number) => Promise<void>;
   setSamplePageSize: (size: number) => Promise<void>;
   setSampleBrandType: (type: ServerBrandType | null) => Promise<void>;
+  setSampleParent: (parent: string | null) => Promise<void>;
   setSampleQuery: (query: string) => Promise<void>;
 
   goToStage: (stage: StageNumber) => void;
@@ -191,6 +256,33 @@ interface SizingUiState {
 
 function clampStage(value: number): StageNumber {
   return Math.min(LAST_STAGE, Math.max(1, value)) as StageNumber;
+}
+
+/**
+ * Stage 5's header counts, recomputed from the rows in hand.
+ *
+ * A local copy of the server's `assignmentTotals` rather than a shared import, because the shared one
+ * is typed against the server's row shape and this file deliberately holds only the wire mirror. The
+ * alternative — re-reading the whole assignments response after every dropdown change, which carries
+ * every variant's measurement table — would make changing one row the most expensive thing on the
+ * screen.
+ */
+function totalsFor(paths: readonly PathAssignment[]): AssignmentTotals {
+  const totals: AssignmentTotals = { ...EMPTY_ASSIGNMENT_TOTALS, paths: paths.length };
+
+  for (const path of paths) {
+    if (path.variantName !== null && !path.missingVariant) {
+      totals.assigned += 1;
+      totals.assignedSkus += path.skuCount;
+    } else if (path.decided && path.variantName === null) {
+      totals.skipped += 1;
+    } else {
+      totals.unresolved += 1;
+      totals.unresolvedSkus += path.skuCount;
+    }
+  }
+
+  return totals;
 }
 
 /** Live poll timer. Module-level rather than in state: it is not rendered, and putting a timer id in
@@ -218,6 +310,7 @@ let sampleRequestId = 0;
 export const useSizingStore = create<SizingUiState>((set, get) => ({
   stage: 1,
   highestStage: 1,
+  stageRestored: false,
   extractionDone: false,
   gapItems: INITIAL_GAP_ITEMS,
   filterConfigs: INITIAL_FILTER_CONFIGS,
@@ -229,6 +322,7 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
   identification: EMPTY_IDENTIFICATION,
   routing: EMPTY_ROUTING,
   mappingApproved: false,
+  sizingStagesSkipped: false,
   runLoading: false,
   runError: null,
   startingRun: false,
@@ -247,14 +341,39 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
         return;
       }
 
+      // Guarded on the high-water mark as well as the one-shot flag, so a merchant who clicked
+      // forward while this request was in flight is never pulled back to where the run happens to be.
+      const landing =
+        !get().stageRestored && get().highestStage === 1 ? stageForRun(data.run, data.sizingStagesSkipped) : null;
+      const previousRun = get().run;
+      const scanRestarted =
+        previousRun !== null && !isScanIncomplete(previousRun) && isScanIncomplete(data.run);
+
       set({
         run: data.run,
         summary: data.summary ?? EMPTY_COVERAGE_SUMMARY,
         identification: data.identification ?? EMPTY_IDENTIFICATION,
         routing: data.routing ?? EMPTY_ROUTING,
         mappingApproved: data.mappingApproved,
+        sizingStagesSkipped: data.sizingStagesSkipped === true,
         runLoading: false,
         runError: null,
+        ...(scanRestarted
+          ? {
+              sample: [],
+              samplePage: 1,
+              sampleCursors: [null],
+              sampleNextCursor: null,
+              sampleTotal: null,
+              sampleFilteredTotal: null,
+              sampleTypeCounts: null,
+              sampleTypeItemCounts: null,
+              sampleParentCounts: null,
+              sampleLoaded: false,
+              sampleScanned: false,
+            }
+          : {}),
+        ...(landing !== null ? { stage: landing, highestStage: landing, stageRestored: true } : {}),
       });
 
       // Self-rescheduling rather than a fixed interval, so a slow response can never stack up
@@ -279,8 +398,54 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
         return;
       }
 
-      set({ run: data.run ?? null, startingRun: false });
+      // A new scan invalidates the cached preview and its classifications. Keeping either would show
+      // the previous run's Global/Private answers while the new complete brand list is still being
+      // classified.
+      set({
+        run: data.run ?? null,
+        startingRun: false,
+        sample: [],
+        samplePage: 1,
+        sampleCursors: [null],
+        sampleNextCursor: null,
+        sampleTotal: null,
+        sampleFilteredTotal: null,
+        sampleTypeCounts: null,
+        sampleTypeItemCounts: null,
+        sampleParentCounts: null,
+        sampleLoaded: false,
+        sampleScanned: false,
+      });
       // Straight into the poll chain so the counter starts moving without waiting an interval.
+      void get().loadRun();
+    } catch {
+      set({ runError: "Could not reach the server", startingRun: false });
+    }
+  },
+
+  skipSizingStages: async () => {
+    if (get().startingRun) return;
+    set({ startingRun: true, runError: null });
+
+    try {
+      const res = await fetch("/api/store-connection/sizing/skip", { method: "POST" });
+      const data = (await res.json()) as { run?: SizingRun; error?: string };
+
+      if (!res.ok) {
+        set({ runError: data.error ?? "Could not skip the sizing stages", startingRun: false });
+        return;
+      }
+
+      // `stageRestored` is set with the jump so the next poll's landing logic leaves it alone —
+      // otherwise a response still describing the pre-skip run would pull the merchant back.
+      set({
+        run: data.run ?? get().run,
+        sizingStagesSkipped: true,
+        startingRun: false,
+        stage: LAST_STAGE,
+        highestStage: LAST_STAGE,
+        stageRestored: true,
+      });
       void get().loadRun();
     } catch {
       set({ runError: "Could not reach the server", startingRun: false });
@@ -302,6 +467,7 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
     pollTimer = null;
   },
 
+  chartBrands: [],
   charts: [],
   chartGapsNotFound: [],
   chartGapsNoBrand: [],
@@ -314,7 +480,7 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
   loadCharts: async (options) => {
     // Cached after the first read like the catalog sample, for the same reason: nothing about a
     // stored chart changes while the merchant reads it, and this response carries every measurement
-    // table at once. `force` is the "Research again" path and a manual refresh.
+    // table at once. `force` is the research poll and a manual refresh.
     if (!options?.force && (get().chartsLoaded || get().chartsLoading)) return;
     set({ chartsLoading: true, chartsError: null });
 
@@ -328,6 +494,7 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
       }
 
       set({
+        chartBrands: data.brands ?? [],
         charts: data.charts ?? [],
         chartGapsNotFound: data.notFound ?? [],
         chartGapsNoBrand: data.noBrand ?? [],
@@ -342,33 +509,39 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
     }
   },
 
-  rerunResearch: async (brandKey) => {
-    set({ chartsError: null, rerunning: true });
+  researchStarting: null,
+
+  startResearch: async (options) => {
+    if (get().researchStarting !== null) return;
+    set({ chartsError: null, researchStarting: options?.brandKey ?? "__all__" });
 
     try {
-      const res = await fetch("/api/store-connection/sizing/research/rerun", {
+      const res = await fetch("/api/store-connection/sizing/research", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(brandKey ? { brandKey } : {}),
+        body: JSON.stringify({
+          ...(options?.brandKey ? { brandKey: options.brandKey } : {}),
+          ...(options?.force ? { force: true } : {}),
+        }),
       });
       const data = (await res.json()) as { error?: string };
 
       if (!res.ok) {
-        set({ chartsError: data.error ?? "Could not re-run chart research", rerunning: false });
+        set({ chartsError: data.error ?? "Could not start chart research", researchStarting: null });
         return;
       }
 
-      // The rewound run is what the stage reads to show its searching state, so the poll has to
-      // restart before the flag clears — otherwise the screen shows the old results as settled for
-      // one interval, which is indistinguishable from the re-run having done nothing.
+      // The queued run is what the stage reads to show its Queued and Researching rows, so the poll
+      // has to restart before the flag clears — otherwise the table reads as idle for one interval,
+      // which is indistinguishable from the request having done nothing. The brand rows come from the
+      // charts endpoint, which joins against that same scope.
       await get().loadRun();
-      set({ rerunning: false });
+      await get().loadCharts({ force: true });
+      set({ researchStarting: null });
     } catch {
-      set({ chartsError: "Could not reach the server", rerunning: false });
+      set({ chartsError: "Could not reach the server", researchStarting: null });
     }
   },
-
-  rerunning: false,
 
   manualChartTarget: null,
 
@@ -430,11 +603,88 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
 
       set({ manualChartTarget: null });
       // Forced, because the filled gap has to move out of the gap tab and into the chart list. A
-      // cached read would leave the merchant looking at the gap they just resolved.
+      // cached read would leave the merchant looking at the gap they just resolved. Assignments are
+      // invalidated too: a new chart is a new option in every dropdown for that brand and parent.
       await get().loadCharts({ force: true });
+      set({ assignmentsLoaded: false });
       return null;
     } catch {
       return "Could not reach the server.";
+    }
+  },
+
+  assignmentPaths: [],
+  assignmentTotals: EMPTY_ASSIGNMENT_TOTALS,
+  assignmentAutoMatched: 0,
+  assignmentsLoading: false,
+  assignmentsError: null,
+  assignmentsLoaded: false,
+  assignmentSaving: null,
+
+  loadAssignments: async (options) => {
+    if (!options?.force && (get().assignmentsLoaded || get().assignmentsLoading)) return;
+    set({ assignmentsLoading: true, assignmentsError: null });
+
+    try {
+      const res = await fetch("/api/store-connection/sizing/assignments");
+      const data = (await res.json()) as Partial<SizingAssignmentsResponse> & { error?: string };
+
+      if (!res.ok) {
+        set({ assignmentsError: data.error ?? "Could not load the chart assignments", assignmentsLoading: false });
+        return;
+      }
+
+      set({
+        assignmentPaths: data.paths ?? [],
+        assignmentTotals: data.totals ?? EMPTY_ASSIGNMENT_TOTALS,
+        assignmentAutoMatched: data.autoMatched ?? 0,
+        assignmentsLoading: false,
+        assignmentsError: null,
+        assignmentsLoaded: true,
+      });
+    } catch {
+      set({ assignmentsError: "Could not reach the server", assignmentsLoading: false });
+    }
+  },
+
+  setPathVariant: async (pathId, variantName) => {
+    const path = get().assignmentPaths.find((row) => row.id === pathId);
+    if (!path || get().assignmentSaving !== null) return;
+
+    set({ assignmentSaving: pathId, assignmentsError: null });
+
+    try {
+      const res = await fetch("/api/store-connection/sizing/assignments", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brandKey: path.brandKey,
+          categoryId: path.categoryId,
+          sizingCategory: path.sizingCategory,
+          variantName,
+        }),
+      });
+      const data = (await res.json()) as { error?: string };
+
+      if (!res.ok) {
+        set({ assignmentsError: data.error ?? "Could not save this assignment", assignmentSaving: null });
+        return;
+      }
+
+      // Patched in place rather than re-read. The whole response carries every variant's measurement
+      // table, and re-fetching all of it to learn one row's new name would make a dropdown change the
+      // most expensive interaction on the screen. The totals are recomputed from the patched rows so
+      // the header cannot drift from the table under it.
+      set((state) => {
+        const paths = state.assignmentPaths.map((row) =>
+          row.id === pathId
+            ? { ...row, variantName, decided: true, source: "merchant" as const, missingVariant: false }
+            : row
+        );
+        return { assignmentPaths: paths, assignmentTotals: totalsFor(paths), assignmentSaving: null };
+      });
+    } catch {
+      set({ assignmentsError: "Could not reach the server", assignmentSaving: null });
     }
   },
 
@@ -445,12 +695,17 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
   sampleNextCursor: null,
   sampleTotal: null,
   sampleTotalExact: true,
+  sampleFilteredTotal: null,
   sampleTypeCounts: null,
+  sampleTypeItemCounts: null,
+  sampleParentCounts: null,
   sampleBrandType: null,
+  sampleParent: null,
   sampleQuery: "",
   sampleLoading: false,
   sampleError: null,
   sampleLoaded: false,
+  sampleScanned: false,
 
   loadSample: async (options) => {
     // Cached after the first read: this pages the merchant's live store, so re-fetching on every
@@ -478,10 +733,10 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
       const params = new URLSearchParams({ pageSize: String(samplePageSize) });
       if (cursor) params.set("cursor", cursor);
       if (get().sampleBrandType) params.set("brandType", get().sampleBrandType!);
+      if (get().sampleParent) params.set("parent", get().sampleParent!);
       if (get().sampleQuery) params.set("q", get().sampleQuery);
-      // Counting costs an extra request against the merchant's store, and the answer is the same on
-      // every page — so it is asked for once and then carried. It stays the selection's total
-      // regardless of filters, which is what the "All items" chip reports.
+      // Asked for once and then carried. The server derives it from coverage, because "All items"
+      // means the five sizing families and excludes Main-category-only products.
       if (get().sampleTotal === null) params.set("count", "1");
 
       const res = await fetch(`/api/store-connection/sizing/sample?${params.toString()}`);
@@ -508,9 +763,18 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
         sampleNextCursor: data.nextCursor ?? null,
         // Absent on a page that didn't ask for a count, so the held total is kept rather than
         // blanked back to "unknown" on every page turn.
-        sampleTotal: data.total ?? get().sampleTotal,
-        sampleTotalExact: data.totalExact ?? get().sampleTotalExact,
+        sampleTotal: data.selectionTotal ?? get().sampleTotal,
+        sampleTotalExact: data.selectionTotalExact ?? get().sampleTotalExact,
+        // Assigned rather than defaulted, because null is the answer when no filter is on — carrying
+        // the previous filter's number forward is what put its count beside "All items".
+        sampleFilteredTotal: data.filteredTotal ?? null,
         sampleTypeCounts: data.typeCounts ?? get().sampleTypeCounts,
+        sampleTypeItemCounts: data.typeItemCounts ?? get().sampleTypeItemCounts,
+        sampleParentCounts: data.parentCounts ?? get().sampleParentCounts,
+        // Assigned, not defaulted: this page's brand column is only as good as the coverage that
+        // existed when it was read, and carrying a previous read's `true` forward would hide the
+        // pending state on a page loaded before bulk classification.
+        sampleScanned: data.scanned === true,
         sampleLoading: false,
         sampleError: null,
         sampleLoaded: true,
@@ -530,23 +794,19 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
     await get().goToSamplePage(1);
   },
 
+  // Cursors describe positions in the previous filter's result sequence, so they mean nothing under a
+  // new one and paging has to restart. `sampleTotal` is deliberately left alone: it counts the
+  // selection, not the filter, so re-requesting it here would only spend another store request to
+  // get the same number back.
   setSampleBrandType: async (type) => {
     if (type === get().sampleBrandType) return;
-    // Cursors describe positions in the previous filter's result sequence, so they mean nothing
-    // under a new one and paging has to restart.
-    //
-    // `sampleTotal` is reset too, which used to be unnecessary: every filter shared the same
-    // catalog-wide number, so whatever was cached stayed correct as filters changed. Now that a
-    // brand-type filter gets its own exact denominator from coverage, holding onto the previous
-    // filter's number would show "28" as the total the moment you switched from Private back to
-    // All items. Forcing a fresh request is what keeps the two in sync.
-    set({
-      sampleBrandType: type,
-      samplePage: 1,
-      sampleCursors: [null],
-      sampleNextCursor: null,
-      sampleTotal: null,
-    });
+    set({ sampleBrandType: type, samplePage: 1, sampleCursors: [null], sampleNextCursor: null });
+    await get().goToSamplePage(1);
+  },
+
+  setSampleParent: async (parent) => {
+    if (parent === get().sampleParent) return;
+    set({ sampleParent: parent, samplePage: 1, sampleCursors: [null], sampleNextCursor: null });
     await get().goToSamplePage(1);
   },
 

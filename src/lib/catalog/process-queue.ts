@@ -5,7 +5,7 @@ import {
   readCatalogMessages,
   type QueuedMessage,
 } from "@/lib/db/catalog-queue";
-import { fetchExistingAcsSourceCategoryIds, syncProductsToAcs } from "@/lib/catalog/acs/sync";
+import { syncProductsToAcs } from "@/lib/catalog/acs/sync";
 import { deleteProduct } from "@/lib/catalog/acs/client";
 import { buildAcsProductId } from "@/lib/catalog/acs/isolation";
 import type { MapProductInput } from "@/lib/catalog/acs/map-product";
@@ -29,8 +29,6 @@ const VISIBILITY_SECONDS = 120;
 /** In-flight `source_category_ids` lookups per batch (see `fetchExistingAcsSourceCategoryIds`).
  *  These are plain ACS reads, not paid model calls, so this is sized for round-trip parallelism
  *  rather than any external quota. */
-const CONCURRENCY = 20;
-
 /** After this many deliveries a message is archived rather than retried. Without a ceiling, a
  *  product that always fails — ACS rejecting its mapped shape, say — retries forever and the
  *  run never reports complete. */
@@ -49,21 +47,6 @@ export interface DrainResult {
 /** How long one invocation keeps claiming batches before returning, kept under the route's
  *  own `maxDuration` so it finishes deliberately rather than being cut off mid-batch. */
 const DRAIN_BUDGET_MS = 240_000;
-
-async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let cursor = 0;
-
-  async function worker() {
-    while (cursor < items.length) {
-      const index = cursor++;
-      results[index] = await fn(items[index]);
-    }
-  }
-
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
-}
 
 /**
  * Drains one batch off the ACS import queue: resolve paths, map, import, acknowledge.
@@ -186,6 +169,11 @@ async function drainOneBatch(): Promise<Omit<DrainResult, "batches">> {
         continue;
       }
 
+      if (outcome === "excluded") {
+        done.push(message.msgId);
+        continue;
+      }
+
       if (outcome === "failed") {
         failed += 1;
         // Leave it on the queue to retry after the visibility timeout — unless it has already
@@ -205,7 +193,7 @@ async function drainOneBatch(): Promise<Omit<DrainResult, "batches">> {
   return { claimed: messages.length, indexed, failed, remaining: await getCatalogQueueDepth(), orphaned };
 }
 
-type ItemOutcome = "indexed" | "failed" | "orphaned";
+type ItemOutcome = "indexed" | "failed" | "orphaned" | "excluded";
 
 async function processConnectionBatch(connectionId: string, batch: QueuedMessage[]): Promise<ItemOutcome[]> {
   // A message can outlive the connection that enqueued it: disconnecting a store cascades its
@@ -217,23 +205,13 @@ async function processConnectionBatch(connectionId: string, batch: QueuedMessage
     return batch.map(() => "orphaned");
   }
 
-  const prepared = await mapWithConcurrency(batch, CONCURRENCY, async (message) => {
-    // Merged, not replaced: this pass only knows the categories it walked, and a re-index of one
-    // category would otherwise strip the others a product also belongs to. Read from ACS itself
-    // rather than a local table — there is no local table left.
-    const existingSourceCategoryIds = await fetchExistingAcsSourceCategoryIds(connectionId, message.body.product.externalId);
-
-    // A failed read is not an empty one. Importing on a guess here would write this walk's
-    // categories over whatever the product actually belonged to, since ACS import replaces the
-    // whole document — so the product is left alone and its message redelivered instead.
-    if (existingSourceCategoryIds === null) return { message, input: null };
-
-    const mergedSourceCategoryIds = mergeSourceCategories(existingSourceCategoryIds, message.body.sourceCategoryIds ?? []);
-
+  const prepared = batch.map((message) => {
+    const sourceCategoryIds = message.body.sourceCategoryIds ?? [];
     const categoryPaths = resolveCategoryPaths(
-      { ...message.body.product, sourceCategoryIds: mergedSourceCategoryIds },
+      { ...message.body.product, sourceCategoryIds },
       connection
     );
+    if (categoryPaths.length === 0) return { message, input: null };
     const { garmentCategory, garmentSubcategory } = resolveGarmentCategory(message.body.product);
 
     const input: MapProductInput = {
@@ -242,10 +220,9 @@ async function processConnectionBatch(connectionId: string, batch: QueuedMessage
       categoryPaths,
       garmentCategory,
       garmentSubcategory,
-      sourceCategoryIds: mergedSourceCategoryIds,
       // The backfill is the path that actually populates the index, so omitting this would make a
       // merchant's Stage 1 reassignment purely cosmetic — correct in the preview, absent from search.
-      fieldOverrides: connection.acsFieldOverrides,
+      fieldMapping: connection.acsFieldMapping,
     };
 
     return { message, input };
@@ -255,7 +232,7 @@ async function processConnectionBatch(connectionId: string, batch: QueuedMessage
 
   const skipped = prepared.length - importable.length;
   if (skipped > 0) {
-    console.warn(`[catalog process-queue] deferring ${skipped} product(s) for ${connectionId}: category read failed`);
+    console.warn(`[catalog process-queue] excluded ${skipped} product(s) for ${connectionId}: no mapped Persona path`);
   }
 
   // Disconnect marks the row inactive before sweeping ACS. Re-check after preparation so a
@@ -281,7 +258,7 @@ async function processConnectionBatch(connectionId: string, batch: QueuedMessage
   }
 
   const outcomes: ItemOutcome[] = prepared.map((entry) =>
-    entry.input !== null && written ? "indexed" : "failed"
+    entry.input === null ? "excluded" : written ? "indexed" : "failed"
   );
   await reportProgress(connection, written ? importable.length : 0);
   return outcomes;

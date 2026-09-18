@@ -1,8 +1,11 @@
-import { downgradeAcsProductIfExists, fetchExistingAcsSourceCategoryIds, syncProductToAcs } from "@/lib/catalog/acs/sync";
+import { downgradeAcsProductIfExists, syncProductToAcs } from "@/lib/catalog/acs/sync";
 import type { StoreConnectionRow } from "@/lib/db/store-connections";
 import type { CategoryPath } from "@/lib/retrieval/types";
 import { mapToCanonical } from "@/lib/retrieval/taxonomy";
+import { boundMetafieldKeys, SHOPIFY_METAFIELD_PREFIX } from "./acs-mapping";
 import { expandCategorySelection } from "./category-scope";
+import { buildPersonaMappingConfig, resolvePersonaPaths } from "./persona-mapping";
+import { createCatalogPager } from "./pager";
 import type { RawCatalogProduct } from "./sync-types";
 
 /** No more "unchanged" outcome — there is no local hash-gated cache to skip, and ACS's own
@@ -16,14 +19,14 @@ export type WebhookIndexOutcome = IndexOutcome | "out-of-scope" | "removed";
 /** What a connection needs to resolve a product's category paths and route its option groups —
  *  just enough to be usable from a test fixture without pulling in the whole `StoreConnectionRow`.
  *
- *  `acsFieldOverrides` is required rather than optional on purpose: it is the one field a caller can
+ *  `acsFieldMapping` is required rather than optional on purpose: it is the one field a caller can
  *  omit without anything failing, and the consequence of omitting it is silent — the merchant's
  *  Stage 1 reassignment would be correct in the preview and absent from the index. Making the type
  *  demand it means the compiler catches a new call site that forgets. */
 export type CategoryLookup = Pick<
   StoreConnectionRow,
-  "selectedCategoryIds" | "categories" | "acsFieldOverrides"
->;
+  "selectedCategoryIds" | "categories" | "acsFieldMapping"
+> & Partial<Pick<StoreConnectionRow, "personaTaxonomyScope" | "personaCategoryMap">>;
 
 /**
  * Resolves every selected category a product belongs to, using the merchant's own names, in
@@ -50,44 +53,12 @@ export type CategoryLookup = Pick<
  * order the platform API happened to return.
  */
 export function resolveCategoryPaths(product: RawCatalogProduct, connection: CategoryLookup): CategoryPath[] {
-  const byId = new Map(connection.categories.map((category) => [category.id, category]));
-  const selected = new Set(connection.selectedCategoryIds);
-  const seen = new Set<string>();
-  // Grouped by which selected category owns the path, so the result can be emitted in the
-  // merchant's own selection order regardless of the order the product's own tags are listed in.
-  const byRootId = new Map<string, CategoryPath[]>();
-
-  for (const taggedId of product.sourceCategoryIds) {
-    const leaf = byId.get(taggedId);
-    if (!leaf) continue;
-
-    // Collect the chain as we climb, root-first once reversed. Stops the moment a selected
-    // category is reached — that's the root of this path, and nothing above it was chosen.
-    const chain = [leaf];
-    let root = selected.has(leaf.id) ? leaf : null;
-    let cursor = leaf;
-    while (!root && cursor.parentId) {
-      const parent = byId.get(cursor.parentId);
-      if (!parent) break;
-      chain.unshift(parent);
-      cursor = parent;
-      if (selected.has(cursor.id)) root = cursor;
-    }
-    if (!root) continue;
-
-    const path = chain.map((node) => node.name);
-    const key = path.join("::");
-    if (seen.has(key)) continue;
-    seen.add(key);
-
-    const bucket = byRootId.get(root.id) ?? [];
-    bucket.push(path);
-    byRootId.set(root.id, bucket);
-  }
-
-  const paths: CategoryPath[] = [];
-  for (const id of connection.selectedCategoryIds) paths.push(...(byRootId.get(id) ?? []));
-  return paths;
+  const config = buildPersonaMappingConfig(
+    connection.personaTaxonomyScope,
+    connection.personaCategoryMap,
+    connection.categories,
+  );
+  return resolvePersonaPaths(product.sourceCategoryIds, config).map((path) => path.segments);
 }
 
 /**
@@ -121,6 +92,7 @@ export async function indexSingleProduct(
 ): Promise<IndexOutcome> {
   try {
     const categoryPaths = resolveCategoryPaths({ ...product, sourceCategoryIds }, connection);
+    if (categoryPaths.length === 0) return "failed";
     const { garmentCategory, garmentSubcategory } = resolveGarmentCategory(product);
 
     const written = await syncProductToAcs({
@@ -129,8 +101,7 @@ export async function indexSingleProduct(
       categoryPaths,
       garmentCategory,
       garmentSubcategory,
-      sourceCategoryIds,
-      fieldOverrides: connection.acsFieldOverrides,
+      fieldMapping: connection.acsFieldMapping,
     });
 
     return written ? "indexed" : "failed";
@@ -162,18 +133,39 @@ export async function indexProductIfInScope(
   // to nothing". Falling back to what ACS already has recorded keeps edits to indexed products
   // working; a genuinely new product with no membership information waits for the next category
   // walk instead of being indexed on a guess.
-  const membership =
-    product.sourceCategoryIds.length > 0
-      ? product.sourceCategoryIds
-      : await fetchExistingAcsSourceCategoryIds(connection.id, product.externalId);
+  //
+  // The same refetch also recovers the merchant's bound metafields, which a Shopify webhook body
+  // never carries: without it, every webhook edit would rewrite the product with those attributes
+  // emptied, so a mapped metafield would survive the backfill and then quietly disappear the next
+  // time anyone touched the product in the store admin.
+  //
+  // Checked key-by-key rather than "is `customFields` empty" — the webhook payload already carries
+  // a few of Shopify's own built-in fields (tags, compare-at price), so it is routinely non-empty
+  // even when every bound metafield is still missing from it.
+  let membership = product.sourceCategoryIds;
+  let customFields = product.customFields;
+  let variants = product.variants;
+  const boundMetafields = boundMetafieldKeys(connection.acsFieldMapping);
+  const needsCustomFields = boundMetafields.some(
+    (key) => !(`${SHOPIFY_METAFIELD_PREFIX}${key}` in customFields)
+  );
+  // WooCommerce's webhook payload for a "variable" product carries only its variations' ids, not
+  // their price/stock/options — `mapWooWebhookProduct` signals that gap with an empty array (see
+  // its own doc comment) rather than a single wrong synthetic variant. Shopify's webhook payload
+  // never has this gap; its mapper always returns at least one real entry.
+  const needsVariants = variants.length === 0;
 
-  // A failed read leaves membership unknown, and every branch below treats unknown membership as
-  // "belongs to nothing" — which here means downgrading an in-scope product to out-of-stock and
-  // pulling it from the storefront over a transient 429. Reported as a failure so the webhook is
-  // redelivered instead.
-  if (membership === null) {
-    console.error(`[catalog index-product] cannot resolve scope for ${product.externalId}: category read failed`);
-    return "failed";
+  if (membership.length === 0 || needsCustomFields || needsVariants) {
+    try {
+      const pager = await createCatalogPager(connection);
+      const refreshed = pager ? (await pager.fetchByIds([product.externalId]))[0] : undefined;
+      if (membership.length === 0) membership = refreshed?.sourceCategoryIds ?? [];
+      if (needsCustomFields && refreshed) customFields = refreshed.customFields;
+      if (needsVariants && refreshed) variants = refreshed.variants;
+    } catch (error) {
+      console.error(`[catalog index-product] cannot refresh ${product.externalId} for indexing`, error);
+      return "failed";
+    }
   }
 
   if (!membership.some((id) => scope.includes(id))) {
@@ -181,5 +173,10 @@ export async function indexProductIfInScope(
     return removed ? "removed" : "out-of-scope";
   }
 
-  return indexSingleProduct(connection.id, { ...product, sourceCategoryIds: membership }, membership, connection);
+  return indexSingleProduct(
+    connection.id,
+    { ...product, sourceCategoryIds: membership, customFields, variants },
+    membership,
+    connection
+  );
 }

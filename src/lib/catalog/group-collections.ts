@@ -21,9 +21,17 @@ import { getPlatformGeminiClient, GeminiApiError } from "@/lib/ai/gemini";
 
 const GROUP_MODEL = process.env.SIZING_PATH_MODEL ?? "gemini-3.7-flash";
 
-/** Collections per model call. Titles are short, so this fits comfortably and keeps a big store to
- *  a handful of requests. */
-const GROUP_CHUNK = 120;
+/**
+ * The model's own output ceiling, asked for explicitly rather than reduced from it.
+ *
+ * Not to be confused with the 1M context window, which is input. Output is capped at 64K for this
+ * model whatever we pass, and clients that do not set this have been known to inherit a legacy 8K
+ * default — which would truncate the response on a large store and drop the tail of the catalog.
+ *
+ * One entry is about 15 tokens (`{"department":"Women","sub_group":"Tops"}`), so this covers a few
+ * thousand collections. Past that the response is what would have to be split, not the request.
+ */
+const MAX_OUTPUT_TOKENS = 65536;
 
 export interface CollectionToGroup {
   id: string;
@@ -82,11 +90,20 @@ const SCHEMA = {
 } as const;
 
 /**
- * Groups a batch of collections, returning a placement per id.
+ * Groups every collection in one call, returning a placement per id.
  *
- * Collections the model skipped or failed to cover are absent from the map. The caller leaves those
- * in the bank for the merchant to place by hand, which is the right home for a promotion and the
- * safe outcome for a malformed response.
+ * One call, never chunked, however many collections there are. This has to see the whole store at
+ * once to be correct: the department names are invented here, and the instruction to spell one
+ * department the same way everywhere is unenforceable across separate stateless requests. Split into
+ * batches, the model called the same department "Women" in one and "Womens" in the next, and the tree
+ * builder keys departments by name — so one department became two siblings and every leaf under the
+ * second was sized separately.
+ *
+ * Collection titles are short, so a few thousand of them is a small prompt for this model.
+ *
+ * Collections the model skipped are absent from the map. The caller leaves those in the bank for the
+ * merchant to place by hand, which is the right home for a promotion and the safe outcome for a
+ * malformed response.
  */
 export async function groupCollections(
   collections: readonly CollectionToGroup[],
@@ -95,23 +112,6 @@ export async function groupCollections(
   const placements = new Map<string, CollectionPlacement>();
   if (collections.length === 0) return placements;
 
-  for (let i = 0; i < collections.length; i += GROUP_CHUNK) {
-    const chunk = collections.slice(i, i + GROUP_CHUNK);
-    const answers = await groupChunk(chunk, storeContext);
-
-    for (const [index, collection] of chunk.entries()) {
-      const answer = answers[index];
-      if (answer) placements.set(collection.id, answer);
-    }
-  }
-
-  return placements;
-}
-
-async function groupChunk(
-  chunk: readonly CollectionToGroup[],
-  storeContext: string
-): Promise<Array<CollectionPlacement | null>> {
   const ai = getPlatformGeminiClient();
   const prompt = [
     INSTRUCTIONS,
@@ -119,7 +119,7 @@ async function groupChunk(
     `Storefront: ${storeContext}`,
     "",
     "Collections:",
-    chunk
+    collections
       .map((collection, i) => `${i + 1}. ${collection.name}  [${collection.productCount} products]`)
       .join("\n"),
   ].join("\n");
@@ -132,6 +132,7 @@ async function groupChunk(
       config: {
         responseMimeType: "application/json",
         responseJsonSchema: SCHEMA,
+        maxOutputTokens: MAX_OUTPUT_TOKENS,
         // Gemini 3.7 rejects MINIMAL and owns its own sampling, so there is no `temperature` to pin.
         thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
       },
@@ -142,9 +143,15 @@ async function groupChunk(
     throw new GeminiApiError(message);
   }
 
-  if (!text) return chunk.map(() => null);
+  if (!text) return placements;
 
-  return parseGrouping(text, chunk.length);
+  const answers = parseGrouping(text, collections.length);
+  for (const [index, collection] of collections.entries()) {
+    const answer = answers[index];
+    if (answer) placements.set(collection.id, answer);
+  }
+
+  return placements;
 }
 
 /**

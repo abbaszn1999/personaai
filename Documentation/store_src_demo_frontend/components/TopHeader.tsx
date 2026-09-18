@@ -31,6 +31,16 @@ export function TopHeader({ activeTab, onReset }: TopHeaderProps) {
               Catalog Sizing Scope &amp; Leaf-Level Taxonomy
             </span>
           </div>
+        ) : activeTab === 'mapping' ? (
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-xs font-bold uppercase tracking-wider text-purple-700 bg-purple-100/80 px-2 py-0.5 rounded-md whitespace-nowrap">
+              Mapping
+            </span>
+            <span className="text-xs text-slate-400 select-none">/</span>
+            <span className="text-xs font-semibold text-slate-700 truncate">
+              Persona Fixed Taxonomy &amp; Store PLP Mapping
+            </span>
+          </div>
         ) : activeTab === 'setup' ? (
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xs font-bold uppercase tracking-wider text-purple-700 bg-purple-100/80 px-2 py-0.5 rounded-md whitespace-nowrap">

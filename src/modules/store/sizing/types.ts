@@ -12,20 +12,20 @@
 
 /** Setup pipeline stages, 1-indexed to match the merchant-facing step numbers.
  *
- *  Six values are kept while the pipeline shows five: doc Part 4 folded Gap Filling into Stage 4 as
- *  a modal, and doc Part 7's Chart Assignment takes the vacated slot in the next phase. Narrowing
- *  to five now would mean widening it again immediately. */
+ *  All six are now rendered. Doc Part 4 folded Gap Filling into Stage 4 as a modal, and doc Part 7's
+ *  Chart Assignment took the vacated slot — which is why the Active Overview screen has carried
+ *  `stageNumber={6}` in its own banner since before there was a stage 5 to precede it. */
 export type StageNumber = 1 | 2 | 3 | 4 | 5 | 6;
 
 /** The last stage the pipeline currently renders. One constant rather than a literal in each of the
  *  three places that compared against it, which is how the stepper and the footer last disagreed. */
-export const LAST_STAGE = 5 satisfies StageNumber;
+export const LAST_STAGE = 6 satisfies StageNumber;
 
 /**
  * How a product's brand resolved during discovery.
  * - `global`   a recognizable brand with a findable public size chart -> web search queue
  * - `private`  a store's own label, no public chart exists -> manual fill
- * - `null`     no brand identified at all -> manual fill, grouped by category
+ * - `null`     the mapped brand field is empty -> manual fill, grouped by category
  */
 export type BrandType = "global" | "private" | "null";
 

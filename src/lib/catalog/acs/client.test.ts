@@ -57,7 +57,7 @@ describe("searchProducts request body", () => {
 
     const filter = String(bodyOf(fetchSpy).filter);
     expect(filter).toContain(`attributes.merchant_id: ANY("${CONNECTION_ID}")`);
-    expect(filter).toContain('attributes.source_category_ids: ANY("424","441")');
+    expect(filter).toContain('categories: ANY("424","441")');
   });
 });
 

@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AcsProduct } from "./types";
 import * as client from "./client";
-import { deleteAllAcsProductsForConnection, getCatalogProductsByExternalIds } from "./catalog-reads";
+import {
+  deactivateAcsCatalogForRemapping,
+  deleteAllAcsProductsForConnection,
+  getAcsVariantIds,
+  getCatalogProductsByExternalIds,
+  markAcsProductOutOfStockIfExists,
+} from "./catalog-reads";
 
 const CONNECTION_ID = "11111111-1111-1111-1111-111111111111";
 const originalProjectId = process.env.ACS_PROJECT_ID;
@@ -16,6 +22,34 @@ function product(overrides: Partial<AcsProduct> = {}): AcsProduct {
     ...overrides,
   };
 }
+
+describe("deactivateAcsCatalogForRemapping", () => {
+  beforeEach(() => {
+    process.env.ACS_PROJECT_ID = "test-project";
+  });
+
+  afterEach(() => {
+    if (originalProjectId) process.env.ACS_PROJECT_ID = originalProjectId;
+    else delete process.env.ACS_PROJECT_ID;
+    vi.restoreAllMocks();
+  });
+
+  it("deactivates owned in-stock products without relying on search attribute propagation", async () => {
+    vi.spyOn(client, "listProducts").mockResolvedValue({
+      products: [
+        product({ id: `${CONNECTION_ID}_a`, availability: "IN_STOCK" }),
+        product({ id: `${CONNECTION_ID}_sold`, availability: "OUT_OF_STOCK" }),
+        product({ id: "other_a", availability: "IN_STOCK" }),
+      ],
+    });
+    const markSpy = vi.spyOn(client, "markOutOfStock").mockResolvedValue(undefined);
+    const searchSpy = vi.spyOn(client, "searchProductsRaw");
+
+    await expect(deactivateAcsCatalogForRemapping(CONNECTION_ID)).resolves.toBe(1);
+    expect(markSpy).toHaveBeenCalledWith(`${CONNECTION_ID}_a`);
+    expect(searchSpy).not.toHaveBeenCalled();
+  });
+});
 
 describe("deleteAllAcsProductsForConnection", () => {
   beforeEach(() => {
@@ -121,7 +155,7 @@ describe("getCatalogProductsByExternalIds", () => {
     const getSpy = vi.spyOn(client, "getProduct").mockResolvedValue(product({ description: "A rugged shell." }));
     const searchSpy = vi.spyOn(client, "searchProducts");
 
-    const [candidate] = await getCatalogProductsByExternalIds(CONNECTION_ID, ["27770"], ["424"]);
+    const [candidate] = await getCatalogProductsByExternalIds(CONNECTION_ID, ["27770"], ["Men > Clothing"]);
 
     expect(getSpy).toHaveBeenCalledWith(`${CONNECTION_ID}_27770`);
     expect(searchSpy).not.toHaveBeenCalled();
@@ -129,9 +163,9 @@ describe("getCatalogProductsByExternalIds", () => {
   });
 
   it("drops a product that no longer falls within the current category scope", async () => {
-    vi.spyOn(client, "getProduct").mockResolvedValue(product({ attributes: { source_category_ids: { text: ["999"] } } }));
+    vi.spyOn(client, "getProduct").mockResolvedValue(product({ categories: ["Women > Clothing"] }));
 
-    const candidates = await getCatalogProductsByExternalIds(CONNECTION_ID, ["27770"], ["424"]);
+    const candidates = await getCatalogProductsByExternalIds(CONNECTION_ID, ["27770"], ["Men > Clothing"]);
 
     expect(candidates).toEqual([]);
   });
@@ -151,5 +185,75 @@ describe("getCatalogProductsByExternalIds", () => {
 
     expect(candidates).toEqual([]);
     expect(getSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("getAcsVariantIds", () => {
+  beforeEach(() => {
+    process.env.ACS_PROJECT_ID = "test-project";
+  });
+
+  afterEach(() => {
+    if (originalProjectId) process.env.ACS_PROJECT_ID = originalProjectId;
+    else delete process.env.ACS_PROJECT_ID;
+    vi.restoreAllMocks();
+  });
+
+  it("finds a product's VARIANT children by primary_external_id, scoped to this merchant", async () => {
+    const searchSpy = vi.spyOn(client, "searchProductsRaw").mockResolvedValue({
+      results: [
+        { id: `${CONNECTION_ID}_27770::v1`, product: product() },
+        { id: `${CONNECTION_ID}_27770::v2`, product: product() },
+      ],
+    });
+
+    const ids = await getAcsVariantIds(CONNECTION_ID, "27770");
+
+    expect(ids).toEqual([`${CONNECTION_ID}_27770::v1`, `${CONNECTION_ID}_27770::v2`]);
+    const [filter] = searchSpy.mock.calls[0];
+    expect(filter).toContain(`merchant_id: ANY("${CONNECTION_ID}")`);
+    expect(filter).toContain('attributes.primary_external_id: ANY("27770")');
+  });
+
+  it("returns nothing for a product with no VARIANT children", async () => {
+    vi.spyOn(client, "searchProductsRaw").mockResolvedValue({ results: [] });
+
+    await expect(getAcsVariantIds(CONNECTION_ID, "27770")).resolves.toEqual([]);
+  });
+});
+
+describe("markAcsProductOutOfStockIfExists", () => {
+  beforeEach(() => {
+    process.env.ACS_PROJECT_ID = "test-project";
+  });
+
+  afterEach(() => {
+    if (originalProjectId) process.env.ACS_PROJECT_ID = originalProjectId;
+    else delete process.env.ACS_PROJECT_ID;
+    vi.restoreAllMocks();
+  });
+
+  it("marks the parent and every VARIANT child out of stock when the parent exists", async () => {
+    vi.spyOn(client, "getProduct").mockResolvedValue(product({ id: `${CONNECTION_ID}_27770` }));
+    vi.spyOn(client, "searchProductsRaw").mockResolvedValue({
+      results: [{ id: `${CONNECTION_ID}_27770::v1`, product: product() }],
+    });
+    const markSpy = vi.spyOn(client, "markOutOfStock").mockResolvedValue(undefined);
+
+    await expect(markAcsProductOutOfStockIfExists(CONNECTION_ID, "27770")).resolves.toBe(true);
+
+    expect(markSpy).toHaveBeenCalledWith(`${CONNECTION_ID}_27770`);
+    expect(markSpy).toHaveBeenCalledWith(`${CONNECTION_ID}_27770::v1`);
+  });
+
+  it("does nothing for a product that was never indexed, rather than throwing on a 404", async () => {
+    vi.spyOn(client, "getProduct").mockResolvedValue(null);
+    const searchSpy = vi.spyOn(client, "searchProductsRaw");
+    const markSpy = vi.spyOn(client, "markOutOfStock");
+
+    await expect(markAcsProductOutOfStockIfExists(CONNECTION_ID, "missing")).resolves.toBe(false);
+
+    expect(searchSpy).not.toHaveBeenCalled();
+    expect(markSpy).not.toHaveBeenCalled();
   });
 });

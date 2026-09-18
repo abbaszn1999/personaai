@@ -50,6 +50,22 @@ export const SIZE_TYPE_EXAMPLES: Record<SizeType, string> = {
  *  and `sizing_charts` are, so casing and punctuation in the catalog cannot orphan an override. */
 export type SizeTypeOverrides = Record<string, SizeType>;
 
+/**
+ * The whole of Doc Part 2's sizing declaration, as one persisted value.
+ *
+ * Was two separate `store_connections` columns (`store_size_type`, `store_size_type_overrides`)
+ * until the merge below — split for no reason that survived contact with the rest of the schema:
+ * the two are read together everywhere (`sizeTypeFor` takes both), written together from the same
+ * Stage 1 panel, and there is no case where one is meaningful without the other. One jsonb column
+ * is one fewer thing for `rowToConnection`/`updateStoreConnection` to keep in sync.
+ */
+export interface SizeSettings {
+  default: SizeType;
+  overrides: SizeTypeOverrides;
+}
+
+export const DEFAULT_SIZE_SETTINGS: SizeSettings = { default: DEFAULT_SIZE_TYPE, overrides: {} };
+
 export function isSizeType(value: unknown): value is SizeType {
   return typeof value === "string" && (SIZE_TYPES as readonly string[]).includes(value);
 }
@@ -60,30 +76,45 @@ export function isSizeType(value: unknown): value is SizeType {
  * The single reader of both fields. Phase 9 keys charts on the answer, so a second place deciding it
  * would produce two different chart ids for one product.
  */
-export function sizeTypeFor(
-  brand: string | null | undefined,
-  storeDefault: SizeType,
-  overrides: SizeTypeOverrides
-): SizeType {
-  const override = overrides[normalizeBrandKey(brand)];
-  return isSizeType(override) ? override : storeDefault;
+export function sizeTypeFor(brand: string | null | undefined, settings: SizeSettings): SizeType {
+  const override = settings.overrides[normalizeBrandKey(brand)];
+  return isSizeType(override) ? override : settings.default;
 }
 
 /** Validates a store size type arriving over the wire, falling back to the default rather than
  *  rejecting: an unrecognised value is a stale tab, and refusing the whole save would also lose the
  *  brand overrides sent alongside it. */
-export function parseSizeType(value: unknown): SizeType {
+function parseSizeType(value: unknown): SizeType {
   return isSizeType(value) ? value : DEFAULT_SIZE_TYPE;
 }
 
-/** Same contract as the parent-map parsers: entries naming a system this build does not have are
- *  dropped, and those brands fall back to the store default. */
-export function parseSizeTypeOverrides(value: unknown): SizeTypeOverrides {
+/**
+ * Same contract as the parent-map parsers: entries naming a system this build does not have are
+ * dropped, and those brands fall back to the store default.
+ *
+ * Keys are normalized on the way in as well as on the way out. `sizeTypeFor` looks up the normalized
+ * key, so an override stored under a display name — `{"Levi's": "EU"}` — would save without
+ * complaint and then never match the brand it names. Stage 1 already sends normalized keys; doing it
+ * here means no other writer can get it wrong.
+ */
+function parseSizeTypeOverrides(value: unknown): SizeTypeOverrides {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
 
   const parsed: SizeTypeOverrides = {};
-  for (const [brandKey, system] of Object.entries(value as Record<string, unknown>)) {
+  for (const [brand, system] of Object.entries(value as Record<string, unknown>)) {
+    const brandKey = normalizeBrandKey(brand);
     if (brandKey && isSizeType(system)) parsed[brandKey] = system;
   }
   return parsed;
+}
+
+/** Parses the `store_size_settings` jsonb column, tolerating a missing/malformed half rather than
+ *  discarding the whole value — the same "fall back, don't reject" contract the two halves had
+ *  separately before the merge. */
+export function parseSizeSettings(value: unknown): SizeSettings {
+  const record = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  return {
+    default: parseSizeType(record.default),
+    overrides: parseSizeTypeOverrides(record.overrides),
+  };
 }

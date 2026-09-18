@@ -24,6 +24,7 @@ function row(overrides: Partial<SizingCoverageRow>): SizingCoverageRow {
     brandKey: "nike",
     brandName: "Nike",
     brandType: "global",
+    brandCanonicalName: null,
     sizingCategory: "tops",
     skuCount: 10,
     storeCategoryPaths: [],
@@ -82,6 +83,32 @@ describe("groupGlobalBrandsNeeded", () => {
 
     const grouped = groupGlobalBrandsNeeded(coverage);
     expect(grouped.get("nike")?.requests).toHaveLength(1);
+  });
+
+  // A store's brand field is whatever their PIM held. One real catalog files Claudie Pierlot as
+  // "CLAUDIE" and On as "On Cloud", and a search under either can only come back empty — which then
+  // reads as a brand that publishes nothing and sends the merchant off to hand-fill a chart that is
+  // on a public website.
+  it("searches under the canonical name the classifier resolved, not the store's string", () => {
+    const coverage = [row({ brandKey: "claudie", brandName: "CLAUDIE", brandCanonicalName: "Claudie Pierlot" })];
+
+    const target = groupGlobalBrandsNeeded(coverage).get("claudie");
+
+    expect(target?.searchName).toBe("Claudie Pierlot");
+    // Still the merchant's own string for anything they read, since that is what their catalog says.
+    expect(target?.brandName).toBe("CLAUDIE");
+  });
+
+  it("falls back to the store's brand name when no canonical name was resolved", () => {
+    const coverage = [row({ brandKey: "nike", brandName: "Nike", brandCanonicalName: null })];
+
+    expect(groupGlobalBrandsNeeded(coverage).get("nike")?.searchName).toBe("Nike");
+  });
+
+  it("falls back to the brand key when the store recorded no name at all", () => {
+    const coverage = [row({ brandKey: "some_brand", brandName: null, brandCanonicalName: null })];
+
+    expect(groupGlobalBrandsNeeded(coverage).get("some_brand")?.searchName).toBe("some_brand");
   });
 
   // Research decides what to re-search from this status, and a pair can finish without ever

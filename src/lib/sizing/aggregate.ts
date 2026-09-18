@@ -90,8 +90,8 @@ export interface NullRecord {
   sizingCategory: string;
 }
 
-/** Enough for a gap-fill template's thumbnails and no more. These are the only SKU-level strings
- *  this feature persists anywhere, so the cap is the privacy and size budget both. */
+/** Enough for a gap-fill template's thumbnails and no more. The Stage 2 paging snapshot separately
+ *  stores one compact lookup row per sized product; coverage itself remains aggregate-only. */
 const MAX_SAMPLES_PER_ROW = 3;
 
 /** Ceiling on the merchant category paths recorded per row. Display only — the UI uses them to
@@ -114,11 +114,9 @@ const MAX_FORMATS_PER_ROW = 400;
 /**
  * Ceiling on individually listed unbranded products.
  *
- * These are the only per-product rows this feature persists, so the cap is what keeps a mostly
- * unbranded catalog from turning the null list into the product mirror the design avoids. Reported
- * through `nullRecordsTruncated` rather than silently trimmed: past this point the merchant is
- * looking at a sample of their unbranded stock, and the gap-fill queue still covers all of it by
- * category, so what is lost is the enumeration, not the coverage.
+ * This independently bounds the manual gap-fill queue. Reported through `nullRecordsTruncated`
+ * rather than silently trimmed: past this point the merchant is looking at a sample of their
+ * unbranded stock, and the aggregate coverage still counts all of it.
  */
 const MAX_NULL_RECORDS = 10_000;
 
@@ -293,7 +291,7 @@ export class CoverageAggregator {
       }));
   }
 
-  /** The doc's `null_records`: every sized product no brand could be identified for, capped. */
+  /** The doc's `null_records`: every sized product whose mapped brand field is empty, capped. */
   nullRecords(): NullRecord[] {
     return [...this.nulls];
   }

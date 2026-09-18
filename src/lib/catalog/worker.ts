@@ -2,6 +2,7 @@ import { getCatalogQueueDepth } from "@/lib/db/catalog-queue";
 import { runSizingJobPass } from "@/lib/sizing/jobs";
 import { runCatalogEnqueuePass } from "./jobs";
 import { drainCatalogQueue, settleFinishedRuns } from "./process-queue";
+import { runCmsColumnDiscoveryPass } from "./discover-cms-columns";
 
 /** Gap between idle polls. Short enough that saving a category selection feels like it starts
  *  indexing immediately, long enough that an idle install isn't querying in a tight loop. */
@@ -68,10 +69,12 @@ export async function runCatalogTick(): Promise<number> {
     console.log(`[catalog worker] enqueued ${enqueued} product(s) for ${connectionId}`);
   }
 
-  // Size-intelligence runs ride the same loop rather than getting their own. Both are "background
-  // work for a merchant's catalog", both have to survive a request ending, and one driver means one
-  // place where scheduling can be wrong. A sizing pass is a cheap no-op when nothing is queued.
+  // Size-intelligence runs and full-catalog column discovery ride the same loop rather than
+  // getting their own. All three are "background work for a merchant's catalog", all have to
+  // survive a request ending, and one driver means one place where scheduling can be wrong. Both
+  // passes are cheap no-ops when nothing is running.
   await runSizingJobPass();
+  await runCmsColumnDiscoveryPass();
 
   // Checked before draining so an idle install does one cheap count instead of a queue read
   // plus the whole batch machinery.

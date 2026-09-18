@@ -2,15 +2,16 @@
 
 import { Suspense } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Palette, Ruler, SlidersHorizontal } from "lucide-react";
+import { Palette, SlidersHorizontal } from "lucide-react";
 import { DashboardPageHeader } from "@/components/layout/dashboard-header-context";
 import { SettingsSection } from "@/components/ui/settings-section";
 import { ConnectStoreView } from "./connect-store-view";
-import { CategoryScopePanel } from "./category-scope-panel";
+import { CategoryMappingView } from "../mapping/category-mapping-view";
 import { StyleGuideEditor } from "./style-guide-editor";
 import { SetupPipeline } from "../sizing/components/setup-pipeline";
 import { SizeFilterPanel } from "../sizing/components/size-filter-panel";
 import { useStoreConnect } from "../hooks/use-store-connect";
+import { useSizingStore } from "../sizing/store";
 
 /**
  * Connection → Categories → Setup → Size Filter → Style Guide, which is the order the work actually
@@ -21,14 +22,14 @@ import { useStoreConnect } from "../hooks/use-store-connect";
  * control is now Setup's final step. "Sync" (daily delta) is hidden until it is built, rather than
  * shipping a tab backed entirely by mocks.
  */
-type StoreTab = "connection" | "categories" | "setup" | "sizefilter" | "style";
+type StoreTab = "connection" | "mapping" | "setup" | "sizefilter" | "style";
 
-const VALID_TABS = new Set<StoreTab>(["connection", "categories", "setup", "sizefilter", "style"]);
+const VALID_TABS = new Set<StoreTab>(["connection", "mapping", "setup", "sizefilter", "style"]);
 
 /** `catalog` was the retired Catalog Sync tab. Anything still linking to it — a bookmark, the
  *  catalog-ready CTA — lands on Setup, which is where indexing lives now, rather than silently
  *  falling back to Connection. */
-const RETIRED_TABS: Record<string, StoreTab> = { catalog: "setup", sync: "setup" };
+const RETIRED_TABS: Record<string, StoreTab> = { categories: "mapping", catalog: "setup", sync: "setup" };
 
 function parseTab(value: string | null): StoreTab {
   if (!value) return "connection";
@@ -44,6 +45,7 @@ function StoreDashboardInner() {
   const router = useRouter();
   const requestedTab = parseTab(searchParams.get("section"));
   const activeTab = !connection && requestedTab !== "connection" ? "connection" : requestedTab;
+  const goToSetupStageOne = useSizingStore((s) => s.goToStage);
 
   function goToTab(tab: StoreTab) {
     router.push(`${pathname}?section=${tab}`);
@@ -74,28 +76,24 @@ function StoreDashboardInner() {
             <ConnectStoreView
               store={store}
               onConnect={handleConnect}
-              onContinueToCategories={() => goToTab("categories")}
+              onContinueToCategories={() => goToTab("mapping")}
             />
           )}
 
-          {activeTab === "categories" && connection && (
-            <CategoryScopePanel
-              platform={connection.platform}
-              onBackToConnection={() => goToTab("connection")}
-              onContinueToSetup={() => goToTab("setup")}
+          {activeTab === "mapping" && connection && (
+            <CategoryMappingView
+              connection={connection}
+              onContinueToSetup={() => {
+                goToSetupStageOne(1);
+                goToTab("setup");
+              }}
             />
           )}
 
-          {activeTab === "setup" && connection && (
-            <SettingsSection
-              title="Setup"
-              description="Turn your catalog into size intelligence — brands, size charts, the gaps in between, and the index that publishes it all"
-              icon={<Ruler className="h-4 w-4" />}
-              accent="wearable"
-            >
-              <SetupPipeline />
-            </SettingsSection>
-          )}
+          {/* No `SettingsSection` card here, unlike the tabs below — Setup already opens with its
+           *  own stepper (`SetupStepper`) and each stage's own header banner, matching the demo's
+           *  Setup tab, which is the stepper and the stage content with no title card above them. */}
+          {activeTab === "setup" && connection && <SetupPipeline />}
 
           {activeTab === "sizefilter" && connection && (
             <SettingsSection
