@@ -239,7 +239,7 @@ function toChatError(err: unknown): GeminiChatError {
 
   if (status === 429 || /RESOURCE_EXHAUSTED|rate limit|quota/i.test(message)) {
     return new GeminiChatError(
-      "Your Gemini API key has hit its rate limit or quota. Free-tier keys are capped well below production traffic — enable billing on the key in Google AI Studio, then try again.",
+      "The shopping assistant is temporarily busy. Please try again in a moment.",
       status ?? 429,
       true
     );
@@ -249,32 +249,8 @@ function toChatError(err: unknown): GeminiChatError {
 }
 
 /**
- * Confirms a merchant-supplied key actually works before it is saved.
- *
- * Worth the round trip because Gemini, unlike OpenAI, has a usable free tier: a key can look
- * fine at setup and then start returning 429s once real traffic arrives. A rate-limited key is
- * still a genuine key, so it saves with a warning rather than being rejected outright.
- */
-export async function verifyGeminiApiKey(apiKey: string): Promise<{ ok: boolean; message?: string; warning?: string }> {
-  try {
-    await createChatCompletion(apiKey, [{ role: "user", content: "ping" }], {
-      timeoutMs: 15_000,
-      thinking: "minimal",
-    });
-    return { ok: true };
-  } catch (err) {
-    if (err instanceof GeminiChatError) {
-      if (err.isRateLimit) return { ok: true, warning: err.message };
-      return { ok: false, message: err.message };
-    }
-    return { ok: false, message: "Could not verify this key with Gemini." };
-  }
-}
-
-/**
  * Non-streamed Gemini call with optional tool/function calling — used for every round of the
- * agent loop. Takes the caller's already-decrypted API key as a parameter (BYO — mirrors the
- * Shopify/WordPress credential pattern) and never falls back to the platform key.
+ * agent loop. Callers pass the platform GEMINI_API_KEY (or a test double).
  */
 export async function createChatCompletion(
   apiKey: string,

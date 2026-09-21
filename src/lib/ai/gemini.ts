@@ -52,10 +52,9 @@ export function isQuotaExhaustedError(err: unknown): boolean {
 }
 
 /**
- * Clients are cached per API key, never as a single module-level singleton — chat runs on each
- * merchant's own BYO key, so one shared client would send one merchant's requests under
- * another's credentials. Bounded and LRU-evicted so a large tenant count can't grow it without
- * limit.
+ * Clients are cached per API key. Catalog, sizing, and chat share the platform GEMINI_API_KEY;
+ * the cache still keys by secret so a rotated env var starts a new client. Bounded and
+ * LRU-evicted so a large tenant count can't grow it without limit.
  */
 const clientCache = new Map<string, GoogleGenAI>();
 const MAX_CACHED_CLIENTS = 50;
@@ -84,14 +83,19 @@ export function getGeminiClient(apiKey: string): GoogleGenAI {
   return client;
 }
 
-/** The platform's own key: index-time enrichment and embedding. Avatar and try-on rendering
- *  runs on Pruna (see lib/ai/pruna.ts), not here. */
-export function getPlatformGeminiClient(): GoogleGenAI {
-  const apiKey = process.env.GEMINI_API_KEY;
+/** The platform's own key: index-time enrichment and embedding, plus merchant chat now that
+ *  merchants no longer bring their own Gemini credential. Avatar and try-on rendering runs on
+ *  Pruna (see lib/ai/pruna.ts), not here. */
+export function getPlatformGeminiApiKey(): string {
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) {
     throw new GeminiApiError("Gemini API key is not configured (GEMINI_API_KEY).");
   }
-  return getGeminiClient(apiKey);
+  return apiKey;
+}
+
+export function getPlatformGeminiClient(): GoogleGenAI {
+  return getGeminiClient(getPlatformGeminiApiKey());
 }
 
 /** Fetches a remote image (e.g. a product photo) and base64-encodes it for use as a Gemini reference image. */

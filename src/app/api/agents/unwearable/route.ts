@@ -1,8 +1,7 @@
 import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
-import { getGeminiApiKeyEncrypted } from "@/lib/db/users";
 import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
-import { decryptSecret } from "@/lib/utils/crypto";
+import { getPlatformGeminiApiKey } from "@/lib/ai/gemini";
 import { runUnwearableChatAgent, type UnwearableChatContext, type IntakeState } from "@/lib/agents/unwearable-chat-agent";
 import type { ChatMessage, Product } from "@/modules/shopping-agent/types";
 import { canUsePaidPlatform, getAccountBillingContext } from "@/lib/billing/account";
@@ -32,21 +31,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const encryptedKey = await getGeminiApiKeyEncrypted(user.id);
-  if (!encryptedKey) {
-    return Response.json(
-      { error: "Add your Gemini API key in Account Settings to chat with the Shopping Assistant.", code: "missing_api_key" },
-      { status: 400 }
-    );
-  }
-
   let geminiApiKey: string;
   try {
-    geminiApiKey = decryptSecret(encryptedKey);
+    geminiApiKey = getPlatformGeminiApiKey();
   } catch {
     return Response.json(
-      { error: "Your saved Gemini API key couldn't be read — please re-enter it in Account Settings.", code: "missing_api_key" },
-      { status: 400 }
+      { error: "Chat is temporarily unavailable. Please try again later.", code: "chat_unavailable" },
+      { status: 503 }
     );
   }
 

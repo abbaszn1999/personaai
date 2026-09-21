@@ -19,6 +19,9 @@ export interface WorkspaceBranding {
   /** Overall light/dark tone of the embed preview — applies uniformly across the chat panel
    *  and (for wearable) the avatar panel, instead of each defaulting to its own tone. */
   theme: WorkspaceTheme;
+  /** Wearable only. When false, shoppers never see the Image/Live camera switch — photo
+   *  try-on stays available. Defaults to true so existing stores keep the control. */
+  liveTryOnEnabled: boolean;
 }
 
 export interface Workspace {

@@ -1,12 +1,25 @@
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { createDecartClientToken, DecartApiError } from "@/lib/ai/decart";
+import { getWorkspaceByIdForOwner } from "@/lib/db/workspaces";
 import { canStartLiveTryOn, getAccountBillingContext } from "@/lib/billing/account";
+import { isLiveTryOnEnabled } from "@/modules/workspaces/constants";
 
-export async function POST() {
+export async function POST(req: Request) {
   try {
     const user = await getCurrentUser();
     if (!user) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const body = await req.json().catch(() => ({}));
+    const workspaceId = typeof body.workspaceId === "string" ? body.workspaceId.trim() : "";
+    if (workspaceId) {
+      const workspace = await getWorkspaceByIdForOwner(workspaceId, user.id);
+      if (!workspace || workspace.mode !== "wearable") {
+        return Response.json({ error: "Wearable workspace not found" }, { status: 404 });
+      }
+      if (!isLiveTryOnEnabled(workspace.branding)) {
+        return Response.json({ error: "Live camera try-on is disabled for this store" }, { status: 403 });
+      }
     }
     const billing = await getAccountBillingContext(user.id, "wearable");
     if (!billing || !canStartLiveTryOn(billing)) {

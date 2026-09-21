@@ -44,7 +44,22 @@ export default function TryOnPage({ params }: Props) {
         {/* Wearable retrieval reads the indexed catalog, so a preview before indexing finishes
             would demo an agent that finds nothing. */}
         <CatalogReadyGate label="The preview">
-          <TryOnLayout viewportMode={viewportMode} workspaceId={id} />
+          <TryOnLayout
+            viewportMode={viewportMode}
+            workspaceId={id}
+            theme={ws?.branding.theme}
+            branding={
+              ws
+                ? {
+                    agentName: ws.branding.agentName,
+                    welcomeMessage: ws.branding.welcomeMessage,
+                    logoUrl: ws.branding.logoUrl,
+                    borderRadius: ws.branding.borderRadius,
+                    liveTryOnEnabled: ws.branding.liveTryOnEnabled,
+                  }
+                : undefined
+            }
+          />
         </CatalogReadyGate>
       </div>
     </div>

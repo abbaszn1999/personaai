@@ -6,7 +6,6 @@ import type { UseTryOnAgentReturn } from "../hooks/use-try-on-agent";
 import type { Product } from "@/modules/shopping-agent/types";
 import { PinnedAnchorBar, PinnedBundleBar, WearableChatMessage, WearableScanningIndicator, WearableTypingIndicator } from "./wearable-chat-message";
 import { AvatarMannequinPanel } from "./avatar-mannequin-panel";
-import { NoApiKeyGate } from "./no-api-key-gate";
 import { ProfileSwitcher } from "./profile-switcher";
 import { useEmbedShopperSession } from "../hooks/embed-shopper-session";
 import { WEARABLE_QUICK_REPLIES } from "../mocks/responses";
@@ -21,6 +20,14 @@ import { useWearableBranding } from "../branding-context";
 import type { EmbedRuntimeConfig } from "../hooks/use-try-on-agent";
 
 const CHAT_PANEL_BG_BY_THEME: Record<WearableTheme, string> = { dark: "#0d0b14", light: "#f2f0f5" };
+
+/** Mobile sheet header / launcher don't have room for the full workspace name. A leading
+ *  "Autommerce" is the product prefix, not the agent — strip it so "Autommerce Persona"
+ *  reads as "Persona". Any other custom name is left intact. */
+function compactChatLabel(name: string): string {
+  const compact = name.replace(/^autommerce\s+/i, "").trim();
+  return compact || name;
+}
 
 interface TryOnAgentChatProps {
   agent: UseTryOnAgentReturn;
@@ -224,13 +231,7 @@ interface StyleChatPanelProps {
   embed?: EmbedRuntimeConfig;
 }
 
-function ChatProfileSwitcher({
-  agent,
-  menuPlacement,
-}: {
-  agent: UseTryOnAgentReturn;
-  menuPlacement?: "down" | "up";
-}) {
+function ChatProfileSwitcher({ agent }: { agent: UseTryOnAgentReturn }) {
   const shopper = useEmbedShopperSession();
   return (
     <ProfileSwitcher
@@ -240,9 +241,7 @@ function ChatProfileSwitcher({
       onSwitch={agent.switchProfile}
       onAdd={agent.addProfile}
       onRename={agent.renameProfile}
-      accountEmail={shopper?.email}
       onSignOut={shopper?.signOut}
-      menuPlacement={menuPlacement}
     />
   );
 }
@@ -262,19 +261,6 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [agent.messages, agent.isTyping, agent.isScanning]);
-
-  if (!agent.apiKeyLoading && !agent.hasApiKey) {
-    return (
-      <div className={cn(
-        "flex-1 flex flex-col min-w-0 min-h-0 h-full overflow-hidden backdrop-blur-xl",
-        compact
-          ? "rounded-none border-0 bg-[var(--color-surface-card)]"
-          : "rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)]"
-      )}>
-        <NoApiKeyGate />
-      </div>
-    );
-  }
 
   return (
     <div className={cn(
@@ -430,7 +416,6 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
   // showing them again below every subsequent turn is clutter, not a shortcut.
   const hasStartedChat = agent.messages.some((m) => m.role === "user");
   const canShowQuickReplies = !hasStartedChat && !agent.isScanning && !agent.isTyping && !agent.isGenerating;
-  const showKeyGate = !agent.apiKeyLoading && !agent.hasApiKey;
   // The full header bar (title, profile switcher, grab handle) only makes sense once there's
   // an actual panel underneath it to be the header *of* — at rest, collapsed, it used to
   // render that same edge-to-edge bar with nothing open below it, which read as a flat,
@@ -534,8 +519,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
           {...sheet.handleProps}
           className={cn(
             "relative flex touch-none items-center shrink-0",
-            showSheetChrome ? cn("gap-2 px-3 pt-3 pb-3", styles.headerPress) : "justify-center px-3 pb-4 pt-2",
-            !showSheetChrome && SAFE_BOTTOM
+            showSheetChrome ? cn("gap-2 px-3 pt-3 pb-3", styles.headerPress) : "justify-center px-3 pt-2 pb-[max(1.5rem,calc(env(safe-area-inset-bottom)+0.75rem))]"
           )}
         >
           {showSheetChrome ? (
@@ -547,7 +531,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
                   purpose, so it stays a single, unambiguous action. */}
               {embed && (
                 <div className="mt-1 shrink-0">
-                  <ChatProfileSwitcher agent={agent} menuPlacement={sheet.snap === "full" ? "down" : "up"} />
+                  <ChatProfileSwitcher agent={agent} />
                 </div>
               )}
               <button
@@ -565,7 +549,9 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
                   ) : (
                     <MessageCircle className="h-5 w-5 shrink-0 text-[var(--color-brand)]" />
                   )}
-                  <span className={cn("truncate text-[14px] font-semibold", styles.headerTitle)}>{branding.agentName}</span>
+                  <span className={cn("truncate text-[14px] font-semibold", styles.headerTitle)}>
+                    {compactChatLabel(branding.agentName)}
+                  </span>
                   <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-success)] animate-pulse-dot" />
                 </div>
                 <div className={cn("absolute right-0 flex items-center gap-2", styles.headerMeta)}>
@@ -602,7 +588,9 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
                 )}
               </span>
               <span className="flex flex-col items-start leading-tight">
-                <span className={cn("text-[13px] font-semibold", styles.headerTitle)}>{branding.agentName}</span>
+                <span className={cn("text-[13px] font-semibold", styles.headerTitle)}>
+                  {compactChatLabel(branding.agentName)}
+                </span>
                 <span className={cn("flex items-center gap-1 text-[11px]", styles.headerMeta)}>
                   <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-success)] animate-pulse-dot" />
                   Chat with us
@@ -613,9 +601,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
         </div>
 
         {/* ── Messages + quick replies + input (only visible when expanded) ── */}
-        {sheet.expanded && showKeyGate ? (
-          <NoApiKeyGate compact />
-        ) : sheet.expanded && (
+        {sheet.expanded && (
           <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
             {/* Messages */}
             <div

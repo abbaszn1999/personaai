@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Settings, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { AgentOrb } from "@/components/ui/agent-orb";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { WORKSPACE_MODE_LABELS } from "@/modules/workspaces/constants";
@@ -22,26 +22,6 @@ export function SidebarWorkspaceCard({
   storeConnected,
   storeName,
 }: SidebarWorkspaceCardProps) {
-  const settingsButton = workspace && (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Link
-          href={`/workspaces/${workspace.id}/settings`}
-          aria-label="Project settings"
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-md)] text-[var(--color-sidebar-text-muted)] sidebar-glass sidebar-glass-hover transition-colors"
-        >
-          <Settings className="h-3.5 w-3.5" />
-        </Link>
-      </TooltipTrigger>
-      <TooltipContent
-        side="right"
-        className="bg-[var(--color-sidebar-bg)] border-[var(--color-sidebar-border)] text-[var(--color-sidebar-text)]"
-      >
-        Project settings
-      </TooltipContent>
-    </Tooltip>
-  );
-
   if (collapsed) {
     return (
       <div className="px-1 py-1 flex flex-col items-center gap-1.5">
@@ -69,7 +49,6 @@ export function SidebarWorkspaceCard({
             {workspace?.name ?? "Add Project"}
           </TooltipContent>
         </Tooltip>
-        {settingsButton}
       </div>
     );
   }
@@ -101,7 +80,6 @@ export function SidebarWorkspaceCard({
             </div>
           </Link>
         )}
-        {settingsButton}
       </div>
 
       {workspace && (

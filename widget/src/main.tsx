@@ -1,6 +1,7 @@
 import * as React from "react";
 import { createRoot } from "react-dom/client";
 import { EmbedApp } from "./embed-app";
+import { attachPageScrollForwarding } from "./forward-page-scroll";
 import { setWearableAssetOrigin } from "@/modules/wearable-agent/constants";
 import { setWidgetOrigin } from "./widget-origin";
 // Bundled at build time (see scripts/build-widget.mjs) as raw CSS text so the whole widget
@@ -99,7 +100,7 @@ function boot() {
     return Math.max(MIN_FULLPAGE_HEIGHT_PX, Math.round(window.innerHeight - top));
   }
 
-  let currentMode: "fullpage" | "floating" = "fullpage";
+  let currentMode: "fullpage" | "floating" | "compact" = "fullpage";
 
   function applyFullpageHeight() {
     if (currentMode !== "fullpage") return;
@@ -108,16 +109,25 @@ function boot() {
     mountEl.style.cssText = "width:100%;height:100%;overflow:hidden;";
   }
 
+  function applyCompactHeight() {
+    if (currentMode !== "compact") return;
+    host.style.cssText = "display:block;width:100%;height:auto;box-sizing:border-box;overflow:visible;";
+    mountEl.style.cssText = "width:100%;height:auto;overflow:visible;";
+  }
+
   /** Switches the host's own footprint on the host page once branding loads — a "floating"
    *  unwearable widget must NOT occupy page flow like the fullpage docked widget does; it
    *  needs a zero-footprint fixed overlay instead so the launcher/panel float above the page
-   *  content rather than reserving a full-viewport block. `fullpage` restores the original
-   *  block-in-flow sizing (wearable always uses this). */
-  function applyDisplayMode(mode: "fullpage" | "floating") {
+   *  content rather than reserving a full-viewport block. `compact` hugs sign-in / onboarding
+   *  so the merchant page stays around the card and can scroll. `fullpage` is the try-on
+   *  chat, which needs the leftover viewport. */
+  function applyDisplayMode(mode: "fullpage" | "floating" | "compact") {
     currentMode = mode;
     if (mode === "floating") {
       host.style.cssText = "display:block;width:0;height:0;overflow:visible;position:static;";
       mountEl.style.cssText = "width:0;height:0;overflow:visible;";
+    } else if (mode === "compact") {
+      applyCompactHeight();
     } else {
       applyFullpageHeight();
     }
@@ -145,6 +155,8 @@ function boot() {
   // content that doesn't block `load` at all (lazy images, animated announcement bars, etc).
   window.addEventListener("load", applyFullpageHeight, { once: true });
   [500, 1500].forEach((delay) => setTimeout(applyFullpageHeight, delay));
+
+  attachPageScrollForwarding(host);
 
   createRoot(mountEl).render(
     <EmbedApp origin={origin} embedToken={embedToken} onDisplayModeChange={applyDisplayMode} />

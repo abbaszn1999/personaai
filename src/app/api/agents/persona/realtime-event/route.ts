@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getWorkspaceByIdForOwner } from "@/lib/db/workspaces";
 import { consumeLiveTryOnSeconds } from "@/lib/db/realtime-tryon-events";
 import { getAccountBillingContext } from "@/lib/billing/account";
+import { isLiveTryOnEnabled } from "@/modules/workspaces/constants";
 
 interface RequestBody {
   workspaceId?: string;
@@ -35,6 +36,9 @@ export async function POST(req: NextRequest) {
     const workspace = await getWorkspaceByIdForOwner(workspaceId, user.id);
     if (!workspace || workspace.mode !== "wearable") {
       return Response.json({ error: "Wearable workspace not found" }, { status: 404 });
+    }
+    if (!isLiveTryOnEnabled(workspace.branding)) {
+      return Response.json({ error: "Live camera try-on is disabled for this store" }, { status: 403 });
     }
 
     const billing = await getAccountBillingContext(user.id, "wearable");

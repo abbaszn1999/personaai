@@ -25,7 +25,7 @@ interface EmbedAppProps {
   embedToken: string;
   /** Lets this component switch the host <div>'s own footprint on the merchant's page once
    *  branding loads — see applyDisplayMode in main.tsx. */
-  onDisplayModeChange?: (mode: "fullpage" | "floating") => void;
+  onDisplayModeChange?: (mode: "fullpage" | "floating" | "compact") => void;
 }
 
 /** The widget.js bootstrap's React root — mirrors src/app/embed/[token]/page.tsx's fetch/
@@ -35,13 +35,20 @@ interface EmbedAppProps {
 export function EmbedApp({ origin, embedToken, onDisplayModeChange }: EmbedAppProps) {
   const [state, setState] = React.useState<LoadState>({ status: "loading" });
   const [rootRef, viewportMode] = useResponsiveViewportMode<HTMLDivElement>();
+  const [fillViewport, setFillViewport] = React.useState(false);
 
   useEmbedHeartbeat(`${origin}/api/embed`, embedToken);
 
   const isFloating = state.status === "ready" && state.mode === "unwearable" && state.branding.displayMode === "floating";
-  React.useEffect(() => {
-    onDisplayModeChange?.(isFloating ? "floating" : "fullpage");
-  }, [isFloating, onDisplayModeChange]);
+  const isCompact =
+    !isFloating &&
+    !fillViewport &&
+    (state.status !== "ready" || state.mode === "wearable");
+  React.useLayoutEffect(() => {
+    if (isFloating) onDisplayModeChange?.("floating");
+    else if (isCompact) onDisplayModeChange?.("compact");
+    else onDisplayModeChange?.("fullpage");
+  }, [isFloating, isCompact, onDisplayModeChange]);
 
   React.useEffect(() => {
     let active = true;
@@ -76,7 +83,7 @@ export function EmbedApp({ origin, embedToken, onDisplayModeChange }: EmbedAppPr
 
   if (state.status === "loading") {
     return (
-      <div className="flex h-full items-center justify-center bg-[var(--color-surface-base)]">
+      <div className="flex h-full items-center justify-center">
         <div className="h-8 w-8 rounded-full border-2 border-[var(--color-brand)] border-t-transparent animate-spin" />
       </div>
     );
@@ -84,8 +91,10 @@ export function EmbedApp({ origin, embedToken, onDisplayModeChange }: EmbedAppPr
 
   if (state.status === "error") {
     return (
-      <div className="flex h-full items-center justify-center bg-[var(--color-surface-base)] px-6">
-        <p className="text-[var(--color-text-muted)] text-sm text-center max-w-sm">{state.message}</p>
+      <div className="flex h-full items-center justify-center px-6">
+        <p className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-card)] px-4 py-3 text-center text-sm text-[var(--color-text-muted)] shadow-[var(--shadow-elevated)] max-w-sm">
+          {state.message}
+        </p>
       </div>
     );
   }
@@ -119,7 +128,11 @@ export function EmbedApp({ origin, embedToken, onDisplayModeChange }: EmbedAppPr
     <div
       ref={rootRef}
       className={cn(
-        "h-full bg-[var(--color-surface-base)] box-border p-4 sm:p-6",
+        // Transparent by design — this box sits directly on the merchant's own page
+        // background (any color/pattern), so only the card/panel surfaces inside it (which
+        // keep their own bg + shadow) should ever paint a background.
+        "box-border p-4 sm:p-6",
+        isCompact ? "h-auto" : "h-full",
         state.branding.theme === "dark" && "dark"
       )}
       style={{
@@ -137,7 +150,9 @@ export function EmbedApp({ origin, embedToken, onDisplayModeChange }: EmbedAppPr
             welcomeMessage: state.branding.welcomeMessage,
             logoUrl: state.branding.logoUrl,
             borderRadius: state.branding.borderRadius,
+            liveTryOnEnabled: state.branding.liveTryOnEnabled,
           }}
+          onFillViewportChange={setFillViewport}
         />
       ) : (
         <ChatInterface

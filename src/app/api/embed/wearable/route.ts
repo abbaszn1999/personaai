@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
-import { getGeminiApiKeyEncrypted, getUserById } from "@/lib/db/users";
-import { decryptSecret } from "@/lib/utils/crypto";
+import { getUserById } from "@/lib/db/users";
+import { getPlatformGeminiApiKey } from "@/lib/ai/gemini";
 import { runWearableChatAgent, type WearableChatContext, type IntakeState } from "@/lib/agents/wearable/persona";
 import { buildWearableChatContext } from "@/lib/agents/wearable/persona/context";
 import type { BundleState } from "@/lib/retrieval/types";
@@ -77,21 +77,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const encryptedKey = await getGeminiApiKeyEncrypted(workspace.ownerId);
-  if (!encryptedKey) {
-    return Response.json(
-      { error: "This store hasn't finished setting up its style assistant yet.", code: "missing_api_key" },
-      { status: 400, headers: EMBED_CORS_HEADERS }
-    );
-  }
-
   let geminiApiKey: string;
   try {
-    geminiApiKey = decryptSecret(encryptedKey);
+    geminiApiKey = getPlatformGeminiApiKey();
   } catch {
     return Response.json(
-      { error: "This store's style assistant is temporarily unavailable.", code: "missing_api_key" },
-      { status: 400, headers: EMBED_CORS_HEADERS }
+      { error: "This store's style assistant is temporarily unavailable.", code: "chat_unavailable" },
+      { status: 503, headers: EMBED_CORS_HEADERS }
     );
   }
 

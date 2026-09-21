@@ -7,7 +7,6 @@ import type { BundleSuggestion, Product } from "@/modules/shopping-agent/types";
 import type { IntakeState, WearableAgentEvent } from "@/lib/agents/wearable/persona";
 import type { BundleState } from "@/lib/retrieval/types";
 import { mergeRetrievalState, type RetrievalState } from "../utils/retrieval-state";
-import { useGeminiApiKey } from "@/modules/billing/hooks/use-gemini-api-key";
 import { AVATAR_GENERATION_STAGES } from "../constants";
 import { INITIAL_WEARABLE_MESSAGE, SCAN_STAGE_DURATION_MS, SCAN_STAGES } from "../mocks/responses";
 import {
@@ -467,14 +466,14 @@ export function isProfileComplete(profile: TryOnProfile): boolean {
 
 /** Picks which onboarding step to drop a shopper on, given whatever their profile already
  *  holds — so someone who filled in their measurements and then reloaded (or switched away and
- *  back) doesn't have to click through the welcome and audience screens again just to reach the
- *  one thing still missing. A blank/absent profile still starts at the welcome screen, which is
- *  also what a freshly-added profile gets. Never resolves past `measurements`: the raw photo is
+ *  back) doesn't have to click through the audience screen again just to reach the one thing
+ *  still missing. A blank/absent profile still starts at the audience screen, which is also
+ *  what a freshly-added profile gets. Never resolves past `measurements`: the raw photo is
  *  deliberately never persisted (see sanitizeProfileForStorage), so a returning shopper always
  *  lands back on the combined measurements+photo screen to re-pick one before an avatar can be
  *  generated, even if their numeric measurements are already filled in from before. */
 export function resumeOnboardingPhase(profile: TryOnProfile | null | undefined): OnboardingPhase {
-  if (!profile?.audience) return "welcome";
+  if (!profile?.audience) return "audience";
   return "measurements";
 }
 
@@ -576,10 +575,6 @@ export function useTryOnAgent(
   workspaceId?: string,
   shopper?: ShopperProfileBridge
 ) {
-  // The embedded page has no shopper login, so there's no `/api/account/api-key` to check —
-  // the server already guarantees the merchant has one configured before enabling the embed.
-  const geminiKey = useGeminiApiKey(!embed);
-
   const localPersisted = embed ? normalizePersistedState(loadEmbedState<unknown>(embed.embedToken)) : null;
   const persisted = shopper ? overlayServerProfiles(shopper.profiles, localPersisted) : localPersisted;
   const activeSlot = persisted ? (persisted.profiles.find((p) => p.id === persisted.activeProfileId) ?? null) : null;
@@ -1015,7 +1010,7 @@ export function useTryOnAgent(
   /** Onboarding steps before avatar generation kicks in — used by goBack to step to the
    *  previous one. Generation/avatar-selection aren't in here: there's no "back" out of a
    *  request already in flight, and confirmAvatar/the error path handle those transitions. */
-  const ONBOARDING_STEP_ORDER: OnboardingPhase[] = ["welcome", "audience", "measurements"];
+  const ONBOARDING_STEP_ORDER: OnboardingPhase[] = ["audience", "measurements"];
 
   // Navigating between steps clears any previous avatar-generation failure: the message is
   // pinned to the combined measurements+photo step, so leaving and coming back would otherwise
@@ -1188,7 +1183,7 @@ export function useTryOnAgent(
       return {
         ...s,
         profileSubmitted: true,
-        onboardingPhase: "welcome",
+        onboardingPhase: "audience",
         profile: nextProfile,
         // Drop the unchosen styles — only the confirmed cutout is stored on the account.
         avatarVariations: [],
@@ -2272,10 +2267,6 @@ export function useTryOnAgent(
     addProfile,
     removeProfile,
     renameProfile,
-    // The embedded page has no shopper login/API-key concept — the server already guarantees
-    // the merchant has a key configured before its embed can be enabled at all.
-    hasApiKey: embed ? true : geminiKey.hasKey,
-    apiKeyLoading: embed ? false : geminiKey.loading,
   };
 }
 

@@ -28,5 +28,12 @@ export function defaultBrandingForMode(mode: WorkspaceMode): WorkspaceBranding {
     // wearable is always full-page; unwearable defaults to floating
     displayMode: mode === "wearable" ? "fullpage" : "floating",
     theme: "dark",
+    liveTryOnEnabled: true,
   };
+}
+
+/** Shopper-facing Live camera try-on. Missing/undefined counts as on so rows saved before
+ *  this field existed keep today's button. Explicit `false` is the merchant kill switch. */
+export function isLiveTryOnEnabled(branding?: Pick<WorkspaceBranding, "liveTryOnEnabled"> | null): boolean {
+  return branding?.liveTryOnEnabled !== false;
 }

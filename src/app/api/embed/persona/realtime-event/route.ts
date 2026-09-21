@@ -3,6 +3,7 @@ import { resolveEmbedRequest } from "@/lib/embed/resolve";
 import { embedJson, embedOptions } from "@/lib/embed/cors";
 import { consumeLiveTryOnSeconds } from "@/lib/db/realtime-tryon-events";
 import { getAccountBillingContext } from "@/lib/billing/account";
+import { isLiveTryOnEnabled } from "@/modules/workspaces/constants";
 
 interface RequestBody {
   embedToken?: string;
@@ -22,6 +23,9 @@ export async function POST(req: NextRequest) {
     const body: RequestBody = await req.json().catch(() => ({}));
     const resolution = await resolveEmbedRequest(body.embedToken, "wearable");
     if ("error" in resolution) return resolution.error;
+    if (!isLiveTryOnEnabled(resolution.workspace.branding)) {
+      return embedJson({ error: "Live camera try-on is disabled for this store" }, { status: 403 });
+    }
 
     const sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
     const productId = typeof body.productId === "string" ? body.productId.trim() : "";

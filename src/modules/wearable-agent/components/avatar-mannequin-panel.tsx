@@ -41,6 +41,7 @@ import { SizeGuideModal } from "./size-guide-modal";
 import { cn } from "@/lib/utils/cn";
 import { useClickOutside } from "@/lib/hooks/use-click-outside";
 import { useWearableTheme } from "../theme-context";
+import { useWearableBranding } from "../branding-context";
 import { MOBILE_SURFACE, NO_IOS_ZOOM_TEXT, SAFE_BOTTOM, SHEET_H } from "../mobile-surface";
 import type { EmbedRuntimeConfig } from "../hooks/use-try-on-agent";
 import { useRealtimeTryOn } from "../hooks/use-realtime-tryon";
@@ -149,6 +150,7 @@ export function AvatarMannequinPanel({
 }: AvatarMannequinPanelProps) {
   const handleBulkAddToCart = onBulkAddToCart ?? onAddToCart;
   const theme = useWearableTheme();
+  const { liveTryOnEnabled } = useWearableBranding();
   const panelBg = PANEL_BG_BY_THEME[theme];
   const [activeSwatchIndex, setActiveSwatchIndex] = React.useState(0);
   const [isEditOpen, setIsEditOpen] = React.useState(false);
@@ -256,9 +258,17 @@ export function AvatarMannequinPanel({
   }, [realtime.status, realtime.activeProductId, liveProducts, realtime.switchProduct]);
 
   function changeViewMode(next: "photo" | "live") {
+    if (next === "live" && !liveTryOnEnabled) return;
     if (next === "photo" && viewMode === "live") realtime.stop("photo-mode");
     setViewMode(next);
   }
+
+  const stopRealtime = realtime.stop;
+  React.useEffect(() => {
+    if (liveTryOnEnabled || viewMode !== "live") return;
+    stopRealtime("live-disabled");
+    setViewMode("photo");
+  }, [liveTryOnEnabled, viewMode, stopRealtime]);
 
   const lookLabel = hasGeneratedLooks
     ? `Style ${currentImageIndex + 1} of ${total}`
@@ -343,6 +353,7 @@ export function AvatarMannequinPanel({
         onSaveMeasurements={onSaveMeasurements}
         viewMode={viewMode}
         onViewModeChange={changeViewMode}
+        liveTryOnEnabled={liveTryOnEnabled}
         realtime={realtime}
         liveProducts={liveProducts}
         onRequestSpace={onRequestSpace}
@@ -480,12 +491,12 @@ export function AvatarMannequinPanel({
                 );
               })}
 
-              <div className="h-px w-5 bg-white/[0.1]" />
+              {liveTryOnEnabled && <div className="h-px w-5 bg-white/[0.1]" />}
             </>
           )}
 
-          {/* Image ⇄ Live mode switch — replaces the old disabled "3D" slot */}
-          {MODE_TOGGLE_ACTIONS.map((mode) => (
+          {liveTryOnEnabled &&
+            MODE_TOGGLE_ACTIONS.map((mode) => (
             <button
               key={mode.id}
               type="button"
@@ -869,6 +880,7 @@ interface MobileAvatarStripProps {
   onSaveMeasurements: (patch: Partial<TryOnProfile>) => void;
   viewMode: "photo" | "live";
   onViewModeChange: (mode: "photo" | "live") => void;
+  liveTryOnEnabled: boolean;
   realtime: ReturnType<typeof useRealtimeTryOn>;
   liveProducts: Product[];
   onRequestSpace?: () => void;
@@ -905,6 +917,7 @@ function MobileAvatarStrip({
   onSaveMeasurements,
   viewMode,
   onViewModeChange,
+  liveTryOnEnabled,
   realtime,
   liveProducts,
   onRequestSpace,
@@ -1037,10 +1050,7 @@ function MobileAvatarStrip({
         </button>
       </div>}
 
-      {/* ── Left toolbar: Image ⇄ Live mode switch — same slot the "3D — coming soon"
-           control will live in later, mirrors the desktop toolbar's left rail.
-           Centred in the space left above the chat sheet, not in the frame, so it stays
-           reachable at every snap point instead of sliding underneath. ── */}
+      {liveTryOnEnabled && (
       <div
         className="absolute left-3 z-[16] flex -translate-y-1/2 flex-col items-center gap-1 rounded-full border border-white/[0.12] bg-black/50 p-1 shadow-[0_8px_28px_rgba(0,0,0,0.5)] backdrop-blur-2xl"
         style={{ top: `calc((100% - ${SHEET_H}) / 2)` }}
@@ -1063,6 +1073,7 @@ function MobileAvatarStrip({
           </button>
         ))}
       </div>
+      )}
 
       {/* ── Bottom row: swatches + cart — only when there is a real outfit / try-on ── */}
       {viewMode === "photo" && (hasGeneratedLooks || activeItems.length > 0) && (

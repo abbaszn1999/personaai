@@ -3,6 +3,7 @@ import { createDecartClientToken, DecartApiError } from "@/lib/ai/decart";
 import { resolveEmbedRequest } from "@/lib/embed/resolve";
 import { embedJson, embedOptions } from "@/lib/embed/cors";
 import { canStartLiveTryOn, getAccountBillingContext } from "@/lib/billing/account";
+import { isLiveTryOnEnabled } from "@/modules/workspaces/constants";
 
 export async function OPTIONS() {
   return embedOptions();
@@ -13,7 +14,11 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const resolution = await resolveEmbedRequest(body.embedToken, "wearable");
     if ("error" in resolution) return resolution.error;
-    const billing = await getAccountBillingContext(resolution.workspace.ownerId, "wearable");
+    const { workspace } = resolution;
+    if (!isLiveTryOnEnabled(workspace.branding)) {
+      return embedJson({ error: "Live camera try-on is disabled for this store" }, { status: 403 });
+    }
+    const billing = await getAccountBillingContext(workspace.ownerId, "wearable");
     if (!billing || !canStartLiveTryOn(billing)) {
       return embedJson(
         { error: "This store has exhausted its monthly live try-on allowance and purchased minutes" },

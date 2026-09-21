@@ -257,7 +257,7 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
         const tokenResponse = await fetch(tokenUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(embedToken ? { embedToken } : {}),
+          body: JSON.stringify(embedToken ? { embedToken } : workspaceId ? { workspaceId } : {}),
         });
         const tokenData: TokenResponse = await tokenResponse.json().catch(() => ({}));
         if (!tokenResponse.ok || !tokenData.apiKey) {
@@ -343,7 +343,7 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
         return null;
       }
     },
-    [embedApiBase, embedToken, stop]
+    [embedApiBase, embedToken, workspaceId, stop]
   );
 
   const start = React.useCallback(async () => {

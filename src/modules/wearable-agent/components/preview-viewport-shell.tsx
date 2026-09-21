@@ -40,7 +40,9 @@ export function PreviewViewportShell({
             <div
               className={cn(
                 "overflow-hidden bg-[var(--color-surface-card)]",
-                layout === "full" ? "h-[812px]" : "min-h-[680px]"
+                // Chat needs the full phone frame; sign-in / onboarding hug their content
+                // so a short form isn't stranded above a tall empty white slab.
+                layout === "full" && "h-[812px]"
               )}
             >
               {children}
@@ -61,21 +63,27 @@ export function PreviewViewportShell({
     return <div className={cn("h-full min-h-0", className)}>{children}</div>;
   }
 
-  // A real *mobile* embed (frameless) — onboarding must fill the widget's own box exactly like
-  // the post-onboarding chat ("full") does, not sit centered inside a decorative
-  // dashboard-preview card. That decorative wrapper below is `overflow-y-auto` with visible
-  // margins around it; on a touch device that turns into a dead zone where swipes only scroll
-  // a tiny inner box instead of the host page, and leaves the ProfileSwitcher pill sitting
-  // inset from the real screen corner instead of flush against it. Full-bleed here removes both
-  // problems at once. Desktop frameless embeds keep the boxed card look below — mouse-wheel
-  // scrolling never hit this trap, and a merchant's desktop page may actually want that
-  // card-in-a-page-section appearance.
-  if (frameless && mode === "mobile") {
-    return <div className={cn("h-full min-h-0 overflow-y-auto sidebar-scroll", className)}>{children}</div>;
+  // Real embed onboarding (frameless) — hug the card on every viewport so the leftover
+  // merchant page around it stays the page scroller. `overscroll-contain` + a leftover-
+  // viewport host is what used to trap the wheel / swipe inside an empty gray slab.
+  if (frameless) {
+    return (
+      <div className={cn("w-full", mode === "desktop" && "flex justify-center", className)}>
+        <div
+          className={cn(
+            "overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--color-border)]",
+            "bg-[var(--color-surface-card)] shadow-[var(--shadow-elevated)]",
+            mode === "desktop" ? "w-full max-w-2xl" : "w-full"
+          )}
+        >
+          {children}
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="flex h-full min-h-0 items-center justify-center overflow-y-auto overscroll-contain py-6 sidebar-scroll">
+    <div className="flex h-full min-h-0 items-center justify-center overflow-y-auto py-6 sidebar-scroll">
       <div
         className={cn(
           "w-full max-w-2xl rounded-[var(--radius-2xl)] border border-[var(--color-border)]",

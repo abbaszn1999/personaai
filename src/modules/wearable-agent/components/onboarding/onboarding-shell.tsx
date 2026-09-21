@@ -9,7 +9,7 @@ import { SAFE_BOTTOM } from "../../mobile-surface";
 
 /** Steps that get the shared chrome (back button + progress dots + slide transition). Avatar
  *  generation and selection keep their own full-bleed screens, unchanged from before. */
-const STEP_SEQUENCE: OnboardingPhase[] = ["welcome", "audience", "measurements"];
+const STEP_SEQUENCE: OnboardingPhase[] = ["audience", "measurements"];
 
 interface OnboardingShellProps {
   step: OnboardingPhase;
@@ -17,6 +17,12 @@ interface OnboardingShellProps {
   /** Fixed action area under the content — omitted entirely for self-advancing steps
    *  (e.g. picking an audience card) so there's no dead space below them. */
   footer?: React.ReactNode;
+  /** True for real embeds, where the ProfileSwitcher pill floats absolutely over this shell's
+   *  top-left corner. Every step after the first already clears it — the back button + progress
+   *  row sits right where the pill is. The very first step has no such row, so its heading
+   *  would otherwise start directly under the pill on a narrow, edge-to-edge mobile embed;
+   *  this adds just enough extra top clearance there. */
+  reserveTopSpace?: boolean;
   children: React.ReactNode;
 }
 
@@ -25,7 +31,7 @@ interface OnboardingShellProps {
  *  optional fixed footer for the primary action. Kept deliberately free of any animation
  *  library — see slide-in-right/slide-in-left/scale-in in globals.css — so this costs ~0kb on
  *  top of the widget bundle. */
-export function OnboardingShell({ step, onBack, footer, children }: OnboardingShellProps) {
+export function OnboardingShell({ step, onBack, footer, children, reserveTopSpace = false }: OnboardingShellProps) {
   const stepIndex = STEP_SEQUENCE.indexOf(step);
 
   // Tracks which direction to slide the new step in from, purely by comparing this render's
@@ -44,7 +50,13 @@ export function OnboardingShell({ step, onBack, footer, children }: OnboardingSh
   useKeepFocusedFieldVisible(rootRef);
 
   return (
-    <div ref={rootRef} className="flex flex-col gap-6 px-6 py-8">
+    <div
+      ref={rootRef}
+      className={cn(
+        "flex flex-col gap-6 px-6 pb-8",
+        stepIndex === 0 && reserveTopSpace ? "pt-14" : "pt-8"
+      )}
+    >
       {stepIndex > 0 && (
         <div className="flex items-center gap-3">
           <button
