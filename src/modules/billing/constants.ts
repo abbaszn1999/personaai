@@ -58,7 +58,6 @@ export const UNWEARABLE_PLAN_TIERS: PlanTier[] = [
     bestFor: "Ideal for established brands with high, predictable traffic who want to keep 100% of their driven sales revenue.",
     features: [
       "Unlimited AI shopping assistant conversations",
-      "Powered by your own OpenAI API key",
       "Keep 100% of driven sales revenue",
       "Predictable flat monthly cost",
     ],
@@ -74,7 +73,6 @@ export const UNWEARABLE_PLAN_TIERS: PlanTier[] = [
     bestFor: "Perfect for brands wanting zero upfront cost while aligning Autommerce directly with active sales growth.",
     features: [
       "Unlimited AI shopping assistant conversations",
-      "Powered by your own OpenAI API key",
       "Zero upfront monthly cost",
       "10% commission on direct conversions only",
     ],
@@ -117,13 +115,13 @@ export const CREDIT_BUNDLES: CreditBundle[] = [
 ];
 
 export const INFRA_NOTES: string[] = [
-  "Conversational chat uses your own OpenAI API key — you control text chat volume and cost natively.",
+  "Conversational chat is included with your plan.",
   "Mannequin & styling generations are managed natively by Autommerce, fixed to studio-grade 2K high-fidelity output.",
   "Unlimited prompt and image input references are included at no extra credit cost — only 2K visual outputs are deducted from your monthly cap.",
 ];
 
 export const UNWEARABLE_INFRA_NOTES: string[] = [
-  "Conversational chat uses your own OpenAI API key — you control text chat volume and cost natively.",
+  "Conversational chat is included with your plan.",
   "This plan is powered entirely by the AI shopping assistant — no separate image-generation credits apply.",
 ];
 

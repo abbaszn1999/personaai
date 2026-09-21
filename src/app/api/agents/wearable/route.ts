@@ -3,9 +3,8 @@ import { cookies } from "next/headers";
 import { getIronSession } from "iron-session";
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { sessionOptions, type SessionData } from "@/modules/auth/lib/session";
-import { getGeminiApiKeyEncrypted } from "@/lib/db/users";
 import type { BundleState } from "@/lib/retrieval/types";
-import { decryptSecret } from "@/lib/utils/crypto";
+import { getPlatformGeminiApiKey } from "@/lib/ai/gemini";
 import { runWearableChatAgent, type WearableChatContext, type IntakeState } from "@/lib/agents/wearable/persona";
 import { buildWearableChatContext } from "@/lib/agents/wearable/persona/context";
 import { getWearableAvatar, rememberWearableAvatar } from "@/lib/agents/wearable/persona/avatar-cache";
@@ -59,21 +58,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const encryptedKey = await getGeminiApiKeyEncrypted(user.id);
-  if (!encryptedKey) {
-    return Response.json(
-      { error: "Add your Gemini API key in Account Settings to chat with the Style Assistant.", code: "missing_api_key" },
-      { status: 400 }
-    );
-  }
-
   let geminiApiKey: string;
   try {
-    geminiApiKey = decryptSecret(encryptedKey);
+    geminiApiKey = getPlatformGeminiApiKey();
   } catch {
     return Response.json(
-      { error: "Your saved Gemini API key couldn't be read — please re-enter it in Account Settings.", code: "missing_api_key" },
-      { status: 400 }
+      { error: "Chat is temporarily unavailable. Please try again later.", code: "chat_unavailable" },
+      { status: 503 }
     );
   }
 

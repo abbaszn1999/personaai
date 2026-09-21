@@ -7,7 +7,6 @@ import type { BundleSuggestion, Product } from "@/modules/shopping-agent/types";
 import type { IntakeState, WearableAgentEvent } from "@/lib/agents/wearable/persona";
 import type { BundleState } from "@/lib/retrieval/types";
 import { mergeRetrievalState, type RetrievalState } from "../utils/retrieval-state";
-import { useGeminiApiKey } from "@/modules/billing/hooks/use-gemini-api-key";
 import { AVATAR_GENERATION_STAGES } from "../constants";
 import { INITIAL_WEARABLE_MESSAGE, SCAN_STAGE_DURATION_MS, SCAN_STAGES } from "../mocks/responses";
 import {
@@ -576,10 +575,6 @@ export function useTryOnAgent(
   workspaceId?: string,
   shopper?: ShopperProfileBridge
 ) {
-  // The embedded page has no shopper login, so there's no `/api/account/api-key` to check —
-  // the server already guarantees the merchant has one configured before enabling the embed.
-  const geminiKey = useGeminiApiKey(!embed);
-
   const localPersisted = embed ? normalizePersistedState(loadEmbedState<unknown>(embed.embedToken)) : null;
   const persisted = shopper ? overlayServerProfiles(shopper.profiles, localPersisted) : localPersisted;
   const activeSlot = persisted ? (persisted.profiles.find((p) => p.id === persisted.activeProfileId) ?? null) : null;
@@ -2272,10 +2267,6 @@ export function useTryOnAgent(
     addProfile,
     removeProfile,
     renameProfile,
-    // The embedded page has no shopper login/API-key concept — the server already guarantees
-    // the merchant has a key configured before its embed can be enabled at all.
-    hasApiKey: embed ? true : geminiKey.hasKey,
-    apiKeyLoading: embed ? false : geminiKey.loading,
   };
 }
 

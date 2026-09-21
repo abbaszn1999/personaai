@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
-import { getGeminiApiKeyEncrypted, getUserById } from "@/lib/db/users";
+import { getUserById } from "@/lib/db/users";
 import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
-import { decryptSecret } from "@/lib/utils/crypto";
+import { getPlatformGeminiApiKey } from "@/lib/ai/gemini";
 import { runUnwearableChatAgent, type UnwearableChatContext, type IntakeState } from "@/lib/agents/unwearable-chat-agent";
 import { resolveEmbedRequest } from "@/lib/embed/resolve";
 import { embedOptions, EMBED_CORS_HEADERS } from "@/lib/embed/cors";
@@ -47,21 +47,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const encryptedKey = await getGeminiApiKeyEncrypted(workspace.ownerId);
-  if (!encryptedKey) {
-    return Response.json(
-      { error: "This store hasn't finished setting up its shopping assistant yet.", code: "missing_api_key" },
-      { status: 400, headers: EMBED_CORS_HEADERS }
-    );
-  }
-
   let geminiApiKey: string;
   try {
-    geminiApiKey = decryptSecret(encryptedKey);
+    geminiApiKey = getPlatformGeminiApiKey();
   } catch {
     return Response.json(
-      { error: "This store's shopping assistant is temporarily unavailable.", code: "missing_api_key" },
-      { status: 400, headers: EMBED_CORS_HEADERS }
+      { error: "This store's shopping assistant is temporarily unavailable.", code: "chat_unavailable" },
+      { status: 503, headers: EMBED_CORS_HEADERS }
     );
   }
 

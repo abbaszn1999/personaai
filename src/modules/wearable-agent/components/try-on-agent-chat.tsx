@@ -6,7 +6,6 @@ import type { UseTryOnAgentReturn } from "../hooks/use-try-on-agent";
 import type { Product } from "@/modules/shopping-agent/types";
 import { PinnedAnchorBar, PinnedBundleBar, WearableChatMessage, WearableScanningIndicator, WearableTypingIndicator } from "./wearable-chat-message";
 import { AvatarMannequinPanel } from "./avatar-mannequin-panel";
-import { NoApiKeyGate } from "./no-api-key-gate";
 import { ProfileSwitcher } from "./profile-switcher";
 import { useEmbedShopperSession } from "../hooks/embed-shopper-session";
 import { WEARABLE_QUICK_REPLIES } from "../mocks/responses";
@@ -263,19 +262,6 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [agent.messages, agent.isTyping, agent.isScanning]);
 
-  if (!agent.apiKeyLoading && !agent.hasApiKey) {
-    return (
-      <div className={cn(
-        "flex-1 flex flex-col min-w-0 min-h-0 h-full overflow-hidden backdrop-blur-xl",
-        compact
-          ? "rounded-none border-0 bg-[var(--color-surface-card)]"
-          : "rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)]"
-      )}>
-        <NoApiKeyGate />
-      </div>
-    );
-  }
-
   return (
     <div className={cn(
       "flex-1 flex flex-col min-w-0 min-h-0 h-full overflow-hidden backdrop-blur-xl",
@@ -430,7 +416,6 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
   // showing them again below every subsequent turn is clutter, not a shortcut.
   const hasStartedChat = agent.messages.some((m) => m.role === "user");
   const canShowQuickReplies = !hasStartedChat && !agent.isScanning && !agent.isTyping && !agent.isGenerating;
-  const showKeyGate = !agent.apiKeyLoading && !agent.hasApiKey;
   // The full header bar (title, profile switcher, grab handle) only makes sense once there's
   // an actual panel underneath it to be the header *of* — at rest, collapsed, it used to
   // render that same edge-to-edge bar with nothing open below it, which read as a flat,
@@ -616,9 +601,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
         </div>
 
         {/* ── Messages + quick replies + input (only visible when expanded) ── */}
-        {sheet.expanded && showKeyGate ? (
-          <NoApiKeyGate compact />
-        ) : sheet.expanded && (
+        {sheet.expanded && (
           <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
             {/* Messages */}
             <div
