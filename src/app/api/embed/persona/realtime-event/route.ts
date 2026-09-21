@@ -44,7 +44,6 @@ export async function POST(req: NextRequest) {
 
     const secondsBalance = await consumeLiveTryOnSeconds({
       ownerId: resolution.workspace.ownerId,
-      workspaceId: resolution.workspace.workspaceId,
       sessionId,
       productId,
       productName,

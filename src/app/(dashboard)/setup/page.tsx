@@ -8,7 +8,7 @@ export default async function SetupPage() {
   const user = await getCurrentUser();
   if (user) {
     const workspaces = await getWorkspacesByOwner(user.id);
-    if (workspaces.length >= user.workspaceLimit) {
+    if (workspaces.length >= 1) {
       redirect("/try-on");
     }
   }

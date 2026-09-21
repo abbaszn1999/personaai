@@ -21,7 +21,6 @@ export interface UserProfile {
   onboardingData: Record<string, unknown> | null;
   credits: number;
   subscriptionTier: string;
-  workspaceLimit: number;
   hasPassword: boolean;
   createdAt: string;
   updatedAt: string;
@@ -40,7 +39,6 @@ export function buildSessionProfile(row: Partial<UserRow>): SessionProfile {
     hasPassword: !!row.password_hash,
     subscriptionTier: row.subscription_tier ?? "free",
     credits: row.credits ?? 0,
-    workspaceLimit: row.workspace_limit ?? 3,
     onboardingData: row.onboarding_data ?? null,
   };
 }
@@ -84,7 +82,6 @@ export async function getCurrentUser(): Promise<UserProfile | null> {
     onboardingData: data.onboarding_data,
     credits: data.credits,
     subscriptionTier: data.subscription_tier,
-    workspaceLimit: data.workspace_limit,
     hasPassword: !!data.password_hash,
     createdAt: data.created_at,
     updatedAt: data.updated_at,

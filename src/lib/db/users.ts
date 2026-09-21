@@ -22,7 +22,6 @@ export interface UserRow {
   credits: number;
   live_tryon_seconds_balance: number;
   subscription_tier: string;
-  workspace_limit: number;
   created_at: string;
   updated_at: string;
 }

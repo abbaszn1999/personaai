@@ -17,7 +17,9 @@ export interface RecordCartEventInput {
  *  see src/lib/db/analytics.ts for how this is aggregated and labeled on the dashboard. */
 export async function recordCartEvent(input: RecordCartEventInput): Promise<void> {
   const { error } = await db.from("cart_events").insert({
-    workspace_id: input.workspaceId,
+    // `workspace_id` was dropped from this table — "workspace" and "owner" are the same
+    // thing now, so this stays keyed on owner_id under the hood.
+    owner_id: input.workspaceId,
     session_id: input.sessionId,
     product_id: input.productId,
     product_name: input.productName,
@@ -54,7 +56,7 @@ export async function getCartEventsInRange(
   const { data, error } = await db
     .from("cart_events")
     .select("product_id, product_name, price, currency, quantity, success, session_id, created_at")
-    .eq("workspace_id", workspaceId)
+    .eq("owner_id", workspaceId)
     .gte("created_at", sinceIso)
     .lt("created_at", untilIso);
 

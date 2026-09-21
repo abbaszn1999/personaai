@@ -14,7 +14,9 @@ export interface RecordChatEventInput {
  *  src/lib/db/analytics.ts, mirroring how try-on-events.ts powers try-on insights. */
 export async function recordChatEvent(input: RecordChatEventInput): Promise<void> {
   const { error } = await db.from("chat_events").insert({
-    workspace_id: input.workspaceId,
+    // `workspace_id` was dropped from this table — "workspace" and "owner" are the same
+    // thing now, so this stays keyed on owner_id under the hood.
+    owner_id: input.workspaceId,
     session_id: input.sessionId,
     role: input.role,
     topic: input.topic ?? null,
@@ -42,7 +44,7 @@ export async function getChatEventsInRange(
   const { data, error } = await db
     .from("chat_events")
     .select("session_id, role, topic, created_at")
-    .eq("workspace_id", workspaceId)
+    .eq("owner_id", workspaceId)
     .gte("created_at", sinceIso)
     .lt("created_at", untilIso);
 
@@ -60,16 +62,10 @@ export async function getChatEventsInRange(
 }
 
 export async function getChatMessageCountForOwner(ownerId: string, sinceIso: string): Promise<number> {
-  const { data: workspaces, error: workspaceError } = await db
-    .from("workspaces")
-    .select("id")
-    .eq("owner_id", ownerId);
-  if (workspaceError || !workspaces?.length) return 0;
-
   const { count, error } = await db
     .from("chat_events")
     .select("id", { count: "exact", head: true })
-    .in("workspace_id", workspaces.map((workspace) => workspace.id))
+    .eq("owner_id", ownerId)
     .gte("created_at", sinceIso);
   if (error) {
     console.error("[db/chat-events getChatMessageCountForOwner]", error);

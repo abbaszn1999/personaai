@@ -15,7 +15,9 @@ export async function recordTryOnEvents(input: RecordTryOnEventsInput): Promise<
 
   const { error } = await db.from("try_on_events").insert(
     input.items.map((item) => ({
-      workspace_id: input.workspaceId,
+      // `workspace_id` was dropped from this table — "workspace" and "owner" are the same
+      // thing now, so this stays keyed on owner_id under the hood.
+      owner_id: input.workspaceId,
       session_id: input.sessionId,
       generation_id: input.generationId,
       product_id: item.productId,
@@ -48,7 +50,7 @@ export async function getTryOnEventsInRange(
   const { data, error } = await db
     .from("try_on_events")
     .select("session_id, generation_id, product_id, product_name, recommended_size, created_at")
-    .eq("workspace_id", workspaceId)
+    .eq("owner_id", workspaceId)
     .gte("created_at", sinceIso)
     .lt("created_at", untilIso);
 

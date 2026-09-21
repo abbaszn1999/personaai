@@ -13,7 +13,9 @@ export interface ShopperAccountRow {
 function rowToAccount(row: Record<string, unknown>): ShopperAccountRow {
   return {
     id: row.id as string,
-    workspaceId: row.workspace_id as string,
+    // `workspace_id` was dropped from this table — "workspace" and "owner" are the same
+    // thing now, so this field stays populated from owner_id under the hood.
+    workspaceId: row.owner_id as string,
     email: row.email as string,
     emailVerifiedAt: (row.email_verified_at as string | null) ?? null,
     privacyAcceptedAt: (row.privacy_accepted_at as string | null) ?? null,
@@ -29,7 +31,7 @@ export async function getShopperAccountByEmail(
   const { data, error } = await db
     .from("shopper_accounts")
     .select("*")
-    .eq("workspace_id", workspaceId)
+    .eq("owner_id", workspaceId)
     .eq("email", email.toLowerCase())
     .maybeSingle();
 
@@ -69,7 +71,7 @@ export async function upsertShopperAccount(
   const { data, error } = await db
     .from("shopper_accounts")
     .insert({
-      workspace_id: workspaceId,
+      owner_id: workspaceId,
       email: normalizedEmail,
       email_verified_at: now,
       privacy_accepted_at: privacyAccepted ? now : null,
@@ -109,7 +111,7 @@ export interface ShopperLoginCodeRow {
 function rowToLoginCode(row: Record<string, unknown>): ShopperLoginCodeRow {
   return {
     id: row.id as string,
-    workspaceId: row.workspace_id as string,
+    workspaceId: row.owner_id as string,
     email: row.email as string,
     codeHash: row.code_hash as string,
     attempts: row.attempts as number,
@@ -126,7 +128,7 @@ export async function createShopperLoginCode(input: {
   expiresAt: string;
 }): Promise<void> {
   const { error } = await db.from("shopper_login_codes").insert({
-    workspace_id: input.workspaceId,
+    owner_id: input.workspaceId,
     email: input.email.toLowerCase(),
     code_hash: input.codeHash,
     expires_at: input.expiresAt,
@@ -143,7 +145,7 @@ export async function getLatestShopperLoginCode(
   const { data, error } = await db
     .from("shopper_login_codes")
     .select("*")
-    .eq("workspace_id", workspaceId)
+    .eq("owner_id", workspaceId)
     .eq("email", email.toLowerCase())
     .is("consumed_at", null)
     .order("created_at", { ascending: false })

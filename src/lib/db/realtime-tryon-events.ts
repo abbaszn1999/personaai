@@ -2,7 +2,6 @@ import { db } from "@/lib/supabase/server";
 
 export interface RecordRealtimeTryOnEventInput {
   ownerId: string;
-  workspaceId: string;
   sessionId: string;
   productId: string;
   productName: string;
@@ -16,7 +15,6 @@ export interface RecordRealtimeTryOnEventInput {
 export async function consumeLiveTryOnSeconds(input: RecordRealtimeTryOnEventInput): Promise<number | null> {
   const { data, error } = await db.rpc("consume_live_tryon_seconds", {
     p_user_id: input.ownerId,
-    p_workspace_id: input.workspaceId,
     p_session_id: input.sessionId,
     p_product_id: input.productId,
     p_product_name: input.productName,
@@ -49,7 +47,9 @@ export async function getRealtimeTryOnEventsInRange(
   const { data, error } = await db
     .from("realtime_tryon_events")
     .select("session_id, product_id, product_name, duration_seconds, created_at")
-    .eq("workspace_id", workspaceId)
+    // `workspace_id` was dropped from this table — "workspace" and "owner" are the same
+    // thing now, so this stays keyed on owner_id under the hood.
+    .eq("owner_id", workspaceId)
     .gte("created_at", sinceIso)
     .lt("created_at", untilIso);
 
@@ -67,27 +67,15 @@ export async function getRealtimeTryOnEventsInRange(
   }));
 }
 
-async function getOwnerWorkspaceIds(ownerId: string): Promise<string[]> {
-  const { data, error } = await db.from("workspaces").select("id").eq("owner_id", ownerId);
-  if (error) {
-    console.error("[db/realtime-tryon-events getOwnerWorkspaceIds]", error);
-    return [];
-  }
-  return (data ?? []).map((row) => row.id as string);
-}
-
 export async function getRealtimeTryOnEventsForOwnerInRange(
   ownerId: string,
   sinceIso: string,
   untilIso?: string
 ): Promise<RealtimeTryOnEventRow[]> {
-  const workspaceIds = await getOwnerWorkspaceIds(ownerId);
-  if (workspaceIds.length === 0) return [];
-
   let query = db
     .from("realtime_tryon_events")
     .select("session_id, product_id, product_name, duration_seconds, created_at")
-    .in("workspace_id", workspaceIds)
+    .eq("owner_id", ownerId)
     .gte("created_at", sinceIso)
     .order("created_at", { ascending: true });
   if (untilIso) query = query.lt("created_at", untilIso);

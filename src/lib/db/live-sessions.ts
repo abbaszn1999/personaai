@@ -11,11 +11,13 @@ export async function recordHeartbeat(workspaceId: string, sessionId: string): P
     .from("workspace_live_sessions")
     .upsert(
       {
-        workspace_id: workspaceId,
+        // `workspace_id` was dropped from this table — "workspace" and "owner" are the same
+        // thing now, so this stays keyed on owner_id under the hood.
+        owner_id: workspaceId,
         session_id: sessionId,
         last_seen_at: new Date().toISOString(),
       },
-      { onConflict: "workspace_id,session_id" }
+      { onConflict: "owner_id,session_id" }
     );
 
   if (error) {
@@ -32,7 +34,7 @@ export async function countLiveSessions(workspaceId: string): Promise<number> {
   const { count, error } = await db
     .from("workspace_live_sessions")
     .select("session_id", { count: "exact", head: true })
-    .eq("workspace_id", workspaceId)
+    .eq("owner_id", workspaceId)
     .gt("last_seen_at", cutoff);
 
   if (error) {
@@ -63,7 +65,7 @@ export async function getSessionRowsForRange(
   const { data, error } = await db
     .from("workspace_live_sessions")
     .select("session_id, started_at, last_seen_at")
-    .eq("workspace_id", workspaceId)
+    .eq("owner_id", workspaceId)
     .lt("started_at", untilIso)
     .gte("last_seen_at", sinceIso);
 

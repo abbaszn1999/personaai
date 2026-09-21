@@ -30,13 +30,13 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: "Name must be at least 2 characters" }, { status: 400 });
     }
 
+    // Every account gets at most one project now (see the workspace-removal migration set) —
+    // the workspaces table itself has been dropped in favor of store_* columns on `users`.
     const count = await countWorkspacesByOwner(user.id);
-    if (count >= (user.workspaceLimit ?? 3)) {
+    if (count >= 1) {
       return Response.json({ error: "Project limit reached" }, { status: 403 });
     }
 
-    // Every project is a wearable (virtual try-on) agent now — the `mode` column itself has
-    // been dropped from `workspaces` (see the drop_workspace_mode migration).
     const workspace = await createWorkspace({
       ownerId: user.id,
       name: name.trim(),

@@ -14,19 +14,23 @@ export interface WorkspaceRow {
   updatedAt: string;
 }
 
-// The `mode` column was dropped from `workspaces` (every project is a wearable virtual
-// try-on agent now — see the drop_workspace_mode migration). Kept as a hardcoded field on
-// the returned shape rather than removed outright so the many UI call sites that still read
-// `workspace.mode` don't all need updating in this same pass; flattened away entirely once
-// the workspace concept itself is removed.
-function rowToWorkspace(row: Record<string, unknown>): WorkspaceRow {
-  const mode: WorkspaceMode = "wearable";
+const WORKSPACE_SELECT = "id, store_name, store_status, embed_token, embed_enabled, branding, created_at, updated_at";
+
+// The `workspaces` table itself has been dropped (every account has at most one project, so
+// there was nothing left for a separate table to hold) — this module is now just a typed view
+// over that owner's own row on `users` (store_name/store_status/embed_token/embed_enabled/
+// branding), with `id` equal to the owner's own id. Kept as its own module/shape rather than
+// folded into lib/db/users.ts since most of the UI still reads a `Workspace` object by id.
+function rowToWorkspace(row: Record<string, unknown>): WorkspaceRow | null {
+  // No project created yet (account finished signup but never completed /setup).
+  if (!row.store_name || !row.embed_token) return null;
+
   const branding = (row.branding as Partial<WorkspaceBranding> | null) ?? {};
   return {
     id: row.id as string,
-    name: row.name as string,
-    mode,
-    status: row.status as WorkspaceStatus,
+    name: row.store_name as string,
+    mode: "wearable",
+    status: (row.store_status as WorkspaceStatus) ?? "draft",
     embedToken: row.embed_token as string,
     embedEnabled: (row.embed_enabled as boolean) ?? false,
     // Merge over defaults so older rows (saved before a new branding field was added) still
@@ -38,39 +42,27 @@ function rowToWorkspace(row: Record<string, unknown>): WorkspaceRow {
 }
 
 export async function getWorkspacesByOwner(ownerId: string): Promise<WorkspaceRow[]> {
-  const { data, error } = await db
-    .from("workspaces")
-    .select("*")
-    .eq("owner_id", ownerId)
-    .order("created_at", { ascending: true });
+  const { data, error } = await db.from("users").select(WORKSPACE_SELECT).eq("id", ownerId).maybeSingle();
 
   if (error) {
     console.error("[db/workspaces getWorkspacesByOwner]", error);
     return [];
   }
+  if (!data) return [];
 
-  return (data ?? []).map(rowToWorkspace);
+  const workspace = rowToWorkspace(data);
+  return workspace ? [workspace] : [];
 }
 
 export async function getWorkspaceByIdForOwner(id: string, ownerId: string): Promise<WorkspaceRow | null> {
-  const { data, error } = await db
-    .from("workspaces")
-    .select("*")
-    .eq("id", id)
-    .eq("owner_id", ownerId)
-    .maybeSingle();
-
-  if (error || !data) return null;
-  return rowToWorkspace(data);
+  // The "workspace id" is just the owner's own id now — any other id can never resolve.
+  if (id !== ownerId) return null;
+  const [workspace] = await getWorkspacesByOwner(ownerId);
+  return workspace ?? null;
 }
 
 export async function countWorkspacesByOwner(ownerId: string): Promise<number> {
-  const { count } = await db
-    .from("workspaces")
-    .select("id", { count: "exact", head: true })
-    .eq("owner_id", ownerId);
-
-  return count ?? 0;
+  return (await getWorkspacesByOwner(ownerId)).length;
 }
 
 export interface CreateWorkspaceInput {
@@ -81,16 +73,17 @@ export interface CreateWorkspaceInput {
 
 export async function createWorkspace(input: CreateWorkspaceInput): Promise<WorkspaceRow | null> {
   const { data, error } = await db
-    .from("workspaces")
-    .insert({
-      owner_id: input.ownerId,
-      name: input.name,
-      status: input.status ?? "active",
+    .from("users")
+    .update({
+      store_name: input.name,
+      store_status: input.status ?? "active",
       branding: defaultBranding(),
-      // Column is NOT NULL with no DB default (see 0010_workspace_embed.sql) — must mint here.
+      // No DB default for this column — must mint here, same as the old workspaces.embed_token.
       embed_token: crypto.randomUUID().replace(/-/g, ""),
+      updated_at: new Date().toISOString(),
     })
-    .select("*")
+    .eq("id", input.ownerId)
+    .select(WORKSPACE_SELECT)
     .single();
 
   if (error || !data) {
@@ -113,9 +106,11 @@ export async function updateWorkspace(
   ownerId: string,
   patch: UpdateWorkspaceInput
 ): Promise<WorkspaceRow | null> {
+  if (id !== ownerId) return null;
+
   const dbPatch: Record<string, unknown> = { updated_at: new Date().toISOString() };
-  if (patch.name !== undefined) dbPatch.name = patch.name;
-  if (patch.status !== undefined) dbPatch.status = patch.status;
+  if (patch.name !== undefined) dbPatch.store_name = patch.name;
+  if (patch.status !== undefined) dbPatch.store_status = patch.status;
   if (patch.embedEnabled !== undefined) dbPatch.embed_enabled = patch.embedEnabled;
 
   if (patch.branding !== undefined) {
@@ -127,11 +122,10 @@ export async function updateWorkspace(
   }
 
   const { data, error } = await db
-    .from("workspaces")
+    .from("users")
     .update(dbPatch)
-    .eq("id", id)
-    .eq("owner_id", ownerId)
-    .select("*")
+    .eq("id", ownerId)
+    .select(WORKSPACE_SELECT)
     .single();
 
   if (error || !data) {
@@ -143,7 +137,22 @@ export async function updateWorkspace(
 }
 
 export async function deleteWorkspace(id: string, ownerId: string): Promise<boolean> {
-  const { error } = await db.from("workspaces").delete().eq("id", id).eq("owner_id", ownerId);
+  if (id !== ownerId) return false;
+
+  // "Deleting the project" now just clears the owner's store fields — the owner_id-scoped
+  // event tables (cart_events, chat_events, etc.) are untouched by this, unlike the old
+  // ON DELETE CASCADE from workspaces.
+  const { error } = await db
+    .from("users")
+    .update({
+      store_name: null,
+      store_status: "draft",
+      embed_enabled: false,
+      embed_token: null,
+      branding: {},
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", ownerId);
 
   if (error) {
     console.error("[db/workspaces deleteWorkspace]", error);
@@ -155,8 +164,7 @@ export async function deleteWorkspace(id: string, ownerId: string): Promise<bool
 
 /** Public-safe resolution used by every unauthenticated `/api/embed/*` route: turns a
  *  shopper-facing embed token into the merchant's `ownerId` plus just enough workspace
- *  metadata to render the widget, without ever exposing the internal workspace id/owner
- *  to the client. */
+ *  metadata to render the widget, without ever exposing anything else about the account. */
 export interface EmbedWorkspaceResolution {
   workspaceId: string;
   ownerId: string;
@@ -169,8 +177,8 @@ export async function getWorkspaceByEmbedToken(token: string): Promise<EmbedWork
   if (!token) return null;
 
   const { data, error } = await db
-    .from("workspaces")
-    .select("id, owner_id, embed_enabled, branding")
+    .from("users")
+    .select("id, embed_enabled, branding")
     .eq("embed_token", token)
     .maybeSingle();
 
@@ -178,7 +186,7 @@ export async function getWorkspaceByEmbedToken(token: string): Promise<EmbedWork
 
   return {
     workspaceId: data.id as string,
-    ownerId: data.owner_id as string,
+    ownerId: data.id as string,
     mode: "wearable",
     embedEnabled: (data.embed_enabled as boolean) ?? false,
     branding: { ...defaultBranding(), ...((data.branding as Partial<WorkspaceBranding> | null) ?? {}) },
@@ -188,11 +196,12 @@ export async function getWorkspaceByEmbedToken(token: string): Promise<EmbedWork
 /** Invalidates every already-deployed snippet for this workspace immediately — used by the
  *  settings page's "Regenerate token" action, which warns the merchant about that before calling it. */
 export async function regenerateEmbedToken(id: string, ownerId: string): Promise<string | null> {
+  if (id !== ownerId) return null;
+
   const { data, error } = await db
-    .from("workspaces")
+    .from("users")
     .update({ embed_token: crypto.randomUUID().replace(/-/g, ""), updated_at: new Date().toISOString() })
-    .eq("id", id)
-    .eq("owner_id", ownerId)
+    .eq("id", ownerId)
     .select("embed_token")
     .single();
 

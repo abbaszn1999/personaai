@@ -12,7 +12,6 @@ export interface SessionProfile {
   hasPassword: boolean;
   subscriptionTier: string;
   credits: number;
-  workspaceLimit: number;
   onboardingData: Record<string, unknown> | null;
 }
 
