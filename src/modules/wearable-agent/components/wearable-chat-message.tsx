@@ -92,17 +92,17 @@ export function WearableChatMessage({
             className="h-8 w-8 rounded-full object-cover shrink-0 mt-0.5 shadow-sm"
           />
         ) : (
-          <div className="h-8 w-8 rounded-full gradient-wearable flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
+          <div className="h-8 w-8 rounded-full gradient-violet flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
             <Shirt className="h-4 w-4 text-white" />
           </div>
         )
       ) : userPhotoUrl ? (
-        <div className="relative h-8 w-8 rounded-full overflow-hidden shrink-0 mt-0.5 border-2 border-[var(--color-wearable-from)]/40">
+        <div className="relative h-8 w-8 rounded-full overflow-hidden shrink-0 mt-0.5 border-2 border-[var(--color-violet-from)]/40">
           <Image src={userPhotoUrl} alt="You" fill className="object-cover" unoptimized />
         </div>
       ) : (
         <div className="h-8 w-8 rounded-full bg-[var(--color-accent-light)] flex items-center justify-center shrink-0 mt-0.5">
-          <User className="h-4 w-4 text-[var(--color-wearable-from)]" />
+          <User className="h-4 w-4 text-[var(--color-violet-from)]" />
         </div>
       )}
 
@@ -325,7 +325,7 @@ export function InlineSuggestionCard({ product, isWorn, inCart, isPending = fals
         <ProductPreviewImage product={product} className="object-contain" />
         {isWorn && (
           <div className="absolute inset-0 bg-[var(--color-brand)]/10 flex items-center justify-center">
-            <div className="h-7 w-7 rounded-full gradient-wearable flex items-center justify-center shadow-lg">
+            <div className="h-7 w-7 rounded-full gradient-violet flex items-center justify-center shadow-lg">
               {wearBusy ? (
                 <Loader2 className="h-3.5 w-3.5 text-white animate-spin" />
               ) : (
@@ -843,7 +843,7 @@ export function WearableScanningIndicator({
   const lastStageIndex = SCAN_STAGES.length - 1;
   return (
     <div className="flex items-start gap-2.5 animate-fade-in">
-      <div className="h-8 w-8 rounded-full gradient-wearable flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
+      <div className="h-8 w-8 rounded-full gradient-violet flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
         <Search className="h-4 w-4 text-white" />
       </div>
       <div className="w-72 rounded-[var(--radius-xl)] rounded-bl-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-base)] px-4 py-3 space-y-2.5">
@@ -927,7 +927,7 @@ export function WearableTypingIndicator({ stage = "thinking" }: { stage?: Typing
 
   return (
     <div className="flex items-end gap-2.5">
-      <div className="h-8 w-8 rounded-full gradient-wearable flex items-center justify-center shrink-0">
+      <div className="h-8 w-8 rounded-full gradient-violet flex items-center justify-center shrink-0">
         <Shirt className="h-4 w-4 text-white" />
       </div>
       <div className="bg-[var(--color-surface-base)] border border-[var(--color-border)] rounded-[var(--radius-xl)] rounded-bl-[var(--radius-sm)] px-4 py-3 flex items-center gap-2">

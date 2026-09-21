@@ -5,15 +5,15 @@ interface SettingsSectionProps {
   title: string;
   description?: string;
   icon?: React.ReactNode;
-  accent?: "brand" | "wearable" | "unwearable" | "danger";
+  accent?: "brand" | "violet" | "ember" | "danger";
   children: React.ReactNode;
   className?: string;
 }
 
 const ACCENT_CLASSES: Record<string, string> = {
   brand:      "gradient-brand",
-  wearable:   "gradient-wearable",
-  unwearable: "gradient-unwearable",
+  wearable:   "gradient-violet",
+  unwearable: "gradient-ember",
   danger:     "bg-[var(--color-error-solid)]",
 };
 

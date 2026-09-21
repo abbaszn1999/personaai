@@ -2,7 +2,7 @@
 
 import { use, useEffect, useState } from "react";
 import { TryOnLayout } from "@/modules/wearable-agent/components/try-on-layout";
-import type { WorkspaceBranding, WorkspaceMode } from "@/modules/workspaces/types";
+import type { WorkspaceBranding } from "@/modules/workspaces/types";
 import { cn } from "@/lib/utils/cn";
 import { fontFamilyCssValue, loadGoogleFont } from "@/lib/fonts/google-fonts";
 import { resolveBrandCssVars } from "@/lib/branding/resolve-brand-vars";
@@ -12,7 +12,6 @@ import { useResponsiveViewportMode } from "@/lib/hooks/use-responsive-viewport-m
 interface Props { params: Promise<{ token: string }> }
 
 interface EmbedConfigResponse {
-  mode?: string;
   branding?: WorkspaceBranding;
   error?: string;
 }
@@ -20,7 +19,7 @@ interface EmbedConfigResponse {
 type LoadState =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; mode: WorkspaceMode; branding: WorkspaceBranding };
+  | { status: "ready"; branding: WorkspaceBranding };
 
 export default function EmbedPage({ params }: Props) {
   const { token } = use(params);
@@ -45,7 +44,6 @@ export default function EmbedPage({ params }: Props) {
         loadGoogleFont(data.branding.fontFamily);
         setState({
           status: "ready",
-          mode: "wearable",
           branding: data.branding,
         });
       } catch {

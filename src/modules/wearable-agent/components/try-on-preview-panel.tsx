@@ -44,7 +44,7 @@ export function TryOnPreviewPanel({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="h-7 w-7 rounded-lg gradient-wearable flex items-center justify-center shrink-0">
+          <div className="h-7 w-7 rounded-lg gradient-violet flex items-center justify-center shrink-0">
             <Wand2 className="h-3.5 w-3.5 text-white" />
           </div>
           <div>
@@ -92,7 +92,7 @@ export function TryOnPreviewPanel({
       <div className="relative flex-1 min-h-0 rounded-[var(--radius-xl)] overflow-hidden bg-[var(--color-surface-base)] border border-[var(--color-border)]">
         {isGenerating ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-gradient-to-br from-[var(--color-brand-light)] to-transparent">
-            <div className="h-12 w-12 rounded-2xl gradient-wearable flex items-center justify-center animate-pulse">
+            <div className="h-12 w-12 rounded-2xl gradient-violet flex items-center justify-center animate-pulse">
               <Wand2 className="h-6 w-6 text-white" />
             </div>
             <div className="text-center">

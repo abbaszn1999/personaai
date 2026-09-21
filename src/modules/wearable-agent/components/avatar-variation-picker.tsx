@@ -53,7 +53,7 @@ export function AvatarVariationPicker({
   return (
     <div className="flex flex-col gap-6 px-6 py-8">
       <div className="text-center space-y-2">
-        <div className="mx-auto h-12 w-12 rounded-xl gradient-wearable flex items-center justify-center">
+        <div className="mx-auto h-12 w-12 rounded-xl gradient-violet flex items-center justify-center">
           <UserRound className="h-6 w-6 text-white" />
         </div>
         <h2 className="text-xl font-bold text-[var(--color-text-primary)]">Choose your avatar</h2>
@@ -81,8 +81,8 @@ export function AvatarVariationPicker({
                   "group absolute inset-0 rounded-[var(--radius-xl)] overflow-hidden border-2 transition-all",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]",
                   isSelected
-                    ? "border-[var(--color-wearable-from)] shadow-[0_0_0_3px_rgba(107,53,141,0.25)]"
-                    : "border-[var(--color-border)] hover:border-[var(--color-wearable-from)]/60"
+                    ? "border-[var(--color-violet-from)] shadow-[0_0_0_3px_rgba(107,53,141,0.25)]"
+                    : "border-[var(--color-border)] hover:border-[var(--color-violet-from)]/60"
                 )}
               >
                 {/* Real Persona Agent renders are subject-only cutouts on a transparent
@@ -103,7 +103,7 @@ export function AvatarVariationPicker({
                   <span className="text-xs font-medium text-white drop-shadow-sm">{variation.label}</span>
                 </div>
                 {isSelected && (
-                  <div className="absolute top-2 right-2 h-6 w-6 rounded-full gradient-wearable flex items-center justify-center shadow-md">
+                  <div className="absolute top-2 right-2 h-6 w-6 rounded-full gradient-violet flex items-center justify-center shadow-md">
                     <Check className="h-3.5 w-3.5 text-white" />
                   </div>
                 )}
@@ -120,8 +120,8 @@ export function AvatarVariationPicker({
               "absolute inset-0 rounded-[var(--radius-xl)] overflow-hidden border-2 border-dashed transition-all",
               "flex flex-col items-center justify-center gap-2 px-3",
               selectedId === "custom"
-                ? "border-[var(--color-wearable-from)] bg-[var(--color-accent-light)] shadow-[0_0_0_3px_rgba(107,53,141,0.25)]"
-                : "border-[var(--color-border)] hover:border-[var(--color-wearable-from)]/60 hover:bg-[var(--color-accent-light)]/40"
+                ? "border-[var(--color-violet-from)] bg-[var(--color-accent-light)] shadow-[0_0_0_3px_rgba(107,53,141,0.25)]"
+                : "border-[var(--color-border)] hover:border-[var(--color-violet-from)]/60 hover:bg-[var(--color-accent-light)]/40"
             )}
           >
             {customAvatarUrl && selectedId === "custom" ? (
@@ -134,7 +134,7 @@ export function AvatarVariationPicker({
                   className="object-cover object-top"
                   unoptimized
                 />
-                <div className="absolute top-2 right-2 h-6 w-6 rounded-full gradient-wearable flex items-center justify-center shadow-md z-10">
+                <div className="absolute top-2 right-2 h-6 w-6 rounded-full gradient-violet flex items-center justify-center shadow-md z-10">
                   <Check className="h-3.5 w-3.5 text-white" />
                 </div>
               </>
@@ -164,7 +164,7 @@ export function AvatarVariationPicker({
           size="lg"
           onClick={onConfirm}
           disabled={!hasSelection}
-          className={cn(hasSelection ? "gradient-wearable text-white border-0" : "")}
+          className={cn(hasSelection ? "gradient-violet text-white border-0" : "")}
         >
           Confirm & start chatting
           <ArrowRight className="h-4 w-4" />

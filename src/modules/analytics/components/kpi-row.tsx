@@ -36,7 +36,7 @@ export function KpiRow({ payload, loading }: KpiRowProps) {
         value={s ? s.cartItemsAdded.toLocaleString() : placeholder}
         sub="Via Persona add-to-cart"
         icon={<ShoppingBag className="h-4 w-4" />}
-        accent="unwearable"
+        accent="ember"
         trend={s ? { value: s.trends.cartItemsAdded, label: "vs prior period" } : undefined}
       />
       <MetricCard
@@ -52,7 +52,7 @@ export function KpiRow({ payload, loading }: KpiRowProps) {
         value={s ? `${s.addToCartRate}%` : placeholder}
         sub="Sessions with a Persona add-to-cart"
         icon={<Percent className="h-4 w-4" />}
-        accent="wearable"
+        accent="violet"
         trend={s ? { value: s.trends.addToCartRate, label: "vs prior period" } : undefined}
       />
       <MetricCard

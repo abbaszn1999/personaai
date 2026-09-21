@@ -1,5 +1,3 @@
-import type { WorkspaceMode } from "@/modules/workspaces/types";
-
 export type PlanTierId = "fixed" | "hybrid";
 
 export interface PlanTier {
@@ -35,7 +33,6 @@ export interface LiveTryOnUsagePoint {
 }
 
 export interface BillingSummary {
-  mode: WorkspaceMode;
   tierId: PlanTierId;
   cycleStart: string;
   cycleEnd: string;

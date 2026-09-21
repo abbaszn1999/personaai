@@ -1,5 +1,4 @@
 import { db } from "@/lib/supabase/server";
-import type { WorkspaceMode } from "@/modules/workspaces/types";
 import type { StripeOrderKind, StripePurchaseKey } from "@/lib/stripe/config";
 
 export type BillingAccessMode = "stripe" | "legacy_test";
@@ -15,7 +14,6 @@ export interface BillingSubscriptionRow {
   stripeCustomerId: string;
   stripeSubscriptionId: string;
   stripePriceId: string;
-  workspaceMode: WorkspaceMode;
   tierId: "fixed" | "hybrid";
   status: string;
   currentPeriodStart: string | null;
@@ -28,7 +26,6 @@ export interface BillingOrderRow {
   userId: string | null;
   kind: StripeOrderKind;
   productKey: StripePurchaseKey;
-  workspaceMode: WorkspaceMode;
   tierId: "fixed" | "hybrid" | null;
   quantity: number;
   creditsToGrant: number;
@@ -56,7 +53,6 @@ function mapSubscription(row: Record<string, unknown>): BillingSubscriptionRow {
     stripeCustomerId: row.stripe_customer_id as string,
     stripeSubscriptionId: row.stripe_subscription_id as string,
     stripePriceId: row.stripe_price_id as string,
-    workspaceMode: row.workspace_mode as WorkspaceMode,
     tierId: row.tier_id as "fixed" | "hybrid",
     status: row.status as string,
     currentPeriodStart: (row.current_period_start as string | null) ?? null,
@@ -71,7 +67,6 @@ function mapOrder(row: Record<string, unknown>): BillingOrderRow {
     userId: (row.user_id as string | null) ?? null,
     kind: row.kind as StripeOrderKind,
     productKey: row.product_key as StripePurchaseKey,
-    workspaceMode: row.workspace_mode as WorkspaceMode,
     tierId: (row.tier_id as "fixed" | "hybrid" | null) ?? null,
     quantity: Number(row.quantity),
     creditsToGrant: Number(row.credits_to_grant),
@@ -131,7 +126,6 @@ export interface CreateBillingOrderInput {
   userId: string;
   kind: StripeOrderKind;
   productKey: StripePurchaseKey;
-  workspaceMode: WorkspaceMode;
   tierId?: "fixed" | null;
   quantity: number;
   creditsToGrant: number;
@@ -149,7 +143,6 @@ export async function createBillingOrder(input: CreateBillingOrderInput): Promis
       stripe_customer_id: input.stripeCustomerId ?? null,
       kind: input.kind,
       product_key: input.productKey,
-      workspace_mode: input.workspaceMode,
       tier_id: input.tierId ?? null,
       quantity: input.quantity,
       credits_to_grant: input.creditsToGrant,
@@ -226,7 +219,6 @@ export interface UpsertSubscriptionInput {
   stripeSubscriptionId: string;
   stripeProductId: string | null;
   stripePriceId: string;
-  workspaceMode: WorkspaceMode;
   tierId: "fixed" | "hybrid";
   status: string;
   currentPeriodStart: string | null;
@@ -244,7 +236,6 @@ export async function upsertBillingSubscription(input: UpsertSubscriptionInput):
     p_stripe_subscription_id: input.stripeSubscriptionId,
     p_stripe_product_id: input.stripeProductId ?? "",
     p_stripe_price_id: input.stripePriceId,
-    p_workspace_mode: input.workspaceMode,
     p_tier_id: input.tierId,
     p_status: input.status,
     p_current_period_start: input.currentPeriodStart,

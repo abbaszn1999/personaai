@@ -25,7 +25,6 @@ export async function PUT(req: NextRequest) {
 
     const checkout = await createStripeCheckout({
       user,
-      workspaceMode: workspace.mode,
       purchaseKey: "wearable_fixed",
     });
     return Response.json({ ...checkout, checkoutMode: "stripe" });

@@ -29,8 +29,6 @@ export interface AccountBillingContext {
   hasStripeCustomer: boolean;
 }
 
-// Every project is a wearable (virtual try-on) agent now — the unwearable shopping
-// assistant plan tier has been retired, so billing no longer branches on workspace mode.
 export async function getAccountBillingContext(userId: string): Promise<AccountBillingContext | null> {
   const [user, account, subscription] = await Promise.all([
     getUserById(userId),
@@ -57,7 +55,7 @@ export async function getAccountBillingContext(userId: string): Promise<AccountB
 
   return {
     user,
-    tier: getPlanTier("wearable", tierId),
+    tier: getPlanTier(tierId),
     cycleStartIso,
     cycleEndIso: cycle.end.toISOString(),
     imagesUsedThisCycle,

@@ -11,7 +11,6 @@ function subscription(
     stripeCustomerId: "cus_test",
     stripeSubscriptionId: "sub_test",
     stripePriceId: "price_test",
-    workspaceMode: "wearable",
     tierId: "fixed",
     status,
     currentPeriodStart: "2026-07-05T00:00:00.000Z",

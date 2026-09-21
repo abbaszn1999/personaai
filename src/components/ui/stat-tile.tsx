@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils/cn";
 const TONE_CLASSES: Record<string, string> = {
   brand:     "gradient-brand text-white",
   accent:    "gradient-accent text-white",
-  wearable:  "gradient-wearable text-white",
+  wearable:  "gradient-violet text-white",
   success:   "bg-[var(--color-success-light)] text-[var(--color-success)]",
   warning:   "bg-[var(--color-warning-light)] text-[var(--color-warning)]",
   info:      "bg-[var(--color-info-light)] text-[var(--color-info)]",

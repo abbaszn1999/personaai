@@ -1,5 +1,3 @@
-import type { WorkspaceMode } from "@/modules/workspaces/types";
-
 export const STRIPE_CURRENCY = "usd";
 
 export type StripePurchaseKey =
@@ -16,7 +14,6 @@ export interface StripeCatalogItem {
   kind: StripeOrderKind;
   envKey: string;
   amountCents: number;
-  mode?: WorkspaceMode;
   tierId?: "fixed";
   creditsPerUnit?: number;
   secondsPerUnit?: number;
@@ -28,7 +25,6 @@ export const STRIPE_CATALOG: Record<StripePurchaseKey, StripeCatalogItem> = {
     kind: "subscription",
     envKey: "STRIPE_PRICE_WEARABLE_FIXED",
     amountCents: 200_000,
-    mode: "wearable",
     tierId: "fixed",
   },
   credits_starter: {
@@ -36,7 +32,6 @@ export const STRIPE_CATALOG: Record<StripePurchaseKey, StripeCatalogItem> = {
     kind: "image_credits",
     envKey: "STRIPE_PRICE_CREDITS_STARTER",
     amountCents: 10_000,
-    mode: "wearable",
     creditsPerUnit: 500,
   },
   credits_growth: {
@@ -44,7 +39,6 @@ export const STRIPE_CATALOG: Record<StripePurchaseKey, StripeCatalogItem> = {
     kind: "image_credits",
     envKey: "STRIPE_PRICE_CREDITS_GROWTH",
     amountCents: 25_000,
-    mode: "wearable",
     creditsPerUnit: 1_500,
   },
   credits_scale: {
@@ -52,7 +46,6 @@ export const STRIPE_CATALOG: Record<StripePurchaseKey, StripeCatalogItem> = {
     kind: "image_credits",
     envKey: "STRIPE_PRICE_CREDITS_SCALE",
     amountCents: 50_000,
-    mode: "wearable",
     creditsPerUnit: 3_300,
   },
   live_minutes: {
@@ -60,7 +53,6 @@ export const STRIPE_CATALOG: Record<StripePurchaseKey, StripeCatalogItem> = {
     kind: "live_tryon_seconds",
     envKey: "STRIPE_PRICE_LIVE_MINUTE",
     amountCents: 120,
-    mode: "wearable",
     secondsPerUnit: 60,
   },
 };

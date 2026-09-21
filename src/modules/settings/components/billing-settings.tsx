@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CreditCard, Crown, ImageIcon, MessageSquare, ArrowRight } from "lucide-react";
+import { CreditCard, Crown, ImageIcon, ArrowRight } from "lucide-react";
 import { SettingsSection } from "@/components/ui/settings-section";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,6 @@ import { CreditBundlesSection } from "@/modules/billing/components/credit-bundle
 import { BuyLiveMinutesSection } from "@/modules/billing/components/buy-live-minutes-section";
 import { BillingProvider, useBilling } from "@/modules/billing/hooks/use-billing";
 import { useWorkspaceStore } from "@/modules/workspaces/store";
-import type { WorkspaceMode } from "@/modules/workspaces/types";
 
 export function BillingSettings() {
   const router = useRouter();
@@ -29,13 +28,13 @@ export function BillingSettings() {
   }
 
   return (
-    <BillingProvider workspaceId={activeWorkspace.id} mode={activeWorkspace.mode}>
-      <BillingSettingsForMode mode={activeWorkspace.mode} />
+    <BillingProvider workspaceId={activeWorkspace.id}>
+      <BillingSettingsContent />
     </BillingProvider>
   );
 }
 
-function BillingSettingsForMode({ mode }: { mode: WorkspaceMode }) {
+function BillingSettingsContent() {
   const {
     activeTier,
     summary,
@@ -87,17 +86,10 @@ function BillingSettingsForMode({ mode }: { mode: WorkspaceMode }) {
             </div>
           </div>
           <div className="flex items-center gap-4">
-            {mode === "wearable" ? (
-              <div className="hidden sm:flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
-                <ImageIcon className="h-3.5 w-3.5" />
-                {loading ? "Loading usage…" : `${(summary?.images.usedThisCycle ?? 0).toLocaleString()} / ${(summary?.images.includedAllowance ?? activeTier.monthlyRenders).toLocaleString()} images this cycle`}
-              </div>
-            ) : (
-              <div className="hidden sm:flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
-                <MessageSquare className="h-3.5 w-3.5" />
-                Unlimited AI shopping assistant usage
-              </div>
-            )}
+            <div className="hidden sm:flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
+              <ImageIcon className="h-3.5 w-3.5" />
+              {loading ? "Loading usage…" : `${(summary?.images.usedThisCycle ?? 0).toLocaleString()} / ${(summary?.images.includedAllowance ?? activeTier.monthlyRenders).toLocaleString()} images this cycle`}
+            </div>
             <Link href="/usage">
               <Button variant="secondary" size="sm">
                 View Usage
@@ -119,13 +111,9 @@ function BillingSettingsForMode({ mode }: { mode: WorkspaceMode }) {
         </div>
       </SettingsSection>
 
-      <PlansSection mode={mode} />
-      {mode === "wearable" && (
-        <>
-          <CreditBundlesSection />
-          <BuyLiveMinutesSection />
-        </>
-      )}
+      <PlansSection />
+      <CreditBundlesSection />
+      <BuyLiveMinutesSection />
     </div>
   );
 }

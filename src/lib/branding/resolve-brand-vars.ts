@@ -60,14 +60,14 @@ export function resolveBrandCssVars(primaryColor: string): React.CSSProperties {
     "--color-brand-strong": darker,
     "--color-brand-contrast": contrastText(rgb),
     "--color-brand-light": `rgba(${r},${g},${b},0.14)`,
-    "--color-wearable-from": primary,
-    "--color-wearable-to": darker,
+    "--color-violet-from": primary,
+    "--color-violet-to": darker,
     "--color-accent": primary,
     "--color-accent-from": primary,
     "--color-accent-to": darker,
     "--color-accent-light": `rgba(${r},${g},${b},0.20)`,
-    "--color-unwearable-from": primary,
-    "--color-unwearable-to": darker,
+    "--color-ember-from": primary,
+    "--color-ember-to": darker,
     "--shadow-glow": `0 8px 24px -6px rgba(${r},${g},${b},0.45), 0 2px 8px -2px rgba(${r},${g},${b},0.30)`,
   } as React.CSSProperties;
 }

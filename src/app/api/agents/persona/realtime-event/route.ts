@@ -34,8 +34,8 @@ export async function POST(req: NextRequest) {
     }
 
     const workspace = await getWorkspaceByIdForOwner(workspaceId, user.id);
-    if (!workspace || workspace.mode !== "wearable") {
-      return Response.json({ error: "Wearable workspace not found" }, { status: 404 });
+    if (!workspace) {
+      return Response.json({ error: "Workspace not found" }, { status: 404 });
     }
     if (!isLiveTryOnEnabled(workspace.branding)) {
       return Response.json({ error: "Live camera try-on is disabled for this store" }, { status: 403 });

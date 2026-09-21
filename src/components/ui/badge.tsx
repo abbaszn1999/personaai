@@ -13,8 +13,6 @@ const badgeVariants = cva(
         error:      "bg-[var(--color-error-light)] text-[var(--color-error)]",
         info:       "bg-[var(--color-info-light)] text-[var(--color-info)]",
         neutral:    "bg-[var(--color-surface-base)] text-[var(--color-text-secondary)] border border-[var(--color-border)]",
-        wearable:   "bg-[var(--color-accent-light)] text-[var(--color-accent)]",
-        unwearable: "bg-[var(--color-brand-light)] text-[var(--color-brand-strong)]",
       },
     },
     defaultVariants: { variant: "default" },

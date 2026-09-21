@@ -14,7 +14,6 @@ import {
   STRIPE_CURRENCY,
   type StripePurchaseKey,
 } from "./config";
-import type { WorkspaceMode } from "@/modules/workspaces/types";
 
 interface CheckoutUser {
   id: string;
@@ -45,7 +44,6 @@ async function getOrCreateStripeCustomer(user: CheckoutUser): Promise<string> {
 
 export interface CreateCheckoutInput {
   user: CheckoutUser;
-  workspaceMode: WorkspaceMode;
   purchaseKey: StripePurchaseKey;
   quantity?: number;
 }
@@ -60,9 +58,6 @@ export async function createStripeCheckout(input: CreateCheckoutInput): Promise<
   const item = STRIPE_CATALOG[input.purchaseKey];
   const quantity = input.quantity ?? 1;
   if (!Number.isInteger(quantity) || quantity < 1) throw new Error("Invalid checkout quantity");
-  if (item.mode && item.mode !== input.workspaceMode) {
-    throw new Error("This purchase is not available for the selected workspace");
-  }
   if (item.kind === "subscription" && (await hasLiveSubscription(input.user.id))) {
     throw new Error("An active or pending subscription already exists");
   }
@@ -72,7 +67,6 @@ export async function createStripeCheckout(input: CreateCheckoutInput): Promise<
     userId: input.user.id,
     kind: item.kind,
     productKey: item.key,
-    workspaceMode: input.workspaceMode,
     tierId: item.tierId ?? null,
     quantity,
     creditsToGrant: (item.creditsPerUnit ?? 0) * quantity,
@@ -88,7 +82,6 @@ export async function createStripeCheckout(input: CreateCheckoutInput): Promise<
     autommerce_order_id: order.id,
     autommerce_user_id: input.user.id,
     autommerce_product_key: item.key,
-    autommerce_workspace_mode: input.workspaceMode,
   };
   const common: Stripe.Checkout.SessionCreateParams = {
     customer: customerId,

@@ -7,14 +7,14 @@ interface MetricCardProps {
   sub?: string;
   icon?: React.ReactNode;
   trend?: { value: number; label: string };
-  accent?: "brand" | "wearable" | "unwearable" | "success";
+  accent?: "brand" | "violet" | "ember" | "success";
   className?: string;
 }
 
 const ACCENT_DOT: Record<string, string> = {
   brand:      "gradient-brand",
-  wearable:   "gradient-wearable",
-  unwearable: "gradient-unwearable",
+  wearable:   "gradient-violet",
+  unwearable: "gradient-ember",
   success:    "bg-[var(--color-success)]",
 };
 

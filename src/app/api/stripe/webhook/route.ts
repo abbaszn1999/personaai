@@ -36,7 +36,7 @@ async function syncSubscription(subscription: Stripe.Subscription, eventCreated:
   const purchaseKey = getPurchaseKeyForPriceId(item.price.id);
   if (!purchaseKey) throw new Error(`Unknown Stripe subscription price: ${item.price.id}`);
   const catalogItem = STRIPE_CATALOG[purchaseKey];
-  if (catalogItem.kind !== "subscription" || !catalogItem.mode || !catalogItem.tierId) {
+  if (catalogItem.kind !== "subscription" || !catalogItem.tierId) {
     throw new Error(`Stripe price ${item.price.id} is not a subscription catalog item`);
   }
 
@@ -59,7 +59,6 @@ async function syncSubscription(subscription: Stripe.Subscription, eventCreated:
     stripeSubscriptionId: subscription.id,
     stripeProductId: productId,
     stripePriceId: item.price.id,
-    workspaceMode: catalogItem.mode,
     tierId: catalogItem.tierId,
     status: subscription.status,
     currentPeriodStart: isoFromUnix(

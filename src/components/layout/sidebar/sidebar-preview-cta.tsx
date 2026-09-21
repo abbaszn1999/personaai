@@ -2,21 +2,18 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Shirt, BotMessageSquare, Sparkles, ArrowRight } from "lucide-react";
+import { Shirt, Sparkles, ArrowRight } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils/cn";
-import type { WorkspaceMode } from "@/modules/workspaces/types";
 
 interface SidebarPreviewCtaProps {
   href: string;
-  mode: WorkspaceMode;
   active: boolean;
   collapsed: boolean;
 }
 
-export function SidebarPreviewCta({ href, mode, active, collapsed }: SidebarPreviewCtaProps) {
-  const isWearable = mode === "wearable";
-  const label = isWearable ? "Virtual Try-On" : "Shopping Assistant";
+export function SidebarPreviewCta({ href, active, collapsed }: SidebarPreviewCtaProps) {
+  const label = "Virtual Try-On";
 
   const card = (
     <Link
@@ -30,16 +27,11 @@ export function SidebarPreviewCta({ href, mode, active, collapsed }: SidebarPrev
       )}
     >
       {/* Gradient border background */}
-      <span
-        className={cn(
-          "absolute inset-0 rounded-[var(--radius-xl)] opacity-90",
-          isWearable ? "gradient-wearable" : "gradient-unwearable"
-        )}
-      />
+      <span className="absolute inset-0 rounded-[var(--radius-xl)] opacity-90 gradient-violet" />
       <span className="absolute inset-[1px] rounded-[var(--radius-xl)] bg-[var(--color-sidebar-bg)]/90 backdrop-blur-sm" />
 
       <span className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/15 text-white">
-        {isWearable ? <Shirt className="h-4 w-4" /> : <BotMessageSquare className="h-4 w-4" />}
+        <Shirt className="h-4 w-4" />
       </span>
 
       {!collapsed && (

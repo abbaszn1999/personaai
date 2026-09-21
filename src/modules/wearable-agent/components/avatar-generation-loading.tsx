@@ -16,7 +16,7 @@ export function AvatarGenerationLoading({ progress, stageIndex }: AvatarGenerati
   return (
     <div className="flex flex-col items-center gap-8 px-8 py-12 text-center">
       <div className="relative">
-        <div className="h-20 w-20 rounded-2xl gradient-wearable flex items-center justify-center shadow-lg">
+        <div className="h-20 w-20 rounded-2xl gradient-violet flex items-center justify-center shadow-lg">
           <UserRound className="h-10 w-10 text-white" />
         </div>
         <div className="absolute -top-1 -right-1 h-7 w-7 rounded-full bg-[var(--color-brand)] flex items-center justify-center animate-pulse-dot">
@@ -41,7 +41,7 @@ export function AvatarGenerationLoading({ progress, stageIndex }: AvatarGenerati
 
         <div className="h-2.5 rounded-full bg-[var(--color-surface-base)] border border-[var(--color-border)] overflow-hidden">
           <div
-            className="h-full rounded-full gradient-wearable transition-all duration-300 ease-out"
+            className="h-full rounded-full gradient-violet transition-all duration-300 ease-out"
             style={{ width: `${progress}%` }}
           />
         </div>
@@ -52,7 +52,7 @@ export function AvatarGenerationLoading({ progress, stageIndex }: AvatarGenerati
               key={s.label}
               className={cn(
                 "h-1 flex-1 rounded-full transition-colors duration-300",
-                i <= stageIndex ? "gradient-wearable" : "bg-[var(--color-border)]"
+                i <= stageIndex ? "gradient-violet" : "bg-[var(--color-border)]"
               )}
             />
           ))}

@@ -228,7 +228,7 @@ function TryOnExperience({
               size="lg"
               onClick={agent.startAvatarGeneration}
               disabled={!agent.profileComplete}
-              className={cn(agent.profileComplete ? "gradient-wearable text-white border-0" : "")}
+              className={cn(agent.profileComplete ? "gradient-violet text-white border-0" : "")}
             >
               Create my avatar
               <ArrowRight className="h-4 w-4" />

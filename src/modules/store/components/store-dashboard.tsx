@@ -100,7 +100,7 @@ function StoreDashboardInner() {
               title="Size Filter"
               description="How strictly a size has to match a shopper before Persona rules an item out"
               icon={<SlidersHorizontal className="h-4 w-4" />}
-              accent="wearable"
+              accent="violet"
             >
               <SizeFilterPanel />
             </SettingsSection>
@@ -111,7 +111,7 @@ function StoreDashboardInner() {
               title="Style Guide"
               description="Soft styling guidance your agent leans on when building outfits and bundles"
               icon={<Palette className="h-4 w-4" />}
-              accent="wearable"
+              accent="violet"
             >
               <StyleGuideEditor />
             </SettingsSection>

@@ -7,7 +7,6 @@ import {
   PreviewViewportToggle,
   type PreviewViewportMode,
 } from "@/modules/wearable-agent/components/preview-viewport-toggle";
-import { Badge } from "@/components/ui/badge";
 import { useWorkspaceStore } from "@/modules/workspaces/store";
 import { CatalogReadyGate } from "@/modules/store/components/catalog-ready-gate";
 
@@ -21,10 +20,7 @@ export default function TryOnPage() {
         title="Virtual Try-On"
         description="AI-powered clothing preview — select a product and generate your try-on"
         actions={
-          <div className="flex items-center gap-2.5">
-            <PreviewViewportToggle value={viewportMode} onChange={setViewportMode} />
-            <Badge variant="wearable">Wearable Agent</Badge>
-          </div>
+          <PreviewViewportToggle value={viewportMode} onChange={setViewportMode} />
         }
       />
       <div className="flex-1 min-h-0 overflow-hidden px-6 pb-6">

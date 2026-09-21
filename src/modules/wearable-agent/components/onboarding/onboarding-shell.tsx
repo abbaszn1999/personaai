@@ -80,7 +80,7 @@ export function OnboardingShell({ step, onBack, footer, children, reserveTopSpac
                 key={s}
                 className={cn(
                   "h-1.5 rounded-full transition-all duration-300",
-                  i <= stepIndex - 1 ? "w-6 bg-[var(--color-wearable-from)]" : "w-1.5 bg-[var(--color-border)]"
+                  i <= stepIndex - 1 ? "w-6 bg-[var(--color-violet-from)]" : "w-1.5 bg-[var(--color-border)]"
                 )}
               />
             ))}

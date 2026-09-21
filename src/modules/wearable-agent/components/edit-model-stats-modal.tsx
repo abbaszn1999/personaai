@@ -116,7 +116,7 @@ export function EditModelStatsModal({
         {/* Header */}
         <div className={cn("flex items-center justify-between px-5 py-4 border-b", styles.header)}>
           <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-lg gradient-wearable flex items-center justify-center">
+            <div className="h-8 w-8 rounded-lg gradient-violet flex items-center justify-center">
               <Sparkles className="h-4 w-4 text-white" />
             </div>
             <div>
@@ -168,7 +168,7 @@ export function EditModelStatsModal({
             type="button"
             onClick={handleSubmit}
             disabled={isSaving}
-            className="flex-1 h-11 rounded-lg text-sm font-semibold text-white flex items-center justify-center gap-2 gradient-wearable bg-[var(--color-wearable-from)] disabled:opacity-60"
+            className="flex-1 h-11 rounded-lg text-sm font-semibold text-white flex items-center justify-center gap-2 gradient-violet bg-[var(--color-violet-from)] disabled:opacity-60"
           >
             {isSaving ? (
               <>

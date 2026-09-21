@@ -27,7 +27,7 @@ export function BuyLiveMinutesSection() {
       title="Additional Live Try-On Minutes"
       description="Choose exactly how many extra realtime camera minutes you need"
       icon={<Clock3 className="h-4 w-4" />}
-      accent="wearable"
+      accent="violet"
     >
       <div className="max-w-xl space-y-4">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_auto] sm:items-end">

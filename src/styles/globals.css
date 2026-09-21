@@ -68,13 +68,11 @@
   --color-info:               #3b82f6;
   --color-info-light:         #dbeafe;
 
-  /* Agent-specific
-   *   Shopping Assistant (unwearable) → orange→red
-   *   Virtual Try-On     (wearable)   → purple */
-  --color-wearable-from:      #6b358d;
-  --color-wearable-to:        #400095;
-  --color-unwearable-from:    #f76d01;
-  --color-unwearable-to:      #c40000;
+  /* Section accents — pick one per surface so adjacent panels stay visually distinct */
+  --color-violet-from:        #6b358d;
+  --color-violet-to:          #400095;
+  --color-ember-from:         #f76d01;
+  --color-ember-to:           #c40000;
 
   /* Radius */
   --radius-sm:                0.375rem;
@@ -157,12 +155,12 @@ h1, h2, h3, h4, h5, .font-display {
   background: linear-gradient(135deg, var(--color-accent-from), var(--color-accent-to));
 }
 
-.gradient-wearable {
-  background: linear-gradient(135deg, var(--color-wearable-from), var(--color-wearable-to));
+.gradient-violet {
+  background: linear-gradient(135deg, var(--color-violet-from), var(--color-violet-to));
 }
 
-.gradient-unwearable {
-  background: linear-gradient(135deg, var(--color-unwearable-from), var(--color-unwearable-to));
+.gradient-ember {
+  background: linear-gradient(135deg, var(--color-ember-from), var(--color-ember-to));
 }
 
 .gradient-text-brand {
@@ -179,15 +177,15 @@ h1, h2, h3, h4, h5, .font-display {
   -webkit-text-fill-color: transparent;
 }
 
-.gradient-text-wearable {
-  background: linear-gradient(135deg, var(--color-wearable-from), var(--color-wearable-to));
+.gradient-text-violet {
+  background: linear-gradient(135deg, var(--color-violet-from), var(--color-violet-to));
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
-.gradient-text-unwearable {
-  background: linear-gradient(135deg, var(--color-unwearable-from), var(--color-unwearable-to));
+.gradient-text-ember {
+  background: linear-gradient(135deg, var(--color-ember-from), var(--color-ember-to));
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;

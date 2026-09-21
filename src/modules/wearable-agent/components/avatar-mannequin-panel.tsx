@@ -1230,7 +1230,7 @@ function MobileAvatarStrip({
               onClick={handleSaveEdit}
               className={cn(
                 "flex-1 h-11 rounded-[12px] text-[13px] font-semibold text-white flex items-center justify-center gap-1.5",
-                "gradient-wearable bg-[var(--color-wearable-from)]"
+                "gradient-violet bg-[var(--color-violet-from)]"
               )}
             >
               Save

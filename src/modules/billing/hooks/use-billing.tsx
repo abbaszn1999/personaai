@@ -3,7 +3,6 @@
 import * as React from "react";
 import { getPlanTiers } from "../constants";
 import type { BillingSummary, PlanTierId } from "../types";
-import type { WorkspaceMode } from "@/modules/workspaces/types";
 
 interface BillingContextValue {
   summary: BillingSummary | null;
@@ -27,11 +26,10 @@ const BillingContext = React.createContext<BillingContextValue | null>(null);
 
 interface BillingProviderProps {
   workspaceId: string;
-  mode: WorkspaceMode;
   children: React.ReactNode;
 }
 
-export function BillingProvider({ workspaceId, mode, children }: BillingProviderProps) {
+export function BillingProvider({ workspaceId, children }: BillingProviderProps) {
   const [summary, setSummary] = React.useState<BillingSummary | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [pendingAction, setPendingAction] = React.useState<string | null>(null);
@@ -144,7 +142,7 @@ export function BillingProvider({ workspaceId, mode, children }: BillingProvider
     }
   }, []);
 
-  const tiers = React.useMemo(() => getPlanTiers(mode), [mode]);
+  const tiers = React.useMemo(() => getPlanTiers(), []);
   const tierId = summary?.tierId ?? "fixed";
   const activeTier = tiers.find((tier) => tier.id === tierId) ?? tiers[0];
 

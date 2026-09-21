@@ -5,19 +5,13 @@ import { Crown } from "lucide-react";
 import { PlanCard } from "./plan-card";
 import { useBilling } from "../hooks/use-billing";
 import { getInfraNotes } from "../constants";
-import type { WorkspaceMode } from "@/modules/workspaces/types";
-
-interface PlansSectionProps {
-  mode: WorkspaceMode;
-}
-
-export function PlansSection({ mode }: PlansSectionProps) {
+export function PlansSection() {
   const { summary, tiers, switchTier, pendingAction, error } = useBilling();
   const activeTierId = summary?.tierId ?? "fixed";
   const hasPaidSubscription =
     summary?.billing.accessMode === "stripe" &&
     Boolean(summary.billing.subscriptionStatus);
-  const infraNotes = getInfraNotes(mode);
+  const infraNotes = getInfraNotes();
 
   return (
     <SettingsSection

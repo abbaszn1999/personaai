@@ -19,14 +19,14 @@ export function UsageSummaryCards() {
           value={loading ? "—" : totalRemaining.toLocaleString()}
           sub="Available to use right now"
           icon={<Gauge className="h-4 w-4" />}
-          accent="wearable"
+          accent="violet"
         />
         <MetricCard
           label="Used This Cycle"
           value={loading ? "—" : (images?.usedThisCycle ?? 0).toLocaleString()}
           sub={`Of ${(images?.includedAllowance ?? activeTier.monthlyRenders).toLocaleString()} included this cycle`}
           icon={<ImageIcon className="h-4 w-4" />}
-          accent="unwearable"
+          accent="ember"
         />
         <MetricCard
           label="Current Plan"

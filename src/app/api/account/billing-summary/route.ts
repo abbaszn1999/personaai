@@ -15,7 +15,6 @@ export async function GET(req: NextRequest) {
       ? await getWorkspaceByIdForOwner(workspaceId, user.id)
       : (await getWorkspacesByOwner(user.id))[0] ?? null;
     if (!workspace) return Response.json({ error: "Workspace not found" }, { status: 404 });
-    const mode = workspace.mode;
 
     const billing = await getAccountBillingContext(user.id);
     if (!billing) return Response.json({ error: "Account not found" }, { status: 404 });
@@ -23,7 +22,6 @@ export async function GET(req: NextRequest) {
 
     return Response.json(
       {
-        mode,
         tierId: billing.tier.id,
         cycleStart: billing.cycleStartIso,
         cycleEnd: billing.cycleEndIso,

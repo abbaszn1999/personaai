@@ -1,4 +1,3 @@
-import type { WorkspaceMode } from "@/modules/workspaces/types";
 import type { GarmentCategory } from "@/modules/wearable-agent/utils/fit-metrics";
 
 export interface ProductCategory {
@@ -7,7 +6,6 @@ export interface ProductCategory {
   slug: string;
   parentId: string | null;
   productCount: number;
-  mode: WorkspaceMode;
 }
 
 export interface Product {

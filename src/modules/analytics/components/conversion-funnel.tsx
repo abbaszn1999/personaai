@@ -9,7 +9,7 @@ interface ConversionFunnelProps {
 
 const STEP_COLORS = [
   { bar: "gradient-brand",      text: "text-[var(--color-brand)]" },
-  { bar: "gradient-wearable",   text: "text-[var(--color-wearable-from,#6b358d)]" },
+  { bar: "gradient-violet",   text: "text-[var(--color-violet-from,#6b358d)]" },
 ];
 
 /** 2 real steps traced from workspace_live_sessions + cart_events: sessions Persona opened,

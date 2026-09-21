@@ -79,12 +79,12 @@ export function PhotoStep({ profile, error, onChange }: PhotoStepProps) {
       <div
         role="button"
         tabIndex={0}
-        className="flex flex-col items-center gap-2 rounded-[var(--radius-xl)] border-2 border-dashed border-[var(--color-border)] p-8 cursor-pointer transition-colors hover:border-[var(--color-wearable-from)] hover:bg-[var(--color-accent-light)]/40"
+        className="flex flex-col items-center gap-2 rounded-[var(--radius-xl)] border-2 border-dashed border-[var(--color-border)] p-8 cursor-pointer transition-colors hover:border-[var(--color-violet-from)] hover:bg-[var(--color-accent-light)]/40"
         onClick={() => fileInputRef.current?.click()}
         onKeyDown={(e) => e.key === "Enter" && fileInputRef.current?.click()}
       >
         {profile.photoUrl ? (
-          <div className="relative h-28 w-28 overflow-hidden rounded-full border-2 border-[var(--color-wearable-from)]">
+          <div className="relative h-28 w-28 overflow-hidden rounded-full border-2 border-[var(--color-violet-from)]">
             <Image
               src={profile.photoUrl}
               alt="Your face"

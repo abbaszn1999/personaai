@@ -575,7 +575,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
                 styles.launcher
               )}
             >
-              <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full gradient-wearable">
+              <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full gradient-violet">
                 {branding.logoUrl ? (
                   <img src={branding.logoUrl} alt="" className="h-9 w-9 rounded-full object-cover" />
                 ) : (

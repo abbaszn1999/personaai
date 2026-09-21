@@ -1,11 +1,10 @@
 import { db } from "@/lib/supabase/server";
 import { defaultBranding } from "@/modules/workspaces/constants";
-import type { WorkspaceMode, WorkspaceStatus, WorkspaceBranding } from "@/modules/workspaces/types";
+import type { WorkspaceStatus, WorkspaceBranding } from "@/modules/workspaces/types";
 
 export interface WorkspaceRow {
   id: string;
   name: string;
-  mode: WorkspaceMode;
   status: WorkspaceStatus;
   embedToken: string;
   embedEnabled: boolean;
@@ -29,7 +28,6 @@ function rowToWorkspace(row: Record<string, unknown>): WorkspaceRow | null {
   return {
     id: row.id as string,
     name: row.store_name as string,
-    mode: "wearable",
     status: (row.store_status as WorkspaceStatus) ?? "draft",
     embedToken: row.embed_token as string,
     embedEnabled: (row.embed_enabled as boolean) ?? false,
@@ -168,7 +166,6 @@ export async function deleteWorkspace(id: string, ownerId: string): Promise<bool
 export interface EmbedWorkspaceResolution {
   workspaceId: string;
   ownerId: string;
-  mode: WorkspaceMode;
   embedEnabled: boolean;
   branding: WorkspaceBranding;
 }
@@ -187,7 +184,6 @@ export async function getWorkspaceByEmbedToken(token: string): Promise<EmbedWork
   return {
     workspaceId: data.id as string,
     ownerId: data.id as string,
-    mode: "wearable",
     embedEnabled: (data.embed_enabled as boolean) ?? false,
     branding: { ...defaultBranding(), ...((data.branding as Partial<WorkspaceBranding> | null) ?? {}) },
   };

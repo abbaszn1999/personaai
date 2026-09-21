@@ -17,7 +17,7 @@ export function AgentOrb({ size = "md", animated = false, className }: AgentOrbP
     <div
       className={cn(
         "relative flex items-center justify-center rounded-full",
-        "gradient-wearable",
+        "gradient-violet",
         SIZE_CLASSES[size],
         "shadow-sm",
         animated && "ring-4 ring-[var(--color-accent-light)]",

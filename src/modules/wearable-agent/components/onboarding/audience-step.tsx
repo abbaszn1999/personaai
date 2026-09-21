@@ -87,8 +87,8 @@ export function AudienceStep({
             className={cn(
               "animate-scale-in flex min-h-[88px] flex-col items-center justify-center gap-2 rounded-[var(--radius-xl)] border-2 p-4 text-center transition-colors",
               value === id
-                ? "border-[var(--color-wearable-from)] bg-[var(--color-accent-light)]/40"
-                : "border-[var(--color-border)] hover:border-[var(--color-wearable-from)] hover:bg-[var(--color-accent-light)]/20"
+                ? "border-[var(--color-violet-from)] bg-[var(--color-accent-light)]/40"
+                : "border-[var(--color-border)] hover:border-[var(--color-violet-from)] hover:bg-[var(--color-accent-light)]/20"
             )}
           >
             <Icon className="h-6 w-6 text-[var(--color-text-secondary)]" />

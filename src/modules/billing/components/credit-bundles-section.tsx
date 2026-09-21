@@ -22,7 +22,7 @@ export function CreditBundlesSection() {
       title="On-Demand Overage Bundles"
       description="Load extra credits any time you pass your monthly render allocation"
       icon={<Coins className="h-4 w-4" />}
-      accent="unwearable"
+      accent="ember"
     >
       {isOverCap && (
         <div className="flex items-center gap-2.5 rounded-[var(--radius-lg)] bg-[var(--color-warning-light)] px-4 py-3 mb-4">

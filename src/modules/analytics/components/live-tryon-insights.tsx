@@ -26,7 +26,7 @@ export function LiveTryOnInsights({ payload }: LiveTryOnInsightsProps) {
     <div className="card-base p-5 flex flex-col gap-4">
       {/* Header */}
       <div className="flex items-center gap-2">
-        <div className="h-8 w-8 rounded-lg gradient-wearable flex items-center justify-center">
+        <div className="h-8 w-8 rounded-lg gradient-violet flex items-center justify-center">
           <Radio className="h-4 w-4 text-white" />
         </div>
         <div>
@@ -90,7 +90,7 @@ export function LiveTryOnInsights({ payload }: LiveTryOnInsightsProps) {
                       </div>
                       <div className="h-1.5 rounded-full bg-[var(--color-surface-base)]">
                         <div
-                          className="h-full rounded-full gradient-wearable transition-all duration-500"
+                          className="h-full rounded-full gradient-violet transition-all duration-500"
                           style={{ width: `${pct}%` }}
                         />
                       </div>

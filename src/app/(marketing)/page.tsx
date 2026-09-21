@@ -15,13 +15,13 @@ import { Logo } from "@/components/brand/logo";
 const FEATURES = [
   {
     icon: <Shirt className="h-5 w-5 text-white" />,
-    gradient: "gradient-wearable",
+    gradient: "gradient-violet",
     title: "Virtual Try-On",
     desc: "Shoppers upload a photo and see exactly how clothing, shoes and accessories look on them before buying — with AI size guidance.",
   },
   {
     icon: <BotMessageSquare className="h-5 w-5 text-white" />,
-    gradient: "gradient-unwearable",
+    gradient: "gradient-ember",
     title: "Shopping Assistant",
     desc: "An AI chat that understands your catalog and guides customers to the perfect product in seconds, then adds it to cart.",
   },

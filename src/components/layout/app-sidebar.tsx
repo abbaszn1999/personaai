@@ -240,7 +240,6 @@ export function AppSidebar() {
                   )}
                   <SidebarPreviewCta
                     href={previewHref}
-                    mode={active.mode}
                     active={isActive(previewHref)}
                     collapsed={collapsed}
                   />
@@ -260,9 +259,7 @@ export function AppSidebar() {
 
         {/* ── Account footer ───────────────────────────────────────── */}
         <div className={cn("shrink-0 border-t border-[var(--color-sidebar-border)]", collapsed ? "p-2" : "p-2.5")}>
-          {active?.mode === "wearable" && (
-            <SidebarUsageBalance workspaceId={active.id} collapsed={collapsed} />
-          )}
+          {active && <SidebarUsageBalance workspaceId={active.id} collapsed={collapsed} />}
           {!collapsed && (
             <p className="px-3 pb-2 text-[10px] font-bold text-[var(--color-sidebar-text-muted)] uppercase tracking-widest">
               Account

@@ -26,14 +26,14 @@ export function LiveTryOnUsageSummaryCards() {
           value={loading ? "—" : formatSeconds(totalRemaining)}
           sub="Available to use right now"
           icon={<Gauge className="h-4 w-4" />}
-          accent="wearable"
+          accent="violet"
         />
         <MetricCard
           label="Used This Cycle"
           value={loading ? "—" : formatSeconds(live?.usedThisCycleSeconds ?? 0)}
           sub={`Of ${formatSeconds(live?.includedAllowanceSeconds ?? activeTier.monthlyLiveTryOnSeconds)} included this cycle`}
           icon={<Radio className="h-4 w-4" />}
-          accent="unwearable"
+          accent="ember"
         />
       </div>
       {!loading && (

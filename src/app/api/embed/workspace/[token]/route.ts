@@ -25,7 +25,6 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
 
     return embedJson({
-      mode: workspace.mode,
       branding: workspace.branding,
     });
   } catch (err) {

@@ -65,7 +65,7 @@ export function SizeGuideModal({ lookLabel, items, cartItemIds, onAddToCart, onC
       <div className={cn("relative w-full max-w-lg max-h-[85vh] flex flex-col rounded-2xl border animate-fade-in overflow-hidden", styles.modal)}>
         <div className={cn("flex items-center justify-between px-5 py-4 border-b shrink-0", styles.header)}>
           <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-lg gradient-wearable flex items-center justify-center">
+            <div className="h-8 w-8 rounded-lg gradient-violet flex items-center justify-center">
               <Ruler className="h-4 w-4 text-white" />
             </div>
             <div>

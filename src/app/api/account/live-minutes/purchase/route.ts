@@ -16,9 +16,6 @@ export async function POST(req: NextRequest) {
       ? await getWorkspaceByIdForOwner(workspaceId, user.id)
       : (await getWorkspacesByOwner(user.id))[0] ?? null;
     if (!workspace) return Response.json({ error: "Workspace not found" }, { status: 404 });
-    if (workspace.mode !== "wearable") {
-      return Response.json({ error: "Live try-on minutes are only available for wearable workspaces" }, { status: 400 });
-    }
 
     const minutes = Number(body.minutes);
     if (!Number.isInteger(minutes) || minutes < 1 || minutes > MAX_MINUTES_PER_PURCHASE) {
@@ -30,7 +27,6 @@ export async function POST(req: NextRequest) {
 
     const checkout = await createStripeCheckout({
       user,
-      workspaceMode: workspace.mode,
       purchaseKey: "live_minutes",
       quantity: minutes,
     });

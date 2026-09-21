@@ -1,6 +1,6 @@
 import * as React from "react";
 import { TryOnLayout } from "@/modules/wearable-agent/components/try-on-layout";
-import type { WorkspaceBranding, WorkspaceMode } from "@/modules/workspaces/types";
+import type { WorkspaceBranding } from "@/modules/workspaces/types";
 import { cn } from "@/lib/utils/cn";
 import { fontFamilyCssValue, loadGoogleFont } from "@/lib/fonts/google-fonts";
 import { resolveBrandCssVars } from "@/lib/branding/resolve-brand-vars";
@@ -8,7 +8,6 @@ import { useEmbedHeartbeat } from "@/lib/embed/client/use-embed-heartbeat";
 import { useResponsiveViewportMode } from "@/lib/hooks/use-responsive-viewport-mode";
 
 interface EmbedConfigResponse {
-  mode?: string;
   branding?: WorkspaceBranding;
   error?: string;
 }
@@ -16,7 +15,7 @@ interface EmbedConfigResponse {
 type LoadState =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; mode: WorkspaceMode; branding: WorkspaceBranding };
+  | { status: "ready"; branding: WorkspaceBranding };
 
 interface EmbedAppProps {
   origin: string;
@@ -60,7 +59,6 @@ export function EmbedApp({ origin, embedToken, onDisplayModeChange }: EmbedAppPr
         loadGoogleFont(data.branding.fontFamily);
         setState({
           status: "ready",
-          mode: "wearable",
           branding: data.branding,
         });
       } catch {

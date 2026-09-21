@@ -13,14 +13,14 @@ export function ChatUsageSection() {
       title="Conversational Chat"
       description="Chat volume for this billing cycle"
       icon={<MessageCircle className="h-4 w-4" />}
-      accent="wearable"
+      accent="violet"
     >
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <MetricCard
           label="Messages Sent This Cycle"
           value={usageLoading ? "—" : (summary?.chatMessagesThisCycle ?? 0).toLocaleString()}
           icon={<MessageCircle className="h-4 w-4" />}
-          accent="wearable"
+          accent="violet"
         />
       </div>
     </SettingsSection>

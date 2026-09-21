@@ -88,7 +88,7 @@ export function ShopperSignIn({ error, onRequestCode, onVerifyCode }: ShopperSig
       {branding.logoUrl ? (
         <img src={branding.logoUrl} alt="" className="h-16 w-16 rounded-2xl object-cover shadow-lg" />
       ) : (
-        <div className="flex h-16 w-16 items-center justify-center rounded-2xl gradient-wearable shadow-lg">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl gradient-violet shadow-lg">
           <Mail className="h-7 w-7 text-white" />
         </div>
       )}
@@ -117,7 +117,7 @@ export function ShopperSignIn({ error, onRequestCode, onVerifyCode }: ShopperSig
             autoFocus
           />
           {displayError && <p className="text-sm text-[var(--color-error)]">{displayError}</p>}
-          <Button type="submit" size="lg" loading={busy} className="gradient-wearable text-white border-0">
+          <Button type="submit" size="lg" loading={busy} className="gradient-violet text-white border-0">
             Continue
             <ArrowRight className="h-4 w-4" />
           </Button>
@@ -156,7 +156,7 @@ export function ShopperSignIn({ error, onRequestCode, onVerifyCode }: ShopperSig
             size="lg"
             loading={busy}
             disabled={code.length !== 6 || (needsPrivacy && !acceptPrivacy)}
-            className="gradient-wearable text-white border-0"
+            className="gradient-violet text-white border-0"
           >
             Sign in
             <ArrowRight className="h-4 w-4" />

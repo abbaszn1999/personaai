@@ -1,5 +1,4 @@
 import type { PlanTier, CreditBundle } from "./types";
-import type { WorkspaceMode } from "@/modules/workspaces/types";
 
 export const MONTHLY_INCLUDED_RENDERS = 5000;
 
@@ -46,17 +45,12 @@ export const PLAN_TIERS: PlanTier[] = [
   },
 ];
 
-/** Selects the commercial tier set. Every project is wearable now (the unwearable shopping
- *  assistant tier set has been retired); `mode` is kept as a parameter for now so callers
- *  don't all need updating in the same pass — it's dropped once `WorkspaceMode` itself is
- *  removed from the codebase. */
-export function getPlanTiers(_mode?: WorkspaceMode): PlanTier[] {
+export function getPlanTiers(): PlanTier[] {
   return PLAN_TIERS;
 }
 
-export function getPlanTier(mode: WorkspaceMode, tierId: string): PlanTier {
-  const tiers = getPlanTiers(mode);
-  return tiers.find((tier) => tier.id === tierId) ?? tiers[0];
+export function getPlanTier(tierId: string): PlanTier {
+  return PLAN_TIERS.find((tier) => tier.id === tierId) ?? PLAN_TIERS[0];
 }
 
 export const CREDIT_BUNDLES: CreditBundle[] = [
@@ -89,7 +83,6 @@ export const INFRA_NOTES: string[] = [
   "Unlimited prompt and image input references are included at no extra credit cost — only 2K visual outputs are deducted from your monthly cap.",
 ];
 
-/** Selects the infra notes list. Every project is wearable now — see `getPlanTiers`. */
-export function getInfraNotes(_mode?: WorkspaceMode): string[] {
+export function getInfraNotes(): string[] {
   return INFRA_NOTES;
 }
