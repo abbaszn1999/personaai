@@ -1,8 +1,8 @@
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
-import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
+import { getStoreConnectionByOwner, updateStoreConnection } from "@/lib/db/store-connections";
 import { hasApprovedCurrentMapping } from "@/lib/catalog/acs/field-overrides";
 import { MAPPER_VERSION } from "@/lib/catalog/acs/map-product";
-import { createSizingRun, getLatestSizingRun } from "@/lib/db/sizing-runs";
+import { createSizingRun, getLatestSizingRun, rewindRun } from "@/lib/db/sizing-runs";
 import { listSizingCoverage } from "@/lib/db/sizing-coverage";
 import { listSizingNullRecords } from "@/lib/db/sizing-null-records";
 import { summarizeCoverage } from "@/lib/sizing/summary";
@@ -32,7 +32,17 @@ export async function GET() {
       return Response.json({ error: "Store connection not found" }, { status: 404 });
     }
 
-    const run = await getLatestSizingRun(connection.id);
+    let run = await getLatestSizingRun(connection.id);
+
+    // The Stage 1 size-chart shortcut has been retired. Reopen any legacy connection that used it
+    // the next time Setup loads so an old persisted flag cannot continue jumping past Stages 2–5.
+    if (connection.sizingStagesSkippedAt !== null) {
+      await updateStoreConnection(connection.id, {
+        sizingSource: "ai_pipeline",
+        sizingStagesSkippedAt: null,
+      });
+      run = await rewindRun(connection.id, "scan");
+    }
 
     // Coverage is only meaningful once a scan has written it. Skipping the reads when no run exists
     // keeps first load on a fresh connection to a single query.
@@ -49,7 +59,6 @@ export async function GET() {
       identification: buildIdentification(coverage, nullRecords),
       routing: buildRouting(coverage, nullRecords),
       mappingApproved: hasApprovedCurrentMapping(connection, MAPPER_VERSION),
-      sizingStagesSkipped: connection.sizingStagesSkippedAt !== null,
     });
   } catch (err) {
     console.error("[store-connection sizing/run GET]", err);

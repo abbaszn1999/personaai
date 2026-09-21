@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, ChevronRight, FastForward, Sparkles } from "lucide-react";
+import { Check, ChevronRight, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import type { StageNumber } from "../types";
 
@@ -28,10 +28,6 @@ interface SetupStepperProps {
   currentStage: StageNumber;
   highestReachedStage: StageNumber;
   onSelectStage: (stage: StageNumber) => void;
-  /** True when the merchant's own per-product size charts stood in for stages 2-5. Those stages are
-   *  then neither reached nor pending — they do not apply to this store — so they are marked rather
-   *  than left looking like work still owed. */
-  sizingStagesSkipped?: boolean;
 }
 
 /**
@@ -43,19 +39,14 @@ export function SetupStepper({
   currentStage,
   highestReachedStage,
   onSelectStage,
-  sizingStagesSkipped = false,
 }: SetupStepperProps) {
   return (
     <div className="rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] px-3 py-3 shadow-[var(--shadow-elevated)] backdrop-blur-xl sm:px-4">
       <nav aria-label="Setup pipeline progress">
         <ol className="flex items-center justify-between gap-1">
           {STEPS.map((step, index) => {
-            const isSkipped = sizingStagesSkipped && step.stage >= 2 && step.stage <= 5;
-            const isCompleted = currentStage > step.stage && !isSkipped;
+            const isCompleted = currentStage > step.stage;
             const isCurrent = currentStage === step.stage;
-            // Still reachable when skipped: a merchant who wants to see what they skipped, or to run
-            // it after all, has no other way in — unbinding the size chart column is the un-skip, and
-            // it is on Stage 1.
             const isAccessible = step.stage <= highestReachedStage;
 
             return (
@@ -72,15 +63,12 @@ export function SetupStepper({
                   <div
                     className={cn(
                       "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold transition-all duration-300",
-                      isSkipped && !isCurrent && "border border-dashed border-[var(--color-accent)] bg-[var(--color-accent-light)] text-[var(--color-accent)]",
                       isCompleted && "gradient-brand text-white shadow-[var(--shadow-glow)]",
                       isCurrent && "gradient-brand text-white shadow-[var(--shadow-glow)] ring-3 ring-[var(--color-brand-light)]",
-                      !isCompleted && !isCurrent && !isSkipped && "border border-[var(--color-border)] bg-[var(--color-surface-base)] text-[var(--color-text-muted)]"
+                      !isCompleted && !isCurrent && "border border-[var(--color-border)] bg-[var(--color-surface-base)] text-[var(--color-text-muted)]"
                     )}
                   >
-                    {isSkipped ? (
-                      <FastForward className="h-3.5 w-3.5" />
-                    ) : isCompleted ? (
+                    {isCompleted ? (
                       <Check className="h-4 w-4" />
                     ) : (
                       step.stage
@@ -109,9 +97,7 @@ export function SetupStepper({
                       )}
                     </div>
                     <span className="hidden truncate text-[10px] text-[var(--color-text-muted)] md:block">
-                      {isSkipped
-                        ? "Skipped — your charts"
-                        : isCompleted
+                      {isCompleted
                           ? "Completed"
                           : isCurrent
                             ? "Active stage"

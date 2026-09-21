@@ -116,64 +116,6 @@ describe("useStoreConnectionStore.saveSizeTypes", () => {
   });
 });
 
-describe("useStoreConnectionStore.setAcsSource", () => {
-  beforeEach(() => {
-    useStoreConnectionStore.setState({
-      acsMapping: { approved: true, mapperVersion: 1 },
-      mapping: {
-        columns: [],
-        brands: [],
-        document: EMPTY_ACS_MAPPING,
-        sizeChart: { bound: false, withData: 0, sampled: 0 },
-        sampled: 0,
-        categoriesSample: null,
-        discoveryStatus: "idle",
-        discoveryScanned: 0,
-        isLoading: false,
-        hasLoaded: true,
-        savingKey: null,
-        isAddingCustomAttribute: false,
-        isApproving: false,
-        isResetting: false,
-        error: null,
-      },
-    });
-    vi.restoreAllMocks();
-  });
-
-  // The "Skip to Step 6" button reads `mapping.sizeChart` from this store, not from `document` —
-  // without applying the route's returned `sizeChart`, binding a column here would flip the row to
-  // "Attached" while the skip button stayed stuck on "Confirm mapping & read catalog" until the next
-  // full page load. See the route's own `sizeChartMoved` comment.
-  it("applies the route's recomputed sizeChart coverage when binding the size-chart row", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({
-        mapping: { ...EMPTY_ACS_MAPPING, sources: { sizeChartData: { kind: "meta", key: "meta.chart" } } },
-        sizeChart: { bound: true, withData: 18, sampled: 25 },
-      })
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    await useStoreConnectionStore.getState().setAcsSource("sizeChartData", { kind: "meta", key: "meta.chart" });
-
-    expect(useStoreConnectionStore.getState().mapping.sizeChart).toEqual({ bound: true, withData: 18, sampled: 25 });
-  });
-
-  it("leaves the existing sizeChart coverage alone when the route omits it", async () => {
-    useStoreConnectionStore.setState((s) => ({
-      mapping: { ...s.mapping, sizeChart: { bound: true, withData: 9, sampled: 25 } },
-    }));
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({ mapping: { ...EMPTY_ACS_MAPPING, sources: { brand: { kind: "field", key: "sku" } } } })
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    await useStoreConnectionStore.getState().setAcsSource("brand", { kind: "field", key: "sku" });
-
-    expect(useStoreConnectionStore.getState().mapping.sizeChart).toEqual({ bound: true, withData: 9, sampled: 25 });
-  });
-});
-
 describe("useStoreConnectionStore.resetFieldMappings", () => {
   const saved = {
     sources: { brand: { kind: "field" as const, key: "sku" } },

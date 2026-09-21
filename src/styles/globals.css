@@ -641,6 +641,21 @@ h1, h2, h3, h4, h5, .font-display {
   color: var(--color-text-primary);
 }
 
+/* The rule above only themes the closed `<select>` box. Its open dropdown list is a separate render
+ * target the OS paints — Windows Chrome fills every `<option>` row with a plain white background
+ * regardless of the `<select>`'s own CSS, so `color: var(--color-text-primary)` (near-white on this
+ * dark theme) becomes near-white-on-white and unreadable everywhere except the one row the browser
+ * highlights natively (blue, always legible — which is why only the selected/hovered option ever
+ * looked fine). `background-color` and `color` set directly on `<option>` *are* respected by every
+ * evergreen browser, unlike the popup's own chrome, so this is the actual fix rather than a
+ * workaround: every native `<select>` left in the app (most were already replaced by the custom
+ * `MappingSelect` listbox for exactly this reason) gets a real dark row background here instead. */
+.dashboard-theme select option,
+.dashboard-theme select optgroup {
+  background-color: var(--color-surface-elevated);
+  color: var(--color-text-primary);
+}
+
 .dashboard-theme input::placeholder,
 .dashboard-theme textarea::placeholder {
   color: var(--color-text-muted);

@@ -18,6 +18,7 @@ import {
   ArrowRight,
   FolderPlus,
 } from "lucide-react";
+import { Modal } from "@/components/ui/modal";
 import { cn } from "@/lib/utils/cn";
 import {
   PERSONA_DEPARTMENTS,
@@ -79,8 +80,6 @@ export function CatalogScopeModal({ isOpen, onClose, scopeState, onSaveScope }: 
   const [newCategoryName, setNewCategoryName] = React.useState("");
   const [newCategorySizingGroup, setNewCategorySizingGroup] = React.useState<"tops" | "bottoms" | "dresses" | "outerwear" | "footwear">("tops");
   const nextCustomId = React.useRef(0);
-
-  if (!isOpen) return null;
 
   function handleToggleDept(deptId: string) {
     setSelectedDepts((prev) => {
@@ -237,44 +236,54 @@ export function CatalogScopeModal({ isOpen, onClose, scopeState, onSaveScope }: 
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/10 p-3 backdrop-blur-xs animate-in fade-in duration-200 sm:p-5"
-      onClick={onClose}
-    >
-      <div
-        className="catalog-scope-demo mapping-panel flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border shadow-2xl animate-in zoom-in-95 duration-150"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="mapping-panel-alt flex items-start justify-between gap-3 border-b border-[var(--color-mapping-border)] p-4 sm:p-5">
-          <div className="flex min-w-0 items-start gap-3">
-            <span className="mapping-accent-button flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-xl)] text-white">
-              <Layers className="h-5 w-5" />
-            </span>
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-base font-extrabold tracking-tight text-[var(--color-text-primary)] sm:text-lg">Select What You Sell</h2>
-                <span className="rounded-full border border-[var(--color-brand)]/25 bg-[var(--color-brand-light)] px-2 py-0.5 text-[11px] font-bold text-[var(--color-brand-strong)]">
-                  Merchandise Scope Setup
-                </span>
-              </div>
-              <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">
-                Enable only the departments and apparel categories your store carries. You can also add custom categories.
-              </p>
-            </div>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="xl"
+      className="catalog-scope-demo mapping-panel max-w-5xl max-h-[92vh] rounded-2xl"
+      icon={<Layers className="h-5 w-5" />}
+      title={
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="text-base font-extrabold tracking-tight sm:text-lg">Select What You Sell</span>
+          <span className="rounded-full border border-[var(--color-brand)]/25 bg-[var(--color-brand-light)] px-2 py-0.5 text-[11px] font-bold text-[var(--color-brand-strong)]">
+            Merchandise Scope Setup
+          </span>
+        </span>
+      }
+      description="Enable only the departments and apparel categories your store carries. You can also add custom categories."
+      footer={
+        <div className="flex w-full flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-center">
+          <div className="flex items-center gap-3 text-xs font-medium text-[var(--color-text-secondary)]">
+            <span className="font-bold text-[var(--color-text-primary)]">{activeDeptsCount} Departments</span>
+            <span className="text-[var(--color-border-strong)]">•</span>
+            <span className="font-bold text-[var(--color-brand-strong)]">{activeLeavesCount} Active Categories & Items</span>
+            {customLeaves.length > 0 && (
+              <>
+                <span className="text-[var(--color-border-strong)]">•</span>
+                <span className="font-bold text-[var(--color-warning)]">{customLeaves.length} Custom Items</span>
+              </>
+            )}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="shrink-0 rounded-[var(--radius-xl)] p-1.5 text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-elevated)] hover:text-[var(--color-text-primary)]"
-            title="Close"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <div className="flex items-center justify-end gap-2.5">
+            <button type="button" onClick={onClose} className="rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-sticky)] px-4 py-2 text-xs font-bold text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-elevated)]">
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              className="inline-flex items-center gap-2 rounded-[var(--radius-xl)] px-5 py-2 text-xs font-bold text-white gradient-brand shadow-[var(--shadow-card)] transition-all hover:shadow-[var(--shadow-glow)]"
+            >
+              <span>Save & Apply Scope</span>
+              <ArrowRight className="h-4 w-4" />
+            </button>
+          </div>
         </div>
-
-        {/* Presets & search */}
-        <div className="flex flex-col items-stretch justify-between gap-2.5 border-b border-[var(--color-mapping-border)] bg-[var(--color-mapping-panel)] p-3 sm:flex-row sm:items-center sm:px-5">
+      }
+    >
+      {/* Presets & search — bled to the dialog's edges, pinned above the scrolling department/category
+       *  body below (the same "toolbar row above a `flex-1 min-h-0` scroll pane" shape as the
+       *  category-items-preview dialog). */}
+      <div className="-mx-5 -mt-5 flex shrink-0 flex-col items-stretch justify-between gap-2.5 border-b border-[var(--color-mapping-border)] bg-[var(--color-mapping-panel)] p-3 sm:flex-row sm:items-center sm:px-5">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="mr-1 select-none text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">Presets:</span>
             {[
@@ -701,35 +710,6 @@ export function CatalogScopeModal({ isOpen, onClose, scopeState, onSaveScope }: 
             )}
           </div>
         </div>
-
-        {/* Footer */}
-        <div className="mapping-panel-alt flex flex-col items-stretch justify-between gap-3 border-t border-[var(--color-mapping-border)] p-4 sm:flex-row sm:items-center sm:px-6">
-          <div className="flex items-center gap-3 text-xs font-medium text-[var(--color-text-secondary)]">
-            <span className="font-bold text-[var(--color-text-primary)]">{activeDeptsCount} Departments</span>
-            <span className="text-[var(--color-border-strong)]">•</span>
-            <span className="font-bold text-[var(--color-brand-strong)]">{activeLeavesCount} Active Categories & Items</span>
-            {customLeaves.length > 0 && (
-              <>
-                <span className="text-[var(--color-border-strong)]">•</span>
-                <span className="font-bold text-[var(--color-warning)]">{customLeaves.length} Custom Items</span>
-              </>
-            )}
-          </div>
-          <div className="flex items-center justify-end gap-2.5">
-            <button type="button" onClick={onClose} className="rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-sticky)] px-4 py-2 text-xs font-bold text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-elevated)]">
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              className="inline-flex items-center gap-2 rounded-[var(--radius-xl)] px-5 py-2 text-xs font-bold text-white gradient-brand shadow-[var(--shadow-card)] transition-all hover:shadow-[var(--shadow-glow)]"
-            >
-              <span>Save & Apply Scope</span>
-              <ArrowRight className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

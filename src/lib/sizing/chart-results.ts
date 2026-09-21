@@ -179,11 +179,12 @@ function indexCharts(charts: SizingChartRow[]): Map<string, SizingChartRow[]> {
  * One phrase explaining why a row has no chart, resolved from both the brand's routing and what
  * research actually concluded — the two carry different halves of the answer.
  *
- * `researched` disambiguates the `pending` status, which means two different things: nothing has run
- * yet, or a pass ran before this store started recording per-row reasons. Reading the second as the
- * first would tell a merchant to start research they have already paid for.
+ * Never called for a global row still sitting at `pending` — `buildChartResults` keeps those out of
+ * `notFound` entirely, so every global row that reaches here was actually searched. That is what
+ * lets the `pending` arm below just mean "not researched": the ambiguous case (a pass ran somewhere
+ * in this store but this exact row's outcome never got recorded) doesn't reach it either.
  */
-function gapReason(row: SizingCoverageRow, researched: boolean): string {
+function gapReason(row: SizingCoverageRow): string {
   if (row.brandKey === UNKNOWN_BRAND_KEY || row.brandType === "none") {
     return "No brand on these products — needs a chart per category";
   }
@@ -213,11 +214,11 @@ function gapReason(row: SizingCoverageRow, researched: boolean): string {
       return "Recorded as found, but no chart is stored";
     case "pending":
     default:
-      return researched ? "Researched, but no reason was recorded — re-run to see why" : "Not researched yet";
+      return "Not researched yet";
   }
 }
 
-function toGap(row: SizingCoverageRow, researched: boolean): ChartGapResult {
+function toGap(row: SizingCoverageRow): ChartGapResult {
   const unbranded = row.brandKey === UNKNOWN_BRAND_KEY;
   return {
     id: row.id,
@@ -229,7 +230,7 @@ function toGap(row: SizingCoverageRow, researched: boolean): ChartGapResult {
     storeCategoryPaths: row.storeCategoryPaths,
     researchStatus: row.researchStatus,
     researchNote: row.researchNote,
-    reason: gapReason(row, researched),
+    reason: gapReason(row),
     sampleSkus: row.sampleSkus.map((sample) => ({
       sku: sample.sku,
       title: sample.title,
@@ -253,6 +254,13 @@ export function buildChartResults(coverage: SizingCoverageRow[], charts: SizingC
   let chartedPairs = 0;
   let chartedSkus = 0;
   let gapSkus = 0;
+  // Global pairs still sitting at `pending` — queued, not failed. Counted toward `pairsNeeded` so
+  // the store's total stays complete, but never pushed into `notFound`: that list is this store's
+  // "could not chart" backlog, and a brand nobody has pressed Generate on yet has not failed to
+  // chart, it just hasn't had its turn. It is already visible and actionable on the Global brands
+  // tab, so leaving it out here too is what keeps that tab's count from drowning in brands still
+  // waiting in the ordinary queue.
+  let pendingGlobalPairs = 0;
 
   for (const row of coverage) {
     // A key this build no longer recognises means the group vocabulary changed under stored rows. It
@@ -264,10 +272,14 @@ export function buildChartResults(coverage: SizingCoverageRow[], charts: SizingC
     const charts = byKey.get(lookupKey(row.brandKey, row.sizingCategory)) ?? [];
 
     if (charts.length === 0) {
-      const gap = toGap(row, researched);
       gapSkus += row.skuCount;
-      if (row.brandKey === UNKNOWN_BRAND_KEY || row.brandType === "none") noBrand.push(gap);
-      else notFound.push(gap);
+      if (row.brandKey === UNKNOWN_BRAND_KEY || row.brandType === "none") {
+        noBrand.push(toGap(row));
+      } else if (row.brandType === "global" && row.researchStatus === "pending") {
+        pendingGlobalPairs += 1;
+      } else {
+        notFound.push(toGap(row));
+      }
       continue;
     }
 
@@ -329,8 +341,10 @@ export function buildChartResults(coverage: SizingCoverageRow[], charts: SizingC
       chartedSkus,
       // Pairs, not charts: this counts what the store needs covered, and one pair can be covered by
       // several published tables. Adding `results.length` here would make the denominator grow every
-      // time research found *more*, which reads as the coverage getting worse.
-      pairsNeeded: chartedPairs + notFound.length + noBrand.length,
+      // time research found *more*, which reads as the coverage getting worse. Includes
+      // `pendingGlobalPairs` even though those don't appear in `notFound` — they still need a chart,
+      // they are just tracked on the Global brands tab instead of this one.
+      pairsNeeded: chartedPairs + notFound.length + noBrand.length + pendingGlobalPairs,
       gapSkus,
     },
     researched,

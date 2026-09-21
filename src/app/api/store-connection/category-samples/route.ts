@@ -35,7 +35,10 @@ export async function GET(req: NextRequest) {
     // native, flat unit, so expansion is a no-op there.
     const categoryIds = expandCategorySelection([categoryId], connection.categories);
 
-    const rawProducts = await fetchSampleRawProducts(connection, categoryIds, SAMPLE_LIMIT);
+    // The display shape below never reads `raw.variants` (sizes come from `variantOptions`,
+    // which is already on the product listing response) — skipping WooCommerce's per-product
+    // variation fetch removes a request this endpoint doesn't need to make at all.
+    const rawProducts = await fetchSampleRawProducts(connection, categoryIds, SAMPLE_LIMIT, { skipVariants: true });
 
     const samples: CategorySampleProduct[] = rawProducts.map((raw) => ({
       externalId: raw.externalId,

@@ -1,7 +1,7 @@
 import type { StoreCategory } from "@/modules/store/types";
 import type { Product, ProductVariant } from "@/modules/shopping-agent/types";
 import type { CatalogPageOptions, RawCatalogProduct, RawCatalogVariant, VariantOptionGroups } from "@/lib/catalog/sync-types";
-import { createTimeoutSignal } from "@/lib/catalog/timeout";
+import { createTimeoutSignal, sleep } from "@/lib/catalog/timeout";
 
 const API_BASE = "/wp-json/wc/v3";
 
@@ -42,6 +42,16 @@ interface WooCommerceErrorBody {
   code?: string;
 }
 
+/** HTTP statuses worth a same-request retry rather than an immediate failure. All four are the
+ *  merchant's own host having a bad moment (an overloaded shared-hosting box dropping its
+ *  database connection is a 500, a gateway timeout is a 504) rather than this app or the request
+ *  itself being wrong — retrying a 4xx would just fail again identically. */
+const WOO_TRANSIENT_STATUSES = new Set([500, 502, 503, 504]);
+/** Bounded so a host that is *consistently* down still fails within a few seconds rather than
+ *  retrying indefinitely. */
+const WOO_TRANSIENT_RETRIES = 2;
+const WOO_TRANSIENT_BASE_DELAY_MS = 400;
+
 async function wooFetch<T>(
   siteUrl: string,
   username: string,
@@ -49,30 +59,43 @@ async function wooFetch<T>(
   path: string,
   signal?: AbortSignal
 ): Promise<{ data: T; headers: Headers }> {
-  const res = await fetch(`${siteUrl}${API_BASE}${path}`, {
-    headers: {
-      Authorization: buildAuthHeader(username, appPassword),
-      "Content-Type": "application/json",
-    },
-    cache: "no-store",
-    signal,
-  });
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${siteUrl}${API_BASE}${path}`, {
+      headers: {
+        Authorization: buildAuthHeader(username, appPassword),
+        "Content-Type": "application/json",
+      },
+      cache: "no-store",
+      signal,
+    });
 
-  if (res.status === 429) {
-    const retryAfterSec = Number(res.headers.get("retry-after") ?? "2");
-    throw new WooCommerceApiError("The store's server rate-limited this request — retrying shortly.", 429, true, retryAfterSec * 1000);
+    if (res.status === 429) {
+      const retryAfterSec = Number(res.headers.get("retry-after") ?? "2");
+      throw new WooCommerceApiError("The store's server rate-limited this request — retrying shortly.", 429, true, retryAfterSec * 1000);
+    }
+
+    if (!res.ok) {
+      const body: WooCommerceErrorBody | null = await res.json().catch(() => null);
+      const err = new WooCommerceApiError(
+        body?.message || `WordPress API request failed (${res.status})`,
+        res.status
+      );
+
+      // A brief, jittered backoff here — rather than surfacing the failure to every caller —
+      // is what keeps one flaky moment on a cheap host (a dropped DB connection under a burst of
+      // concurrent requests) from failing the whole page/variation read outright when the very
+      // next request a moment later would have succeeded.
+      if (WOO_TRANSIENT_STATUSES.has(res.status) && attempt < WOO_TRANSIENT_RETRIES) {
+        await sleep(WOO_TRANSIENT_BASE_DELAY_MS * 2 ** attempt + Math.random() * 200);
+        continue;
+      }
+
+      throw err;
+    }
+
+    const data = (await res.json()) as T;
+    return { data, headers: res.headers };
   }
-
-  if (!res.ok) {
-    const body: WooCommerceErrorBody | null = await res.json().catch(() => null);
-    throw new WooCommerceApiError(
-      body?.message || `WordPress API request failed (${res.status})`,
-      res.status
-    );
-  }
-
-  const data = (await res.json()) as T;
-  return { data, headers: res.headers };
 }
 
 /**
@@ -670,8 +693,12 @@ async function fetchWooVariants(
   appPassword: string,
   product: WooCatalogProduct,
   images: string[],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  skipVariants?: boolean
 ): Promise<RawCatalogVariant[]> {
+  // No network call at all in this case — see `CatalogPageOptions.skipVariants`. This is what
+  // actually removes the per-product request rather than just capping how many run at once.
+  if (skipVariants) return [syntheticWooVariant(product, images)];
   if (product.type !== "variable") return [syntheticWooVariant(product, images)];
 
   const all: WooCommerceVariation[] = [];
@@ -767,7 +794,7 @@ export async function listWooCatalogPage(
 
   const products = await mapWithConcurrency(data, WOO_VARIANT_FETCH_CONCURRENCY, async (product) => {
     const images = product.images.map((image) => image.src).filter(Boolean);
-    const variants = await fetchWooVariants(siteUrl, username, appPassword, product, images, signal);
+    const variants = await fetchWooVariants(siteUrl, username, appPassword, product, images, signal, options.skipVariants);
     return mapWooCatalogProduct(product, variants);
   });
 

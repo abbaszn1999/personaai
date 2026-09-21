@@ -13,7 +13,10 @@ import { isQuotaExhaustedError } from "@/lib/ai/gemini";
 // entries) fits comfortably in a single call given the response schema's per-item footprint.
 const MAX_CATEGORIES = 400;
 const SAMPLE_TITLES = 5;
-const SAMPLE_CONCURRENCY = 5;
+// Kept modest — each unit of concurrency here is one category's worth of live store requests
+// firing at once, and a fragile WooCommerce host (cheap shared hosting especially) has shown it
+// can't absorb much more than this before its own database connection starts dropping requests.
+const SAMPLE_CONCURRENCY = 3;
 
 export async function POST(req: NextRequest) {
   try {
@@ -68,7 +71,13 @@ export async function POST(req: NextRequest) {
         const candidate = candidates[index];
         try {
           const sourceIds = expandCategorySelection([candidate.id], activeConnection.categories);
-          const products = await fetchSampleRawProducts(activeConnection, sourceIds, SAMPLE_TITLES);
+          // Only ever reads `product.title` below — skipping WooCommerce's per-product variation
+          // fetch removes the single biggest source of concurrent requests this makes per category
+          // (previously one extra request per "variable" product in the sample) for data this
+          // endpoint never looks at.
+          const products = await fetchSampleRawProducts(activeConnection, sourceIds, SAMPLE_TITLES, {
+            skipVariants: true,
+          });
           candidate.sampleTitles = products.map((product) => product.title).filter(Boolean);
         } catch (error) {
           console.error(`[persona auto-match] sample failed for ${candidate.id}`, error);

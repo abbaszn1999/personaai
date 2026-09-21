@@ -1,5 +1,14 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SizingCoverageRow } from "@/lib/db/sizing-coverage";
+
+const aiMocks = vi.hoisted(() => ({
+  createChatCompletion: vi.fn(),
+}));
+
+vi.mock("@/lib/ai/openai", () => ({
+  createChatCompletion: aiMocks.createChatCompletion,
+  getPlatformOpenAiKey: () => "test-openai-key",
+}));
 
 // `research.ts` also imports the Supabase-backed `sizing-coverage`/`sizing-charts` modules for the
 // network-calling half of the file, which throw at import time without real Supabase env vars set.
@@ -8,9 +17,19 @@ import type { SizingCoverageRow } from "@/lib/db/sizing-coverage";
 vi.mock("@/lib/db/sizing-coverage", () => ({ listSizingCoverage: vi.fn() }));
 vi.mock("@/lib/db/sizing-charts", () => ({ listChartsForBrands: vi.fn(), upsertChart: vi.fn() }));
 
-const { groupGlobalBrandsNeeded, marketHintFor, screenTables, variantNameFor, resolveVariantNames } =
-  await import("./research");
+const {
+  groupGlobalBrandsNeeded,
+  marketHintFor,
+  researchBrandCharts,
+  screenTables,
+  variantNameFor,
+  resolveVariantNames,
+} = await import("./research");
 type ExtractedTable = Awaited<ReturnType<typeof import("./research").findBrandChart>>["tables"][number];
+
+beforeEach(() => {
+  aiMocks.createChatCompletion.mockReset();
+});
 
 /**
  * Step 0's grouping is pure and free, but it is also the input every later step trusts: a brand
@@ -304,5 +323,105 @@ describe("marketHintFor", () => {
 
   it("asks for the European guide when there is no store URL to go on", () => {
     expect(marketHintFor(null)).toContain("European");
+  });
+});
+
+describe("researchBrandCharts", () => {
+  it("does web research and final normalization in exactly one model request", async () => {
+    aiMocks.createChatCompletion.mockResolvedValueOnce({
+      content: JSON.stringify({
+        found: true,
+        confidence: 0.98,
+        charts: [
+          {
+            title: "Women's tops",
+            section: null,
+            audience: "womens",
+            variant_name: "Women",
+            variant_gender: "womens",
+            variant_fit_type: null,
+            garment_group: "tops",
+            region: "EU",
+            source_url: "https://brand.example/size-guide",
+            confidence: 0.96,
+            rows: [
+              {
+                size: "M",
+                aliases: [
+                  { system: "eu", value: "40" },
+                  // Equal to the primary label: the deterministic parser removes this duplicate.
+                  { system: "alpha", value: "M" },
+                ],
+                measurements: [
+                  { measurement: "chest", min: 92, max: 100 },
+                  { measurement: "waist", min: 72, max: 80 },
+                  // Not a tops measurement: deterministic parsing rejects it even if the model
+                  // emitted it under the wrong chart.
+                  { measurement: "foot_length", min: 24, max: 25 },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+      toolCalls: [],
+    });
+
+    const result = await researchBrandCharts(
+      "Example Brand",
+      "Prefer the European guide.",
+      ["S,M,L"]
+    );
+
+    expect(aiMocks.createChatCompletion).toHaveBeenCalledTimes(1);
+    expect(aiMocks.createChatCompletion).toHaveBeenCalledWith(
+      "test-openai-key",
+      expect.any(Array),
+      expect.objectContaining({
+        model: expect.any(String),
+        tools: [{ type: "web_search" }],
+        jsonSchema: expect.objectContaining({ name: "normalized_brand_size_charts" }),
+      })
+    );
+    expect(result).toMatchObject({
+      found: true,
+      confidence: 0.98,
+      charts: [
+        {
+          group: "tops",
+          confidence: 0.96,
+          table: {
+            title: "Women's tops",
+            sourceUrl: "https://brand.example/size-guide",
+            variantName: "Women",
+          },
+          rows: [
+            {
+              size: "M",
+              aliases: { eu: "40" },
+              chest_min: 92,
+              chest_max: 100,
+              waist_min: 72,
+              waist_max: 80,
+            },
+          ],
+        },
+      ],
+    });
+    expect(result.charts[0].rows[0]).not.toHaveProperty("foot_length_min");
+  });
+
+  it("returns a clean no-guide result without making a follow-up normalization request", async () => {
+    aiMocks.createChatCompletion.mockResolvedValueOnce({
+      content: JSON.stringify({ found: false, confidence: 0, charts: [] }),
+      toolCalls: [],
+    });
+
+    await expect(researchBrandCharts("Missing Brand", "Unknown market")).resolves.toEqual({
+      found: false,
+      confidence: 0,
+      charts: [],
+    });
+    expect(aiMocks.createChatCompletion).toHaveBeenCalledTimes(1);
   });
 });

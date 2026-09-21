@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowRight, Check, ChevronDown, Database, FastForward, GitBranch, Loader2, Plus, RefreshCw, ScanSearch, Trash2 } from "lucide-react";
+import { ArrowRight, Check, ChevronDown, Database, GitBranch, Loader2, Plus, RefreshCw, ScanSearch, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { columnKey, parseColumnKey, type CustomAttributeType } from "@/lib/catalog/acs-mapping";
 import { SIZE_TYPE_LABELS } from "@/lib/sizing/size-types";
@@ -111,22 +111,18 @@ export function StageColumnMapping({
   brands = [],
   approved = false,
   onApproveAndContinue,
-  onSkipToOverview,
   actionPending = false,
   actionLabel,
 }: {
   brands?: readonly OverridableBrand[];
   approved?: boolean;
   onApproveAndContinue: () => void;
-  /** Offered only once a size chart column is bound and actually carries data — see `canSkip`. */
-  onSkipToOverview: () => void;
   actionPending?: boolean;
   actionLabel: string;
 }) {
   const platform = useStoreConnectionStore((s) => s.connection?.platform ?? "shopify");
   const columns = useStoreConnectionStore((s) => s.mapping.columns);
   const mapping = useStoreConnectionStore((s) => s.mapping.document);
-  const sizeChart = useStoreConnectionStore((s) => s.mapping.sizeChart);
   const sampled = useStoreConnectionStore((s) => s.mapping.sampled);
   const categoriesSample = useStoreConnectionStore((s) => s.mapping.categoriesSample);
   const discoveryStatus = useStoreConnectionStore((s) => s.mapping.discoveryStatus);
@@ -155,12 +151,7 @@ export function StageColumnMapping({
 
   const coreRows = rows.filter((row) => row.section === "core");
   const nativeRows = rows.filter((row) => row.section === "native");
-  const sizeChartRow = rows.find((row) => row.section === "sizeChart");
   const stats = countMapped(rows);
-
-  // A bound column that nothing in the sample carries is not a size chart the pipeline can lean on, so
-  // the skip is offered on real coverage rather than on the binding alone.
-  const canSkip = sizeChart.bound && sizeChart.withData > 0;
 
   const bind = React.useCallback(
     (acsKey: string, chosen: string) => {
@@ -212,11 +203,6 @@ export function StageColumnMapping({
                   Native
                 </span>
               )}
-              {row.section === "sizeChart" && (
-                <span className="rounded border border-[var(--color-accent)]/30 bg-[var(--color-accent-light)] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-accent)]">
-                  Catalog spec
-                </span>
-              )}
             </div>
             <p className="max-w-xs text-[11px] leading-snug text-[var(--color-text-muted)]">{row.description}</p>
             {row.key === "sizes" && <SizeTypePanel brands={brands} />}
@@ -250,15 +236,13 @@ export function StageColumnMapping({
                   <span className="block text-[10px] italic leading-tight text-[var(--color-text-muted)]">
                     {row.required
                       ? "Required by ACS — bind a column before indexing"
-                      : row.section === "sizeChart"
-                        ? `No chart attached · the AI sizing pipeline (Steps 2 to 5) will run`
-                        : "Nothing sent to search"}
+                      : "Nothing sent to search"}
                   </span>
                 ) : (
                   <div className="flex items-center gap-2">
                     <span className="inline-flex items-center gap-1 rounded border border-[var(--color-success)]/30 bg-[var(--color-success-light)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--color-success)]">
                       <Check className="h-2.5 w-2.5" />
-                      <span>{row.section === "sizeChart" ? "Attached" : "Mapped to CMS"}</span>
+                      <span>Mapped to CMS</span>
                     </span>
                     <span className="truncate font-mono text-[10px] text-[var(--color-text-muted)]">
                       {row.explicit ? "your choice" : "auto"} · {column ? scopeCaption(column) : `${platform} field`}
@@ -287,16 +271,6 @@ export function StageColumnMapping({
                   {column.presence} of {sampled} sampled products carry it
                 </div>
               </div>
-            )}
-            {row.section === "sizeChart" && canSkip && (
-              <p className="mt-1 flex items-start gap-1.5 rounded-[var(--radius-lg)] border border-[var(--color-accent)]/30 bg-[var(--color-accent-light)] p-2 text-[11px] leading-snug text-[var(--color-text-primary)]">
-                <FastForward className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--color-accent)]" />
-                <span>
-                  <span className="font-bold">Existing charts active:</span> {sizeChart.withData} of{" "}
-                  {sizeChart.sampled} sampled products carry one, so Steps 2 to 5 (Preview, Discovery, Research,
-                  Assignment) can be skipped — go straight to <strong>Step 6: Active Overview</strong>.
-                </span>
-              </p>
             )}
           </div>
         </td>
@@ -367,7 +341,7 @@ export function StageColumnMapping({
       </div>
 
       {/* ───────────────────────────────────────────────────────────────────────
-          TABLE 1 — Main attributes (core fields + native attributes + size chart)
+          TABLE 1 — Main attributes (core fields + native attributes)
           ─────────────────────────────────────────────────────────────────────── */}
       <section className="overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] shadow-[var(--shadow-elevated)]">
         <div
@@ -396,7 +370,6 @@ export function StageColumnMapping({
               </h2>
               <HeaderPill tone="brand">{coreRows.length} Core fields</HeaderPill>
               <HeaderPill tone="info">{nativeRows.length} Native attributes</HeaderPill>
-              <HeaderPill tone="accent">1 Size chart spec</HeaderPill>
             </div>
             <p className="mt-1 text-xs text-[var(--color-text-muted)]">
               Google&apos;s own product schema. Each row is a field of the search index; you choose which of your
@@ -464,18 +437,6 @@ export function StageColumnMapping({
                   </tr>
                 ))}
 
-                {sizeChartRow && (
-                  <>
-                    <SectionRow
-                      label="Catalog size chart specification"
-                      note="Fit &amp; sizing model"
-                      noteTone="accent"
-                    />
-                    <tr className="group bg-[var(--color-accent-light)]/20 transition-colors hover:bg-[var(--color-accent-light)]/40">
-                      {acsRowCells(sizeChartRow, "accent")}
-                    </tr>
-                  </>
-                )}
               </tbody>
             </table>
           </div>
@@ -715,30 +676,16 @@ export function StageColumnMapping({
             <span>Reset Defaults</span>
           </button>
 
-          {canSkip ? (
-            <button
-              type="button"
-              onClick={onSkipToOverview}
-              disabled={actionPending}
-              title="Skip steps 2–5 and jump directly to Step 6: Active Overview"
-              className="gradient-accent inline-flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl px-7 py-3 text-sm font-bold text-[var(--color-text-inverse)] shadow-[var(--shadow-glow)] ring-2 ring-[var(--color-accent)]/40 ring-offset-1 ring-offset-[var(--color-surface-card)] transition-all hover:opacity-95 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 sm:flex-initial"
-            >
-              {actionPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FastForward className="h-4 w-4" />}
-              <span>Skip to Step 6 (Active Overview)</span>
-              <ArrowRight className="h-4 w-4" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={onApproveAndContinue}
-              disabled={actionPending}
-              className="gradient-brand inline-flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl px-7 py-3 text-sm font-bold text-[var(--color-text-inverse)] shadow-[var(--shadow-glow)] transition-all hover:opacity-95 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 sm:flex-initial"
-            >
-              {actionPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              <span>{actionLabel}</span>
-              <ArrowRight className="h-4 w-4" />
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={onApproveAndContinue}
+            disabled={actionPending}
+            className="gradient-brand inline-flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl px-7 py-3 text-sm font-bold text-[var(--color-text-inverse)] shadow-[var(--shadow-glow)] transition-all hover:opacity-95 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 sm:flex-initial"
+          >
+            {actionPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            <span>{actionLabel}</span>
+            <ArrowRight className="h-4 w-4" />
+          </button>
         </div>
       </div>
 

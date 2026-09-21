@@ -150,4 +150,16 @@ export interface CatalogPageOptions {
    * anything. Affordable only because discovery reads one small page; never set on an indexing walk.
    */
   discoverCustomFields?: boolean;
+  /**
+   * WooCommerce only: skip the per-product `/variations` sub-resource read entirely, returning
+   * just each product's single synthetic variant (see `syntheticWooVariant`).
+   *
+   * True per-variation price/stock/options data has no bulk-fetch form in the WooCommerce REST
+   * API, so a normal page pays one extra request per "variable" product it contains. A caller
+   * that only wants product-level facts (title, price, category) — Auto-Match's sampling, a
+   * category preview — gets none of that value and, worse, is exactly the kind of small,
+   * concurrent, ad-hoc read that piles onto a fragile host's request count fastest. Ignored by
+   * Shopify, whose GraphQL query already returns variants inline with no extra round trip to skip.
+   */
+  skipVariants?: boolean;
 }

@@ -1,5 +1,16 @@
-import { describe, expect, it } from "vitest";
-import { mapWooWebhookProduct } from "./client";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { getWordPressProductCount, listWooCatalogPage, mapWooWebhookProduct, WooCommerceApiError } from "./client";
+
+// Keeps the transient-retry tests below instant rather than paying the real backoff delay —
+// nothing here exercises `createTimeoutSignal`'s real timer either.
+vi.mock("@/lib/catalog/timeout", () => ({
+  createTimeoutSignal: () => ({ signal: undefined, cancel: () => {} }),
+  sleep: () => Promise.resolve(),
+}));
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 /**
  * Covers `toWooBuiltInFields`/`toWooCustomFields` through the one exported entry point that
@@ -91,5 +102,111 @@ describe("mapWooWebhookProduct", () => {
       "field.on_sale": "false",
       "field.featured": "false",
     });
+  });
+});
+
+/**
+ * Covers the retry behavior every `wooFetch` call gets for free, exercised through
+ * `getWordPressProductCount` — one of the simplest single-request callers.
+ */
+describe("wooFetch transient retry", () => {
+  it("retries a transient 500 and succeeds without surfacing an error", async () => {
+    let calls = 0;
+    const fetchMock = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) {
+        return new Response(JSON.stringify({ message: "Error establishing a database connection" }), {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "content-type": "application/json", "x-wp-total": "42" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getWordPressProductCount("https://store.example", "admin", "secret")).resolves.toBe(42);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up after exhausting its retries and surfaces the WooCommerceApiError", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ message: "Service Unavailable" }), { status: 503 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getWordPressProductCount("https://store.example", "admin", "secret")).rejects.toBeInstanceOf(
+      WooCommerceApiError
+    );
+    // Initial attempt plus two retries.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not retry a non-transient error like 404", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ message: "Not Found" }), { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getWordPressProductCount("https://store.example", "admin", "secret")).rejects.toMatchObject({
+      status: 404,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("listWooCatalogPage skipVariants", () => {
+  const variableProduct = {
+    id: 42,
+    name: "Linen Shirt",
+    description: "",
+    short_description: "",
+    price: "68",
+    images: [],
+    categories: [],
+    tags: [],
+    attributes: [],
+    stock_status: "instock" as const,
+    sku: "SHIRT-1",
+    permalink: "https://store.example/product/linen-shirt",
+    date_modified_gmt: "2026-01-01T00:00:00",
+    type: "variable",
+  };
+
+  it("skips the per-product /variations request entirely and returns a synthetic variant", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      expect(String(url)).not.toContain("/variations");
+      return new Response(JSON.stringify([variableProduct]), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { products } = await listWooCatalogPage("https://store.example", "admin", "secret", {
+      page: 1,
+      skipVariants: true,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(products[0]?.variants).toHaveLength(1);
+    expect(products[0]?.variants[0]?.externalId).toBe("42");
+  });
+
+  it("still fetches variations for a variable product when skipVariants is not set", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes("/variations")) {
+        return new Response(JSON.stringify([]), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      return new Response(JSON.stringify([variableProduct]), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await listWooCatalogPage("https://store.example", "admin", "secret", { page: 1 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

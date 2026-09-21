@@ -6,6 +6,7 @@ import type { StoreConnection } from "@/modules/store/types";
 import { PLATFORM_LABELS } from "@/modules/store/constants";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
 import { cn } from "@/lib/utils/cn";
 
 const PLATFORM_EMOJI: Record<string, string> = {
@@ -129,63 +130,37 @@ export function ConnectionCard({
         <MetricTile label="Next Required Step" value="Scope Categories" accent />
       </div>
 
-      {confirmingDisconnect && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <button
-            type="button"
-            aria-label="Cancel store disconnection"
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            disabled={isDisconnecting}
-            onClick={() => setConfirmingDisconnect(false)}
-          />
-          <div
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="disconnect-store-title"
-            aria-describedby="disconnect-store-description"
-            className="relative w-full max-w-md rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] p-6 shadow-xl"
-          >
-            <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--color-error-light)] text-[var(--color-error)]">
-                <TriangleAlert className="h-5 w-5" />
-              </div>
-              <div>
-                <h2 id="disconnect-store-title" className="text-base font-semibold text-[var(--color-text-primary)]">
-                  Disconnect {connection.storeName}?
-                </h2>
-                <p id="disconnect-store-description" className="mt-2 text-sm leading-6 text-[var(--color-text-secondary)]">
-                  This removes the store connection and permanently deletes its catalog from ACS.
-                  Cleanup can take a few minutes for a large catalog.
-                </p>
-              </div>
-            </div>
-
-            {isDisconnecting && (
-              <div className="mt-4 flex items-center gap-2 rounded-[var(--radius-md)] bg-[var(--color-surface-base)] px-3 py-2.5 text-sm text-[var(--color-text-secondary)]">
-                <LoaderCircle className="h-4 w-4 animate-spin text-[var(--color-brand)]" />
-                Removing store connection and catalog…
-              </div>
-            )}
-
-            <div className="mt-6 flex justify-end gap-2">
-              <Button
-                variant="secondary"
-                disabled={isDisconnecting}
-                onClick={() => setConfirmingDisconnect(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="danger"
-                loading={isDisconnecting}
-                onClick={confirmDisconnect}
-              >
-                {isDisconnecting ? "Disconnecting…" : "Disconnect store"}
-              </Button>
-            </div>
+      <Modal
+        isOpen={confirmingDisconnect}
+        // Ignored mid-disconnect, same as the disabled backdrop button this replaces — an accidental
+        // Escape or backdrop click shouldn't drop the confirmation while the delete is in flight.
+        onClose={() => { if (!isDisconnecting) setConfirmingDisconnect(false); }}
+        icon={<TriangleAlert className="h-5 w-5" />}
+        title={`Disconnect ${connection.storeName}?`}
+        description="This removes the store connection and permanently deletes its catalog from ACS. Cleanup can take a few minutes for a large catalog."
+        size="sm"
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              disabled={isDisconnecting}
+              onClick={() => setConfirmingDisconnect(false)}
+            >
+              Cancel
+            </Button>
+            <Button variant="danger" loading={isDisconnecting} onClick={confirmDisconnect}>
+              {isDisconnecting ? "Disconnecting…" : "Disconnect store"}
+            </Button>
+          </>
+        }
+      >
+        {isDisconnecting && (
+          <div className="flex items-center gap-2 rounded-[var(--radius-md)] bg-[var(--color-surface-base)] px-3 py-2.5 text-sm text-[var(--color-text-secondary)]">
+            <LoaderCircle className="h-4 w-4 animate-spin text-[var(--color-brand)]" />
+            Removing store connection and catalog…
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
     </div>
   );
 }

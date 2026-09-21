@@ -47,12 +47,11 @@ export interface AcsFieldRow {
 /**
  * Which of the three groups a row belongs to, derived rather than listed.
  *
- * `core` is anything with a default store field behind it, `native` anything ACS fills from an option
- * group by name, `sizeChart` the one field a merchant's existing per-product charts can be bound to.
- * Deriving the split means adding an ACS target in `acs-targets.ts` puts it in the right section here
- * without a second edit — and cannot leave it out of the table entirely.
+ * `core` is anything with a default store field behind it and `native` anything ACS fills from an
+ * option group by name. Per-product size-chart ingestion is intentionally not offered here: every
+ * store now completes the sizing pipeline rather than bypassing Stages 2–5.
  */
-export type AcsRowSection = "core" | "native" | "sizeChart";
+export type AcsRowSection = "core" | "native";
 
 const REQUIRED_ACS_KEYS = new Set(["title", "categories"]);
 
@@ -75,8 +74,6 @@ const ROW_DESCRIPTIONS: Record<string, string> = {
   patterns: "Print and pattern values.",
   genders: "Audience, when your catalog states it per product.",
   ageGroups: "Adult, kids, infant — when your catalog states it per product.",
-  sizeChartData:
-    "A per-product size chart you already store. Binding this is what lets the sizing stages be skipped.",
 };
 
 /**
@@ -91,10 +88,16 @@ export function buildAcsRows(mapping: AcsFieldMapping, optionGroups: readonly st
   for (const target of ACS_TARGETS) {
     // Internal fields are written by the pipeline (product id, merchant isolation), and `custom` is a
     // role destination rather than a field — an attribute a merchant wants by name is a Table 2 row.
-    if (target.internal || target.key === NOT_SENT || target.key === "custom") continue;
+    if (
+      target.internal ||
+      target.key === NOT_SENT ||
+      target.key === "custom" ||
+      target.key === "sizeChartData"
+    ) {
+      continue;
+    }
 
-    const section: AcsRowSection =
-      target.key === "sizeChartData" ? "sizeChart" : isRoleTarget(target.key) ? "native" : "core";
+    const section: AcsRowSection = isRoleTarget(target.key) ? "native" : "core";
 
     const { ref, explicit } = resolveBinding(mapping, target.key, optionGroups);
 

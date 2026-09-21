@@ -60,12 +60,20 @@ export interface ManualChartTarget {
   seedRows?: ChartDraftRow[];
 }
 
+/** Either a real researched chart or one of the mock-fed sync views' charts. Both carry the display
+ *  fields the modal renders, so it can show either without the modal having to know which it has. */
+export type ChartModalChart = FoundSizeChart | ResearchedChart;
+
 interface ChartModalTarget {
-  /** Either a real researched chart or one of the mock-fed sync views' charts. Both carry the
-   *  display fields the modal renders, so it can show either without knowing which it has. */
-  chart: FoundSizeChart | ResearchedChart;
+  /** Every chart the brand publishes — every sizing category, every variant — so the modal can be one
+   *  brand-level view with its own category tabs and variant picker, rather than the caller having to
+   *  decide up front which single table to show. */
+  charts: ChartModalChart[];
   /** Set when the chart was opened from a specific product rather than a brand row. */
   product: SizingProduct | null;
+  /** The category tab to land on when there is more than one — e.g. opened from a category coverage
+   *  chip on the brand table rather than the brand's own "View chart" button. */
+  initialCategory: string | null;
 }
 
 /** How often a working run is re-read. Fast enough that the scan's product counter visibly moves,
@@ -100,9 +108,6 @@ interface SizingUiState {
   /** Tab 3's deterministic routing of those lists. */
   routing: RoutingPlan;
   mappingApproved: boolean;
-  /** True when the merchant skipped stages 2-5 on the strength of their own per-product size charts.
-   *  Read by the stepper, which marks those stages skipped rather than unreached. */
-  sizingStagesSkipped: boolean;
   /** True only for the initial read, so a poll refresh never blanks the stage back to a spinner. */
   runLoading: boolean;
   runError: string | null;
@@ -111,15 +116,6 @@ interface SizingUiState {
 
   loadRun: () => Promise<void>;
   startRun: () => Promise<void>;
-  /**
-   * Takes the Stage 1 shortcut: records that this store's own charts stand in for stages 2-5, parks
-   * the run at the last stage and lands the merchant there.
-   *
-   * Server-side rather than a client-only jump, because "these stages do not apply here" is a fact
-   * about the store and has to survive a refresh — and because the recommendation path reads the same
-   * column to know which charts to size against.
-   */
-  skipSizingStages: () => Promise<void>;
   /** Unblocks the run's current stage server-side, then resumes polling so the new stage's progress
    *  is visible immediately instead of waiting a full poll interval. */
   continueRun: () => Promise<void>;
@@ -243,7 +239,14 @@ interface SizingUiState {
 
   setExtractionDone: (done: boolean) => void;
 
-  openChartModal: (chart: FoundSizeChart | ResearchedChart, product?: SizingProduct | null) => void;
+  /** Accepts either one chart (every legacy sync/confirmation call site, and the single-chart case)
+   *  or the brand's full chart list — the modal normalizes either into its own category/variant
+   *  tabs, so callers never have to pick a single table on the brand's behalf. */
+  openChartModal: (
+    charts: ChartModalChart | readonly ChartModalChart[],
+    product?: SizingProduct | null,
+    initialCategory?: string | null
+  ) => void;
   closeChartModal: () => void;
   openGapModal: (item: GapItem) => void;
   openGapModalById: (id: string) => void;
@@ -322,7 +325,6 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
   identification: EMPTY_IDENTIFICATION,
   routing: EMPTY_ROUTING,
   mappingApproved: false,
-  sizingStagesSkipped: false,
   runLoading: false,
   runError: null,
   startingRun: false,
@@ -343,8 +345,7 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
 
       // Guarded on the high-water mark as well as the one-shot flag, so a merchant who clicked
       // forward while this request was in flight is never pulled back to where the run happens to be.
-      const landing =
-        !get().stageRestored && get().highestStage === 1 ? stageForRun(data.run, data.sizingStagesSkipped) : null;
+      const landing = !get().stageRestored && get().highestStage === 1 ? stageForRun(data.run) : null;
       const previousRun = get().run;
       const scanRestarted =
         previousRun !== null && !isScanIncomplete(previousRun) && isScanIncomplete(data.run);
@@ -355,7 +356,6 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
         identification: data.identification ?? EMPTY_IDENTIFICATION,
         routing: data.routing ?? EMPTY_ROUTING,
         mappingApproved: data.mappingApproved,
-        sizingStagesSkipped: data.sizingStagesSkipped === true,
         runLoading: false,
         runError: null,
         ...(scanRestarted
@@ -417,35 +417,6 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
         sampleScanned: false,
       });
       // Straight into the poll chain so the counter starts moving without waiting an interval.
-      void get().loadRun();
-    } catch {
-      set({ runError: "Could not reach the server", startingRun: false });
-    }
-  },
-
-  skipSizingStages: async () => {
-    if (get().startingRun) return;
-    set({ startingRun: true, runError: null });
-
-    try {
-      const res = await fetch("/api/store-connection/sizing/skip", { method: "POST" });
-      const data = (await res.json()) as { run?: SizingRun; error?: string };
-
-      if (!res.ok) {
-        set({ runError: data.error ?? "Could not skip the sizing stages", startingRun: false });
-        return;
-      }
-
-      // `stageRestored` is set with the jump so the next poll's landing logic leaves it alone —
-      // otherwise a response still describing the pre-skip run would pull the merchant back.
-      set({
-        run: data.run ?? get().run,
-        sizingStagesSkipped: true,
-        startingRun: false,
-        stage: LAST_STAGE,
-        highestStage: LAST_STAGE,
-        stageRestored: true,
-      });
       void get().loadRun();
     } catch {
       set({ runError: "Could not reach the server", startingRun: false });
@@ -841,7 +812,14 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
 
   setExtractionDone: (done) => set({ extractionDone: done }),
 
-  openChartModal: (chart, product = null) => set({ chartModal: { chart, product } }),
+  openChartModal: (charts, product = null, initialCategory = null) =>
+    set({
+      chartModal: {
+        charts: Array.isArray(charts) ? [...charts] : [charts],
+        product,
+        initialCategory,
+      },
+    }),
   closeChartModal: () => set({ chartModal: null }),
 
   openGapModal: (item) => set({ gapModalItem: item }),

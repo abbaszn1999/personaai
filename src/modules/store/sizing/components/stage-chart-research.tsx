@@ -12,13 +12,8 @@ import {
   Eye,
   Filter,
   Loader2,
-  ExternalLink,
-  Link2Off,
-  Layers2,
   PencilLine,
   Globe,
-  ChevronDown,
-  ChevronRight,
   Sparkles,
   Ban,
 } from "lucide-react";
@@ -295,7 +290,7 @@ export function StageChartResearch() {
           busy={busy}
           startingKey={researchStarting}
           onGenerate={(brandKey) => void startResearch({ brandKey })}
-          onViewChart={openChartModal}
+          onViewChart={(brandCharts, initialCategory) => openChartModal(brandCharts, undefined, initialCategory)}
         />
       )}
       {tab === "not_found" && <GapTable items={filteredNotFound} kind="brand" />}
@@ -415,11 +410,18 @@ function BrandStatusBadge({ status }: { status: BrandResearchStatus }) {
 }
 
 /**
- * The queue. One row per global brand, with its charts nested underneath.
+ * The queue. One row per global brand.
  *
  * Present in every state, including before anything has been researched — which is the point. A table
  * that only appeared after a pass had run gave a merchant nothing to act on beforehand, so the only
  * available action was the bulk one.
+ *
+ * A brand's several categories and variants used to expand inline under its row, one nested row per
+ * chart. That put "Men tops" and "Women tops" and "Footwear" on three different lines a merchant had
+ * to hunt across, and buried the one action — View chart — behind a chevron most rows never got
+ * clicked. One brand now opens one modal: every category it covers and every variant published within
+ * each is a tab and a dropdown inside that single view, exactly the shape doc Part 5 describes and the
+ * demo renders.
  */
 function BrandResearchTable({
   brands,
@@ -436,18 +438,8 @@ function BrandResearchTable({
   busy: boolean;
   startingKey: string | null;
   onGenerate: (brandKey: string) => void;
-  onViewChart: (chart: ResearchedChart) => void;
+  onViewChart: (charts: ResearchedChart[], initialCategory?: string) => void;
 }) {
-  const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
-
-  const toggle = (brandKey: string) =>
-    setExpanded((current) => {
-      const next = new Set(current);
-      if (next.has(brandKey)) next.delete(brandKey);
-      else next.add(brandKey);
-      return next;
-    });
-
   return (
     <div className="overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] shadow-[var(--shadow-elevated)] backdrop-blur-xl">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-border)] bg-[var(--color-brand-light)]/30 px-6 py-4">
@@ -484,7 +476,6 @@ function BrandResearchTable({
             ) : (
               brands.map((brand) => {
                 const variants = chartsByBrand.get(brand.brandKey) ?? [];
-                const isOpen = expanded.has(brand.brandKey);
                 const starting = startingKey === brand.brandKey;
                 const live = brand.status === "queued" || brand.status === "researching";
                 // A partial brand gets both: charts to look at, and parents still missing one.
@@ -492,102 +483,81 @@ function BrandResearchTable({
                 const canGenerate = brand.status !== "done";
 
                 return (
-                  <React.Fragment key={brand.brandKey}>
-                    <tr className="transition-colors hover:bg-[var(--color-brand-light)]/20">
-                      <td className="px-6 py-4">
-                        <div className="flex items-start gap-2">
+                  <tr key={brand.brandKey} className="transition-colors hover:bg-[var(--color-brand-light)]/20">
+                    <td className="px-6 py-4">
+                      <div className="min-w-0">
+                        <p className="font-bold text-[var(--color-text-primary)]">{brand.brandName}</p>
+                        {/* Only when the two differ. A store filing Claudie Pierlot as "CLAUDIE" is why a
+                            search can come back empty on a brand the merchant knows is real, and this is
+                            the only place that is visible. */}
+                        {brand.searchName !== brand.brandName && (
+                          <p className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
+                            searched as {brand.searchName}
+                          </p>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex flex-wrap gap-1">
+                        {brand.sizingCategories.map((key) => {
+                          const covered = variants.some((chart) => chart.sizingCategory === key);
+                          return (
+                            <CategoryKey
+                              key={key}
+                              value={key}
+                              onClick={covered ? () => onViewChart(variants, key) : undefined}
+                            />
+                          );
+                        })}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 font-mono text-xs font-semibold text-[var(--color-text-secondary)]">
+                      {brand.chartedCategories}/{brand.sizingCategories.length} keys
+                      <span className="ml-1 text-[var(--color-text-muted)]">
+                        ({brand.chartCount} table{brand.chartCount === 1 ? "" : "s"})
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 font-mono font-semibold text-[var(--color-text-secondary)]">
+                      {brand.skuCount.toLocaleString()} SKUs
+                    </td>
+                    <td className="px-6 py-4">
+                      <BrandStatusBadge status={brand.status} />
+                      {brand.note && brand.status !== "done" && (
+                        <p className="mt-1 max-w-xs text-[11px] text-[var(--color-text-muted)]">{brand.note}</p>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center justify-end gap-2">
+                        {canView && (
                           <button
                             type="button"
-                            onClick={() => toggle(brand.brandKey)}
-                            disabled={variants.length === 0}
-                            title={variants.length === 0 ? "No charts to show yet" : "Show this brand's chart variants"}
-                            className="mt-0.5 rounded text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-brand)] disabled:cursor-not-allowed disabled:opacity-30"
+                            onClick={() => onViewChart(variants)}
+                            title="Open every category and variant this brand publishes in one view"
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-base)] px-3 py-1.5 text-xs font-bold text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-brand)]/40 hover:text-[var(--color-brand)]"
                           >
-                            {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                            <Eye className="h-3.5 w-3.5" />
+                            View chart
                           </button>
-                          <div className="min-w-0">
-                            <p className="font-bold text-[var(--color-text-primary)]">{brand.brandName}</p>
-                            {/* Only when the two differ. A store filing Claudie Pierlot as "CLAUDIE" is
-                                why a search can come back empty on a brand the merchant knows is real,
-                                and this is the only place that is visible. */}
-                            {brand.searchName !== brand.brandName && (
-                              <p className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
-                                searched as {brand.searchName}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex flex-wrap gap-1">
-                          {brand.sizingCategories.map((key) => (
-                            <CategoryKey key={key} value={key} />
-                          ))}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 font-mono text-xs font-semibold text-[var(--color-text-secondary)]">
-                        {brand.chartedCategories}/{brand.sizingCategories.length} keys
-                        <span className="ml-1 text-[var(--color-text-muted)]">
-                          ({brand.chartCount} table{brand.chartCount === 1 ? "" : "s"})
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 font-mono font-semibold text-[var(--color-text-secondary)]">
-                        {brand.skuCount.toLocaleString()} SKUs
-                      </td>
-                      <td className="px-6 py-4">
-                        <BrandStatusBadge status={brand.status} />
-                        {brand.note && brand.status !== "done" && (
-                          <p className="mt-1 max-w-xs text-[11px] text-[var(--color-text-muted)]">{brand.note}</p>
                         )}
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center justify-end gap-2">
-                          {canView && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                variants.length === 1 ? onViewChart(variants[0]) : toggle(brand.brandKey)
-                              }
-                              title={
-                                variants.length === 1
-                                  ? "Check the numbers this brand published"
-                                  : `This brand publishes ${variants.length} tables — open the list and view any of them`
-                              }
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-base)] px-3 py-1.5 text-xs font-bold text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-brand)]/40 hover:text-[var(--color-brand)]"
-                            >
-                              <Eye className="h-3.5 w-3.5" />
-                              {/* Opens the modal on the one table when there is one, and the nested list
-                                  when there are several. A brand publishing 37 tables has no single
-                                  "the chart" to open, and picking one arbitrarily would show a merchant
-                                  a men's guide while they were checking womenswear. */}
-                              {variants.length === 1 ? "View chart" : `View charts (${variants.length})`}
-                            </button>
-                          )}
-                          {canGenerate && (
-                            <button
-                              type="button"
-                              onClick={() => onGenerate(brand.brandKey)}
-                              disabled={busy || live}
-                              title="Spend one web search on this brand's official size guide."
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-brand)]/40 bg-[var(--color-brand-light)] px-3 py-1.5 text-xs font-bold text-[var(--color-brand-strong)] transition-colors hover:border-[var(--color-brand)] disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              {starting ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <Sparkles className="h-3.5 w-3.5" />
-                              )}
-                              Generate
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-
-                    {isOpen &&
-                      variants.map((chart) => (
-                        <VariantRow key={chart.id} chart={chart} onViewChart={onViewChart} />
-                      ))}
-                  </React.Fragment>
+                        {canGenerate && (
+                          <button
+                            type="button"
+                            onClick={() => onGenerate(brand.brandKey)}
+                            disabled={busy || live}
+                            title="Spend one web search on this brand's official size guide."
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-brand)]/40 bg-[var(--color-brand-light)] px-3 py-1.5 text-xs font-bold text-[var(--color-brand-strong)] transition-colors hover:border-[var(--color-brand)] disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {starting ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Sparkles className="h-3.5 w-3.5" />
+                            )}
+                            Generate
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
                 );
               })
             )}
@@ -595,104 +565,6 @@ function BrandResearchTable({
         </table>
       </div>
     </div>
-  );
-}
-
-/**
- * One chart the brand above published, nested under it.
- *
- * A brand legitimately publishes several — a men's tops table and a women's one, and often more than
- * one fit line per audience — so Audience and Published table are what tell rows apart that would
- * otherwise look duplicated. `variantName` is also what Stage 5 binds a category path to, which is why
- * a wrong or duplicated name has to be visible here, while research can still be re-run.
- */
-function VariantRow({
-  chart,
-  onViewChart,
-}: {
-  chart: ResearchedChart;
-  onViewChart: (chart: ResearchedChart) => void;
-}) {
-  const forkChart = useSizingStore((s) => s.forkChart);
-
-  return (
-    <tr className="bg-[var(--color-surface-elevated)]/60">
-      <td className="px-6 py-3 pl-14">
-        <span className="inline-flex max-w-[14rem] items-center gap-1.5 rounded-md border border-[var(--color-brand)]/30 bg-[var(--color-brand-light)] px-2 py-0.5 text-xs font-bold text-[var(--color-brand-strong)]">
-          <Layers2 className="h-3 w-3 shrink-0" />
-          <span className="truncate" title={chart.variantName}>
-            {chart.variantName || "—"}
-          </span>
-        </span>
-        {chart.shared && (
-          <Badge variant="info" className="ml-1.5 text-[9px]">
-            Shared
-          </Badge>
-        )}
-      </td>
-      <td className="px-6 py-3">
-        <CategoryKey value={chart.sizingCategory} />
-      </td>
-      <td className="max-w-[16rem] px-6 py-3">
-        <p title={chart.sourceTitle} className="truncate text-xs font-semibold text-[var(--color-text-primary)]">
-          {chart.sourceTitle || "—"}
-        </p>
-        <p className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
-          {chart.rows.length} size{chart.rows.length === 1 ? "" : "s"} · {chart.region} · updated {chart.lastUpdated}
-        </p>
-      </td>
-      <td className="px-6 py-3">
-        <AudienceTag value={chart.audience} />
-      </td>
-      <td className="px-6 py-3">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span
-            className={cn(
-              "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-bold",
-              !chart.needsReview
-                ? "border-[var(--color-success)]/30 bg-[var(--color-success-light)] text-[var(--color-success)]"
-                : "border-[var(--color-warning)]/30 bg-[var(--color-warning-light)] text-[var(--color-warning)]"
-            )}
-          >
-            <ShieldCheck className="h-3.5 w-3.5" /> {chart.confidence}%
-          </span>
-          {chart.sourceUrl && (
-            <a
-              href={chart.sourceUrl}
-              target="_blank"
-              rel="noreferrer"
-              title={chart.sourceUrl}
-              className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--color-brand)] hover:underline"
-            >
-              <ExternalLink className="h-3 w-3 shrink-0" /> Source
-            </a>
-          )}
-          <QualityBadges flags={chart.quality} />
-        </div>
-      </td>
-      <td className="px-6 py-3">
-        <div className="flex items-center justify-end gap-1.5">
-          <button
-            type="button"
-            onClick={() => onViewChart(chart)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-base)] px-3 py-1.5 text-xs font-bold text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-brand)]/40 hover:text-[var(--color-brand)]"
-          >
-            <Eye className="h-3.5 w-3.5" /> View
-          </button>
-          {/* Doc Part 6. A researched chart is shared with every other store carrying the brand, so
-              correcting it forks a copy scoped to this connection rather than editing the shared row
-              underneath everyone else. */}
-          <button
-            type="button"
-            onClick={() => forkChart(chart)}
-            title="Make your own editable copy of this chart"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-base)] px-3 py-1.5 text-xs font-bold text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-brand)]/40 hover:text-[var(--color-brand)]"
-          >
-            <PencilLine className="h-3.5 w-3.5" /> Make copy
-          </button>
-        </div>
-      </td>
-    </tr>
   );
 }
 
@@ -828,57 +700,21 @@ function FilterChip({
   );
 }
 
-/** The raw sizing key, monospaced. Not prettified — see the component doc above. */
-function CategoryKey({ value }: { value: string }) {
+/** The raw sizing key, monospaced and — on the Found tab — clickable straight into that category's
+ *  tab inside the brand's chart modal. Not prettified: see the component doc above. */
+function CategoryKey({ value, onClick }: { value: string; onClick?: () => void }) {
+  const className =
+    "inline-flex items-center rounded-md border border-[var(--color-brand)]/25 bg-[var(--color-brand-light)] px-2.5 py-0.5 font-mono text-xs font-semibold text-[var(--color-brand-strong)]";
+  if (!onClick) return <span className={className}>{value}</span>;
   return (
-    <span className="inline-flex items-center rounded-md border border-[var(--color-brand)]/25 bg-[var(--color-brand-light)] px-2.5 py-0.5 font-mono text-xs font-semibold text-[var(--color-brand-strong)]">
+    <button
+      type="button"
+      onClick={onClick}
+      title={`View this brand's ${value} chart`}
+      className={cn(className, "transition-colors hover:border-[var(--color-brand)] hover:bg-[var(--color-brand)]/10")}
+    >
       {value}
-    </span>
-  );
-}
-
-/**
- * Who the source table was published for.
- *
- * Its own column rather than part of the key, because that is the whole point of the change behind
- * this screen: the audience is a fact read off the brand's page, not a guess folded into a key the
- * catalog could not support. Seeing `womens` next to a menswear brand is now a visible, checkable
- * claim about a specific published table.
- */
-function AudienceTag({ value }: { value: ResearchedChart["audience"] }) {
-  return (
-    <span className="inline-flex items-center rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface-elevated)] px-2 py-0.5 font-mono text-[11px] font-semibold text-[var(--color-text-secondary)]">
-      {value}
-    </span>
-  );
-}
-
-/**
- * The checks that are allowed to disagree with the model's own confidence.
- *
- * One badge per defect rather than a single "low quality" marker, because the defects need different
- * fixes: a pinned measurement column is a normalizer prompt problem, mixed scales usually mean a
- * wrong audience key, and a missing source means the numbers cannot be verified at all.
- */
-function QualityBadges({ flags }: { flags: ResearchedChart["quality"] }) {
-  return (
-    <>
-      {flags.map((flag) => (
-        <span
-          key={flag.code}
-          title={flag.detail}
-          className={cn(
-            "inline-flex cursor-help items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-bold",
-            flag.severity === "error"
-              ? "border-[var(--color-error)]/30 bg-[var(--color-error-light)] text-[var(--color-error)]"
-              : "border-[var(--color-warning)]/30 bg-[var(--color-warning-light)] text-[var(--color-warning)]"
-          )}
-        >
-          {flag.code === "no_source" ? <Link2Off className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
-          {flag.label}
-        </span>
-      ))}
-    </>
+    </button>
   );
 }
 

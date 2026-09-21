@@ -24,6 +24,7 @@ import {
   parentAccent,
   parentLabel,
 } from "@/modules/store/components/parent-category-ui";
+import { MappingSelect } from "@/modules/store/components/mapping-select";
 import { useSizingStore } from "../store";
 import {
   isScanIncomplete,
@@ -496,22 +497,19 @@ export function StageItemPreview() {
                   </>
                 )}
               </span>
-              <label className="ml-2 flex items-center gap-1.5 text-[var(--color-text-muted)]">
-                Show
-                <select
-                  value={pageSize}
-                  onChange={(event) => void setPageSize(Number(event.target.value))}
+              <div className="ml-2 flex items-center gap-1.5 text-[var(--color-text-muted)]">
+                <span>Show</span>
+                <MappingSelect
+                  options={PAGE_SIZES.map((size) => ({ key: String(size), label: String(size) }))}
+                  value={String(pageSize)}
+                  onChange={(next) => void setPageSize(Number(next))}
+                  label="Products per page"
                   disabled={loading}
-                  className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-base)] px-2 py-1 text-xs text-[var(--color-text-primary)] focus:border-[var(--color-brand)] focus:outline-none disabled:opacity-50"
-                >
-                  {PAGE_SIZES.map((size) => (
-                    <option key={size} value={size}>
-                      {size}
-                    </option>
-                  ))}
-                </select>
-                per page
-              </label>
+                  compact
+                  className="min-w-14"
+                />
+                <span>per page</span>
+              </div>
             </div>
 
             <div className="flex items-center gap-2">

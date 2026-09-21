@@ -68,6 +68,9 @@ export interface CoverageBrand {
   share: number;
   sizingCategories: string[];
   rawFormatCount: number;
+  /** The merchant's own category paths behind this row, root-first. Populated only for the
+   *  unbranded sentinel — see `CoverageBrand` in `lib/sizing/summary.ts`. */
+  storeCategoryPaths: string[][];
 }
 
 export interface CoverageCategory {
@@ -124,10 +127,6 @@ export interface SizingRunResponse {
   identification: BrandIdentification;
   routing: RoutingPlan;
   mappingApproved: boolean;
-  /** True when the merchant skipped stages 2-5 because their own products already carry size charts.
-   *  Sent with the run because it changes what the run's stage *means* to the stepper: the pipeline is
-   *  parked at the end without having done the middle. */
-  sizingStagesSkipped: boolean;
 }
 
 // ─── Stage 4: researched charts and the gaps between them ─────────────────────
@@ -462,13 +461,8 @@ export function isScanIncomplete(run: SizingRun | null): boolean {
  * Not a lookup of `run.stage`, because that names what the server is waiting to *do* next, not where
  * the merchant got to. The rule is: the screen where the run's pending action is taken.
  *
- * `skipped` short-circuits all of it. A store whose products carry their own size charts parks its run
- * at the last stage without passing through the middle ones, so the run's stage is the right answer by
- * coincidence — but only until the skip is taken from a run that had not been created yet, or from one
- * still walking the catalog. The flag answers it directly instead of relying on that coincidence.
  */
-export function stageForRun(run: SizingRun | null, skipped = false): StageNumber {
-  if (skipped) return LAST_STAGE;
+export function stageForRun(run: SizingRun | null): StageNumber {
   if (!run) return 1;
 
   switch (run.stage) {

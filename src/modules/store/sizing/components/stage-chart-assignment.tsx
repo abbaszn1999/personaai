@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   Ban,
   CheckCircle2,
-  ChevronDown,
   Eye,
   ExternalLink,
   Filter,
@@ -15,11 +14,12 @@ import {
   Search,
   ShieldCheck,
   Sparkles,
-  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
 import { cn } from "@/lib/utils/cn";
 import { SIZING_GROUP_KEYS, SIZING_GROUP_LABELS, isSizingGroup } from "@/lib/sizing/measurements";
+import { MappingSelect, type SelectOption } from "@/modules/store/components/mapping-select";
 import { useSizingStore } from "../store";
 import type { AssignableVariant, PathAssignment } from "../server-types";
 import { StageHeaderBanner } from "./stage-header-banner";
@@ -195,36 +195,39 @@ export function StageChartAssignment() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3 border-t border-[var(--color-border)] pt-3">
-          <SelectFilter label="Brand" value={brandFilter} onChange={setBrandFilter}>
-            <option value="all">All brands ({brands.length})</option>
-            {brands.map((brand) => (
-              <option key={brand} value={brand}>
-                {brand}
-              </option>
-            ))}
-          </SelectFilter>
+          <SelectFilter
+            label="Brand"
+            value={brandFilter}
+            onChange={setBrandFilter}
+            options={[
+              { key: "all", label: `All brands (${brands.length})` },
+              ...brands.map((brand) => ({ key: brand, label: brand })),
+            ]}
+          />
 
-          <SelectFilter label="Parent" value={parentFilter} onChange={setParentFilter}>
-            <option value="all">All 5 parents</option>
-            {SIZING_GROUP_KEYS.map((key) => (
-              <option key={key} value={key}>
-                {SIZING_GROUP_LABELS[key]}
-              </option>
-            ))}
-          </SelectFilter>
+          <SelectFilter
+            label="Parent"
+            value={parentFilter}
+            onChange={setParentFilter}
+            options={[
+              { key: "all", label: "All 5 parents" },
+              ...SIZING_GROUP_KEYS.map((key) => ({ key, label: SIZING_GROUP_LABELS[key] })),
+            ]}
+          />
 
           <SelectFilter
             label="Status"
             value={statusFilter}
             onChange={(value) => setStatusFilter(value as StatusFilter)}
-          >
-            <option value="all">All statuses ({totals.paths})</option>
-            <option value="assigned">Assigned ({totals.assigned})</option>
-            <option value="unresolved">Unresolved ({totals.unresolved})</option>
-            <option value="skipped">No chart by choice ({totals.skipped})</option>
-            <option value="auto">Matched automatically</option>
-            <option value="merchant">Chosen by you</option>
-          </SelectFilter>
+            options={[
+              { key: "all", label: `All statuses (${totals.paths})` },
+              { key: "assigned", label: `Assigned (${totals.assigned})` },
+              { key: "unresolved", label: `Unresolved (${totals.unresolved})` },
+              { key: "skipped", label: `No chart by choice (${totals.skipped})` },
+              { key: "auto", label: "Matched automatically" },
+              { key: "merchant", label: "Chosen by you" },
+            ]}
+          />
 
           {filtersActive && (
             <button
@@ -417,32 +420,25 @@ function VariantPicker({
   return (
     <div className="space-y-1.5">
       <div className="flex items-center gap-2">
-        <div className="relative max-w-xs flex-1">
-          <select
-            value={value}
-            disabled={busy}
-            onChange={(event) => onSelect(path, event.target.value === NO_CHART ? null : event.target.value)}
-            className={cn(
-              "w-full appearance-none rounded-lg border py-1.5 pl-3 pr-8 text-xs font-bold transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-60",
-              state === "unresolved"
-                ? "border-[var(--color-warning-border)] bg-[var(--color-warning-light)] text-[var(--color-text-primary)]"
-                : "border-[var(--color-border)] bg-[var(--color-surface-base)] text-[var(--color-text-primary)]"
-            )}
-          >
-            {state === "unresolved" && <option value="">Pick a chart variant…</option>}
-            {path.variants.map((variant) => (
-              <option key={variant.chartId} value={variant.variantName}>
-                {variant.variantName} · {variant.audience} ({variant.confidence}%)
-              </option>
-            ))}
-            <option value={NO_CHART}>No chart for this path</option>
-          </select>
-          {busy ? (
-            <Loader2 className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-[var(--color-text-muted)]" />
-          ) : (
-            <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--color-text-muted)]" />
+        <MappingSelect
+          options={[
+            ...path.variants.map((variant) => ({
+              key: variant.variantName,
+              label: variant.variantName,
+              hint: `${variant.audience} · ${variant.confidence}% confidence`,
+            })),
+            { key: NO_CHART, label: "No chart for this path" },
+          ]}
+          value={value}
+          onChange={(next) => onSelect(path, next === NO_CHART ? null : next)}
+          label={`Chart variant for ${path.brandName}, ${path.categoryPath.join(" › ")}`}
+          saving={busy}
+          placeholder="Pick a chart variant…"
+          className={cn(
+            "max-w-xs flex-1",
+            state === "unresolved" && "border-[var(--color-warning-border)] bg-[var(--color-warning-light)]"
           )}
-        </div>
+        />
 
         {state === "assigned" && path.source === "auto" && (
           <span
@@ -528,24 +524,25 @@ function SelectFilter({
   label,
   value,
   onChange,
-  children,
+  options,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
-  children: React.ReactNode;
+  options: readonly SelectOption[];
 }) {
   return (
-    <label className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-text-secondary)]">
+    <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-text-secondary)]">
       <span className="text-[11px] text-[var(--color-text-muted)]">{label}:</span>
-      <select
+      <MappingSelect
+        options={options}
         value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-base)] px-2.5 py-1.5 text-xs font-bold text-[var(--color-text-primary)] focus:border-[var(--color-brand)] focus:outline-none"
-      >
-        {children}
-      </select>
-    </label>
+        onChange={onChange}
+        label={`${label} filter`}
+        compact
+        className="min-w-36"
+      />
+    </div>
   );
 }
 
@@ -561,20 +558,28 @@ function ChartPreviewModal({
 }) {
   return (
     <Modal
+      isOpen
       onClose={onClose}
-      eyebrow="Assigned chart"
-      title={`${path.brandName} — ${variant.variantName}`}
-      badge={
-        <span
-          className={cn(
-            "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-bold",
-            variant.needsReview
-              ? "border-[var(--color-warning)]/30 bg-[var(--color-warning-light)] text-[var(--color-warning)]"
-              : "border-[var(--color-success)]/30 bg-[var(--color-success-light)] text-[var(--color-success)]"
-          )}
-        >
-          <ShieldCheck className="h-3 w-3" /> {variant.confidence}%
-        </span>
+      size="md"
+      title={
+        <>
+          <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--color-brand)]">
+            Assigned chart
+          </span>
+          <span className="mt-0.5 flex flex-wrap items-center gap-2 text-sm font-semibold text-[var(--color-text-primary)]">
+            {path.brandName} — {variant.variantName}
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-bold",
+                variant.needsReview
+                  ? "border-[var(--color-warning)]/30 bg-[var(--color-warning-light)] text-[var(--color-warning)]"
+                  : "border-[var(--color-success)]/30 bg-[var(--color-success-light)] text-[var(--color-success)]"
+              )}
+            >
+              <ShieldCheck className="h-3 w-3" /> {variant.confidence}%
+            </span>
+          </span>
+        </>
       }
     >
       <p className="text-xs text-[var(--color-text-secondary)]">
@@ -645,13 +650,21 @@ function PathInspectorModal({ path, onClose }: { path: PathAssignment; onClose: 
 
   return (
     <Modal
+      isOpen
       onClose={onClose}
-      eyebrow="What this rule governs"
-      title={`${path.brandName} — ${path.categoryPath.join(" › ")}`}
-      badge={
-        <span className="inline-flex items-center gap-1 rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface-elevated)] px-2 py-0.5 text-[10px] font-bold text-[var(--color-text-secondary)]">
-          <Package className="h-3 w-3" /> {path.skuCount.toLocaleString()} SKUs
-        </span>
+      size="md"
+      title={
+        <>
+          <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--color-brand)]">
+            What this rule governs
+          </span>
+          <span className="mt-0.5 flex flex-wrap items-center gap-2 text-sm font-semibold text-[var(--color-text-primary)]">
+            {path.brandName} — {path.categoryPath.join(" › ")}
+            <span className="inline-flex items-center gap-1 rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface-elevated)] px-2 py-0.5 text-[10px] font-bold text-[var(--color-text-secondary)]">
+              <Package className="h-3 w-3" /> {path.skuCount.toLocaleString()} SKUs
+            </span>
+          </span>
+        </>
       }
     >
       <dl className="space-y-3 text-xs">
@@ -690,54 +703,5 @@ function PathInspectorModal({ path, onClose }: { path: PathAssignment; onClose: 
         our database for this to work.
       </p>
     </Modal>
-  );
-}
-
-function Modal({
-  onClose,
-  eyebrow,
-  title,
-  badge,
-  children,
-}: {
-  onClose: () => void;
-  eyebrow: string;
-  title: string;
-  badge?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  // Escape closes, because a full-screen overlay with only a corner button is a trap for anyone
-  // working from the keyboard.
-  React.useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] shadow-[var(--shadow-modal)]">
-        <div className="flex items-start justify-between gap-4 border-b border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-5 py-4">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-brand)]">{eyebrow}</span>
-              {badge}
-            </div>
-            <h3 className="mt-0.5 truncate text-base font-bold text-[var(--color-text-primary)]">{title}</h3>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded-lg p-1.5 text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-base)] hover:text-[var(--color-text-primary)]"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto p-5">{children}</div>
-      </div>
-    </div>
   );
 }

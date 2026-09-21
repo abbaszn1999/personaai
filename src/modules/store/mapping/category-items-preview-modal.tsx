@@ -8,6 +8,7 @@
 
 import * as React from "react";
 import { X, Search, Package, CheckCircle2, AlertCircle, ArrowRight } from "lucide-react";
+import { Modal } from "@/components/ui/modal";
 import { cn } from "@/lib/utils/cn";
 import type { StoreCategoryItem } from "./persona-taxonomy";
 
@@ -262,94 +263,111 @@ export function CategoryItemsPreviewModal({ category, onClose, onSelectForMappin
   if (!category) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#09070d] p-3 sm:p-5" onClick={onClose}>
-      <div
-        className="mapping-panel flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-[var(--radius-2xl)] border shadow-[0_32px_90px_-24px_#000000]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="mapping-panel-alt flex items-start justify-between gap-3 border-b border-[var(--color-mapping-border)] p-4 sm:p-5">
-          <div className="flex min-w-0 items-start gap-3">
-            <span className="mapping-accent-button flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-xl)] text-white">
-              <Package className="h-5 w-5" />
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="xl"
+      className="max-w-4xl max-h-[90vh]"
+      icon={<Package className="h-5 w-5" />}
+      title={
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="truncate text-base font-extrabold tracking-tight sm:text-lg">{category.name}</span>
+          <span className="rounded-[var(--radius-md)] border border-[var(--color-brand)]/25 bg-[var(--color-brand-light)] px-2 py-0.5 text-xs font-bold text-[var(--color-brand-strong)]">
+            {category.productCount} Total SKUs
+          </span>
+          {category.status === "mapped" ? (
+            <span className="inline-flex items-center gap-1 rounded-[var(--radius-md)] border border-[var(--color-success-border)] bg-[var(--color-success-light)] px-2 py-0.5 text-[11px] font-bold text-[var(--color-success)]">
+              <CheckCircle2 className="h-3 w-3" /> Mapped
             </span>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="truncate text-base font-extrabold tracking-tight text-[var(--color-text-primary)] sm:text-lg">{category.name}</h2>
-                <span className="rounded-[var(--radius-md)] border border-[var(--color-brand)]/25 bg-[var(--color-brand-light)] px-2 py-0.5 text-xs font-bold text-[var(--color-brand-strong)]">
-                  {category.productCount} Total SKUs
-                </span>
-                {category.status === "mapped" ? (
-                  <span className="inline-flex items-center gap-1 rounded-[var(--radius-md)] border border-[var(--color-success-border)] bg-[var(--color-success-light)] px-2 py-0.5 text-[11px] font-bold text-[var(--color-success)]">
-                    <CheckCircle2 className="h-3 w-3" /> Mapped
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 rounded-[var(--radius-md)] border border-[var(--color-warning-border)] bg-[var(--color-warning-light)] px-2 py-0.5 text-[11px] font-bold text-[var(--color-warning)]">
-                    <AlertCircle className="h-3 w-3" /> Unmapped
-                  </span>
-                )}
-              </div>
-              <div className="mt-1 flex items-center gap-1.5 truncate text-xs text-[var(--color-text-muted)]">
-                <span>Store Route:</span>
-                <span className="truncate font-semibold text-[var(--color-text-secondary)]">{category.storePath}</span>
-              </div>
-              {category.assignedPersonaPath && (
-                <div className="mt-1 flex items-center gap-1.5 truncate text-xs">
-                  <span className="text-[11px] text-[var(--color-text-muted)]">Persona Mapping:</span>
-                  <span className="truncate rounded border border-[var(--color-brand)]/25 bg-[var(--color-brand-light)] px-1.5 py-0.2 font-bold text-[var(--color-brand-strong)]">
-                    {category.assignedPersonaPath}
-                  </span>
-                </div>
-              )}
-            </div>
+          ) : (
+            <span className="inline-flex items-center gap-1 rounded-[var(--radius-md)] border border-[var(--color-warning-border)] bg-[var(--color-warning-light)] px-2 py-0.5 text-[11px] font-bold text-[var(--color-warning)]">
+              <AlertCircle className="h-3 w-3" /> Unmapped
+            </span>
+          )}
+        </span>
+      }
+      description={
+        <span className="flex flex-col gap-1">
+          <span className="flex items-center gap-1.5 truncate">
+            <span>Store Route:</span>
+            <span className="truncate font-semibold text-[var(--color-text-secondary)]">{category.storePath}</span>
+          </span>
+          {category.assignedPersonaPath && (
+            <span className="flex items-center gap-1.5 truncate">
+              <span className="text-[11px]">Persona Mapping:</span>
+              <span className="truncate rounded border border-[var(--color-brand)]/25 bg-[var(--color-brand-light)] px-1.5 py-0.2 font-bold text-[var(--color-brand-strong)]">
+                {category.assignedPersonaPath}
+              </span>
+            </span>
+          )}
+        </span>
+      }
+      footer={
+        <div className="flex w-full items-center justify-between gap-3">
+          <div className="text-xs font-medium text-[var(--color-text-muted)]">
+            Category ID: <code className="font-mono text-[var(--color-text-secondary)]">{category.id}</code>
           </div>
-          <button type="button" onClick={onClose} className="shrink-0 rounded-[var(--radius-xl)] p-1.5 text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-elevated)] hover:text-[var(--color-text-primary)]" title="Close (Esc)">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        {/* Toolbar */}
-        <div className="flex flex-col items-stretch justify-between gap-2.5 border-b border-[var(--color-mapping-border)] bg-[var(--color-mapping-panel)] p-3 sm:flex-row sm:items-center sm:p-4">
-          <div className="relative flex-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-muted)]" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search items by title, SKU code, size, color..."
-              className="w-full rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-base)] py-1.5 pl-9 pr-8 text-xs text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-brand)] focus:outline-none"
-            />
-            {search && (
-              <button type="button" onClick={() => setSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]">
-                <X className="h-3.5 w-3.5" />
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={onClose} className="rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-sticky)] px-3.5 py-1.5 text-xs font-bold text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-elevated)]">
+              Close
+            </button>
+            {onSelectForMapping && (
+              <button
+                type="button"
+                onClick={() => { onSelectForMapping(category); onClose(); }}
+                className="inline-flex items-center gap-1.5 rounded-[var(--radius-xl)] px-4 py-1.5 text-xs font-bold text-white gradient-brand shadow-[var(--shadow-card)] transition-all hover:shadow-[var(--shadow-glow)]"
+              >
+                <span>Select for Mapping</span>
+                <ArrowRight className="h-3.5 w-3.5" />
               </button>
             )}
           </div>
-          <div className="flex items-center justify-between gap-2 sm:justify-end">
-            <span className="text-xs font-medium text-[var(--color-text-muted)]">
-              Showing {filteredItems.length} of {category.productCount} SKUs
-            </span>
-            <div className="flex items-center gap-0.5 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-base)] p-0.5">
-              {(["grid", "table"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => setViewMode(mode)}
-                  className={cn(
-                    "rounded-[var(--radius-md)] px-2.5 py-1 text-xs font-bold transition-colors",
-                    viewMode === mode ? "bg-[var(--color-surface-sticky)] text-[var(--color-brand-strong)] shadow-[var(--shadow-card)]" : "text-[var(--color-text-secondary)]"
-                  )}
-                >
-                  {mode === "grid" ? "Grid" : "List"}
-                </button>
-              ))}
-            </div>
+        </div>
+      }
+    >
+      {/* Toolbar — bled to the dialog's edges and pinned above the scrolling item list below, the
+       *  same "toolbar row above a flex-1 scroll pane" shape `Modal`'s body wrapper supports. */}
+      <div className="-mx-5 -mt-5 flex shrink-0 flex-col items-stretch justify-between gap-2.5 border-b border-[var(--color-mapping-border)] bg-[var(--color-mapping-panel)] p-3 sm:flex-row sm:items-center sm:p-4">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-muted)]" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search items by title, SKU code, size, color..."
+            className="w-full rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-base)] py-1.5 pl-9 pr-8 text-xs text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-brand)] focus:outline-none"
+          />
+          {search && (
+            <button type="button" onClick={() => setSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+        <div className="flex items-center justify-between gap-2 sm:justify-end">
+          <span className="text-xs font-medium text-[var(--color-text-muted)]">
+            Showing {filteredItems.length} of {category.productCount} SKUs
+          </span>
+          <div className="flex items-center gap-0.5 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-base)] p-0.5">
+            {(["grid", "table"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setViewMode(mode)}
+                className={cn(
+                  "rounded-[var(--radius-md)] px-2.5 py-1 text-xs font-bold transition-colors",
+                  viewMode === mode ? "bg-[var(--color-surface-sticky)] text-[var(--color-brand-strong)] shadow-[var(--shadow-card)]" : "text-[var(--color-text-secondary)]"
+                )}
+              >
+                {mode === "grid" ? "Grid" : "List"}
+              </button>
+            ))}
           </div>
         </div>
+      </div>
 
-        {/* Items */}
-        <div className="max-h-[58vh] overflow-y-auto bg-[#120d19] p-4 sm:p-5">
-          {isLoading ? (
+      {/* Items */}
+      <div className="-mx-5 -mb-5 mt-4 min-h-0 flex-1 overflow-y-auto bg-[#120d19] p-4 sm:p-5">
+        {isLoading ? (
             <div className="p-12 text-center text-sm font-semibold text-[var(--color-text-muted)]">Loading live products…</div>
           ) : filteredItems.length === 0 ? (
             <div className="space-y-2 rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-sticky)] p-8 text-center">
@@ -440,30 +458,7 @@ export function CategoryItemsPreviewModal({ category, onClose, onSelectForMappin
               </table>
             </div>
           )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between gap-3 border-t border-[var(--color-border)] bg-[var(--color-surface-base)] p-4">
-          <div className="text-xs font-medium text-[var(--color-text-muted)]">
-            Category ID: <code className="font-mono text-[var(--color-text-secondary)]">{category.id}</code>
-          </div>
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={onClose} className="rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-sticky)] px-3.5 py-1.5 text-xs font-bold text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-elevated)]">
-              Close
-            </button>
-            {onSelectForMapping && (
-              <button
-                type="button"
-                onClick={() => { onSelectForMapping(category); onClose(); }}
-                className="inline-flex items-center gap-1.5 rounded-[var(--radius-xl)] px-4 py-1.5 text-xs font-bold text-white gradient-brand shadow-[var(--shadow-card)] transition-all hover:shadow-[var(--shadow-glow)]"
-              >
-                <span>Select for Mapping</span>
-                <ArrowRight className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-        </div>
       </div>
-    </div>
+    </Modal>
   );
 }

@@ -21,12 +21,10 @@ import { useSizingStore } from "../store";
  */
 export function StageFieldMapping({
   onApproveAndContinue,
-  onSkipToOverview,
   actionPending,
   actionLabel,
 }: {
   onApproveAndContinue: () => void;
-  onSkipToOverview: () => void;
   actionPending: boolean;
   actionLabel: string;
 }) {
@@ -86,7 +84,6 @@ export function StageFieldMapping({
       brands={brands}
       approved={approved}
       onApproveAndContinue={onApproveAndContinue}
-      onSkipToOverview={onSkipToOverview}
       actionPending={actionPending}
       actionLabel={actionLabel}
     />

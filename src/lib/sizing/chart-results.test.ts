@@ -222,18 +222,53 @@ describe("buildChartResults", () => {
     expect(buildChartResults([coverage({ researchStatus: "not_found" })], []).researched).toBe(true);
   });
 
-  it("treats an existing chart as proof a pass ran, even with no status recorded", () => {
+  it("treats an existing chart as proof a pass ran, even with no per-row status recorded", () => {
     // The state right after the reason columns were added: charts from an earlier run, every status
     // still `pending`. Reading that as "never researched" would tell a merchant to pay again.
     const rows = [coverage(), coverage({ id: "cov-2", sizingCategory: "bottoms" })];
     const result = buildChartResults(rows, [chart()]);
 
     expect(result.researched).toBe(true);
-    expect(result.notFound[0].reason).toBe("Researched, but no reason was recorded — re-run to see why");
+    // The second pair is still `pending` and still `global` — queued on the Global brands tab, not
+    // a "could not chart" gap. It doesn't belong in `notFound` just because some other pair in the
+    // same store has already been researched.
+    expect(result.notFound).toHaveLength(0);
+    expect(result.totals.pairsNeeded).toBe(2);
   });
 
-  it("says 'not researched yet' only when genuinely nothing has run", () => {
-    expect(buildChartResults([coverage()], []).notFound[0].reason).toBe("Not researched yet");
+  // This is the bug a merchant with a large, freshly-classified brand list actually hits: almost
+  // every global brand is still `pending` (nobody has pressed Generate on it yet), and none of that
+  // backlog is a private label. Counting it into "Not found / private" anyway is what made that tab
+  // show a number many times the store's real private-label count.
+  it("keeps brands nobody has researched yet out of the 'not found / private' gap list", () => {
+    const rows = [
+      coverage({ id: "queued-1", brandKey: "acme", brandName: "Acme", sizingCategory: "tops", skuCount: 40 }),
+      coverage({ id: "queued-2", brandKey: "acme", brandName: "Acme", sizingCategory: "bottoms", skuCount: 20 }),
+      coverage({
+        id: "private-1",
+        brandKey: "house",
+        brandName: "House Label",
+        brandType: "private",
+        sizingCategory: "tops",
+        skuCount: 5,
+      }),
+    ];
+
+    const result = buildChartResults(rows, []);
+
+    // Only the private-label pair is a real "could not chart" gap; the two queued global pairs are
+    // tracked on the Global brands tab instead.
+    expect(result.notFound).toHaveLength(1);
+    expect(result.notFound[0].brandKey).toBe("house");
+    // But every pair the store needs is still counted, so the total never silently drops brands
+    // that simply haven't had their turn.
+    expect(result.totals.pairsNeeded).toBe(3);
+  });
+
+  it("still lists a global brand once research has actually run and come back empty", () => {
+    expect(buildChartResults([coverage({ researchStatus: "not_found" })], []).notFound[0].reason).toBe(
+      "No official size guide found for this brand"
+    );
   });
 
   it("drops a row whose sizing key this build no longer knows rather than offering an unfillable gap", () => {

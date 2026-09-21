@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils/cn";
+import { labelFor } from "@/lib/sizing/summary";
 import { useSizingStore } from "../store";
 import { isScanIncomplete, type CoverageBrand, type ServerBrandType } from "../server-types";
 import { StageHeaderBanner } from "./stage-header-banner";
@@ -95,7 +96,15 @@ const TONE_CLASSES: Record<
 
 const ROUTE_BUCKETS: ServerBrandType[] = ["global", "private", "none"];
 
-type BrandTypeFilter = "all" | Exclude<ServerBrandType, "none">;
+type BrandTypeFilter = "all" | ServerBrandType;
+
+/** A brand entity's searchable/display label. Real brands are named; the unbranded sentinel has no
+ *  name, so it falls back to the sizing category it was split on — see `CoverageBrand.storeCategoryPaths`
+ *  in `lib/sizing/summary.ts` for why this row exists as its own line at all. */
+function entityLabel(brand: CoverageBrand): string {
+  if (brand.name) return brand.name;
+  return labelFor(brand.sizingCategories[0] ?? "");
+}
 
 /**
  * Stage 3 — who made what, and therefore where every later dollar goes.
@@ -127,6 +136,8 @@ export function StageBrandDiscovery() {
   }, [loadRun, stopPolling]);
 
   const brands = summary.brands;
+  // "Brands" for the header count and stat cards — the unbranded sentinel isn't a brand, it's a
+  // catalog-fallback segment, so it's excluded here even though it gets its own rows in the table.
   const namedBrands = React.useMemo(() => brands.filter((brand) => brand.brandType !== "none"), [brands]);
 
   const byType = React.useMemo(() => {
@@ -137,12 +148,12 @@ export function StageBrandDiscovery() {
 
   const filtered = React.useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return namedBrands.filter((brand) => {
+    return brands.filter((brand) => {
       if (typeFilter !== "all" && brand.brandType !== typeFilter) return false;
       if (!needle) return true;
-      return (brand.name ?? "").toLowerCase().includes(needle);
+      return entityLabel(brand).toLowerCase().includes(needle);
     });
-  }, [namedBrands, typeFilter, query]);
+  }, [brands, typeFilter, query]);
 
   const visibleBrands = showAll ? filtered : filtered.slice(0, 8);
 
@@ -199,14 +210,16 @@ export function StageBrandDiscovery() {
           <span className="flex items-center gap-1 pl-1 font-medium text-[var(--color-text-muted)]">
             <Tag className="h-3.5 w-3.5" /> Filter by type:
           </span>
-          {(["all", "global", "private", "unclassified"] as BrandTypeFilter[]).map((id) => {
+          {(["all", "global", "private", "none", "unclassified"] as BrandTypeFilter[]).map((id) => {
             // Hidden rather than shown as a zero: an "Unclassified 0" chip invites a merchant to
-            // hunt for a problem that isn't there.
+            // hunt for a problem that isn't there. Same reasoning covers "No brand" — a store with
+            // every SKU branded shouldn't see a segment that will always be empty.
             if (id === "unclassified" && byType.unclassified.length === 0) return null;
+            if (id === "none" && byType.none.length === 0) return null;
 
             const active = typeFilter === id;
             const tone = id === "all" ? null : TONE_CLASSES[TYPE_META[id].tone];
-            const count = id === "all" ? namedBrands.length : byType[id].length;
+            const count = id === "all" ? brands.length : byType[id].length;
 
             return (
               <button
@@ -365,6 +378,7 @@ function RouteSummary({
 function BrandTableRow({ brand }: { brand: CoverageBrand }) {
   const meta = TYPE_META[brand.brandType];
   const tone = TONE_CLASSES[meta.tone];
+  const isUnbranded = brand.brandType === "none";
 
   return (
     <tr
@@ -378,11 +392,23 @@ function BrandTableRow({ brand }: { brand: CoverageBrand }) {
       )}
     >
       <td className="px-6 py-3.5">
-        <p className="font-bold text-[var(--color-text-primary)]">{brand.name ?? "No brand detected"}</p>
-        <p className="mt-0.5 truncate text-[11px] text-[var(--color-text-muted)]">
-          {brand.sizingCategories.length} categor{brand.sizingCategories.length === 1 ? "y" : "ies"} ·{" "}
-          {brand.rawFormatCount} size format{brand.rawFormatCount === 1 ? "" : "s"}
-        </p>
+        <div className="flex items-center gap-2">
+          <p className="font-bold text-[var(--color-text-primary)]">{entityLabel(brand)}</p>
+          {isUnbranded && <span className="text-[10px] italic text-[var(--color-text-muted)]">(Catalog fallback)</span>}
+        </div>
+        {isUnbranded ? (
+          <p className="mt-0.5 truncate text-[11px] text-[var(--color-text-muted)]" title={brand.storeCategoryPaths.map((path) => path.join(" › ")).join(", ")}>
+            {brand.storeCategoryPaths.length > 0
+              ? brand.storeCategoryPaths[0].join(" › ")
+              : "Path not mapped"}
+            {brand.storeCategoryPaths.length > 1 && ` +${brand.storeCategoryPaths.length - 1} more path${brand.storeCategoryPaths.length > 2 ? "s" : ""}`}
+          </p>
+        ) : (
+          <p className="mt-0.5 truncate text-[11px] text-[var(--color-text-muted)]">
+            {brand.sizingCategories.length} categor{brand.sizingCategories.length === 1 ? "y" : "ies"} ·{" "}
+            {brand.rawFormatCount} size format{brand.rawFormatCount === 1 ? "" : "s"}
+          </p>
+        )}
       </td>
       <td className="whitespace-nowrap px-4 py-3.5">
         <span

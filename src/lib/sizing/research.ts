@@ -9,8 +9,10 @@ import {
 import { listChartsForBrands, upsertChart } from "@/lib/db/sizing-charts";
 import {
   CHART_REGIONS,
+  SIZE_ALIAS_KEYS,
   chartHasBounds,
   isChartRegion,
+  isSizeAliasKey,
   parseSizeChart,
   universalRowJsonSchema,
   type ChartRegion,
@@ -19,10 +21,13 @@ import {
 } from "./chart-schema";
 import { CHART_CONFIDENCE_THRESHOLD } from "./chart-review";
 import {
+  isMeasurement,
   isSizingGroup,
+  MEASUREMENT_KEYS,
   measurementsFor,
   SIZING_GROUP_KEYS,
   SIZING_GROUP_SCOPES,
+  type Measurement,
   type SizingGroup,
 } from "./measurements";
 import { AUDIENCES, isAudience, isSizingCategory, UNKNOWN_BRAND_KEY, type Audience } from "./keys";
@@ -110,10 +115,9 @@ export interface ResearchOptions {
  * Brands one job tick will research before handing back.
  *
  * `/api/internal/sizing/advance` runs under Vercel's `maxDuration = 300`, and research is
- * sequential with two calls per brand each allowed up to five minutes. Eighteen brands in one tick
- * is far past that budget; it only ever completed locally because the in-process worker has no
- * timeout at all. Bounded and re-enqueued instead, so the work survives a platform that will cut it
- * off mid-brand — and so a tick's cost is predictable rather than proportional to the catalog.
+ * sequential with one potentially long web-enabled call per brand. A large brand can consume most
+ * of that budget by itself, so work remains bounded and re-enqueued rather than made proportional
+ * to the whole catalog.
  */
 const BRANDS_PER_TICK = 2;
 
@@ -174,9 +178,9 @@ export async function runChartResearch(
 
   // Sequential and per-brand logged. Nothing here is parallelized — two brands researched at once
   // would double the odds of tripping a rate limit on the same platform key every other sizing call
-  // shares — but that means a store with a long brand tail can legitimately take many minutes, with
-  // the finder+normalizer pair now allowed up to five minutes each. The per-brand line below exists
-  // so that wait is visible progress in the server log, not silence indistinguishable from a hang.
+  // shares — but that means a store with a long brand tail can legitimately take many minutes. The
+  // single research call is allowed up to five minutes; the per-brand line below makes that wait
+  // visible progress in the server log rather than silence indistinguishable from a hang.
   // The caller is responsible for bounding how many brands one job tick attempts; see `jobs.ts`.
   let index = 0;
   let searched = 0;
@@ -325,7 +329,8 @@ export function marketHintFor(storeUrl: string | null | undefined): string {
 }
 
 /**
- * 4a then 4b for one brand, writing every table the guide published.
+ * One end-to-end GPT-5.6 Sol request for a brand, followed only by deterministic validation and
+ * persistence.
  *
  * Every exit path records a reason against the coverage rows it was asked about. An absent chart on
  * its own cannot distinguish "this brand publishes nothing" from "the guide says nothing about boys'
@@ -365,8 +370,13 @@ async function researchOneBrand(
 ): Promise<void> {
   const allCategories = requests.map((req) => req.sizingCategory);
 
-  const found = await findBrandChart(searchName, market);
-  if (!found.found || found.tables.length === 0) {
+  // One model request owns the complete brand job: official-source web research, table
+  // interpretation, unit conversion and the final normalized rows. The old finder -> normalizer
+  // hand-off paid once to transcribe a guide and then once (often several times) to reshape the
+  // transcription. GPT-5.6 Sol can produce the final shape directly, and the compact wire schema
+  // below keeps that single response practical even for brands with many tables.
+  const researched = await researchBrandCharts(searchName, market, observedLabels(requests));
+  if (!researched.found) {
     result.notFound += 1;
     result.demoted += 1;
     await Promise.all([
@@ -382,47 +392,14 @@ async function researchOneBrand(
     return;
   }
 
-  const { usable, rejected } = screenTables(found.tables);
-  result.tablesRejected += rejected.length;
-  for (const reject of rejected) {
-    console.warn(`[sizing research] ${brandName}: dropped table "${reject.title}" — ${reject.reason}`);
-  }
-
-  if (usable.length === 0) {
-    // A brand whose guide only ever publishes garment measurements is not a retry — the next search
-    // reads the same page and drops the same tables. Routed to hand-fill instead, so it stops
-    // costing a search and starts being something a merchant can actually resolve.
-    const retryable = rejected.some((reject) => !reject.permanent);
-    if (retryable) result.failed += 1;
-    else result.notFound += 1;
-
+  if (researched.charts.length === 0) {
+    result.categoriesNotCovered += allCategories.length;
     await setResearchOutcomes(
       connectionId,
       brandKey,
       allCategories,
-      retryable ? "failed" : "not_found",
-      `A guide was found but none of its ${found.tables.length} table(s) could be used: ${rejected[0]?.reason ?? "unknown"}.`
-    );
-    // Not demoted, even where this is permanent: a guide *was* located, so the brand is real and
-    // global — what failed is that its published tables are unusable. Calling it a private label
-    // would be a claim about the brand that the evidence contradicts.
-    return;
-  }
-
-  // The canonical name again, not the store's string: this is the second model call, and it is being
-  // told whose tables these are. Log lines above and below stay on `brandName`, which is what the
-  // merchant sees in their own catalog.
-  const normalized = await normalizeTables(searchName, usable, observedLabels(requests));
-  if (normalized === null) {
-    // Distinct from not_found on purpose: a guide *was* located, so the brand is not a hand-fill
-    // candidate — the structuring step is what broke, and that is worth retrying.
-    result.failed += 1;
-    await setResearchOutcomes(
-      connectionId,
-      brandKey,
-      allCategories,
-      "failed",
-      "A size guide was found, but the response structuring it could not be read."
+      "not_covered",
+      "An official size guide was found, but it contained no usable body-measurement chart for the supported garment groups."
     );
     return;
   }
@@ -432,7 +409,7 @@ async function researchOneBrand(
   const groupsWritten = new Set<SizingGroup>();
   let writeFailures = 0;
 
-  for (const { chart, variantName } of resolveVariantNames(normalized)) {
+  for (const { chart, variantName } of resolveVariantNames(researched.charts)) {
     // The only gate on storing a chart: rows carrying no measurement at all cannot be matched to a
     // shopper, so they are the one output that is worth nothing rather than worth reviewing.
     // Everything else is stored with its defects flagged — a chart with a suspicious column is
@@ -990,6 +967,279 @@ export interface NormalizedChart {
   group: SizingGroup;
   confidence: number;
   rows: SizeChartRow[];
+}
+
+// ─── Single-request brand research ────────────────────────────────────────────
+
+/**
+ * The compact response shape used by the one and only model request for a brand.
+ *
+ * Bounds are emitted as a short list rather than the stored flat row shape. Strict structured
+ * output would otherwise force every row to spell out every unused measurement as two explicit
+ * nulls. On a forty-table guide that formatting alone consumes most of the output budget. This
+ * wire shape is converted deterministically into `SizeChartRow` below; no second model is involved.
+ */
+const SINGLE_REQUEST_SCHEMA = {
+  type: "object",
+  properties: {
+    found: {
+      type: "boolean",
+      description: "Whether an official or authoritative brand size guide was located.",
+    },
+    confidence: {
+      type: "number",
+      description: "0-1 confidence that the located guide belongs to this brand and market.",
+    },
+    charts: {
+      type: "array",
+      description:
+        "Every usable body-measurement chart published for the five supported garment groups. Empty only if no guide or no supported body chart exists.",
+      items: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "The source table heading, verbatim." },
+          section: {
+            type: ["string", "null"],
+            description: "Sub-brand or fit-line heading above the table, or null.",
+          },
+          audience: { type: "string", enum: [...AUDIENCES] },
+          variant_name: {
+            type: "string",
+            description: "Short merchant-facing chart-line name such as Men, Women Petite, or Kids.",
+          },
+          variant_gender: { type: ["string", "null"], enum: [...AUDIENCES, null] },
+          variant_fit_type: { type: ["string", "null"] },
+          garment_group: { type: "string", enum: [...SIZING_GROUP_KEYS] },
+          region: { type: ["string", "null"], enum: [...CHART_REGIONS, null] },
+          source_url: { type: "string", description: "Exact URL from which this chart was read." },
+          confidence: { type: "number", description: "0-1 confidence in this chart's extraction." },
+          rows: {
+            type: "array",
+            description: "One normalized entry per published size.",
+            items: {
+              type: "object",
+              properties: {
+                size: { type: "string", description: "Primary size label exactly as published." },
+                aliases: {
+                  type: "array",
+                  description: "Only additional label systems actually printed for this same row.",
+                  items: {
+                    type: "object",
+                    properties: {
+                      system: { type: "string", enum: [...SIZE_ALIAS_KEYS] },
+                      value: { type: "string" },
+                    },
+                    required: ["system", "value"],
+                    additionalProperties: false,
+                  },
+                },
+                measurements: {
+                  type: "array",
+                  description:
+                    "Only body measurements actually published for this size, normalized to cm or kg.",
+                  items: {
+                    type: "object",
+                    properties: {
+                      measurement: { type: "string", enum: [...MEASUREMENT_KEYS] },
+                      min: { type: ["number", "null"] },
+                      max: { type: ["number", "null"] },
+                    },
+                    required: ["measurement", "min", "max"],
+                    additionalProperties: false,
+                  },
+                },
+              },
+              required: ["size", "aliases", "measurements"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: [
+          "title",
+          "section",
+          "audience",
+          "variant_name",
+          "variant_gender",
+          "variant_fit_type",
+          "garment_group",
+          "region",
+          "source_url",
+          "confidence",
+          "rows",
+        ],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["found", "confidence", "charts"],
+  additionalProperties: false,
+} as const;
+
+const SINGLE_REQUEST_INSTRUCTIONS = [
+  "You are the complete size-chart research and normalization specialist for one clothing brand.",
+  "Use web search, locate the brand's official published size guides, read every relevant table, and",
+  "return the FINAL normalized charts in the required JSON shape. This is the only model request:",
+  "do not return an intermediate transcription and do not omit a chart expecting a later pass.",
+  "",
+  "SOURCE DISCIPLINE",
+  "- Prefer the brand's own current website and the requested market. If its dynamic guide cannot be",
+  "  read, use another regional official storefront; only then use a major retailer reproducing that",
+  "  brand's own chart. Never use generic sizing advice or a competitor's chart.",
+  "- Keep searching beyond the first awkward page. Return found=false only when no authoritative",
+  "  guide exists. Every chart must carry the exact page URL it came from.",
+  "",
+  "COMPLETE COVERAGE",
+  "- Return every distinct body-measurement table for men, women, kids, fit lines and sub-brands.",
+  "- Supported garment groups are:",
+  ...SIZING_GROUP_KEYS.map((group) => `  · ${group}: ${SIZING_GROUP_SCOPES[group]}`),
+  "- Ignore accessories and tables that contain garment dimensions only. When one general clothing",
+  "  table applies to several supported groups, return one chart per applicable garment group.",
+  "- Never merge distinct source tables. Variant names must be short, merchant-readable and unique",
+  "  within a garment group: Men, Women, Men Tall, Women Petite, Tommy Jeans Men, and so on.",
+  "",
+  "FINAL ROW NORMALIZATION",
+  "- Output one row per SIZE, even when the source prints sizes across columns.",
+  "- `size` is the primary label printed on the garment. Put every other published label for that",
+  "  same row into aliases; never invent an alias.",
+  "- Measurements describe the wearer's BODY. Convert inches to centimetres using 1in = 2.54cm;",
+  "  convert pounds to kilograms using 1lb = 0.453592kg. Preserve sensible decimal precision.",
+  "- A source range gives min and max. A single published body value sets both to that value. For",
+  "  120+ use min=120,max=null; for up-to-86 use min=null,max=86.",
+  "- Emit only measurements the source actually publishes. Never infer a missing bound or estimate",
+  "  one body measurement from another.",
+  "- Confidence is per chart and must fall between 0 and 1.",
+].join("\n");
+
+export interface SingleRequestResearchResult {
+  found: boolean;
+  confidence: number;
+  charts: NormalizedChart[];
+}
+
+/**
+ * Exactly one Responses API request for one brand.
+ *
+ * Web discovery, extraction and normalization happen in the same GPT-5.6 Sol turn. Parsing,
+ * plausibility checks, variant de-duplication and database writes remain deterministic application
+ * code and therefore add no LLM request.
+ */
+export async function researchBrandCharts(
+  brandName: string,
+  market: string,
+  observed: string[] = []
+): Promise<SingleRequestResearchResult> {
+  const messages: ChatCompletionMessage[] = [
+    { role: "system", content: SINGLE_REQUEST_INSTRUCTIONS },
+    {
+      role: "user",
+      content: [
+        `Brand: ${brandName}`,
+        `Market: ${market}`,
+        observed.length > 0
+          ? `Merchant size labels: ${observed.join(", ")}. Prefer the source label system matching these as each row's primary size.`
+          : "Merchant size labels: unknown. Prefer alpha labels, then the source market's primary numeric labels.",
+      ].join("\n"),
+    },
+  ];
+
+  const { content } = await createChatCompletion(getPlatformOpenAiKey(), messages, {
+    model: RESEARCH_MODEL,
+    tools: [{ type: "web_search" }],
+    jsonSchema: {
+      name: "normalized_brand_size_charts",
+      schema: SINGLE_REQUEST_SCHEMA as unknown as Record<string, unknown>,
+    },
+    timeoutMs: CALL_TIMEOUT_MS,
+  });
+
+  if (!content) throw new ResearchResponseError("The brand research request returned an empty response.");
+
+  let parsed: { found?: unknown; confidence?: unknown; charts?: unknown };
+  try {
+    parsed = JSON.parse(content) as typeof parsed;
+  } catch {
+    throw new ResearchResponseError(
+      `The brand research response was not valid JSON (${content.length} characters).`
+    );
+  }
+
+  if (!Array.isArray(parsed.charts)) {
+    throw new ResearchResponseError("The brand research response returned no charts array.");
+  }
+
+  return {
+    found: parsed.found === true,
+    confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0,
+    charts: parsed.charts.flatMap((value) => parseSingleRequestChart(value) ?? []),
+  };
+}
+
+function parseSingleRequestChart(value: unknown): NormalizedChart | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const group = record.garment_group;
+  const title = typeof record.title === "string" ? record.title.trim() : "";
+  const sourceUrl = typeof record.source_url === "string" ? record.source_url.trim() : "";
+  if (!isSizingGroup(group) || !title || !sourceUrl || !Array.isArray(record.rows)) return null;
+
+  const rows = record.rows.flatMap((row) => parseCompactRow(row, group) ?? []);
+  return {
+    table: {
+      title,
+      section: typeof record.section === "string" && record.section.trim() ? record.section.trim() : null,
+      audience: isAudience(record.audience) ? record.audience : "unisex",
+      variantName: typeof record.variant_name === "string" ? record.variant_name.trim() : "",
+      variantGender: isAudience(record.variant_gender) ? record.variant_gender : null,
+      variantFitType:
+        typeof record.variant_fit_type === "string" && record.variant_fit_type.trim()
+          ? record.variant_fit_type.trim()
+          : null,
+      garmentGroup: group,
+      measurementKind: "body",
+      unit: "cm",
+      region: isChartRegion(record.region) ? record.region : null,
+      sourceUrl,
+      // The one-call response is already normalized. These raw-transcription fields stay empty and
+      // are never consulted after this point; retaining them keeps one metadata type for storage,
+      // chart titles and variant naming.
+      columns: [],
+      rows: [],
+    },
+    group,
+    confidence:
+      typeof record.confidence === "number" ? Math.max(0, Math.min(1, record.confidence)) : 0,
+    rows,
+  };
+}
+
+function parseCompactRow(value: unknown, group: SizingGroup): SizeChartRow | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const flat: Record<string, unknown> = { size: record.size };
+
+  if (Array.isArray(record.aliases)) {
+    const aliases: Record<string, string> = {};
+    for (const item of record.aliases) {
+      if (!item || typeof item !== "object") continue;
+      const alias = item as Record<string, unknown>;
+      if (!isSizeAliasKey(alias.system) || typeof alias.value !== "string" || !alias.value.trim()) continue;
+      aliases[alias.system] = alias.value.trim();
+    }
+    flat.aliases = aliases;
+  }
+
+  const allowed = new Set<Measurement>(measurementsFor(group));
+  if (Array.isArray(record.measurements)) {
+    for (const item of record.measurements) {
+      if (!item || typeof item !== "object") continue;
+      const bounds = item as Record<string, unknown>;
+      if (!isMeasurement(bounds.measurement) || !allowed.has(bounds.measurement)) continue;
+      if (typeof bounds.min === "number") flat[`${bounds.measurement}_min`] = bounds.min;
+      if (typeof bounds.max === "number") flat[`${bounds.measurement}_max`] = bounds.max;
+    }
+  }
+
+  return parseSizeChart([flat], group)[0] ?? null;
 }
 
 /**

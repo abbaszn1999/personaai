@@ -19,4 +19,10 @@ describe("buildAcsRows", () => {
 
     expect(categories?.required).toBe(true);
   });
+
+  it("does not expose the retired per-product size-chart mapping", () => {
+    const rows = buildAcsRows(EMPTY_ACS_MAPPING, []);
+
+    expect(rows.some((row) => row.key === "sizeChartData")).toBe(false);
+  });
 });

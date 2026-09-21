@@ -41,8 +41,6 @@ export function SetupPipeline() {
   const chartBrands = useSizingStore((s) => s.chartBrands);
   const chartTotals = useSizingStore((s) => s.chartTotals);
   const run = useSizingStore((s) => s.run);
-  const sizingStagesSkipped = useSizingStore((s) => s.sizingStagesSkipped);
-  const skipSizingStages = useSizingStore((s) => s.skipSizingStages);
   const mappingApproved = useStoreConnectionStore((s) => s.acsMapping.approved);
   const mappingApproving = useStoreConnectionStore((s) => s.mapping.isApproving);
   const approveMapping = useStoreConnectionStore((s) => s.approveMapping);
@@ -109,14 +107,12 @@ export function SetupPipeline() {
         currentStage={stage}
         highestReachedStage={highestStage}
         onSelectStage={goToStage}
-        sizingStagesSkipped={sizingStagesSkipped}
       />
 
       <div>
         {stage === 1 && (
           <StageFieldMapping
             onApproveAndContinue={leaveStageOne}
-            onSkipToOverview={() => void skipSizingStages()}
             actionPending={stageOneActionPending}
             actionLabel={
               mappingApproving
@@ -136,9 +132,8 @@ export function SetupPipeline() {
         {stage === 6 && <StageConfirmation />}
       </div>
 
-      {/* Stage 1 is skipped here on purpose: its own bottom bar carries Approve, Skip to Step 6 and
-          Reset, and a second Continue underneath would be two buttons for one decision — the demo's
-          Stage 1 has exactly one. Every other stage still uses this footer. */}
+      {/* Stage 1 owns its Approve/Continue and Reset actions, so a second Continue underneath would
+          be two buttons for one decision. Every other stage still uses this footer. */}
       {stage > 1 && stage < LAST_STAGE && (
         <div className="sticky bottom-4 z-10 space-y-3 rounded-[var(--radius-2xl)] border border-[var(--color-border-strong)] bg-[var(--color-surface-sticky)] p-3.5 shadow-[var(--shadow-modal)]">
           {confirmingGaps && (

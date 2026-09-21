@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
@@ -29,6 +30,15 @@ interface ModalProps {
  * the body scrolls, which matters for the size-chart and gap-fill dialogs — both can hold dozens
  * of measurement rows, and losing the save button off the bottom of a long table is the whole
  * reason this isn't one scrolling column.
+ *
+ * Portaled to `document.body` rather than rendered inline. The dashboard's actual scroll container
+ * is `<main id="dashboard-scroll-area">` (see `DashboardShell`), not `<body>` — an inline dialog
+ * sits inside that scrolling tree, so `position: fixed` on it can end up anchored to whichever
+ * ancestor box the browser resolves (the page section it was opened from) instead of the true
+ * viewport, which is what made every dialog need scrolling to find instead of appearing centered
+ * on screen. Portaling escapes that tree entirely. It also escapes the `.dashboard-theme` /
+ * `.store-theme` class scope those colors come from, so both are re-declared on the portal root
+ * below to keep the same look.
  */
 export function Modal({
   isOpen,
@@ -47,20 +57,26 @@ export function Modal({
       if (event.key === "Escape") onClose();
     }
     document.addEventListener("keydown", onKeyDown);
-    // Without this the page behind keeps scrolling under the overlay on trackpads.
-    const previousOverflow = document.body.style.overflow;
+    // The real scroll container is `<main id="dashboard-scroll-area">`, not `<body>` — locking
+    // only `body` left it free to keep scrolling under the overlay on trackpads. Lock both: body
+    // for any page that isn't inside the dashboard shell (e.g. an `/embed` route).
+    const scrollArea = document.getElementById("dashboard-scroll-area");
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousAreaOverflow = scrollArea?.style.overflow;
     document.body.style.overflow = "hidden";
+    if (scrollArea) scrollArea.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKeyDown);
-      document.body.style.overflow = previousOverflow;
+      document.body.style.overflow = previousBodyOverflow;
+      if (scrollArea) scrollArea.style.overflow = previousAreaOverflow ?? "";
     };
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
+  if (!isOpen || typeof document === "undefined") return null;
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-fade-in"
+      className="dashboard-theme store-theme fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-fade-in"
       onMouseDown={(event) => {
         // mousedown rather than click, so a drag that starts inside the panel and releases on the
         // backdrop (selecting text in a table, resizing) doesn't count as dismissing the dialog.
@@ -99,7 +115,11 @@ export function Modal({
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">{children}</div>
+        {/* `flex flex-col` rather than a plain block: an ordinary single child stacks identically either
+         *  way, but it lets a caller drop in a pinned toolbar row above a `flex-1 min-h-0` scrolling
+         *  pane (the category-scope and item-preview dialogs both need that) without fighting this
+         *  wrapper's own scroll for the remaining height. */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-5">{children}</div>
 
         {footer && (
           <div className="flex shrink-0 items-center justify-end gap-2 border-t border-[var(--color-border)] px-5 py-4">
@@ -107,6 +127,7 @@ export function Modal({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { Ban, Check, ChevronDown, Loader2, Search } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { NOT_SENT } from "@/lib/catalog/acs-targets";
-import { useAnchoredPanel } from "./parent-category-ui";
+import { useAnchoredPanel } from "./select-position";
 
 /** Tall enough for the full column list to feel scrollable rather than truncated. */
 const PANEL_MAX_HEIGHT = 304;
@@ -33,8 +33,8 @@ export interface SelectOption {
 }
 
 /**
- * The one dropdown Stage 1 uses, for choosing an ACS destination, an option-group role or a sizing
- * system.
+ * The shared dropdown used across the Store setup flow, including Stage 1 mappings, Stage 2 parent
+ * categories, Stage 4 chart variants, and Stage 5 assignment filters.
  *
  * A custom listbox rather than a `<select>`, for the reason `ParentSelect` is: a native dropdown's
  * options are painted by the operating system, ignore every theme token this app sets, and rendered
@@ -48,6 +48,7 @@ export function MappingSelect({
   onChange,
   label,
   saving = false,
+  disabled = false,
   placeholder,
   compact = false,
   className,
@@ -59,6 +60,7 @@ export function MappingSelect({
    *  dropdowns is meaningless without it. */
   label: string;
   saving?: boolean;
+  disabled?: boolean;
   /** Shown when `value` matches no option, for a list that starts unchosen. */
   placeholder?: string;
   /** Tighter padding, for the inline controls inside a row rather than the row's own destination. */
@@ -215,7 +217,7 @@ export function MappingSelect({
         aria-expanded={open}
         aria-controls={panelId}
         aria-label={label}
-        disabled={saving}
+        disabled={saving || disabled}
         onClick={() => (open ? setOpen(false) : openWith(selectedIndex))}
         onKeyDown={onTriggerKeyDown}
         className={cn(
@@ -248,9 +250,12 @@ export function MappingSelect({
               bottom: rect.bottom,
               left: rect.left,
               minWidth: Math.max(rect.width, 220),
-              maxHeight: Math.min(rect.available, PANEL_MAX_HEIGHT),
+              // An explicit content-sized height is required here. With only `maxHeight`, the
+              // `flex-1` listbox below grows to the full 304px ceiling even when there are just
+              // three or five choices, leaving a large empty block under the final option.
+              height: Math.min(rect.available, estimatedHeight),
             }}
-            className={cn(rect.themeClass, "z-50 flex flex-col overflow-hidden")}
+            className={cn(rect.themeClass, "dashboard-theme store-theme z-50 flex flex-col overflow-hidden")}
           >
             <div
               ref={panelRef}
@@ -273,7 +278,7 @@ export function MappingSelect({
                       setActiveIndex(0);
                     }}
                     onKeyDown={onPanelKeyDown}
-                    placeholder="Search columns…"
+                    placeholder="Search options…"
                     className="w-full bg-transparent text-xs font-medium text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
                   />
                 </div>

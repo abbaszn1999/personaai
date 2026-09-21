@@ -33,7 +33,7 @@ export async function fetchSampleRawProducts(
   connection: StoreConnectionRow,
   categoryIds: string[],
   sampleSize: number = PREVIEW_SAMPLE_SIZE,
-  options: { discoverCustomFields?: boolean } = {}
+  options: { discoverCustomFields?: boolean; skipVariants?: boolean } = {}
 ): Promise<RawCatalogProduct[]> {
   if (!connection.apiKeyEncrypted) return [];
 
@@ -60,6 +60,7 @@ export async function fetchSampleRawProducts(
       pageSize: sampleSize,
       page: 1,
       categoryIds: categoryIds.length > 0 ? categoryIds : undefined,
+      skipVariants: options.skipVariants,
     });
     return products.slice(0, sampleSize);
   }

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
-import { getStoreConnectionByOwner, updateAcsFieldMapping, updateStoreConnection, type StoreConnectionRow } from "@/lib/db/store-connections";
+import { getStoreConnectionByOwner, updateAcsFieldMapping, type StoreConnectionRow } from "@/lib/db/store-connections";
 import { fetchSampleRawProducts, fetchStoreBrandNames } from "@/lib/catalog/acs/preview";
 import { columnSampleText } from "@/lib/catalog/acs/map-product";
 import {
@@ -12,10 +12,8 @@ import {
 import {
   CUSTOM_ATTRIBUTE_TYPES,
   SHOPIFY_METAFIELD_PREFIX,
-  UNMAPPED,
   columnKey,
   isCustomAttributeType,
-  isMapped,
   parseColumnKey,
   parseColumnRef,
   type AcsFieldMapping,
@@ -36,7 +34,6 @@ import { fetchColumnDefinitions } from "@/lib/catalog/cms-column-discovery";
 import { SHOPIFY_NATIVE_COLUMNS } from "@/lib/shopify/product-columns";
 import { WOOCOMMERCE_NATIVE_COLUMNS } from "@/lib/woocommerce/product-columns";
 import { getPersistedCmsColumns, type PersistedColumnCoverage } from "@/lib/catalog/cms-column-store";
-import { rewindRun } from "@/lib/db/sizing-runs";
 import { toSizingBrands } from "@/lib/sizing/brand-list";
 import type { CmsColumn } from "@/modules/store/types";
 import type { RawCatalogProduct } from "@/lib/catalog/sync-types";
@@ -346,36 +343,7 @@ export async function PATCH(req: NextRequest) {
       return Response.json({ error: "Failed to save mapping options" }, { status: 500 });
     }
 
-    // Unbinding the size chart column takes the skip's own justification away, so the skip goes with
-    // it. Done here rather than left to the merchant because the alternative is a store sized against
-    // charts it no longer has any way to read — silent, and only visible in a shopper's results.
-    const chartsGone = connection.sizingStagesSkippedAt !== null && !isMapped(mapping.sources.sizeChartData ?? UNMAPPED);
-    if (chartsGone) {
-      await updateStoreConnection(connection.id, { sizingSource: "ai_pipeline", sizingStagesSkippedAt: null });
-      await rewindRun(connection.id, "scan");
-    }
-
-    // Only refreshed when the size-chart binding itself moved — every other save (picking a brand
-    // column, adding a custom attribute) has no bearing on this number, and re-reading the live store
-    // just to answer a question nothing asked would slow down every unrelated click on this screen.
-    //
-    // Needed at all because the "Skip to Step 6" button's own gate (`canSkip` in
-    // `stage-column-mapping.tsx`) reads `mapping.sizeChart` from the store, and that slice is only
-    // ever populated by the initial `GET` — without this, binding a column here would flip the row to
-    // "Attached" immediately (optimistic, from `mapping.document` alone) while the skip button stayed
-    // on "Confirm mapping & read catalog" until the next full page load caught up.
-    const sizeChartMoved =
-      columnKey(mapping.sources.sizeChartData ?? UNMAPPED) !== columnKey(saved.sources.sizeChartData ?? UNMAPPED);
-    const sizeChart = sizeChartMoved
-      ? sizeChartCoverage(
-          await fetchSampleRawProducts(connection, connection.selectedCategoryIds, DISCOVERY_SAMPLE_SIZE, {
-            discoverCustomFields: true,
-          }),
-          mapping
-        )
-      : undefined;
-
-    return Response.json({ mapping, sizingStagesRestored: chartsGone, sizeChart });
+    return Response.json({ mapping });
   } catch (err) {
     console.error("[store-connection mapping-options PATCH]", err);
     return Response.json({ error: "Internal server error" }, { status: 500 });
