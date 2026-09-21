@@ -1,8 +1,8 @@
 "use client";
 
 import { Check, Loader2, ShoppingBag, Video } from "lucide-react";
-import type { Product } from "@/modules/shopping-agent/types";
-import { formatPrice } from "@/modules/shopping-agent/constants";
+import type { Product } from "@/modules/commerce/types";
+import { formatPrice } from "@/modules/commerce/constants";
 import { cn } from "@/lib/utils/cn";
 
 interface LiveProductPickerProps {

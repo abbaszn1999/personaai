@@ -54,15 +54,15 @@ describe("isProfileComplete", () => {
 });
 
 describe("resumeOnboardingPhase", () => {
-  it("starts a blank or absent profile at the welcome screen", () => {
-    expect(resumeOnboardingPhase(null)).toBe("welcome");
-    expect(resumeOnboardingPhase(undefined)).toBe("welcome");
+  it("starts a blank or absent profile at the audience screen", () => {
+    expect(resumeOnboardingPhase(null)).toBe("audience");
+    expect(resumeOnboardingPhase(undefined)).toBe("audience");
     // What a freshly-added profile looks like — nothing answered yet.
-    expect(resumeOnboardingPhase(BASE_PROFILE)).toBe("welcome");
+    expect(resumeOnboardingPhase(BASE_PROFILE)).toBe("audience");
   });
 
-  it("returns to welcome when measurements exist but the audience question was never answered", () => {
-    expect(resumeOnboardingPhase({ ...BASE_PROFILE, ...COMPLETE_MEASUREMENTS })).toBe("welcome");
+  it("returns to audience when measurements exist but the audience question was never answered", () => {
+    expect(resumeOnboardingPhase({ ...BASE_PROFILE, ...COMPLETE_MEASUREMENTS })).toBe("audience");
   });
 
   it("resumes at the combined measurements+photo step once an audience is picked, regardless of how complete the numbers are", () => {

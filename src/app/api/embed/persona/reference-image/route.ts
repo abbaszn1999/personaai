@@ -15,7 +15,7 @@ export async function OPTIONS() {
 export async function POST(req: NextRequest) {
   try {
     const body: RequestBody = await req.json().catch(() => ({}));
-    const resolution = await resolveEmbedRequest(body.embedToken, "wearable");
+    const resolution = await resolveEmbedRequest(body.embedToken);
     if ("error" in resolution) return resolution.error;
 
     const imageUrl = typeof body.imageUrl === "string" ? body.imageUrl.trim() : "";

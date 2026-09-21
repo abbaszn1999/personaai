@@ -1,5 +1,5 @@
 import type { TryOnProfile } from "../types";
-import type { Product } from "@/modules/shopping-agent/types";
+import type { Product } from "@/modules/commerce/types";
 
 export interface FitMetric {
   label: string;

@@ -1,4 +1,4 @@
-import type { Product } from "@/modules/shopping-agent/types";
+import type { Product } from "@/modules/commerce/types";
 import { getStoreConnectionByOwner, type StoreConnectionRow } from "@/lib/db/store-connections";
 import { decodeCredentials } from "@/lib/utils/crypto";
 import { getShopifyAccessToken, searchShopifyProducts, ShopifyApiError } from "@/lib/shopify/client";

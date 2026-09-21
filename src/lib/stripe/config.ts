@@ -4,7 +4,6 @@ export const STRIPE_CURRENCY = "usd";
 
 export type StripePurchaseKey =
   | "wearable_fixed"
-  | "unwearable_fixed"
   | "credits_starter"
   | "credits_growth"
   | "credits_scale"
@@ -30,14 +29,6 @@ export const STRIPE_CATALOG: Record<StripePurchaseKey, StripeCatalogItem> = {
     envKey: "STRIPE_PRICE_WEARABLE_FIXED",
     amountCents: 200_000,
     mode: "wearable",
-    tierId: "fixed",
-  },
-  unwearable_fixed: {
-    key: "unwearable_fixed",
-    kind: "subscription",
-    envKey: "STRIPE_PRICE_UNWEARABLE_FIXED",
-    amountCents: 150_000,
-    mode: "unwearable",
     tierId: "fixed",
   },
   credits_starter: {

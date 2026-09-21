@@ -4,7 +4,7 @@ import * as React from "react";
 import Image from "next/image";
 import { Check, Ruler, ShoppingBag, X } from "lucide-react";
 import type { ActiveLookItem } from "./garment-hotspot";
-import { formatPrice } from "@/modules/shopping-agent/constants";
+import { formatPrice } from "@/modules/commerce/constants";
 import { getProductSizeLabel } from "../utils/fit-metrics";
 import { cn } from "@/lib/utils/cn";
 import { useWearableTheme } from "../theme-context";

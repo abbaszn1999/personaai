@@ -5,7 +5,7 @@ import { consumeImageGeneration } from "@/lib/db/image-generations";
 import { getUserById } from "@/lib/db/users";
 import { canGenerateImage, getAccountBillingContext } from "@/lib/billing/account";
 import { mergeGarmentIntoOutfit } from "@/lib/recommendations";
-import type { Product } from "@/modules/shopping-agent/types";
+import type { Product } from "@/modules/commerce/types";
 import { resolveGarmentSlot } from "@/modules/wearable-agent/utils/fit-metrics";
 import { buildFitNote, recommendSizesForProducts } from "../../fit-analysis";
 import type { ToolRuntimeState, WearableAgentEvent, WearableChatContext } from "../types";
@@ -70,7 +70,7 @@ export async function handleTryOn(
     return { resultForModel: JSON.stringify({ error: "No avatar is set up yet." }), events: [] };
   }
 
-  const billing = await getAccountBillingContext(context.userId, "wearable");
+  const billing = await getAccountBillingContext(context.userId);
   if (!billing || !canGenerateImage(billing)) {
     return {
       resultForModel: JSON.stringify({ error: "The shopper is out of image credits — let them know they'll need more credits to generate a preview." }),

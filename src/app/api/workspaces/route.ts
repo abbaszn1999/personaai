@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getWorkspacesByOwner, countWorkspacesByOwner, createWorkspace } from "@/lib/db/workspaces";
-import type { WorkspaceMode } from "@/modules/workspaces/types";
 
 export async function GET() {
   try {
@@ -25,15 +24,10 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { name, mode } = await req.json();
+    const { name } = await req.json();
 
     if (!name || typeof name !== "string" || name.trim().length < 2) {
       return Response.json({ error: "Name must be at least 2 characters" }, { status: 400 });
-    }
-
-    const validModes: WorkspaceMode[] = ["wearable", "unwearable"];
-    if (!mode || !validModes.includes(mode as WorkspaceMode)) {
-      return Response.json({ error: "Invalid mode" }, { status: 400 });
     }
 
     const count = await countWorkspacesByOwner(user.id);
@@ -41,10 +35,11 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: "Project limit reached" }, { status: 403 });
     }
 
+    // Every project is a wearable (virtual try-on) agent now — the `mode` column itself has
+    // been dropped from `workspaces` (see the drop_workspace_mode migration).
     const workspace = await createWorkspace({
       ownerId: user.id,
       name: name.trim(),
-      mode,
       status: "active",
     });
 

@@ -14,14 +14,14 @@ export default async function RootPage() {
     redirect("/onboarding");
   }
 
-  // Redirect to the first workspace the user owns
+  // Every account has at most one project — send it straight to the flat try-on page instead
+  // of a project-scoped route.
   const workspaces = await getWorkspacesByOwner(user.id);
-  const workspaceId = workspaces[0]?.id;
 
-  if (workspaceId) {
-    redirect(`/workspaces/${workspaceId}`);
+  if (workspaces.length > 0) {
+    redirect("/try-on");
   }
 
-  // If somehow no workspace exists yet, go to a setup page
+  // If somehow no project exists yet, go to a setup page
   redirect("/setup");
 }

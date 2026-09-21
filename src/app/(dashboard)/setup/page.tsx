@@ -9,7 +9,7 @@ export default async function SetupPage() {
   if (user) {
     const workspaces = await getWorkspacesByOwner(user.id);
     if (workspaces.length >= user.workspaceLimit) {
-      redirect(`/workspaces/${workspaces[0].id}`);
+      redirect("/try-on");
     }
   }
 

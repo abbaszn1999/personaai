@@ -1,4 +1,4 @@
-import type { Product } from "@/modules/shopping-agent/types";
+import type { Product } from "@/modules/commerce/types";
 import type { CatalogMatchType } from "@/lib/catalog/search-catalog";
 import type { IntakeState, WearableChatProfileContext } from "@/lib/agents/wearable/persona/types";
 import type { StoreCategory } from "@/modules/store/types";

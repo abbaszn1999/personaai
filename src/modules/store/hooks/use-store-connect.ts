@@ -27,12 +27,9 @@ const INITIAL_FORM: ConnectForm = {
 
 /**
  * Bridges the Store page UI to the account-level `useStoreConnectionStore`.
- * `workspace` is only read here for its `mode`, used to pick the mock
- * wearable/unwearable category taxonomy in the Catalog Sync tab.
  */
 export function useStoreConnect() {
-  const { workspaces, activeWorkspaceId } = useWorkspaceStore();
-  const workspace = workspaces.find((w) => w.id === activeWorkspaceId) ?? null;
+  const workspace = useWorkspaceStore((s) => s.workspace);
 
   const {
     connection,

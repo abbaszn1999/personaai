@@ -2,8 +2,6 @@
 
 import { use, useEffect, useState } from "react";
 import { TryOnLayout } from "@/modules/wearable-agent/components/try-on-layout";
-import { ChatInterface } from "@/modules/shopping-agent/components/chat-interface";
-import { FloatingChatLauncher } from "@/modules/shopping-agent/components/floating-chat-launcher";
 import type { WorkspaceBranding, WorkspaceMode } from "@/modules/workspaces/types";
 import { cn } from "@/lib/utils/cn";
 import { fontFamilyCssValue, loadGoogleFont } from "@/lib/fonts/google-fonts";
@@ -47,7 +45,7 @@ export default function EmbedPage({ params }: Props) {
         loadGoogleFont(data.branding.fontFamily);
         setState({
           status: "ready",
-          mode: data.mode === "unwearable" ? "unwearable" : "wearable",
+          mode: "wearable",
           branding: data.branding,
         });
       } catch {
@@ -76,8 +74,7 @@ export default function EmbedPage({ params }: Props) {
     );
   }
 
-  const isFloating = state.mode === "unwearable" && state.branding.displayMode === "floating";
-  const isCompact = !isFloating && !fillViewport && state.mode === "wearable";
+  const isCompact = !fillViewport;
 
   return (
     <div
@@ -92,7 +89,7 @@ export default function EmbedPage({ params }: Props) {
         // shoves absolutely-positioned corner controls (e.g. the profile switcher pill) away
         // from the real screen edge they're meant to dock to. Compact onboarding keeps a
         // little inset so the short form doesn't glue itself to the screen edges.
-        !isFloating && (viewportMode !== "mobile" || isCompact) && "p-4 sm:p-6",
+        (viewportMode !== "mobile" || isCompact) && "p-4 sm:p-6",
         state.branding.theme === "dark" && "dark"
       )}
       style={{
@@ -100,45 +97,19 @@ export default function EmbedPage({ params }: Props) {
         fontFamily: fontFamilyCssValue(state.branding.fontFamily),
       }}
     >
-      {isFloating ? (
-        // Preview of a floating launcher over an (otherwise empty) page background — same
-        // fixed-position component the real widget mounts, just without a merchant page
-        // behind it.
-        <FloatingChatLauncher
-          embed={{ apiBase: "/api/embed", embedToken: token }}
-          agentName={state.branding.agentName}
-          welcomeMessage={state.branding.welcomeMessage}
-          logoUrl={state.branding.logoUrl}
-          primaryColor={state.branding.primaryColor}
-          borderRadius={state.branding.borderRadius}
-          position={state.branding.position}
-        />
-      ) : state.mode === "wearable" ? (
-        <TryOnLayout
-          viewportMode={viewportMode}
-          embed={{ apiBase: "/api/embed", embedToken: token }}
-          theme={state.branding.theme}
-          branding={{
-            agentName: state.branding.agentName,
-            welcomeMessage: state.branding.welcomeMessage,
-            logoUrl: state.branding.logoUrl,
-            borderRadius: state.branding.borderRadius,
-            liveTryOnEnabled: state.branding.liveTryOnEnabled,
-          }}
-          onFillViewportChange={setFillViewport}
-        />
-      ) : (
-        <ChatInterface
-          viewportMode={viewportMode}
-          embed={{ apiBase: "/api/embed", embedToken: token }}
-          branding={{
-            agentName: state.branding.agentName,
-            welcomeMessage: state.branding.welcomeMessage,
-            borderRadius: state.branding.borderRadius,
-            logoUrl: state.branding.logoUrl,
-          }}
-        />
-      )}
+      <TryOnLayout
+        viewportMode={viewportMode}
+        embed={{ apiBase: "/api/embed", embedToken: token }}
+        theme={state.branding.theme}
+        branding={{
+          agentName: state.branding.agentName,
+          welcomeMessage: state.branding.welcomeMessage,
+          logoUrl: state.branding.logoUrl,
+          borderRadius: state.branding.borderRadius,
+          liveTryOnEnabled: state.branding.liveTryOnEnabled,
+        }}
+        onFillViewportChange={setFillViewport}
+      />
     </div>
   );
 }

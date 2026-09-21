@@ -1,4 +1,4 @@
-import type { Product } from "@/modules/shopping-agent/types";
+import type { Product } from "@/modules/commerce/types";
 import { scoreProduct } from "./score-product";
 import type { RankingContext, ScoredProduct } from "./types";
 

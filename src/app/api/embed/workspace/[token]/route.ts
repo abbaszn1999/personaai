@@ -19,7 +19,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!workspace || !workspace.embedEnabled) {
       return embedJson({ error: "Invalid or disabled embed token" }, { status: 404 });
     }
-    const billing = await getAccountBillingContext(workspace.ownerId, workspace.mode);
+    const billing = await getAccountBillingContext(workspace.ownerId);
     if (!billing || !canUsePaidPlatform(billing)) {
       return embedJson({ error: "This assistant subscription is inactive" }, { status: 402 });
     }

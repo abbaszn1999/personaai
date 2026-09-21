@@ -14,7 +14,6 @@ import {
 } from "@/lib/db/billing";
 import { getPlanTier } from "@/modules/billing/constants";
 import type { PlanTier } from "@/modules/billing/types";
-import type { WorkspaceMode } from "@/modules/workspaces/types";
 
 export interface AccountBillingContext {
   user: UserRow;
@@ -30,10 +29,9 @@ export interface AccountBillingContext {
   hasStripeCustomer: boolean;
 }
 
-export async function getAccountBillingContext(
-  userId: string,
-  mode: WorkspaceMode
-): Promise<AccountBillingContext | null> {
+// Every project is a wearable (virtual try-on) agent now — the unwearable shopping
+// assistant plan tier has been retired, so billing no longer branches on workspace mode.
+export async function getAccountBillingContext(userId: string): Promise<AccountBillingContext | null> {
   const [user, account, subscription] = await Promise.all([
     getUserById(userId),
     getOrCreateBillingAccount(userId),
@@ -59,7 +57,7 @@ export async function getAccountBillingContext(
 
   return {
     user,
-    tier: getPlanTier(mode, tierId),
+    tier: getPlanTier("wearable", tierId),
     cycleStartIso,
     cycleEndIso: cycle.end.toISOString(),
     imagesUsedThisCycle,

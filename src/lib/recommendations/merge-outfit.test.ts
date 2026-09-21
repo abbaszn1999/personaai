@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Product } from "@/modules/shopping-agent/types";
+import type { Product } from "@/modules/commerce/types";
 import { mergeGarmentIntoOutfit } from "./merge-outfit";
 
 function makeProduct(id: string, name: string): Product {

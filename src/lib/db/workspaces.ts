@@ -1,5 +1,5 @@
 import { db } from "@/lib/supabase/server";
-import { defaultBrandingForMode } from "@/modules/workspaces/constants";
+import { defaultBranding } from "@/modules/workspaces/constants";
 import type { WorkspaceMode, WorkspaceStatus, WorkspaceBranding } from "@/modules/workspaces/types";
 
 export interface WorkspaceRow {
@@ -14,8 +14,13 @@ export interface WorkspaceRow {
   updatedAt: string;
 }
 
+// The `mode` column was dropped from `workspaces` (every project is a wearable virtual
+// try-on agent now — see the drop_workspace_mode migration). Kept as a hardcoded field on
+// the returned shape rather than removed outright so the many UI call sites that still read
+// `workspace.mode` don't all need updating in this same pass; flattened away entirely once
+// the workspace concept itself is removed.
 function rowToWorkspace(row: Record<string, unknown>): WorkspaceRow {
-  const mode = row.mode as WorkspaceMode;
+  const mode: WorkspaceMode = "wearable";
   const branding = (row.branding as Partial<WorkspaceBranding> | null) ?? {};
   return {
     id: row.id as string,
@@ -26,7 +31,7 @@ function rowToWorkspace(row: Record<string, unknown>): WorkspaceRow {
     embedEnabled: (row.embed_enabled as boolean) ?? false,
     // Merge over defaults so older rows (saved before a new branding field was added) still
     // resolve to a complete, valid shape instead of leaving newer UI fields `undefined`.
-    branding: { ...defaultBrandingForMode(mode), ...branding },
+    branding: { ...defaultBranding(), ...branding },
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
   };
@@ -71,7 +76,6 @@ export async function countWorkspacesByOwner(ownerId: string): Promise<number> {
 export interface CreateWorkspaceInput {
   ownerId: string;
   name: string;
-  mode: WorkspaceMode;
   status?: WorkspaceStatus;
 }
 
@@ -81,9 +85,8 @@ export async function createWorkspace(input: CreateWorkspaceInput): Promise<Work
     .insert({
       owner_id: input.ownerId,
       name: input.name,
-      mode: input.mode,
       status: input.status ?? "active",
-      branding: defaultBrandingForMode(input.mode),
+      branding: defaultBranding(),
       // Column is NOT NULL with no DB default (see 0010_workspace_embed.sql) — must mint here.
       embed_token: crypto.randomUUID().replace(/-/g, ""),
     })
@@ -101,7 +104,6 @@ export async function createWorkspace(input: CreateWorkspaceInput): Promise<Work
 export interface UpdateWorkspaceInput {
   name?: string;
   status?: WorkspaceStatus;
-  mode?: WorkspaceMode;
   embedEnabled?: boolean;
   branding?: Partial<WorkspaceBranding>;
 }
@@ -114,14 +116,13 @@ export async function updateWorkspace(
   const dbPatch: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (patch.name !== undefined) dbPatch.name = patch.name;
   if (patch.status !== undefined) dbPatch.status = patch.status;
-  if (patch.mode !== undefined) dbPatch.mode = patch.mode;
   if (patch.embedEnabled !== undefined) dbPatch.embed_enabled = patch.embedEnabled;
 
   if (patch.branding !== undefined) {
     // Merge onto the existing stored branding rather than clobbering it, since the settings
     // form can save partial patches (e.g. just the color) via the same PATCH endpoint.
     const existing = await getWorkspaceByIdForOwner(id, ownerId);
-    const base = existing?.branding ?? defaultBrandingForMode(patch.mode ?? existing?.mode ?? "unwearable");
+    const base = existing?.branding ?? defaultBranding();
     dbPatch.branding = { ...base, ...patch.branding };
   }
 
@@ -169,7 +170,7 @@ export async function getWorkspaceByEmbedToken(token: string): Promise<EmbedWork
 
   const { data, error } = await db
     .from("workspaces")
-    .select("id, owner_id, mode, embed_enabled, branding")
+    .select("id, owner_id, embed_enabled, branding")
     .eq("embed_token", token)
     .maybeSingle();
 
@@ -178,9 +179,9 @@ export async function getWorkspaceByEmbedToken(token: string): Promise<EmbedWork
   return {
     workspaceId: data.id as string,
     ownerId: data.owner_id as string,
-    mode: data.mode as WorkspaceMode,
+    mode: "wearable",
     embedEnabled: (data.embed_enabled as boolean) ?? false,
-    branding: { ...defaultBrandingForMode(data.mode as WorkspaceMode), ...((data.branding as Partial<WorkspaceBranding> | null) ?? {}) },
+    branding: { ...defaultBranding(), ...((data.branding as Partial<WorkspaceBranding> | null) ?? {}) },
   };
 }
 

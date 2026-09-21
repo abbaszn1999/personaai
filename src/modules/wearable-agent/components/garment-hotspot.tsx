@@ -3,8 +3,8 @@
 import * as React from "react";
 import Image from "next/image";
 import { Check, Loader2, Plus, ShoppingBag } from "lucide-react";
-import type { Product } from "@/modules/shopping-agent/types";
-import { formatPrice } from "@/modules/shopping-agent/constants";
+import type { Product } from "@/modules/commerce/types";
+import { formatPrice } from "@/modules/commerce/constants";
 import { cn } from "@/lib/utils/cn";
 import { useClickOutside } from "@/lib/hooks/use-click-outside";
 

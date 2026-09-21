@@ -10,7 +10,6 @@ import { WorkspaceBreakdown } from "./workspace-breakdown";
 import { TopProductsTable } from "./top-products-table";
 import { TryOnInsights } from "./try-on-insights";
 import { LiveTryOnInsights } from "./live-tryon-insights";
-import { AssistantInsights } from "./assistant-insights";
 import { ShopperStats } from "./shopper-stats";
 import { useWorkspaceStore } from "@/modules/workspaces/store";
 
@@ -28,16 +27,11 @@ export function AnalyticsDashboard({ workspaceId }: AnalyticsDashboardProps) {
   const [range, setRange] = React.useState<DateRange>("30d");
   const [payload, setPayload] = React.useState<WorkspaceAnalyticsPayload | null>(null);
   const [loading, setLoading] = React.useState(true);
-  const { workspaces } = useWorkspaceStore();
-
-  // When a workspaceId is provided, scope to that workspace only. There's no account-wide
-  // Persona summary endpoint (every number is scoped to one workspace's own widget activity —
-  // see src/lib/db/analytics.ts), so the account-wide view falls back to the first workspace,
-  // which is also all the "breakdown" below can ever show while there's only one workspace.
-  const workspace = workspaceId ? workspaces.find((w) => w.id === workspaceId) : workspaces[0];
+  // Every account has at most one project, so the passed-in workspaceId (if any) and the
+  // account's single project always resolve to the same thing — see src/lib/db/analytics.ts.
+  const workspace = useWorkspaceStore((s) => s.workspace);
   const effectiveWorkspaceId = workspaceId ?? workspace?.id;
-  const isWearable   = workspace ? workspace.mode === "wearable"   : workspaces.some((w) => w.mode === "wearable"   && w.status === "active");
-  const isUnwearable = workspace ? workspace.mode === "unwearable" : workspaces.some((w) => w.mode === "unwearable" && w.status === "active");
+  const isWearable = true;
 
   React.useEffect(() => {
     if (!effectiveWorkspaceId) {
@@ -110,9 +104,8 @@ export function AnalyticsDashboard({ workspaceId }: AnalyticsDashboardProps) {
 
       {/* Agent-specific insights — conditional on workspace mode */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {isWearable   && <TryOnInsights payload={payload} />}
-        {isWearable   && <LiveTryOnInsights payload={payload} />}
-        {isUnwearable && <AssistantInsights payload={payload} />}
+        {isWearable && <TryOnInsights payload={payload} />}
+        {isWearable && <LiveTryOnInsights payload={payload} />}
       </div>
 
       {/* Shopper stats — only shown in account-wide view (workspace view shows it in the grid above) */}

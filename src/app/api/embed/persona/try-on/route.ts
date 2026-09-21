@@ -14,7 +14,7 @@ export async function OPTIONS() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const resolution = await resolveEmbedRequest(body.embedToken, "wearable");
+    const resolution = await resolveEmbedRequest(body.embedToken);
     if ("error" in resolution) return resolution.error;
     const { workspace } = resolution;
 
@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     if (!user) {
       return embedJson({ error: "Merchant account not found" }, { status: 404 });
     }
-    const billing = await getAccountBillingContext(workspace.ownerId, "wearable");
+    const billing = await getAccountBillingContext(workspace.ownerId);
     if (!billing || !canGenerateImage(billing)) {
       return embedJson({ error: "This store has exhausted its monthly image allowance and purchased credits" }, { status: 402 });
     }

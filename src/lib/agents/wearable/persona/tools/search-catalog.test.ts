@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AnchorState, RetrievalContext } from "@/lib/retrieval/types";
-import type { Product } from "@/modules/shopping-agent/types";
+import type { Product } from "@/modules/commerce/types";
 import type { ToolRuntimeState, WearableChatContext } from "../types";
 
 // Pulled in transitively by the live-store fallback path, which these tests never reach.

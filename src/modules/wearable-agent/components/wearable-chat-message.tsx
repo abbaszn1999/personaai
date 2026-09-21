@@ -16,9 +16,9 @@ import {
   User,
   X,
 } from "lucide-react";
-import type { ChatMessage as ChatMessageType } from "@/modules/shopping-agent/types";
-import type { BundleSuggestion, Product } from "@/modules/shopping-agent/types";
-import { formatPrice } from "@/modules/shopping-agent/constants";
+import type { ChatMessage as ChatMessageType } from "@/modules/commerce/types";
+import type { BundleSuggestion, Product } from "@/modules/commerce/types";
+import { formatPrice } from "@/modules/commerce/constants";
 import { SCAN_STAGES } from "../mocks/responses";
 import type { TypingStage } from "../hooks/use-try-on-agent";
 import { useWearableBranding } from "../branding-context";

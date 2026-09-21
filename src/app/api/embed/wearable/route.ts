@@ -7,7 +7,7 @@ import type { BundleState } from "@/lib/retrieval/types";
 import { getWearableAvatar, rememberWearableAvatar } from "@/lib/agents/wearable/persona/avatar-cache";
 import { resolveEmbedRequest } from "@/lib/embed/resolve";
 import { embedOptions, EMBED_CORS_HEADERS } from "@/lib/embed/cors";
-import type { ChatMessage, Product } from "@/modules/shopping-agent/types";
+import type { ChatMessage, Product } from "@/modules/commerce/types";
 import { canUsePaidPlatform, getAccountBillingContext } from "@/lib/billing/account";
 
 export const maxDuration = 60;
@@ -57,7 +57,7 @@ export async function OPTIONS() {
 export async function POST(req: NextRequest) {
   const body: EmbedWearableRequestBody = await req.json().catch(() => ({}));
 
-  const resolution = await resolveEmbedRequest(body.embedToken, "wearable");
+  const resolution = await resolveEmbedRequest(body.embedToken);
   if ("error" in resolution) return resolution.error;
   const { workspace } = resolution;
 
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
   if (!user) {
     return Response.json({ error: "Merchant account not found" }, { status: 404, headers: EMBED_CORS_HEADERS });
   }
-  const billing = await getAccountBillingContext(workspace.ownerId, "wearable");
+  const billing = await getAccountBillingContext(workspace.ownerId);
   if (!billing || !canUsePaidPlatform(billing)) {
     return Response.json(
       { error: "This store's style assistant subscription is inactive.", code: "subscription_required" },

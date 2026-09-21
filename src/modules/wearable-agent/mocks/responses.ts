@@ -1,4 +1,4 @@
-import type { ChatMessage } from "@/modules/shopping-agent/types";
+import type { ChatMessage } from "@/modules/commerce/types";
 
 export const INITIAL_WEARABLE_MESSAGE: ChatMessage = {
   id: "msg-wearable-init",

@@ -6,7 +6,7 @@ import { rehydrateAnchor, rehydrateProducts } from "./engine";
 import { toAnchor } from "./anchor";
 import { parseHardRules } from "./hard-rules";
 import { toProducts } from "./hydrate";
-import type { ChatMessage, Product } from "@/modules/shopping-agent/types";
+import type { ChatMessage, Product } from "@/modules/commerce/types";
 import type { IntakeState, WearableChatContext, WearableChatProfileContext } from "./types";
 
 /** How much conversation the router, filter builder and statement builder each see. Enough for

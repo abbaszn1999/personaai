@@ -12,13 +12,13 @@ export async function OPTIONS() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
-    const resolution = await resolveEmbedRequest(body.embedToken, "wearable");
+    const resolution = await resolveEmbedRequest(body.embedToken);
     if ("error" in resolution) return resolution.error;
     const { workspace } = resolution;
     if (!isLiveTryOnEnabled(workspace.branding)) {
       return embedJson({ error: "Live camera try-on is disabled for this store" }, { status: 403 });
     }
-    const billing = await getAccountBillingContext(workspace.ownerId, "wearable");
+    const billing = await getAccountBillingContext(workspace.ownerId);
     if (!billing || !canStartLiveTryOn(billing)) {
       return embedJson(
         { error: "This store has exhausted its monthly live try-on allowance and purchased minutes" },

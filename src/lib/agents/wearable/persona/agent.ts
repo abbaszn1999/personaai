@@ -1,5 +1,5 @@
 import { createChatCompletion, type ChatCompletionMessage } from "@/lib/ai/gemini-chat";
-import type { BundleSuggestion, ChatMessage, Product } from "@/modules/shopping-agent/types";
+import type { BundleSuggestion, ChatMessage, Product } from "@/modules/commerce/types";
 import { buildSystemPrompt } from "./prompt";
 import { dispatchToolCall, WEARABLE_AGENT_TOOLS } from "./tools";
 import type { ToolRuntimeState, WearableAgentEvent, WearableChatContext } from "./types";

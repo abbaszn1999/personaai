@@ -19,8 +19,8 @@ import {
 } from "lucide-react";
 import type { GeneratedTryOn } from "../hooks/use-try-on-agent";
 import type { TryOnProfile } from "../types";
-import type { Product } from "@/modules/shopping-agent/types";
-import { formatPrice } from "@/modules/shopping-agent/constants";
+import type { Product } from "@/modules/commerce/types";
+import { formatPrice } from "@/modules/commerce/constants";
 import { DEFAULT_MANNEQUIN_IMAGE, STUDIO_BACKDROPS } from "../constants";
 import {
   formatChestCm,

@@ -21,7 +21,7 @@ export async function POST(req: Request) {
         return Response.json({ error: "Live camera try-on is disabled for this store" }, { status: 403 });
       }
     }
-    const billing = await getAccountBillingContext(user.id, "wearable");
+    const billing = await getAccountBillingContext(user.id);
     if (!billing || !canStartLiveTryOn(billing)) {
       return Response.json(
         { error: "Your monthly live try-on allowance and purchased minutes are exhausted" },

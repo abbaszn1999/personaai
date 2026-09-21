@@ -3,7 +3,7 @@
 import * as React from "react";
 import type { DecartSDKError, RealTimeClient } from "@decartai/sdk";
 import { loadDecartRuntime } from "./decart-runtime";
-import type { Product } from "@/modules/shopping-agent/types";
+import type { Product } from "@/modules/commerce/types";
 import type { EmbedRuntimeConfig } from "./use-try-on-agent";
 import { getOrCreateEmbedSessionId } from "@/lib/embed/client/embed-storage";
 import { resolveGarmentSlot } from "../utils/fit-metrics";

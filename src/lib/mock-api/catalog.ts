@@ -1,4 +1,4 @@
-import type { ProductCategory, Product } from "@/modules/shopping-agent/types";
+import type { ProductCategory, Product } from "@/modules/commerce/types";
 
 export const MOCK_WEARABLE_CATEGORIES: ProductCategory[] = [
   { id: "cat-w-001", name: "Women's Clothing", slug: "womens-clothing", parentId: null, productCount: 124, mode: "wearable" },

@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: "Live camera try-on is disabled for this store" }, { status: 403 });
     }
 
-    const billing = await getAccountBillingContext(user.id, "wearable");
+    const billing = await getAccountBillingContext(user.id);
     if (!billing) return Response.json({ error: "Account not found" }, { status: 404 });
 
     const secondsBalance = await consumeLiveTryOnSeconds({

@@ -3,7 +3,6 @@
 import * as React from "react";
 import { CheckCircle2 } from "lucide-react";
 import type { WorkspaceSetupForm } from "../schemas/workspace-setup";
-import { WORKSPACE_MODE_LABELS } from "@/modules/workspaces/constants";
 import { PLATFORM_LABELS } from "@/modules/store/constants";
 import { AgentOrb } from "@/components/ui/agent-orb";
 import { useStoreConnectionStore } from "@/modules/store/store";
@@ -27,14 +26,12 @@ export function StepReview({ form }: StepReviewProps) {
       </div>
 
       <div className="rounded-[var(--radius-xl)] border border-[var(--color-border)] overflow-hidden">
-        {/* Mode Header */}
+        {/* Header */}
         <div className="flex items-center gap-3 p-4 bg-[var(--color-surface-base)]">
-          <AgentOrb mode={form.mode!} size="lg" animated />
+          <AgentOrb mode="wearable" size="lg" animated />
           <div>
             <div className="text-base font-semibold text-[var(--color-text-primary)]">{form.name}</div>
-            <div className="text-sm text-[var(--color-text-muted)]">
-              {form.mode ? WORKSPACE_MODE_LABELS[form.mode] : "—"}
-            </div>
+            <div className="text-sm text-[var(--color-text-muted)]">Virtual try-on assistant</div>
           </div>
         </div>
 
@@ -46,10 +43,6 @@ export function StepReview({ form }: StepReviewProps) {
               value={`${PLATFORM_LABELS[connection.platform]} — ${connection.storeName}`}
             />
           )}
-          <ReviewRow
-            label="Agent Mode"
-            value={form.mode ? WORKSPACE_MODE_LABELS[form.mode] : "—"}
-          />
         </div>
       </div>
 

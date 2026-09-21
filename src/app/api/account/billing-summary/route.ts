@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getAccountBillingContext } from "@/lib/billing/account";
-import { resolveBillingWorkspaceMode } from "@/lib/billing/workspace-context";
+import { getWorkspaceByIdForOwner, getWorkspacesByOwner } from "@/lib/db/workspaces";
 import { getChatMessageCountForOwner } from "@/lib/db/chat-events";
 import { LIVE_TRYON_PRICE_PER_MINUTE_CENTS } from "@/modules/billing/constants";
 
@@ -11,10 +11,13 @@ export async function GET(req: NextRequest) {
     if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
     const workspaceId = req.nextUrl.searchParams.get("workspaceId");
-    const mode = await resolveBillingWorkspaceMode(user.id, workspaceId);
-    if (!mode) return Response.json({ error: "Workspace not found" }, { status: 404 });
+    const workspace = workspaceId
+      ? await getWorkspaceByIdForOwner(workspaceId, user.id)
+      : (await getWorkspacesByOwner(user.id))[0] ?? null;
+    if (!workspace) return Response.json({ error: "Workspace not found" }, { status: 404 });
+    const mode = workspace.mode;
 
-    const billing = await getAccountBillingContext(user.id, mode);
+    const billing = await getAccountBillingContext(user.id);
     if (!billing) return Response.json({ error: "Account not found" }, { status: 404 });
     const chatMessagesThisCycle = await getChatMessageCountForOwner(user.id, billing.cycleStartIso);
 

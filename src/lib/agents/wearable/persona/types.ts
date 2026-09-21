@@ -1,4 +1,4 @@
-import type { BundleSuggestion, Product, TryOnImageMessage } from "@/modules/shopping-agent/types";
+import type { BundleSuggestion, Product, TryOnImageMessage } from "@/modules/commerce/types";
 import type { StoreCategory } from "@/modules/store/types";
 import type { StoreConnectionRow } from "@/lib/db/store-connections";
 import type {

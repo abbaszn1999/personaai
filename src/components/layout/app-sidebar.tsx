@@ -80,9 +80,8 @@ function useSidebarCollapsed() {
 export function AppSidebar() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { workspaces, activeWorkspaceId } = useWorkspaceStore();
+  const active = useWorkspaceStore((s) => s.workspace);
   const connection = useStoreConnectionStore((s) => s.connection);
-  const active = workspaces.find((w) => w.id === activeWorkspaceId);
   const collapsed = useSidebarCollapsed();
   const connected = connection?.status === "connected";
 
@@ -91,23 +90,18 @@ export function AppSidebar() {
   }
 
   function isActive(href: string) {
-    if (active && href === `/workspaces/${active.id}`) return pathname === href;
     return pathname === href || pathname.startsWith(href + "/");
   }
 
   const manageNav = active
     ? [
-        { label: "Dashboard", href: `/workspaces/${active.id}`, icon: <LayoutDashboard className="h-4 w-4" /> },
-        { label: "Analytics", href: `/workspaces/${active.id}/analytics`, icon: <BarChart2 className="h-4 w-4" /> },
-        { label: "Branding & Embed", href: `/workspaces/${active.id}/branding`, icon: <Palette className="h-4 w-4" /> },
+        { label: "Analytics", href: "/analytics", icon: <BarChart2 className="h-4 w-4" /> },
+        { label: "Branding & Embed", href: "/branding", icon: <Palette className="h-4 w-4" /> },
+        { label: "Project Settings", href: "/project", icon: <LayoutDashboard className="h-4 w-4" /> },
       ]
     : [];
 
-  const previewHref = active
-    ? active.mode === "wearable"
-      ? `/workspaces/${active.id}/try-on`
-      : `/workspaces/${active.id}/assistant`
-    : "#";
+  const previewHref = active ? "/try-on" : "#";
 
   const storeSection = searchParams.get("section") ?? "connection";
   const storeActive = pathname === "/store";

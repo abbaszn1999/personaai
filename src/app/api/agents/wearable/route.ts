@@ -8,7 +8,7 @@ import { getPlatformGeminiApiKey } from "@/lib/ai/gemini";
 import { runWearableChatAgent, type WearableChatContext, type IntakeState } from "@/lib/agents/wearable/persona";
 import { buildWearableChatContext } from "@/lib/agents/wearable/persona/context";
 import { getWearableAvatar, rememberWearableAvatar } from "@/lib/agents/wearable/persona/avatar-cache";
-import type { ChatMessage, Product } from "@/modules/shopping-agent/types";
+import type { ChatMessage, Product } from "@/modules/commerce/types";
 import { canUsePaidPlatform, getAccountBillingContext } from "@/lib/billing/account";
 
 export const maxDuration = 60;
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const billing = await getAccountBillingContext(user.id, "wearable");
+  const billing = await getAccountBillingContext(user.id);
   if (!billing || !canUsePaidPlatform(billing)) {
     return Response.json(
       { error: "An active subscription is required.", code: "subscription_required" },

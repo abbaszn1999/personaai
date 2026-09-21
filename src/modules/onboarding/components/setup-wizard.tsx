@@ -9,11 +9,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useSetupWizard } from "../hooks/use-setup-wizard";
 import { StepName } from "./step-name";
-import { StepMode } from "./step-mode";
 import { StepReview } from "./step-review";
 import { PLATFORM_LABELS } from "@/modules/store/constants";
 
-const STEP_COMPONENTS = [StepName, StepMode, StepReview];
+const STEP_COMPONENTS = [StepName, StepReview];
 
 export function SetupWizard() {
   const wizard = useSetupWizard();

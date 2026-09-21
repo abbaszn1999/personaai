@@ -21,7 +21,7 @@ export async function OPTIONS() {
 export async function POST(req: NextRequest) {
   try {
     const body: RequestBody = await req.json().catch(() => ({}));
-    const resolution = await resolveEmbedRequest(body.embedToken, "wearable");
+    const resolution = await resolveEmbedRequest(body.embedToken);
     if ("error" in resolution) return resolution.error;
     if (!isLiveTryOnEnabled(resolution.workspace.branding)) {
       return embedJson({ error: "Live camera try-on is disabled for this store" }, { status: 403 });
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
       return embedJson({ error: "Missing required realtime try-on event fields" }, { status: 400 });
     }
 
-    const billing = await getAccountBillingContext(resolution.workspace.ownerId, "wearable");
+    const billing = await getAccountBillingContext(resolution.workspace.ownerId);
     if (!billing) return embedJson({ error: "Merchant account not found" }, { status: 404 });
 
     const secondsBalance = await consumeLiveTryOnSeconds({

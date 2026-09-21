@@ -5,12 +5,11 @@ import Link from "next/link";
 import { Plus } from "lucide-react";
 import { AgentOrb } from "@/components/ui/agent-orb";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { WORKSPACE_MODE_LABELS } from "@/modules/workspaces/constants";
 import type { Workspace } from "@/modules/workspaces/types";
 import { cn } from "@/lib/utils/cn";
 
 interface SidebarWorkspaceCardProps {
-  workspace: Workspace | undefined;
+  workspace: Workspace | null | undefined;
   collapsed: boolean;
   storeConnected: boolean;
   storeName: string | null;
@@ -83,17 +82,7 @@ export function SidebarWorkspaceCard({
       </div>
 
       {workspace && (
-        <div className="flex items-center justify-between gap-2 pt-0.5 border-t border-[var(--color-sidebar-border)]">
-          <span
-            className={cn(
-              "text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full",
-              workspace.mode === "wearable"
-                ? "bg-[rgba(107,53,141,0.35)] text-[#c8a8d2]"
-                : "bg-[rgba(247,109,1,0.2)] text-[#ffb380]"
-            )}
-          >
-            {WORKSPACE_MODE_LABELS[workspace.mode]}
-          </span>
+        <div className="flex items-center justify-end gap-2 pt-0.5 border-t border-[var(--color-sidebar-border)]">
           <span className="flex items-center gap-1.5 min-w-0">
             <span
               className={cn(

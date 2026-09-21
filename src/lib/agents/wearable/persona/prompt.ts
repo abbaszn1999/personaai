@@ -1,7 +1,7 @@
 import { loadSkill } from "../load-skill";
 import type { WearableChatContext } from "./types";
 import type { AnchorState } from "@/lib/retrieval/types";
-import type { Product } from "@/modules/shopping-agent/types";
+import type { Product } from "@/modules/commerce/types";
 
 /**
  * Everything known about one item, rendered for the top-level chat model so it can answer a

@@ -11,7 +11,7 @@ import {
   Ruler,
 } from "lucide-react";
 import type { GeneratedTryOn } from "../hooks/use-try-on-agent";
-import { formatPrice } from "@/modules/shopping-agent/constants";
+import { formatPrice } from "@/modules/commerce/constants";
 import { cn } from "@/lib/utils/cn";
 
 interface TryOnPreviewPanelProps {

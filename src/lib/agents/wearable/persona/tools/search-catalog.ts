@@ -3,7 +3,7 @@ import { searchCatalog, CatalogSearchError } from "@/lib/catalog/search-catalog"
 import { recordSearchEvent } from "@/lib/catalog/acs/user-events";
 import { parseBudgetMax } from "@/lib/recommendations";
 import type { CatalogCandidate, RetrievalContext } from "@/lib/retrieval/types";
-import type { Product } from "@/modules/shopping-agent/types";
+import type { Product } from "@/modules/commerce/types";
 import { resolveAnchor, toAnchor } from "../anchor";
 import { runRetrieval } from "../engine";
 import type { ToolRuntimeState, WearableAgentEvent, WearableChatContext } from "../types";

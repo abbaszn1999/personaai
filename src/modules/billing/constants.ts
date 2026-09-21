@@ -46,43 +46,12 @@ export const PLAN_TIERS: PlanTier[] = [
   },
 ];
 
-export const UNWEARABLE_PLAN_TIERS: PlanTier[] = [
-  {
-    id: "fixed",
-    name: "Fixed Platform Tier",
-    priceLabel: "$1,500",
-    priceSub: "/month flat fee",
-    monthlyRenders: 0,
-    monthlyLiveTryOnSeconds: 0,
-    description: "Unlimited AI shopping assistant usage — no image generation involved.",
-    bestFor: "Ideal for established brands with high, predictable traffic who want to keep 100% of their driven sales revenue.",
-    features: [
-      "Unlimited AI shopping assistant conversations",
-      "Keep 100% of driven sales revenue",
-      "Predictable flat monthly cost",
-    ],
-  },
-  {
-    id: "hybrid",
-    name: "Hybrid Performance Tier",
-    priceLabel: "$0",
-    priceSub: "/month base + 10% commission",
-    monthlyRenders: 0,
-    monthlyLiveTryOnSeconds: 0,
-    description: "No base fee — Autommerce only earns a 10% commission on direct conversions.",
-    bestFor: "Perfect for brands wanting zero upfront cost while aligning Autommerce directly with active sales growth.",
-    features: [
-      "Unlimited AI shopping assistant conversations",
-      "Zero upfront monthly cost",
-      "10% commission on direct conversions only",
-    ],
-    isContactOnly: true,
-  },
-];
-
-/** Selects the commercial tier set for the given project mode — Wearable includes Nano Banana render costs, Unwearable is tool-usage only. */
-export function getPlanTiers(mode: WorkspaceMode): PlanTier[] {
-  return mode === "unwearable" ? UNWEARABLE_PLAN_TIERS : PLAN_TIERS;
+/** Selects the commercial tier set. Every project is wearable now (the unwearable shopping
+ *  assistant tier set has been retired); `mode` is kept as a parameter for now so callers
+ *  don't all need updating in the same pass — it's dropped once `WorkspaceMode` itself is
+ *  removed from the codebase. */
+export function getPlanTiers(_mode?: WorkspaceMode): PlanTier[] {
+  return PLAN_TIERS;
 }
 
 export function getPlanTier(mode: WorkspaceMode, tierId: string): PlanTier {
@@ -120,12 +89,7 @@ export const INFRA_NOTES: string[] = [
   "Unlimited prompt and image input references are included at no extra credit cost — only 2K visual outputs are deducted from your monthly cap.",
 ];
 
-export const UNWEARABLE_INFRA_NOTES: string[] = [
-  "Conversational chat is included with your plan.",
-  "This plan is powered entirely by the AI shopping assistant — no separate image-generation credits apply.",
-];
-
-/** Selects the infra notes list for the given project mode. */
-export function getInfraNotes(mode: WorkspaceMode): string[] {
-  return mode === "unwearable" ? UNWEARABLE_INFRA_NOTES : INFRA_NOTES;
+/** Selects the infra notes list. Every project is wearable now — see `getPlanTiers`. */
+export function getInfraNotes(_mode?: WorkspaceMode): string[] {
+  return INFRA_NOTES;
 }

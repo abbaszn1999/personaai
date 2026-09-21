@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const billing = await getAccountBillingContext(user.id, "wearable");
+    const billing = await getAccountBillingContext(user.id);
     if (!billing || !canGenerateImage(billing)) {
       return Response.json({ error: "Your monthly image allowance and purchased credits are exhausted" }, { status: 402 });
     }

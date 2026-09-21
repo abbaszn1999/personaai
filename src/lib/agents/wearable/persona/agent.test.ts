@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ToolCall } from "@/lib/ai/gemini-chat";
-import type { ChatMessage } from "@/modules/shopping-agent/types";
+import type { ChatMessage } from "@/modules/commerce/types";
 import type { RetrievalResult } from "@/lib/retrieval/types";
 import type { WearableAgentEvent, WearableChatContext } from "./types";
 

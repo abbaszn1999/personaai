@@ -35,9 +35,6 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (["active", "draft", "paused"].includes(body.status)) {
       patch.status = body.status;
     }
-    if (["wearable", "unwearable"].includes(body.mode)) {
-      patch.mode = body.mode;
-    }
     if (typeof body.embedEnabled === "boolean") {
       patch.embedEnabled = body.embedEnabled;
     }

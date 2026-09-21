@@ -1,7 +1,5 @@
 import * as React from "react";
 import { TryOnLayout } from "@/modules/wearable-agent/components/try-on-layout";
-import { ChatInterface } from "@/modules/shopping-agent/components/chat-interface";
-import { FloatingChatLauncher } from "@/modules/shopping-agent/components/floating-chat-launcher";
 import type { WorkspaceBranding, WorkspaceMode } from "@/modules/workspaces/types";
 import { cn } from "@/lib/utils/cn";
 import { fontFamilyCssValue, loadGoogleFont } from "@/lib/fonts/google-fonts";
@@ -39,16 +37,10 @@ export function EmbedApp({ origin, embedToken, onDisplayModeChange }: EmbedAppPr
 
   useEmbedHeartbeat(`${origin}/api/embed`, embedToken);
 
-  const isFloating = state.status === "ready" && state.mode === "unwearable" && state.branding.displayMode === "floating";
-  const isCompact =
-    !isFloating &&
-    !fillViewport &&
-    (state.status !== "ready" || state.mode === "wearable");
+  const isCompact = !fillViewport;
   React.useLayoutEffect(() => {
-    if (isFloating) onDisplayModeChange?.("floating");
-    else if (isCompact) onDisplayModeChange?.("compact");
-    else onDisplayModeChange?.("fullpage");
-  }, [isFloating, isCompact, onDisplayModeChange]);
+    onDisplayModeChange?.(isCompact ? "compact" : "fullpage");
+  }, [isCompact, onDisplayModeChange]);
 
   React.useEffect(() => {
     let active = true;
@@ -68,7 +60,7 @@ export function EmbedApp({ origin, embedToken, onDisplayModeChange }: EmbedAppPr
         loadGoogleFont(data.branding.fontFamily);
         setState({
           status: "ready",
-          mode: data.mode === "unwearable" ? "unwearable" : "wearable",
+          mode: "wearable",
           branding: data.branding,
         });
       } catch {
@@ -99,31 +91,6 @@ export function EmbedApp({ origin, embedToken, onDisplayModeChange }: EmbedAppPr
     );
   }
 
-  // Floating unwearable: the host <div> itself is now zero-footprint (see applyDisplayMode
-  // in main.tsx), so this renders as a fixed-position overlay with no wrapping block — a
-  // fullpage-style wrapper here would just be an invisible 0x0 box.
-  if (isFloating) {
-    return (
-      <div
-        style={{
-          ...resolveBrandCssVars(state.branding.primaryColor),
-          fontFamily: fontFamilyCssValue(state.branding.fontFamily),
-        }}
-        className={state.branding.theme === "dark" ? "dark" : undefined}
-      >
-        <FloatingChatLauncher
-          embed={{ apiBase: `${origin}/api/embed`, embedToken, enableRealCart: true }}
-          agentName={state.branding.agentName}
-          welcomeMessage={state.branding.welcomeMessage}
-          logoUrl={state.branding.logoUrl}
-          primaryColor={state.branding.primaryColor}
-          borderRadius={state.branding.borderRadius}
-          position={state.branding.position}
-        />
-      </div>
-    );
-  }
-
   return (
     <div
       ref={rootRef}
@@ -140,32 +107,19 @@ export function EmbedApp({ origin, embedToken, onDisplayModeChange }: EmbedAppPr
         fontFamily: fontFamilyCssValue(state.branding.fontFamily),
       }}
     >
-      {state.mode === "wearable" ? (
-        <TryOnLayout
-          viewportMode={viewportMode}
-          embed={{ apiBase: `${origin}/api/embed`, embedToken, enableRealCart: true }}
-          theme={state.branding.theme}
-          branding={{
-            agentName: state.branding.agentName,
-            welcomeMessage: state.branding.welcomeMessage,
-            logoUrl: state.branding.logoUrl,
-            borderRadius: state.branding.borderRadius,
-            liveTryOnEnabled: state.branding.liveTryOnEnabled,
-          }}
-          onFillViewportChange={setFillViewport}
-        />
-      ) : (
-        <ChatInterface
-          viewportMode={viewportMode}
-          embed={{ apiBase: `${origin}/api/embed`, embedToken, enableRealCart: true }}
-          branding={{
-            agentName: state.branding.agentName,
-            welcomeMessage: state.branding.welcomeMessage,
-            borderRadius: state.branding.borderRadius,
-            logoUrl: state.branding.logoUrl,
-          }}
-        />
-      )}
+      <TryOnLayout
+        viewportMode={viewportMode}
+        embed={{ apiBase: `${origin}/api/embed`, embedToken, enableRealCart: true }}
+        theme={state.branding.theme}
+        branding={{
+          agentName: state.branding.agentName,
+          welcomeMessage: state.branding.welcomeMessage,
+          logoUrl: state.branding.logoUrl,
+          borderRadius: state.branding.borderRadius,
+          liveTryOnEnabled: state.branding.liveTryOnEnabled,
+        }}
+        onFillViewportChange={setFillViewport}
+      />
     </div>
   );
 }

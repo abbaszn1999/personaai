@@ -1,21 +1,23 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { DashboardPageHeader } from "@/components/layout/dashboard-header-context";
+import { AnalyticsDashboard } from "@/modules/analytics/components/analytics-dashboard";
+import { LiveSessionsIndicator } from "@/modules/analytics/components/live-sessions-indicator";
 import { useWorkspaceStore } from "@/modules/workspaces/store";
 
-export default function AnalyticsRedirectPage() {
-  const router = useRouter();
-  const { workspaces, activeWorkspaceId } = useWorkspaceStore();
-  const id = activeWorkspaceId ?? workspaces[0]?.id;
+export default function AnalyticsPage() {
+  const ws = useWorkspaceStore((s) => s.workspace);
 
-  useEffect(() => {
-    if (id) {
-      router.replace(`/workspaces/${id}/analytics`);
-    } else {
-      router.replace("/");
-    }
-  }, [id, router]);
-
-  return null;
+  return (
+    <>
+      <DashboardPageHeader
+        title="Analytics"
+        description={ws ? `Performance for ${ws.name}` : "Project analytics"}
+        actions={ws ? <LiveSessionsIndicator workspaceId={ws.id} /> : undefined}
+      />
+      <div className="p-6">
+        <AnalyticsDashboard workspaceId={ws?.id} />
+      </div>
+    </>
+  );
 }

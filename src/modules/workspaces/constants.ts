@@ -16,7 +16,9 @@ export const WORKSPACE_STATUS_LABELS: Record<WorkspaceStatus, string> = {
   paused: "Paused",
 };
 
-export function defaultBrandingForMode(mode: WorkspaceMode): WorkspaceBranding {
+// Every project is a wearable (virtual try-on) agent now, so there's only one default
+// branding shape — the unwearable floating-launcher default has been retired.
+export function defaultBranding(): WorkspaceBranding {
   return {
     agentName: "Maya",
     welcomeMessage: "Hi! How can I help you today?",
@@ -25,8 +27,7 @@ export function defaultBrandingForMode(mode: WorkspaceMode): WorkspaceBranding {
     fontFamily: "Inter",
     borderRadius: "12px",
     position: "bottom-right",
-    // wearable is always full-page; unwearable defaults to floating
-    displayMode: mode === "wearable" ? "fullpage" : "floating",
+    displayMode: "fullpage",
     theme: "dark",
     liveTryOnEnabled: true,
   };

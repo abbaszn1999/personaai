@@ -3,39 +3,29 @@
 import { create } from "zustand";
 import type { Workspace } from "@/modules/workspaces/types";
 
+// Every account has at most one project now (see 0005_workspace_limit_one and the phase 7
+// route flattening) — this store holds that single project directly instead of an array +
+// "active id" pointer. `workspace` is `null` until the account finishes onboarding.
 interface WorkspaceState {
-  workspaces: Workspace[];
-  activeWorkspaceId: string | null;
+  workspace: Workspace | null;
   isLoading: boolean;
-  loadWorkspaces: () => Promise<void>;
-  setActiveWorkspace: (id: string) => void;
-  addWorkspace: (workspace: Workspace) => void;
-  updateWorkspace: (id: string, patch: Partial<Workspace>) => void;
-  removeWorkspace: (id: string) => void;
-  activeWorkspace: () => Workspace | null;
+  loadWorkspace: () => Promise<void>;
+  setWorkspace: (workspace: Workspace | null) => void;
+  updateWorkspace: (patch: Partial<Workspace>) => void;
 }
 
-export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
-  workspaces: [],
-  activeWorkspaceId: null,
+export const useWorkspaceStore = create<WorkspaceState>((set) => ({
+  workspace: null,
   isLoading: false,
 
-  loadWorkspaces: async () => {
+  loadWorkspace: async () => {
     set({ isLoading: true });
     try {
       const res = await fetch("/api/workspaces");
       if (res.ok) {
         const data = await res.json();
         const workspaces: Workspace[] = data.workspaces ?? [];
-        set((s) => ({
-          workspaces,
-          isLoading: false,
-          // Keep active selection if it still exists, else default to first
-          activeWorkspaceId:
-            s.activeWorkspaceId && workspaces.some((w) => w.id === s.activeWorkspaceId)
-              ? s.activeWorkspaceId
-              : (workspaces[0]?.id ?? null),
-        }));
+        set({ workspace: workspaces[0] ?? null, isLoading: false });
       } else {
         set({ isLoading: false });
       }
@@ -44,33 +34,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
   },
 
-  setActiveWorkspace: (id) => set({ activeWorkspaceId: id }),
+  setWorkspace: (workspace) => set({ workspace }),
 
-  addWorkspace: (workspace) =>
+  updateWorkspace: (patch) =>
     set((s) => ({
-      workspaces: [...s.workspaces, workspace],
-      activeWorkspaceId: s.activeWorkspaceId ?? workspace.id,
+      workspace: s.workspace ? { ...s.workspace, ...patch, updatedAt: new Date().toISOString() } : s.workspace,
     })),
-
-  updateWorkspace: (id, patch) =>
-    set((s) => ({
-      workspaces: s.workspaces.map((w) =>
-        w.id === id ? { ...w, ...patch, updatedAt: new Date().toISOString() } : w
-      ),
-    })),
-
-  removeWorkspace: (id) =>
-    set((s) => {
-      const remaining = s.workspaces.filter((w) => w.id !== id);
-      return {
-        workspaces: remaining,
-        activeWorkspaceId:
-          s.activeWorkspaceId === id ? (remaining[0]?.id ?? null) : s.activeWorkspaceId,
-      };
-    }),
-
-  activeWorkspace: () => {
-    const { workspaces, activeWorkspaceId } = get();
-    return workspaces.find((w) => w.id === activeWorkspaceId) ?? null;
-  },
 }));

@@ -122,7 +122,7 @@ export function WsBrandingEditor({ workspace }: Props) {
         setSaveError(data.error || "Failed to save changes");
         return;
       }
-      updateWorkspaceInStore(workspace.id, { branding: data.workspace.branding, embedEnabled: data.workspace.embedEnabled });
+      updateWorkspaceInStore({ branding: data.workspace.branding, embedEnabled: data.workspace.embedEnabled });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch {
@@ -142,7 +142,7 @@ export function WsBrandingEditor({ workspace }: Props) {
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.embedToken) {
         setEmbedToken(data.embedToken);
-        updateWorkspaceInStore(workspace.id, { embedToken: data.embedToken });
+        updateWorkspaceInStore({ embedToken: data.embedToken });
       }
     } finally {
       setRegenerating(false);

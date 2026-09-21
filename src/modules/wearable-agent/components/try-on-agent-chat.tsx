@@ -3,7 +3,7 @@
 import * as React from "react";
 import { ArrowUp, ChevronDown, ChevronUp, GripVertical, MessageCircle } from "lucide-react";
 import type { UseTryOnAgentReturn } from "../hooks/use-try-on-agent";
-import type { Product } from "@/modules/shopping-agent/types";
+import type { Product } from "@/modules/commerce/types";
 import { PinnedAnchorBar, PinnedBundleBar, WearableChatMessage, WearableScanningIndicator, WearableTypingIndicator } from "./wearable-chat-message";
 import { AvatarMannequinPanel } from "./avatar-mannequin-panel";
 import { ProfileSwitcher } from "./profile-switcher";

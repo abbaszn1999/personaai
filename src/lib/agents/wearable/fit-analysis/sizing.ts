@@ -1,4 +1,4 @@
-import type { Product } from "@/modules/shopping-agent/types";
+import type { Product } from "@/modules/commerce/types";
 import { recommendSizesForProducts as recommendSized, buildFitNote as buildNote } from "@/lib/recommendations";
 import type { WearableChatProfileContext } from "../types";
 

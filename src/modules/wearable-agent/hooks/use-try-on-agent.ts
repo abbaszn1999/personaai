@@ -1,9 +1,9 @@
 "use client";
 
 import * as React from "react";
-import type { ChatMessage } from "@/modules/shopping-agent/types";
+import type { ChatMessage } from "@/modules/commerce/types";
 import type { AvatarVariation, OnboardingPhase, TryOnAudience, TryOnProfile } from "@/modules/wearable-agent/types";
-import type { BundleSuggestion, Product } from "@/modules/shopping-agent/types";
+import type { BundleSuggestion, Product } from "@/modules/commerce/types";
 import type { IntakeState, WearableAgentEvent } from "@/lib/agents/wearable/persona";
 import type { BundleState } from "@/lib/retrieval/types";
 import { mergeRetrievalState, type RetrievalState } from "../utils/retrieval-state";

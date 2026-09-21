@@ -1,4 +1,4 @@
-import type { Product } from "@/modules/shopping-agent/types";
+import type { Product } from "@/modules/commerce/types";
 import { resolveGarmentSlot } from "@/modules/wearable-agent/utils/fit-metrics";
 import { extractKeywords } from "@/lib/catalog/query-helpers";
 import { parseBudgetMax } from "./parse-budget";

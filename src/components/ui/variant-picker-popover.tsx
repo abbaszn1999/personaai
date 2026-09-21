@@ -2,8 +2,8 @@
 
 import * as React from "react";
 import { ShoppingCart, X } from "lucide-react";
-import type { Product, ProductVariant } from "@/modules/shopping-agent/types";
-import { formatPrice } from "@/modules/shopping-agent/constants";
+import type { Product, ProductVariant } from "@/modules/commerce/types";
+import { formatPrice } from "@/modules/commerce/constants";
 import {
   getVariantOptionGroups,
   hasSelectableVariants,

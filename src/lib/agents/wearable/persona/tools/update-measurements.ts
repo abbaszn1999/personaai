@@ -48,7 +48,7 @@ export async function handleUpdateMeasurements(
   }
 
   const { photoBase64, photoMimeType } = context.profile;
-  const billing = await getAccountBillingContext(context.userId, "wearable");
+  const billing = await getAccountBillingContext(context.userId);
   if (!billing || !canGenerateImage(billing) || !photoBase64 || !photoMimeType) {
     return {
       resultForModel: JSON.stringify({ success: true, regenerated: false, note: "Measurements saved, but the avatar couldn't be regenerated right now." }),

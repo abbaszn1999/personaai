@@ -11,7 +11,7 @@ import { useWorkspaceStore } from "@/modules/workspaces/store";
 interface Props { workspace: Workspace }
 
 export function WsDangerSection({ workspace }: Props) {
-  const { removeWorkspace, updateWorkspace } = useWorkspaceStore();
+  const { setWorkspace, updateWorkspace } = useWorkspaceStore();
   const router = useRouter();
   const [confirmDelete, setConfirmDelete] = React.useState(false);
   const [isDeleting, setIsDeleting] = React.useState(false);
@@ -27,8 +27,8 @@ export function WsDangerSection({ workspace }: Props) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error ?? "Failed to delete project");
       }
-      removeWorkspace(workspace.id);
-      router.push("/workspaces");
+      setWorkspace(null);
+      router.push("/setup");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete project");
       setIsDeleting(false);
@@ -49,7 +49,7 @@ export function WsDangerSection({ workspace }: Props) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error ?? "Failed to update project");
       }
-      updateWorkspace(workspace.id, { status: nextStatus });
+      updateWorkspace({ status: nextStatus });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update project");
     } finally {

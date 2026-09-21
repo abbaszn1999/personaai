@@ -10,7 +10,6 @@ import type { Workspace } from "@/modules/workspaces/types";
 
 const INITIAL_FORM: WorkspaceSetupForm = {
   name: "",
-  mode: null,
 };
 
 export function useSetupWizard() {
@@ -18,7 +17,7 @@ export function useSetupWizard() {
   const [form, setForm] = React.useState<WorkspaceSetupForm>(INITIAL_FORM);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [submitError, setSubmitError] = React.useState<string | null>(null);
-  const { addWorkspace, setActiveWorkspace } = useWorkspaceStore();
+  const { setWorkspace } = useWorkspaceStore();
   const connection = useStoreConnectionStore((s) => s.connection);
   const router = useRouter();
 
@@ -36,7 +35,6 @@ export function useSetupWizard() {
   function canProceed(): boolean {
     switch (step) {
       case 0: return form.name.trim().length >= 2;
-      case 1: return form.mode !== null;
       default: return true;
     }
   }
@@ -52,7 +50,6 @@ export function useSetupWizard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: form.name.trim(),
-          mode: form.mode,
         }),
       });
 
@@ -66,14 +63,9 @@ export function useSetupWizard() {
 
       const workspace: Workspace = data.workspace;
 
-      addWorkspace(workspace);
-      setActiveWorkspace(workspace.id);
+      setWorkspace(workspace);
 
-      router.push(
-        workspace.mode === "wearable"
-          ? `/workspaces/${workspace.id}/try-on`
-          : `/workspaces/${workspace.id}/assistant`
-      );
+      router.push("/try-on");
     } catch {
       setSubmitError("Network error — please try again");
       setIsSubmitting(false);

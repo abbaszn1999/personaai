@@ -15,8 +15,7 @@ import type { WorkspaceMode } from "@/modules/workspaces/types";
 
 export function BillingSettings() {
   const router = useRouter();
-  const { workspaces, activeWorkspaceId } = useWorkspaceStore();
-  const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId) ?? null;
+  const activeWorkspace = useWorkspaceStore((s) => s.workspace);
 
   if (!activeWorkspace) {
     return (

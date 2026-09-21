@@ -1,4 +1,4 @@
-import type { Product, ProductVariant } from "@/modules/shopping-agent/types";
+import type { Product, ProductVariant } from "@/modules/commerce/types";
 
 export interface VariantOptionGroup {
   type: ProductVariant["type"];

@@ -14,8 +14,7 @@ import { BillingProvider } from "../hooks/use-billing";
 import type { WorkspaceMode } from "@/modules/workspaces/types";
 
 export function UsageDashboard() {
-  const { workspaces, activeWorkspaceId } = useWorkspaceStore();
-  const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId) ?? workspaces[0] ?? null;
+  const activeWorkspace = useWorkspaceStore((s) => s.workspace);
 
   if (!activeWorkspace) {
     return (

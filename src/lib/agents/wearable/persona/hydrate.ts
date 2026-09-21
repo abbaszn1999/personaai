@@ -1,4 +1,4 @@
-import type { Product, ProductVariant } from "@/modules/shopping-agent/types";
+import type { Product, ProductVariant } from "@/modules/commerce/types";
 import type { VariantOptionGroups } from "@/lib/catalog/sync-types";
 import { createTimeoutSignal } from "@/lib/catalog/timeout";
 import { getShopifyAccessToken, hydrateShopifyProducts, normalizeShopifyDomain } from "@/lib/shopify/client";

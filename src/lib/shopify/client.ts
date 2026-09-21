@@ -1,5 +1,5 @@
 import type { StoreCategory } from "@/modules/store/types";
-import type { Product, ProductVariant } from "@/modules/shopping-agent/types";
+import type { Product, ProductVariant } from "@/modules/commerce/types";
 import type { CatalogPageOptions, RawCatalogProduct, RawCatalogVariant, VariantOptionGroups } from "@/lib/catalog/sync-types";
 import { isCacheDisabled } from "@/lib/utils/disable-cache";
 

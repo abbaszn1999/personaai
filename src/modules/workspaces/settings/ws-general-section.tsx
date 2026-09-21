@@ -39,7 +39,7 @@ export function WsGeneralSection({ workspace }: Props) {
     setError(null);
     try {
       await persist({ name });
-      updateWorkspace(workspace.id, { name });
+      updateWorkspace({ name });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (err) {
@@ -55,7 +55,7 @@ export function WsGeneralSection({ workspace }: Props) {
     setError(null);
     try {
       await persist({ status: nextStatus });
-      updateWorkspace(workspace.id, { status: nextStatus });
+      updateWorkspace({ status: nextStatus });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update project");
     } finally {

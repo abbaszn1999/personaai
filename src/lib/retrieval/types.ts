@@ -1,4 +1,4 @@
-import type { Product } from "@/modules/shopping-agent/types";
+import type { Product } from "@/modules/commerce/types";
 
 export const RETRIEVAL_MODES = ["ask_info", "filter", "cosine", "bundle", "attribute_variant"] as const;
 

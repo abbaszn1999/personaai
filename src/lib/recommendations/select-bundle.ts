@@ -1,4 +1,4 @@
-import type { BundleSuggestion, Product } from "@/modules/shopping-agent/types";
+import type { BundleSuggestion, Product } from "@/modules/commerce/types";
 import { resolveGarmentSlot, type GarmentCategory } from "@/modules/wearable-agent/utils/fit-metrics";
 import type { IntakeState } from "@/lib/agents/wearable/persona/types";
 import { parseBudgetMax } from "./parse-budget";

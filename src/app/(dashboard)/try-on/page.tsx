@@ -1,7 +1,6 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { DashboardPageHeader } from "@/components/layout/dashboard-header-context";
 import { TryOnLayout } from "@/modules/wearable-agent/components/try-on-layout";
 import {
@@ -12,21 +11,9 @@ import { Badge } from "@/components/ui/badge";
 import { useWorkspaceStore } from "@/modules/workspaces/store";
 import { CatalogReadyGate } from "@/modules/store/components/catalog-ready-gate";
 
-interface Props { params: Promise<{ id: string }> }
-
-export default function TryOnPage({ params }: Props) {
-  const { id } = use(params);
-  const router = useRouter();
-  const ws = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === id));
+export default function TryOnPage() {
+  const ws = useWorkspaceStore((s) => s.workspace);
   const [viewportMode, setViewportMode] = useState<PreviewViewportMode>("desktop");
-
-  // This preview is wearable-only — an unwearable workspace has no avatar/try-on to show,
-  // so bounce to its actual agent preview instead of rendering the wrong layout.
-  useEffect(() => {
-    if (ws && ws.mode !== "wearable") router.replace(`/workspaces/${id}/assistant`);
-  }, [ws, id, router]);
-
-  if (ws && ws.mode !== "wearable") return null;
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -46,7 +33,7 @@ export default function TryOnPage({ params }: Props) {
         <CatalogReadyGate label="The preview">
           <TryOnLayout
             viewportMode={viewportMode}
-            workspaceId={id}
+            workspaceId={ws?.id}
             theme={ws?.branding.theme}
             branding={
               ws

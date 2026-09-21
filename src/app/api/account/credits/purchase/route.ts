@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
-import { resolveBillingWorkspaceMode } from "@/lib/billing/workspace-context";
+import { getWorkspaceByIdForOwner, getWorkspacesByOwner } from "@/lib/db/workspaces";
 import { CREDIT_BUNDLES } from "@/modules/billing/constants";
 import { createStripeCheckout } from "@/lib/stripe/checkout";
 import type { StripePurchaseKey } from "@/lib/stripe/config";
@@ -18,9 +18,11 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json().catch(() => ({}));
     const workspaceId = typeof body.workspaceId === "string" ? body.workspaceId : null;
-    const mode = await resolveBillingWorkspaceMode(user.id, workspaceId);
-    if (!mode) return Response.json({ error: "Workspace not found" }, { status: 404 });
-    if (mode !== "wearable") {
+    const workspace = workspaceId
+      ? await getWorkspaceByIdForOwner(workspaceId, user.id)
+      : (await getWorkspacesByOwner(user.id))[0] ?? null;
+    if (!workspace) return Response.json({ error: "Workspace not found" }, { status: 404 });
+    if (workspace.mode !== "wearable") {
       return Response.json({ error: "Image credits are only available for wearable workspaces" }, { status: 400 });
     }
 
@@ -29,7 +31,7 @@ export async function POST(req: NextRequest) {
 
     const checkout = await createStripeCheckout({
       user,
-      workspaceMode: mode,
+      workspaceMode: workspace.mode,
       purchaseKey: BUNDLE_PURCHASE_KEYS[bundle.id],
     });
     return Response.json({ ...checkout, checkoutMode: "stripe" });
