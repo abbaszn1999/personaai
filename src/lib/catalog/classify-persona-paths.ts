@@ -12,6 +12,15 @@ export interface PersonaPathCandidate {
   path: string;
   productCount: number;
   sampleTitles: string[];
+  /**
+   * Position in the merchant's own category tree. A breadcrumb alone cannot express these, and
+   * without them the model has to infer "is this a container or a real product bucket?" from the
+   * category's name — which works for a category called "Women" and fails for one called
+   * "Shoes & Bags" that sits at the same level and holds the whole catalog's accessories.
+   */
+  depth?: number;
+  childCount?: number;
+  childNames?: string[];
 }
 
 export interface PersonaMatchTarget {
@@ -31,20 +40,37 @@ export interface PersonaAutoMatchVerdict {
 
 const MODEL = process.env.PERSONA_MAPPING_MODEL ?? process.env.SIZING_CLASSIFY_MODEL ?? "gemini-3.7-flash";
 
+/**
+ * A category this large dominates whatever it is mapped to, so its verdict is held to the band the
+ * prompt reserves for "titles unambiguously match the target's garment type, gender, and age
+ * group". Small categories keep the looser bar — a wrong 8-SKU call is cheap to spot and fix.
+ */
+const LARGE_CATEGORY_SKUS = 300;
+const LARGE_CATEGORY_MIN_CONFIDENCE = 0.9;
+
 function targetsForScope(scope: SerializedTaxonomyScope): PersonaMatchTarget[] {
   const targets: PersonaMatchTarget[] = [];
   for (const department of PERSONA_DEPARTMENTS) {
     if (!scope.enabledDeptIds.includes(department.id)) continue;
     for (const category of PERSONA_CATEGORIES) {
+      const enabledSubCategories = PERSONA_SUB_CATEGORIES[department.id][category.id]
+        .filter((subCategory) => scope.enabledLeafKeys.includes(`${department.id}:${category.id}:${subCategory}`));
+
+      // The category-level target is gated on the category actually being in scope. Scope stores no
+      // per-category flag, so "in scope" means at least one of its leaves is enabled — a merchant who
+      // enabled no womenswear footwear leaf is telling us they don't sell women's shoes. Offering
+      // `women:footwear` unconditionally let a 2,045-SKU root-level "Shoes & Bags" bucket land in a
+      // department the merchant had opted out of, carrying handbags and baby shoes with it.
+      if (enabledSubCategories.length === 0) continue;
+
       targets.push({
         key: `${department.id}:${category.id}`,
         departmentId: department.id,
         categoryId: category.id,
         label: `${department.name} > ${category.name}`,
       });
-      for (const subCategory of PERSONA_SUB_CATEGORIES[department.id][category.id]) {
+      for (const subCategory of enabledSubCategories) {
         const key = `${department.id}:${category.id}:${subCategory}`;
-        if (!scope.enabledLeafKeys.includes(key)) continue;
         targets.push({
           key,
           departmentId: department.id,
@@ -112,9 +138,22 @@ const CLASSIFICATION_RULES = [
   "more than coverage: an incorrect `mapped` verdict corrupts the merchant's catalog, while an",
   "honest `unmapped` or `excluded` verdict is always safe and can be fixed by a human later.",
   "",
+  "Each store category is given with its position in the merchant's own tree: `depth` (0 = a",
+  "top-level category sitting beside the store's departments), `children` (its direct",
+  "sub-categories, named when it has any), and `products` (a count that INCLUDES everything in its",
+  "descendants, so a container's count is always larger than its own direct contents).",
+  "",
   "DECISION PROCEDURE — apply in this exact order for every store category:",
+  "0. If `children` is not 0, this is a container category. Its products belong to its",
+  "   sub-categories, which you are classifying separately, so mapping it would double-map them.",
+  "   -> action=\"unmapped\", unless every named child is unmistakably the same garment type, gender",
+  "   and age group (e.g. children are \"Maxi Dresses\", \"Midi Dresses\", \"Gowns\").",
   "1. Read the category's breadcrumb path AND its sample product titles together. The breadcrumb",
   "   alone is often generic (\"Sale\", \"New In\", \"Featured\") — the titles are the real evidence.",
+  "   At depth=0 the name carries no inherited gender or age group: a top-level category is a",
+  "   store-wide bucket that usually spans every department, so NEVER infer gender or age group",
+  "   from the store's tree at that depth — only the sample titles can establish them, and a single",
+  "   dominant gender among the samples is not enough when the category holds hundreds of products.",
   "2. If the titles show non-apparel merchandise that Persona's taxonomy has no department/category",
   "   for at all (e.g. furniture, electronics, gift cards, home decor, food, services, jewelry-only",
   "   or bag-only lines when no accessories target exists in the allowed list) -> action=\"excluded\".",
@@ -123,6 +162,15 @@ const CLASSIFICATION_RULES = [
   "   department implied by the titles — e.g. clearly menswear — is not in the allowed list at all",
   "   because that department is disabled) -> action=\"unmapped\". Never force a mismatched gender,",
   "   age group, or garment type onto a category just to produce a `mapped` verdict.",
+  "3b. Treat these as proof of a mixed bucket that must be \"unmapped\", even when one type is the",
+  "   clear majority of the samples — mapping it would silently misfile the rest:",
+  "   - sizable garments mixed with unsizable accessories (a name like \"Shoes & Bags\", or samples",
+  "     naming both shoes and handbags/wallets/briefcases). Nothing in the taxonomy sizes a bag.",
+  "   - adult items mixed with items whose titles say \"Baby\", \"Newborn\", \"Toddler\", \"Kids\",",
+  "     \"Boys\" or \"Girls\". Age group decides which size chart a product gets, so a bucket that",
+  "     spans both cannot resolve to one target.",
+  "   - a name joining two merchandise types with \"&\" or \"/\" where the taxonomy has a target for",
+  "     only one of them.",
   "4. If there are zero or near-zero sample titles and the breadcrumb itself is not self-explanatory",
   "   (e.g. \"Sale\", \"Clearance\", \"Collection 24\") -> action=\"unmapped\". Do not guess from a",
   "   generic name alone.",
@@ -130,10 +178,11 @@ const CLASSIFICATION_RULES = [
   "   when the titles are specific enough to justify one) best matches the dominant garment type",
   "   shown across the sample titles. Copy that key from the allowed list character-for-character —",
   "   never invent, abbreviate, or partially match a key.",
-  "6. A department-level target (no sub-category, e.g. \"women:top\") is a valid, often-correct",
+  "6. A category-level target (no sub-category, e.g. \"women:top\") is a valid, often-correct",
   "   choice when titles justify the category but not a specific sub-category (e.g. a category with",
   "   both \"Blouse\" and \"Sweater\" titles under women's tops maps to \"women:top\", not one of its",
-  "   sub-categories).",
+  "   sub-categories). It still requires the department, category and age group to be certain — it",
+  "   is a way to decline picking a sub-category, never a way to hedge on who the product is for.",
   "",
   "CONFIDENCE — reflects how certain the evidence makes the chosen action, on a 0.0-1.0 scale:",
   "- 0.9-1.0: titles unambiguously match the target's garment type, gender, and age group.",
@@ -152,9 +201,17 @@ const CLASSIFICATION_RULES = [
   "- Do not add commentary, markdown, or any field beyond the schema.",
   "",
   "WORKED EXAMPLES (illustrative only — use the real allowed keys and ids supplied below):",
-  "- id=cat_1; path=Women / Tops / Tees; samples=\"Boxy cotton crew tee\" | \"Ribbed tank top\"",
+  "- id=cat_1; path=Women / Tops / Tees; depth=2; children=0; samples=\"Boxy cotton crew tee\" |",
+  "  \"Ribbed tank top\"",
   "  -> action=mapped, target_key=women:top:t-shirt, confidence=0.95,",
   "     reason=\"Titles are cotton tees and a tank, both crew-neck tops.\"",
+  "- id=cat_5; path=Women; depth=0; children=3 (Clothing, Accessories, Lingerie)",
+  "  -> action=unmapped, target_key=\"\", confidence=0.95,",
+  "     reason=\"Container category whose three children are classified separately.\"",
+  "- id=cat_6; path=Shoes & Bags; depth=0; children=0; products=2045; samples=\"Leather stiletto",
+  "  pump\" | \"Pebbled leather briefcase\" | \"Baby girl jelly sandals\" | \"Suede penny loafers\"",
+  "  -> action=unmapped, target_key=\"\", confidence=0.9,",
+  "     reason=\"Top-level bucket mixing women's shoes, unsizable bags, and baby footwear.\"",
   "- id=cat_2; path=Home / Furniture; samples=\"Oak dining chair\" | \"Velvet sofa\"",
   "  -> action=excluded, target_key=\"\", confidence=1.0, reason=\"Furniture, not apparel.\"",
   "- id=cat_3; path=Sale; samples=\"Men's slim jean\" | \"Women's midi skirt\" | \"Kids hoodie\"",
@@ -185,7 +242,10 @@ export async function classifyPersonaPaths(
     `Store categories to classify (return exactly ${candidates.length} verdicts, one per id):`,
     ...candidates.map((candidate) =>
       [
-        `- id=${candidate.id}; path=${candidate.path}; products=${candidate.productCount}`,
+        `- id=${candidate.id}; path=${candidate.path}; products=${candidate.productCount}`
+        + `; depth=${candidate.depth ?? 0}${(candidate.depth ?? 0) === 0 ? " (top-level)" : ""}`
+        + `; children=${candidate.childCount ?? 0}`
+        + (candidate.childNames?.length ? ` (${candidate.childNames.join(", ")})` : ""),
         `  samples=${candidate.sampleTitles.length > 0 ? candidate.sampleTitles.join(" | ") : "(none)"}`,
       ].join("\n")
     ),
@@ -237,7 +297,7 @@ export function parsePersonaAutoMatch(
   const rows = (parsed as { verdicts?: unknown })?.verdicts;
   if (!Array.isArray(rows)) throw new GeminiApiError("Persona category matching omitted verdicts.");
 
-  const candidatesById = new Set(candidates.map((candidate) => candidate.id));
+  const candidatesById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
   const targetsByKey = new Map(targets.map((target) => [target.key, target]));
   const seen = new Set<string>();
   const verdicts: PersonaAutoMatchVerdict[] = [];
@@ -245,7 +305,9 @@ export function parsePersonaAutoMatch(
   for (const rowValue of rows) {
     if (!rowValue || typeof rowValue !== "object") continue;
     const row = rowValue as Record<string, unknown>;
-    if (typeof row.id !== "string" || !candidatesById.has(row.id) || seen.has(row.id)) continue;
+    if (typeof row.id !== "string" || seen.has(row.id)) continue;
+    const candidate = candidatesById.get(row.id);
+    if (!candidate) continue;
     seen.add(row.id);
     const reason = typeof row.reason === "string" ? row.reason.slice(0, 240) : "";
     const confidence = typeof row.confidence === "number" ? Math.max(0, Math.min(1, row.confidence)) : 0;
@@ -262,6 +324,20 @@ export function parsePersonaAutoMatch(
 
     const target = typeof row.target_key === "string" ? targetsByKey.get(row.target_key) : undefined;
     if (row.action === "mapped" && target) {
+      // A wrong mapping on a large category is the most expensive mistake this endpoint can make:
+      // it is written silently, it dominates the scan, and it survives into paid chart research.
+      // Below the floor the verdict is kept as a suggestion-shaped "unmapped" so it surfaces in the
+      // merchant's review queue rather than in their catalog.
+      if (candidate.productCount >= LARGE_CATEGORY_SKUS && confidence < LARGE_CATEGORY_MIN_CONFIDENCE) {
+        verdicts.push({
+          id: row.id,
+          mapping: null,
+          reason: `Needs review — ${target.key} at ${confidence.toFixed(2)} confidence is too uncertain for ${candidate.productCount} products. ${reason}`.slice(0, 240),
+          confidence,
+        });
+        continue;
+      }
+
       verdicts.push({
         id: row.id,
         mapping: {
@@ -272,6 +348,22 @@ export function parsePersonaAutoMatch(
           isAutoMatched: true,
         },
         reason,
+        confidence,
+      });
+      continue;
+    }
+
+    // Refusing an unrecognised key is right, but recording it as a plain "unmapped" made it
+    // indistinguishable from a genuine no-decision — a leaf missing from the taxonomy looked
+    // identical to a category the model declined, with nothing in the logs or the UI to tell them
+    // apart.
+    if (row.action === "mapped") {
+      const attempted = typeof row.target_key === "string" ? row.target_key : "(non-string)";
+      console.warn(`[persona auto-match] rejected out-of-scope target_key "${attempted}" for category ${row.id}`);
+      verdicts.push({
+        id: row.id,
+        mapping: null,
+        reason: `Suggested "${attempted}", which is not an enabled Persona path. ${reason}`.slice(0, 240),
         confidence,
       });
       continue;

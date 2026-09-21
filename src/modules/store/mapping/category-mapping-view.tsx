@@ -1309,7 +1309,14 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
                     });
                     const activeDeptCustomLeaves = scopeState.customLeaves.filter((cl) => cl.deptId === dept.id);
                     const totalDeptActiveLeaves = activeDeptStandardLeaves.length + activeDeptCustomLeaves.length;
-                    const deptTotalSkus = activeDeptStandardLeaves.reduce((acc, leaf) => acc + getLeafSkuCount(dept.id, leaf.catId, leaf.sub), 0);
+                    // Read off the mapped store categories themselves rather than summed over the enabled
+                    // sub-leaves. Summing leaves silently dropped every mapping bound to a category node
+                    // instead of one of its leaves — `Women > Footwear` rather than `Footwear > Sandals` —
+                    // so a department reported a fraction of the stock the scan then actually walked.
+                    const deptTotalSkus = categories.reduce(
+                      (acc, c) => (c.status === "mapped" && c.departmentId === dept.id ? acc + c.productCount : acc),
+                      0
+                    );
 
                     return (
                       <div key={dept.id}>
@@ -1356,7 +1363,23 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
                                 ? customLeavesUnderCat.filter((cl) => cl.label.toLowerCase().includes(q) || cl.subCategory.toLowerCase().includes(q) || catDisplayName.toLowerCase().includes(q))
                                 : customLeavesUnderCat;
 
-                              if (filteredSubs.length === 0 && filteredCustom.length === 0) return null;
+                              // A store category can bind to the category node itself rather than to one of
+                              // its sub-leaves — the header is an assign target, and Auto-Match answers at
+                              // this level whenever it can place the parent but not the garment. Such a
+                              // binding has no sub-leaf row to surface on, so the header carries it;
+                              // otherwise a category with no enabled leaves drops out of the tree entirely
+                              // while still feeding the scan.
+                              const categoryLevelMapped = getMappedCategoriesForNode(dept.id, cat.id);
+                              const categoryLevelSkus = getLeafSkuCount(dept.id, cat.id);
+                              const showCategoryLevel =
+                                categoryLevelMapped.length > 0 &&
+                                (!isSearchingCat ||
+                                  catDisplayName.toLowerCase().includes(q) ||
+                                  dept.name.toLowerCase().includes(q) ||
+                                  formatPersonaPath(dept.id, cat.id).toLowerCase().includes(q) ||
+                                  categoryLevelMapped.some((mc) => mc.name.toLowerCase().includes(q)));
+
+                              if (filteredSubs.length === 0 && filteredCustom.length === 0 && !showCategoryLevel) return null;
                               const isCatExpanded = isSearchingCat ? true : expandedCats[catKey] ?? true;
 
                               return (
@@ -1378,14 +1401,58 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
                                           Path: {dept.name} &gt; {catDisplayName}
                                         </span>
                                       </button>
+                                      {showCategoryLevel && (
+                                        <span className="inline-flex shrink-0 items-center gap-1 rounded bg-[var(--color-success)] px-1.5 py-0.5 text-[10px] font-bold text-white">
+                                          <Check className="h-2.5 w-2.5" />
+                                          {categoryLevelMapped.length === 1 ? "Mapped" : `${categoryLevelMapped.length} Mapped`}
+                                        </span>
+                                      )}
                                     </div>
-                                    <span className="shrink-0 text-[11px] font-medium text-[var(--color-text-muted)]">
-                                      {filteredSubs.length + filteredCustom.length} active
-                                    </span>
+                                    <div className="flex shrink-0 items-center gap-2.5">
+                                      {showCategoryLevel && (
+                                        <span className="font-mono text-[11px] text-[var(--color-text-muted)]">
+                                          {categoryLevelSkus.toLocaleString()} mapped SKUs
+                                        </span>
+                                      )}
+                                      <span className="text-[11px] font-medium text-[var(--color-text-muted)]">
+                                        {filteredSubs.length + filteredCustom.length} active
+                                      </span>
+                                    </div>
                                   </div>
 
                                   {isCatExpanded && (
                                     <div className="space-y-1.5 pl-6 pt-1">
+                                      {showCategoryLevel && (
+                                        <div className="space-y-1.5 rounded-[var(--radius-xl)] border border-[var(--color-success-border)] bg-[var(--color-success-light)]/40 p-2.5">
+                                          <div className="font-mono text-[10px] text-[var(--color-text-muted)]">
+                                            Path: {dept.name} &gt; {catDisplayName} — mapped at category level, no sub-category
+                                          </div>
+                                          {categoryLevelMapped.map((mc) => (
+                                            <div
+                                              key={mc.id}
+                                              onClick={(e) => { e.stopPropagation(); locateAndHighlightCategory(mc.id); }}
+                                              title={`Click to locate & highlight "${mc.name}" on the left catalog list`}
+                                              className="group flex cursor-pointer items-center justify-between gap-2 rounded-[var(--radius-md)] border border-[var(--color-success-border)] bg-[var(--color-surface-sticky)] p-1.5 transition-all hover:border-[var(--color-brand)]/40 hover:ring-2 hover:ring-[var(--color-brand)]/20"
+                                            >
+                                              <div className="flex min-w-0 items-center gap-1.5">
+                                                <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-[var(--color-success)] group-hover:text-[var(--color-brand)]" />
+                                                <span className="shrink-0 text-[10px] font-extrabold uppercase tracking-wider text-[var(--color-success)]">Store PLP:</span>
+                                                <span className="truncate text-xs font-bold text-[var(--color-text-primary)]" title={mc.name}>&ldquo;{mc.name}&rdquo;</span>
+                                                <span className="shrink-0 rounded bg-[var(--color-success-light)] px-1.5 py-0.2 font-mono text-[10px] text-[var(--color-success)]">{mc.productCount.toLocaleString()} SKUs</span>
+                                              </div>
+                                              <button
+                                                type="button"
+                                                onClick={(e) => { e.stopPropagation(); handleUnmapSingleCategory(mc.id, mc.name, e); }}
+                                                title="Unmap this store category"
+                                                className="shrink-0 rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-error-light)] hover:text-[var(--color-error)]"
+                                              >
+                                                <X className="h-3.5 w-3.5" />
+                                              </button>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+
                                       {filteredSubs.map((sub) => {
                                         const fullPath = formatPersonaPath(dept.id, cat.id, sub);
                                         const leafLabel = formatLeafLabel(sub);

@@ -158,7 +158,9 @@ export const PERSONA_SUB_CATEGORIES: Record<PersonaDepartmentId, Record<PersonaC
   "kids-unisex": {
     top: ["t-shirt", "shirt", "knit", "hoodie", "sweatshirt", "bodysuit", "sleep-top"],
     bottom: ["trouser", "jean", "short", "legging", "jogger", "sleep-bottom"],
-    "full-body": ["romper", "all-in-one", "sleepsuit", "set"],
+    // `swimsuit` is present for kids-boys and kids-girls; its absence here left a mixed-gender
+    // kids swimwear collection with no target at all, so Auto-Match's answer for one was rejected.
+    "full-body": ["romper", "all-in-one", "sleepsuit", "set", "swimsuit"],
     outerwear: ["jacket", "coat", "cardigan", "snowsuit", "pramsuit"],
     footwear: ["sneaker", "shoe", "boot", "sandal", "bootie", "slipper"],
   },
