@@ -28,7 +28,7 @@ export function StepReview({ form }: StepReviewProps) {
       <div className="rounded-[var(--radius-xl)] border border-[var(--color-border)] overflow-hidden">
         {/* Header */}
         <div className="flex items-center gap-3 p-4 bg-[var(--color-surface-base)]">
-          <AgentOrb mode="wearable" size="lg" animated />
+          <AgentOrb size="lg" animated />
           <div>
             <div className="text-base font-semibold text-[var(--color-text-primary)]">{form.name}</div>
             <div className="text-sm text-[var(--color-text-muted)]">Virtual try-on assistant</div>

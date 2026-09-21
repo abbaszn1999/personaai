@@ -7,8 +7,6 @@ import {
   Copy,
   Eye,
   Info,
-  Monitor,
-  MousePointer,
   RefreshCw,
   Upload,
   X,
@@ -33,17 +31,10 @@ const RADIUS_OPTIONS = [
   { value: "999px", label: "Pill" },
 ];
 
-const POSITION_OPTIONS = [
-  { value: "bottom-right", label: "Bottom-right" },
-  { value: "bottom-left",  label: "Bottom-left" },
-];
-
 const THEME_OPTIONS: { value: WorkspaceTheme; label: string }[] = [
   { value: "dark",  label: "Dark" },
   { value: "light", label: "Light" },
 ];
-
-type DisplayMode = "floating" | "fullpage";
 
 interface BrandingFormState extends WorkspaceBranding {
   hexInput: string;
@@ -54,7 +45,6 @@ interface BrandingFormState extends WorkspaceBranding {
 interface Props { workspace: Workspace }
 
 export function WsBrandingEditor({ workspace }: Props) {
-  const isWearable = workspace.mode === "wearable";
   const updateWorkspaceInStore = useWorkspaceStore((s) => s.updateWorkspace);
 
   const [form, setForm] = React.useState<BrandingFormState>({
@@ -149,8 +139,6 @@ export function WsBrandingEditor({ workspace }: Props) {
     }
   }
 
-  // wearable always forces fullpage in the snippet
-  const effectiveMode: DisplayMode = isWearable ? "fullpage" : form.displayMode;
   const origin = typeof window !== "undefined" ? window.location.origin : "";
 
   const snippet = `<script src="${origin}/widget.js?w=${embedToken}" async></script>`;
@@ -161,9 +149,6 @@ export function WsBrandingEditor({ workspace }: Props) {
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
-
-  // Position control is only relevant for floating mode on unwearable workspaces
-  const showPosition = !isWearable && form.displayMode === "floating";
 
   React.useEffect(() => {
     loadGoogleFont(form.fontFamily);
@@ -335,33 +320,9 @@ export function WsBrandingEditor({ workspace }: Props) {
                 Sets a single consistent tone across the whole embed instead of mixing panels.
               </p>
             </div>
-
-            {/* Widget Position — only for floating unwearable */}
-            {showPosition && (
-              <div>
-                <label className="text-sm font-medium text-[var(--color-text-secondary)] block mb-2">Widget Position</label>
-                <div className="flex gap-2">
-                  {POSITION_OPTIONS.map((p) => (
-                    <button
-                      key={p.value}
-                      onClick={() => update({ position: p.value })}
-                      className={cn(
-                        "flex-1 py-2 text-xs font-semibold rounded-[var(--radius-md)] border transition-all",
-                        form.position === p.value
-                          ? "border-[var(--color-brand)] bg-[var(--color-brand-light)] text-[var(--color-brand)]"
-                          : "border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-brand)]/50"
-                      )}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
           </ControlGroup>
 
-          {isWearable && (
-            <ControlGroup title="Features">
+          <ControlGroup title="Features">
               <div className="flex items-center justify-between rounded-[var(--radius-lg)] border border-[var(--color-border)] px-3 py-2.5">
                 <div>
                   <p className="text-sm font-medium text-[var(--color-text-primary)]">Live camera try-on</p>
@@ -386,9 +347,8 @@ export function WsBrandingEditor({ workspace }: Props) {
                     )}
                   />
                 </button>
-              </div>
-            </ControlGroup>
-          )}
+            </div>
+          </ControlGroup>
 
           {/* Embed */}
           <ControlGroup title="Embed Code">
@@ -414,45 +374,17 @@ export function WsBrandingEditor({ workspace }: Props) {
               </button>
             </div>
 
-            {/* Display mode — only for unwearable (shopping assistant) */}
-            {isWearable ? (
-              <div className="flex items-start gap-2.5 rounded-[var(--radius-lg)] bg-[var(--color-surface-base)] border border-[var(--color-border)] px-3 py-2.5">
-                <Info className="h-4 w-4 text-[var(--color-brand)] mt-0.5 shrink-0" />
-                <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed">
-                  Virtual Try-On always embeds as a <strong className="text-[var(--color-text-primary)]">full-page</strong> experience — image generation and navigation require the full viewport.
-                </p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-2">
-                {(["floating", "fullpage"] as DisplayMode[]).map((mode) => {
-                  const active = form.displayMode === mode;
-                  return (
-                    <button
-                      key={mode}
-                      onClick={() => update({ displayMode: mode })}
-                      className={cn(
-                        "flex flex-col items-center gap-1.5 rounded-[var(--radius-xl)] border p-3 transition-all",
-                        active
-                          ? "border-[var(--color-brand)] bg-[var(--color-brand-light)]"
-                          : "border-[var(--color-border)] hover:border-[var(--color-brand)]/50"
-                      )}
-                    >
-                      {mode === "floating"
-                        ? <MousePointer className={cn("h-4 w-4", active ? "text-[var(--color-brand)]" : "text-[var(--color-text-muted)]")} />
-                        : <Monitor className={cn("h-4 w-4", active ? "text-[var(--color-brand)]" : "text-[var(--color-text-muted)]")} />}
-                      <p className={cn("text-xs font-semibold", active ? "text-[var(--color-brand)]" : "text-[var(--color-text-primary)]")}>
-                        {mode === "floating" ? "Floating" : "Full Page"}
-                      </p>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            <div className="flex items-start gap-2.5 rounded-[var(--radius-lg)] bg-[var(--color-surface-base)] border border-[var(--color-border)] px-3 py-2.5">
+              <Info className="h-4 w-4 text-[var(--color-brand)] mt-0.5 shrink-0" />
+              <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed">
+                Virtual Try-On always embeds as a <strong className="text-[var(--color-text-primary)]">full-page</strong> experience — image generation and navigation require the full viewport.
+              </p>
+            </div>
 
-            {/* Snippet — withheld until the catalog is indexed on wearable workspaces, since
-                deploying it early puts a live agent in front of shoppers with nothing to find.
-                Appearance controls above stay editable so the wait isn't dead time. */}
-            <CatalogReadyGate variant="inline" label="The embed snippet" enabled={isWearable}>
+            {/* Snippet — withheld until the catalog is indexed, since deploying it early puts a
+                live agent in front of shoppers with nothing to find. Appearance controls above
+                stay editable so the wait isn't dead time. */}
+            <CatalogReadyGate variant="inline" label="The embed snippet" enabled>
               <div className="space-y-3">
                 <div className="relative rounded-[var(--radius-lg)] bg-[var(--color-surface-base)] border border-[var(--color-border)] p-3 pr-10 font-mono text-xs text-[var(--color-text-secondary)] break-all leading-relaxed">
                   {snippet}
@@ -525,19 +457,15 @@ export function WsBrandingEditor({ workspace }: Props) {
             className={cn(
               "embed-preview-surface relative flex-1 overflow-hidden",
               form.theme === "dark" && "dark",
-              effectiveMode === "fullpage" && "bg-[var(--color-surface-base)] p-4"
+              "bg-[var(--color-surface-base)] p-4"
             )}
             style={brandStyle}
           >
             <BrandingAgentPreview
-              mode={workspace.mode}
-              displayMode={effectiveMode}
               agentName={form.agentName}
               welcomeMessage={form.welcomeMessage}
               logoUrl={form.logoUrl}
-              primaryColor={form.primaryColor}
               borderRadius={form.borderRadius}
-              position={form.position}
             />
           </div>
         </div>

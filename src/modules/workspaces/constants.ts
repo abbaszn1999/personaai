@@ -1,23 +1,5 @@
-import type { WorkspaceMode, WorkspaceStatus, WorkspaceBranding } from "./types";
+import type { WorkspaceBranding } from "./types";
 
-export const WORKSPACE_MODE_LABELS: Record<WorkspaceMode, string> = {
-  wearable: "Wearable",
-  unwearable: "Unwearable",
-};
-
-export const WORKSPACE_MODE_DESCRIPTIONS: Record<WorkspaceMode, string> = {
-  wearable: "Virtual try-on for clothing, shoes, and accessories",
-  unwearable: "AI shopping assistant for electronics, home, and appliances",
-};
-
-export const WORKSPACE_STATUS_LABELS: Record<WorkspaceStatus, string> = {
-  active: "Active",
-  draft: "Draft",
-  paused: "Paused",
-};
-
-// Every project is a wearable (virtual try-on) agent now, so there's only one default
-// branding shape — the unwearable floating-launcher default has been retired.
 export function defaultBranding(): WorkspaceBranding {
   return {
     agentName: "Maya",

@@ -280,7 +280,7 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
           {branding.logoUrl ? (
             <img src={branding.logoUrl} alt="" className="h-8 w-8 rounded-full object-cover shrink-0 shadow-sm" />
           ) : (
-            <AgentOrb mode="wearable" size="sm" animated />
+            <AgentOrb size="sm" animated />
           )}
           <div className="min-w-0 text-left">
             <span className="text-base font-bold gradient-text-brand truncate block">{branding.agentName}</span>

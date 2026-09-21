@@ -6,7 +6,6 @@ import type { DateRange, WorkspaceAnalyticsPayload } from "../types";
 import { KpiRow } from "./kpi-row";
 import { SalesChart } from "./sales-chart";
 import { ConversionFunnel } from "./conversion-funnel";
-import { WorkspaceBreakdown } from "./workspace-breakdown";
 import { TopProductsTable } from "./top-products-table";
 import { TryOnInsights } from "./try-on-insights";
 import { LiveTryOnInsights } from "./live-tryon-insights";
@@ -31,7 +30,6 @@ export function AnalyticsDashboard({ workspaceId }: AnalyticsDashboardProps) {
   // account's single project always resolve to the same thing — see src/lib/db/analytics.ts.
   const workspace = useWorkspaceStore((s) => s.workspace);
   const effectiveWorkspaceId = workspaceId ?? workspace?.id;
-  const isWearable = true;
 
   React.useEffect(() => {
     if (!effectiveWorkspaceId) {
@@ -89,27 +87,19 @@ export function AnalyticsDashboard({ workspaceId }: AnalyticsDashboardProps) {
       {/* Sales chart */}
       <SalesChart payload={payload} />
 
-      {/* Funnel + Workspace breakdown */}
+      {/* Funnel + shopper stats */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <ConversionFunnel payload={payload} />
-        {/* Show breakdown only when not scoped to a single workspace */}
-        {!workspaceId && <WorkspaceBreakdown workspace={workspace ?? null} payload={payload} />}
-        {workspaceId && (
-          <ShopperStats payload={payload} />
-        )}
+        <ShopperStats payload={payload} />
       </div>
 
       {/* Top products */}
       <TopProductsTable payload={payload} />
 
-      {/* Agent-specific insights — conditional on workspace mode */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {isWearable && <TryOnInsights payload={payload} />}
-        {isWearable && <LiveTryOnInsights payload={payload} />}
+        <TryOnInsights payload={payload} />
+        <LiveTryOnInsights payload={payload} />
       </div>
-
-      {/* Shopper stats — only shown in account-wide view (workspace view shows it in the grid above) */}
-      {!workspaceId && <ShopperStats payload={payload} />}
     </div>
   );
 }

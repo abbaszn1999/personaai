@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { StatusPill } from "@/components/ui/status-pill";
 import type { Workspace } from "@/modules/workspaces/types";
-import { WORKSPACE_MODE_LABELS } from "@/modules/workspaces/constants";
 import { useWorkspaceStore } from "@/modules/workspaces/store";
 
 interface Props {
@@ -66,7 +65,7 @@ export function WsGeneralSection({ workspace }: Props) {
   return (
     <SettingsSection
       title="General"
-      description="Project name, mode, and operational status"
+      description="Project name and operational status"
       icon={<Settings className="h-4 w-4" />}
       accent="brand"
     >
@@ -81,14 +80,6 @@ export function WsGeneralSection({ workspace }: Props) {
           onChange={(e) => setName(e.target.value)}
           hint="Used in the dashboard and sidebar"
         />
-
-        <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium text-[var(--color-text-secondary)]">Agent Mode</label>
-          <div className="flex items-center gap-2 h-9 px-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-base)] text-sm text-[var(--color-text-muted)]">
-            {WORKSPACE_MODE_LABELS[workspace.mode]}
-            <span className="text-[10px] ml-1">(cannot be changed after creation)</span>
-          </div>
-        </div>
 
         <div className="flex items-center justify-between rounded-[var(--radius-lg)] border border-[var(--color-border)] px-4 py-3">
           <div>

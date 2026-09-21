@@ -28,7 +28,7 @@ export function SidebarWorkspaceCard({
           <TooltipTrigger asChild>
             {workspace ? (
               <div className="flex items-center justify-center p-1.5">
-                <AgentOrb mode={workspace.mode} size="sm" />
+                <AgentOrb size="sm" />
               </div>
             ) : (
               <Link
@@ -57,7 +57,7 @@ export function SidebarWorkspaceCard({
       <div className="flex items-center gap-1.5">
         {workspace ? (
           <div className="flex-1 min-w-0 flex items-center gap-2.5 px-2.5 py-2">
-            <AgentOrb mode={workspace.mode} size="sm" />
+            <AgentOrb size="sm" />
             <div className="flex-1 min-w-0 text-left">
               <div className="text-sm font-semibold truncate text-[var(--color-sidebar-text)]">
                 {workspace.name}
