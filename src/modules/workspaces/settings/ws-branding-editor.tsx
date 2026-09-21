@@ -360,6 +360,36 @@ export function WsBrandingEditor({ workspace }: Props) {
             )}
           </ControlGroup>
 
+          {isWearable && (
+            <ControlGroup title="Features">
+              <div className="flex items-center justify-between rounded-[var(--radius-lg)] border border-[var(--color-border)] px-3 py-2.5">
+                <div>
+                  <p className="text-sm font-medium text-[var(--color-text-primary)]">Live camera try-on</p>
+                  <p className="text-xs text-[var(--color-text-muted)]">
+                    Show the Live camera button in the fitting room. Turn off to keep photo try-on only.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={form.liveTryOnEnabled !== false}
+                  onClick={() => update({ liveTryOnEnabled: form.liveTryOnEnabled === false })}
+                  className={cn(
+                    "relative h-6 w-11 rounded-full transition-colors shrink-0",
+                    form.liveTryOnEnabled !== false ? "bg-[var(--color-brand)]" : "bg-[var(--color-border-strong)]"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                      form.liveTryOnEnabled !== false && "translate-x-5"
+                    )}
+                  />
+                </button>
+              </div>
+            </ControlGroup>
+          )}
+
           {/* Embed */}
           <ControlGroup title="Embed Code">
             {/* Enable/disable the public embed — the token in the snippet only works while this is on */}

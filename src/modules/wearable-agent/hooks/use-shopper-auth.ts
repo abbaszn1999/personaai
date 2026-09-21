@@ -27,10 +27,7 @@ export interface ShopperRuntime {
   account: ShopperAccountPublic | null;
   profiles: ShopperProfilePublic[];
   error: string | null;
-  /** `signedIn: true` means the server recognized this email as already-verified and signed
-   *  it straight in (see request-code/route.ts) — the caller should skip the code screen
-   *  entirely rather than waiting on one that was never sent. */
-  requestCode: (email: string) => Promise<{ ok: boolean; signedIn: boolean }>;
+  requestCode: (email: string) => Promise<boolean>;
   verifyCode: (email: string, code: string, acceptPrivacy?: boolean) => Promise<{ ok: boolean; privacyRequired?: boolean }>;
   signOut: () => Promise<void>;
   createProfile: (draft: ShopperProfileDraft) => Promise<ShopperProfilePublic | null>;
@@ -83,18 +80,9 @@ export function useShopperAuth(embed: EmbedRuntimeConfig): ShopperRuntime {
       const result = await requestShopperCode(embed.apiBase, embed.embedToken, email);
       if (!result.ok) {
         setError(result.body.error || "Couldn't send a code — please try again.");
-        return { ok: false, signedIn: false };
+        return false;
       }
-      // Already-verified email — the server skipped the code and signed us straight in.
-      if (result.body.token && result.body.account) {
-        saveShopperToken(embed.embedToken, result.body.token);
-        tokenRef.current = result.body.token;
-        setAccount(result.body.account);
-        setProfiles(result.body.profiles ?? []);
-        setStatus("ready");
-        return { ok: true, signedIn: true };
-      }
-      return { ok: true, signedIn: false };
+      return true;
     },
     [embed.apiBase, embed.embedToken]
   );

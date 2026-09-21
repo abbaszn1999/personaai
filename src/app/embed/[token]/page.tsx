@@ -123,6 +123,7 @@ export default function EmbedPage({ params }: Props) {
             welcomeMessage: state.branding.welcomeMessage,
             logoUrl: state.branding.logoUrl,
             borderRadius: state.branding.borderRadius,
+            liveTryOnEnabled: state.branding.liveTryOnEnabled,
           }}
           onFillViewportChange={setFillViewport}
         />

@@ -150,6 +150,7 @@ export function EmbedApp({ origin, embedToken, onDisplayModeChange }: EmbedAppPr
             welcomeMessage: state.branding.welcomeMessage,
             logoUrl: state.branding.logoUrl,
             borderRadius: state.branding.borderRadius,
+            liveTryOnEnabled: state.branding.liveTryOnEnabled,
           }}
           onFillViewportChange={setFillViewport}
         />

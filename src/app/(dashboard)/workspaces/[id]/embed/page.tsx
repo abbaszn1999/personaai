@@ -76,6 +76,7 @@ export default function EmbedPreviewPage({ params }: Props) {
                 welcomeMessage: ws.branding.welcomeMessage,
                 logoUrl: ws.branding.logoUrl,
                 borderRadius: ws.branding.borderRadius,
+                liveTryOnEnabled: ws.branding.liveTryOnEnabled,
               }}
             />
           </CatalogReadyGate>

@@ -15,6 +15,7 @@ const BRANDING_KEYS: (keyof WorkspaceBranding)[] = [
   "position",
   "displayMode",
   "theme",
+  "liveTryOnEnabled",
 ];
 
 export async function PATCH(req: NextRequest, { params }: RouteParams) {
@@ -43,9 +44,12 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (body.branding && typeof body.branding === "object") {
       const branding: Partial<WorkspaceBranding> = {};
       for (const key of BRANDING_KEYS) {
-        if (body.branding[key] !== undefined) {
-          (branding as Record<string, unknown>)[key] = body.branding[key];
+        if (body.branding[key] === undefined) continue;
+        if (key === "liveTryOnEnabled") {
+          if (typeof body.branding[key] === "boolean") branding.liveTryOnEnabled = body.branding[key];
+          continue;
         }
+        (branding as Record<string, unknown>)[key] = body.branding[key];
       }
       if (Object.keys(branding).length > 0) patch.branding = branding;
     }
