@@ -12,6 +12,8 @@ interface RequestBody {
   productName?: string;
   durationSeconds?: number;
   idempotencyKey?: string;
+  /** Omitted means billable, so an older client still charges the way it used to. */
+  billable?: boolean;
 }
 
 export async function POST(req: NextRequest) {
@@ -53,6 +55,7 @@ export async function POST(req: NextRequest) {
       cycleStartIso: billing.cycleStartIso,
       includedAllowanceSeconds: billing.tier.monthlyLiveTryOnSeconds,
       idempotencyKey,
+      billable: body.billable !== false,
     });
     return Response.json({ ok: true, secondsBalance });
   } catch (error) {

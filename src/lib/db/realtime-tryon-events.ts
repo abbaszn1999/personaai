@@ -9,6 +9,8 @@ export interface RecordRealtimeTryOnEventInput {
   cycleStartIso: string;
   includedAllowanceSeconds: number;
   idempotencyKey: string;
+  /** False for a garment preview. Only the session row moves the allowance and balance. */
+  billable: boolean;
 }
 
 /** Atomically logs a completed preview and charges only its marginal overage seconds. */
@@ -22,6 +24,7 @@ export async function consumeLiveTryOnSeconds(input: RecordRealtimeTryOnEventInp
     p_cycle_start: input.cycleStartIso,
     p_included_allowance: input.includedAllowanceSeconds,
     p_idempotency_key: input.idempotencyKey,
+    p_billable: input.billable,
   });
 
   if (error) {
@@ -36,6 +39,7 @@ export interface RealtimeTryOnEventRow {
   productId: string;
   productName: string;
   durationSeconds: number;
+  billable: boolean;
   createdAt: string;
 }
 
@@ -46,7 +50,7 @@ export async function getRealtimeTryOnEventsInRange(
 ): Promise<RealtimeTryOnEventRow[]> {
   const { data, error } = await db
     .from("realtime_tryon_events")
-    .select("session_id, product_id, product_name, duration_seconds, created_at")
+    .select("session_id, product_id, product_name, duration_seconds, billable, created_at")
     // `workspace_id` was dropped from this table — "workspace" and "owner" are the same
     // thing now, so this stays keyed on owner_id under the hood.
     .eq("owner_id", workspaceId)
@@ -63,6 +67,7 @@ export async function getRealtimeTryOnEventsInRange(
     productId: row.product_id as string,
     productName: row.product_name as string,
     durationSeconds: row.duration_seconds as number,
+    billable: row.billable !== false,
     createdAt: row.created_at as string,
   }));
 }
@@ -74,7 +79,7 @@ export async function getRealtimeTryOnEventsForOwnerInRange(
 ): Promise<RealtimeTryOnEventRow[]> {
   let query = db
     .from("realtime_tryon_events")
-    .select("session_id, product_id, product_name, duration_seconds, created_at")
+    .select("session_id, product_id, product_name, duration_seconds, billable, created_at")
     .eq("owner_id", ownerId)
     .gte("created_at", sinceIso)
     .order("created_at", { ascending: true });
@@ -90,11 +95,12 @@ export async function getRealtimeTryOnEventsForOwnerInRange(
     productId: row.product_id as string,
     productName: row.product_name as string,
     durationSeconds: row.duration_seconds as number,
+    billable: row.billable !== false,
     createdAt: row.created_at as string,
   }));
 }
 
 export async function getLiveTryOnSecondsUsedForOwner(ownerId: string, sinceIso: string): Promise<number> {
   const events = await getRealtimeTryOnEventsForOwnerInRange(ownerId, sinceIso);
-  return events.reduce((sum, event) => sum + event.durationSeconds, 0);
+  return events.reduce((sum, event) => sum + (event.billable ? event.durationSeconds : 0), 0);
 }

@@ -6,6 +6,7 @@ import { loadDecartRuntime } from "./decart-runtime";
 import type { Product } from "@/modules/commerce/types";
 import type { EmbedRuntimeConfig } from "./use-try-on-agent";
 import { getOrCreateEmbedSessionId } from "@/lib/embed/client/embed-storage";
+import { LIVE_SESSION_PRODUCT_ID, LIVE_SESSION_PRODUCT_NAME } from "@/lib/billing/live-session";
 import { resolveGarmentSlot } from "../utils/fit-metrics";
 
 export const REALTIME_TRYON_SESSION_CAP_SECONDS = 90;
@@ -163,10 +164,18 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
   const embedApiBase = embed?.apiBase;
   const embedToken = embed?.embedToken;
 
-  const recordFinishedPreview = React.useCallback(
-    (preview: ActivePreview | null, keepalive = false) => {
-      if (!preview) return;
-      const durationSeconds = Math.max(1, Math.round((performance.now() - preview.startedAt) / 1000));
+  const postUsage = React.useCallback(
+    (
+      body: {
+        sessionId: string;
+        productId: string;
+        productName: string;
+        durationSeconds: number;
+        idempotencyKey: string;
+        billable: boolean;
+      },
+      keepalive: boolean
+    ) => {
       const url = embedApiBase
         ? `${embedApiBase}/persona/realtime-event`
         : "/api/agents/persona/realtime-event";
@@ -177,17 +186,32 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
         keepalive,
         body: JSON.stringify({
           ...(embedToken ? { embedToken } : { workspaceId }),
-          sessionId: sessionIdRef.current,
-          productId: preview.product.id,
-          productName: preview.product.name,
-          durationSeconds,
-          idempotencyKey: preview.id,
+          ...body,
         }),
       }).catch((error) => {
-        console.error("[use-realtime-tryon] failed to record preview usage", error);
+        console.error("[use-realtime-tryon] failed to record usage", error);
       });
     },
     [embedApiBase, embedToken, workspaceId]
+  );
+
+  const recordFinishedPreview = React.useCallback(
+    (preview: ActivePreview | null, keepalive = false) => {
+      const sessionId = sessionIdRef.current;
+      if (!preview || !sessionId) return;
+      postUsage(
+        {
+          sessionId,
+          productId: preview.product.id,
+          productName: preview.product.name,
+          durationSeconds: Math.max(1, Math.round((performance.now() - preview.startedAt) / 1000)),
+          idempotencyKey: preview.id,
+          billable: false,
+        },
+        keepalive
+      );
+    },
+    [postUsage]
   );
 
   const stop = React.useCallback(
@@ -198,7 +222,25 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
         mediaRecorderRef.current.stop();
       }
+      const sessionId = sessionIdRef.current;
+      const elapsedSeconds = Math.min(
+        REALTIME_TRYON_SESSION_CAP_SECONDS,
+        Math.round(elapsedSecondsRef.current)
+      );
       recordFinishedPreview(activePreviewRef.current, true);
+      if (sessionId && elapsedSeconds >= 1) {
+        postUsage(
+          {
+            sessionId,
+            productId: LIVE_SESSION_PRODUCT_ID,
+            productName: LIVE_SESSION_PRODUCT_NAME,
+            durationSeconds: elapsedSeconds,
+            idempotencyKey: `session:${sessionId}`,
+            billable: true,
+          },
+          true
+        );
+      }
       activePreviewRef.current = null;
       clientRef.current?.disconnect();
       clientRef.current = null;
@@ -215,7 +257,7 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
       sessionIdRef.current = null;
       stoppingRef.current = false;
     },
-    [recordFinishedPreview]
+    [postUsage, recordFinishedPreview]
   );
 
   /** Opens the camera (at `mode`) and connects the Decart session. Shared by `start()` and
@@ -470,7 +512,25 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
 
   React.useEffect(() => {
     const onBeforeUnload = () => {
+      const sessionId = sessionIdRef.current;
+      const elapsedSeconds = Math.min(
+        REALTIME_TRYON_SESSION_CAP_SECONDS,
+        Math.round(elapsedSecondsRef.current)
+      );
       recordFinishedPreview(activePreviewRef.current, true);
+      if (sessionId && elapsedSeconds >= 1) {
+        postUsage(
+          {
+            sessionId,
+            productId: LIVE_SESSION_PRODUCT_ID,
+            productName: LIVE_SESSION_PRODUCT_NAME,
+            durationSeconds: elapsedSeconds,
+            idempotencyKey: `session:${sessionId}`,
+            billable: true,
+          },
+          true
+        );
+      }
       clientRef.current?.disconnect();
       cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
     };
@@ -479,7 +539,7 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
       window.removeEventListener("beforeunload", onBeforeUnload);
       onBeforeUnload();
     };
-  }, [recordFinishedPreview]);
+  }, [postUsage, recordFinishedPreview]);
 
   return {
     status,

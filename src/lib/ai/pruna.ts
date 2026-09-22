@@ -12,9 +12,10 @@
 
 const API_BASE = "https://api.pruna.ai";
 
-/** Both image models are priced per output and run in ~1-2s, so waiting inline is the norm
- *  rather than the exception — but see `runPrunaPrediction` for why the async path still has
- *  to exist. */
+/** `p-image-edit` is priced per output image. `p-image-try-on` is priced per garment input,
+ *  and turbo (on for try-on) flattens that to $0.008 per garment. Both usually finish in
+ *  about a second, so waiting inline is the norm — but see `runPrunaPrediction` for why the
+ *  async path still has to exist. */
 const TRY_SYNC_WINDOW_MS = 60_000;
 
 const POLL_INTERVAL_MS = 1_500;
@@ -271,6 +272,10 @@ export interface PrunaTryOnInput {
  * around the subject's edges is exactly the artifact that turns a clean cut-out into a fringed
  * one. `preserve_input_size` is left at its default: matching the person image's dimensions is
  * what keeps a dressed render drop-in compatible with the avatar it came from.
+ *
+ * `turbo` is pinned on. It is the flat $0.008-per-garment rate, and Pruna recommends it up to
+ * four or five garments, which covers the looks this fits. Avatar edits stay off turbo: that
+ * flag does not change the `p-image-edit` price, and it is the case Pruna says to disable.
  */
 export async function prunaTryOn(input: PrunaTryOnInput): Promise<{ image: Buffer; mimeType: string }> {
   if (input.garmentImageUrls.length === 0) {
@@ -281,7 +286,7 @@ export async function prunaTryOn(input: PrunaTryOnInput): Promise<{ image: Buffe
     person_image: input.personImageUrl,
     garment_images: input.garmentImageUrls.slice(0, MAX_TRY_ON_GARMENTS),
     output_format: "png",
-    turbo: false,
+    turbo: true,
     ...(input.prompt ? { prompt: input.prompt } : {}),
     ...(input.seed !== undefined ? { seed: input.seed } : {}),
   });

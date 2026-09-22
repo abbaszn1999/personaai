@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
       const rows = await getRealtimeTryOnEventsForOwnerInRange(user.id, since.toISOString(), now.toISOString());
       for (const row of rows) {
         const key = dayKey(row.createdAt);
-        if (buckets.has(key)) buckets.set(key, (buckets.get(key) ?? 0) + row.durationSeconds);
+        if (row.billable && buckets.has(key)) buckets.set(key, (buckets.get(key) ?? 0) + row.durationSeconds);
       }
     }
 

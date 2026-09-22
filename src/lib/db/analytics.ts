@@ -4,6 +4,7 @@ import { getImageGenerationCount } from "./image-generations";
 import { getTryOnEventsInRange } from "./try-on-events";
 import { getChatEventsInRange } from "./chat-events";
 import { getRealtimeTryOnEventsInRange } from "./realtime-tryon-events";
+import { LIVE_SESSION_PRODUCT_ID } from "@/lib/billing/live-session";
 
 export type AnalyticsRange = "7d" | "30d" | "90d";
 
@@ -36,8 +37,9 @@ export interface WorkspaceAnalyticsPayload {
   } | null;
   /** null when no shopper has started a live camera try-on at all in range — wearable-mode-only.
    *  See getRealtimeTryOnEventsInRange. Kept as its own container (rather than folded into
-   *  tryOnInsights) since it's a distinct feature (Decart realtime camera vs. static Gemini
-   *  image generation) with its own session/duration semantics. */
+   *  tryOnInsights) since it's a distinct feature (Decart realtime camera vs. static image
+   *  generation). totalSeconds counts billable session rows only, so garment previews do not
+   *  add to the billed duration. */
   liveTryOnInsights: {
     totalSessions: number;
     /** One preview = one switchProduct() call the shopper actively ran until the next switch
@@ -253,11 +255,15 @@ export async function getWorkspaceAnalytics(
   if (realtimeTryOnEvents.length > 0) {
     const sessionIds = new Set(realtimeTryOnEvents.map((event) => event.sessionId));
     const totalSessions = sessionIds.size;
-    const totalPreviews = realtimeTryOnEvents.length;
-    const totalSeconds = realtimeTryOnEvents.reduce((sum, event) => sum + event.durationSeconds, 0);
+    const previews = realtimeTryOnEvents.filter((event) => event.productId !== LIVE_SESSION_PRODUCT_ID);
+    const totalPreviews = previews.length;
+    const totalSeconds = realtimeTryOnEvents.reduce(
+      (sum, event) => sum + (event.billable ? event.durationSeconds : 0),
+      0
+    );
 
     const productCounts = new Map<string, { name: string; previews: number }>();
-    for (const event of realtimeTryOnEvents) {
+    for (const event of previews) {
       const existing = productCounts.get(event.productId) ?? { name: event.productName, previews: 0 };
       existing.previews += 1;
       existing.name = event.productName;
