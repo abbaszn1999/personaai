@@ -17,6 +17,9 @@ const PUBLIC_PATHS = [
   // themselves, so a session redirect here would silently stall catalog indexing.
   "/api/internal/",
   "/api/webhooks/",
+  // Stripe has no session cookie. It signs the raw body, and the route checks that
+  // signature itself. A login redirect here makes every delivery a 307.
+  "/api/stripe/webhook",
 ];
 
 function isPublicPath(pathname: string): boolean {
