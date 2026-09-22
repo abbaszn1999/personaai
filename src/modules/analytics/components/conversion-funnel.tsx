@@ -12,7 +12,7 @@ const STEP_COLORS = [
   { bar: "gradient-violet",   text: "text-[var(--color-violet-from,#6b358d)]" },
 ];
 
-/** 2 real steps traced from workspace_live_sessions + cart_events: sessions Persona opened,
+/** 2 real steps traced from live_sessions + cart_events: sessions Persona opened,
  *  then sessions where Persona got something added to cart. No "Product Views" or "Purchase"
  *  step — neither has a real data source (see src/lib/db/analytics.ts). */
 export function ConversionFunnel({ payload }: ConversionFunnelProps) {

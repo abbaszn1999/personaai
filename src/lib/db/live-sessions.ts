@@ -6,14 +6,12 @@ const LIVE_WINDOW_SECONDS = 30;
 
 /** Upserts this shopper's heartbeat row, refreshing `last_seen_at` to now. Called from the
  *  public `/api/embed/heartbeat` route on every heartbeat tick from an embedded widget. */
-export async function recordHeartbeat(workspaceId: string, sessionId: string): Promise<void> {
+export async function recordHeartbeat(ownerId: string, sessionId: string): Promise<void> {
   const { error } = await db
-    .from("workspace_live_sessions")
+    .from("live_sessions")
     .upsert(
       {
-        // `workspace_id` was dropped from this table — "workspace" and "owner" are the same
-        // thing now, so this stays keyed on owner_id under the hood.
-        owner_id: workspaceId,
+        owner_id: ownerId,
         session_id: sessionId,
         last_seen_at: new Date().toISOString(),
       },
@@ -25,16 +23,16 @@ export async function recordHeartbeat(workspaceId: string, sessionId: string): P
   }
 }
 
-/** Counts shoppers currently viewing this workspace's embedded widget — i.e. rows whose
- *  last heartbeat is still within the live window. No cleanup job needed: rows that fall
- *  outside the window are just excluded here, and get overwritten if that shopper returns. */
-export async function countLiveSessions(workspaceId: string): Promise<number> {
+/** Counts shoppers currently viewing this store's embedded widget — i.e. rows whose last
+ *  heartbeat is still within the live window. No cleanup job needed: rows that fall outside
+ *  the window are just excluded here, and get overwritten if that shopper returns. */
+export async function countLiveSessions(ownerId: string): Promise<number> {
   const cutoff = new Date(Date.now() - LIVE_WINDOW_SECONDS * 1000).toISOString();
 
   const { count, error } = await db
-    .from("workspace_live_sessions")
+    .from("live_sessions")
     .select("session_id", { count: "exact", head: true })
-    .eq("owner_id", workspaceId)
+    .eq("owner_id", ownerId)
     .gt("last_seen_at", cutoff);
 
   if (error) {
@@ -58,14 +56,14 @@ export interface LiveSessionRow {
  * src/lib/db/analytics.ts splits these into "new" vs "returning" and buckets by day.
  */
 export async function getSessionRowsForRange(
-  workspaceId: string,
+  ownerId: string,
   sinceIso: string,
   untilIso: string
 ): Promise<LiveSessionRow[]> {
   const { data, error } = await db
-    .from("workspace_live_sessions")
+    .from("live_sessions")
     .select("session_id, started_at, last_seen_at")
-    .eq("owner_id", workspaceId)
+    .eq("owner_id", ownerId)
     .lt("started_at", untilIso)
     .gte("last_seen_at", sinceIso);
 

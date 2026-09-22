@@ -12,7 +12,7 @@ function formatDuration(sec: number) {
   return `${m}m ${s}s`;
 }
 
-/** New vs returning + avg session duration, derived entirely from workspace_live_sessions
+/** New vs returning + avg session duration, derived entirely from live_sessions
  *  heartbeats for this workspace's own widget (see src/lib/db/analytics.ts). */
 export function ShopperStats({ payload }: ShopperStatsProps) {
   const d = payload?.shopperStats;

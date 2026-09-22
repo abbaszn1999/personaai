@@ -87,7 +87,7 @@ interface WindowStats {
 
 /** Computes every metric for one time window (either the requested range, or the preceding
  *  equal-length window used for the trend comparisons). All Persona-attributed: everything
- *  here comes from workspace_live_sessions heartbeats and cart_events the widget itself
+ *  here comes from live_sessions heartbeats and cart_events the widget itself
  *  logged, never from a WooCommerce order/webhook. */
 async function computeWindow(workspaceId: string, sinceIso: string, untilIso: string): Promise<WindowStats> {
   const [cartEvents, sessionRows] = await Promise.all([
@@ -139,7 +139,7 @@ async function computeWindow(workspaceId: string, sinceIso: string, untilIso: st
 
 /**
  * Aggregates everything the analytics dashboard needs for one workspace, strictly from data
- * Persona itself caused: shopper heartbeats (`workspace_live_sessions`), logged cart-add
+ * Persona itself caused: shopper heartbeats (`live_sessions`), logged cart-add
  * outcomes (`cart_events`), and avatar/try-on image generations (`image_generations`, keyed by
  * the workspace owner's account). Never touches WooCommerce order/revenue data — see the plan
  * this implements for why that's deliberately out of scope.

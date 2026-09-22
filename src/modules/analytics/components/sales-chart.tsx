@@ -44,7 +44,7 @@ function CustomTooltip({ active, payload, label }: TooltipProps) {
 const TICK_STYLE = { fontSize: 11, fill: "var(--color-text-muted)" };
 
 /** "Persona Activity Over Time" — two real series (sessions Persona opened/day, cart value
- *  Persona added/day), both traced back to workspace_live_sessions + cart_events. No
+ *  Persona added/day), both traced back to live_sessions + cart_events. No
  *  store-wide revenue/order series — see src/lib/db/analytics.ts. */
 export function SalesChart({ payload }: SalesChartProps) {
   const data = payload?.activityByDay ?? [];
