@@ -21,6 +21,7 @@ export async function runFilterMode(context: RetrievalContext, limit: number = M
     anchorCategory: context.anchor?.category,
     budgetMax: context.budgetMax,
     budgetMin: context.budgetMin,
+    meter: context.meter,
   });
 
   const filter = applyHardRules(
@@ -35,6 +36,7 @@ export async function runFilterMode(context: RetrievalContext, limit: number = M
     visitorId: context.visitorId,
     limit,
     attributionTokenOut,
+    meter: context.meter,
   };
 
   const outcome = await searchWithRelaxation(context.connectionId, filter, (relaxed: CatalogFilter) =>

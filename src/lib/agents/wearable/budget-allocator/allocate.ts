@@ -1,4 +1,6 @@
 import { getGeminiClient } from "@/lib/ai/gemini";
+import { readGeminiTokenUsage } from "@/lib/ai/gemini-chat";
+import { addTokenCost, type SessionMeter } from "@/lib/billing/session-meter";
 import type { CatalogCandidate } from "@/lib/retrieval/types";
 import { loadSkill, renderSkill } from "../load-skill";
 import type { BundleCandidatePool } from "../stylist";
@@ -36,6 +38,7 @@ export interface AllocateBudgetInput {
    *  for (e.g. "something sharp for the jacket") rather than a fixed per-category ratio. */
   query: string;
   apiKey: string;
+  meter?: SessionMeter;
 }
 
 interface CategoryShare {
@@ -79,7 +82,7 @@ function equalShares(categories: string[]): Record<string, number> {
  */
 async function requestBudgetShares(
   categories: string[],
-  input: Pick<AllocateBudgetInput, "query" | "styleGuide" | "apiKey">
+  input: Pick<AllocateBudgetInput, "query" | "styleGuide" | "apiKey" | "meter">
 ): Promise<Record<string, number>> {
   const prompt = renderSkill(loadSkill("budget-allocator/skills/allocate.md").body, {
     query: input.query,
@@ -98,6 +101,9 @@ async function requestBudgetShares(
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: { responseMimeType: "application/json", responseJsonSchema: shareSchema },
     });
+
+    const usage = readGeminiTokenUsage(response.usageMetadata);
+    addTokenCost(input.meter, usage.inputTokens, usage.outputTokens);
 
     const parsed = JSON.parse(response.text ?? "{}") as { shares?: CategoryShare[] };
     const byCategory = new Map(

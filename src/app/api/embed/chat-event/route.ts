@@ -19,9 +19,8 @@ export async function OPTIONS() {
 /**
  * Public, unauthenticated log of one chat turn (a shopper message or an assistant reply) —
  * fired from the shopper's own browser right after the turn is sent/completed. Powers the
- * "Messages Sent" usage metric and the "Assistant Insights" card on the analytics page.
- * Mode-agnostic (both the unwearable Shopping Assistant and the wearable Style Assistant log
- * here), mirroring try-on-event / cart-event.
+ * Assistant Insights card on the analytics page. Session-unit billing is settled on the chat
+ * route, not from these rows.
  */
 export async function POST(req: NextRequest) {
   try {

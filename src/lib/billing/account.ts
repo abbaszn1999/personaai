@@ -5,6 +5,7 @@ import {
 } from "./entitlement";
 import { getImageGenerationCount } from "@/lib/db/image-generations";
 import { getLiveTryOnSecondsUsedForOwner } from "@/lib/db/realtime-tryon-events";
+import { getSessionUnitsUsedForOwner } from "@/lib/db/session-usage";
 import { getUserById, type UserRow } from "@/lib/db/users";
 import {
   getLatestBillingSubscription,
@@ -22,6 +23,7 @@ export interface AccountBillingContext {
   cycleEndIso: string;
   imagesUsedThisCycle: number;
   liveTryOnSecondsUsedThisCycle: number;
+  sessionUnitsUsedThisCycle: number;
   accessMode: BillingAccessMode;
   subscription: BillingSubscriptionRow | null;
   entitlementStatus: BillingEntitlementStatus;
@@ -44,9 +46,10 @@ export async function getAccountBillingContext(userId: string): Promise<AccountB
     stripePeriodEndIso: subscription?.currentPeriodEnd,
   });
   const cycleStartIso = cycle.start.toISOString();
-  const [imagesUsedThisCycle, liveTryOnSecondsUsedThisCycle] = await Promise.all([
+  const [imagesUsedThisCycle, liveTryOnSecondsUsedThisCycle, sessionUnitsUsedThisCycle] = await Promise.all([
     getImageGenerationCount(userId, cycleStartIso),
     getLiveTryOnSecondsUsedForOwner(userId, cycleStartIso),
+    getSessionUnitsUsedForOwner(userId, cycleStartIso),
   ]);
 
   const accessMode = account?.accessMode ?? "stripe";
@@ -60,6 +63,7 @@ export async function getAccountBillingContext(userId: string): Promise<AccountB
     cycleEndIso: cycle.end.toISOString(),
     imagesUsedThisCycle,
     liveTryOnSecondsUsedThisCycle,
+    sessionUnitsUsedThisCycle,
     accessMode,
     subscription,
     entitlementStatus: entitlement.status,

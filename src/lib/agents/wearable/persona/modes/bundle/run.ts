@@ -93,6 +93,7 @@ async function buildCategoryPool(context: RetrievalContext, category: string): P
     categoryScope: context.categoryScope,
     visitorId: context.visitorId,
     limit: CANDIDATES_PER_CATEGORY,
+    meter: context.meter,
   });
 
   // The thin statement result is still real and still on-category, so it is kept as a top-up
@@ -151,6 +152,7 @@ export async function assembleBundles(
     apiKey: context.apiKey,
     pools,
     anchor,
+    meter: context.meter,
   });
 
   return filterValidBundles(proposed, context.hardRules).map((bundle) => ({

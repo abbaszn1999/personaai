@@ -9,6 +9,8 @@ import { resolveEmbedRequest } from "@/lib/embed/resolve";
 import { embedOptions, EMBED_CORS_HEADERS } from "@/lib/embed/cors";
 import type { ChatMessage, Product } from "@/modules/commerce/types";
 import { canUsePaidPlatform, getAccountBillingContext } from "@/lib/billing/account";
+import { flushSessionMeter } from "@/lib/billing/flush-session-meter";
+import { createSessionMeter } from "@/lib/billing/session-meter";
 
 export const maxDuration = 60;
 
@@ -103,6 +105,7 @@ export async function POST(req: NextRequest) {
   }
   const cached = getWearableAvatar(avatarCacheKey);
 
+  const meter = createSessionMeter();
   const context: WearableChatContext = await buildWearableChatContext({
     ownerId: workspace.ownerId,
     // The browser-generated session id already used to key the avatar cache — a stable
@@ -127,6 +130,7 @@ export async function POST(req: NextRequest) {
     intake,
     retrievalState,
   });
+  context.meter = meter;
 
   const encoder = new TextEncoder();
 
@@ -163,6 +167,7 @@ export async function POST(req: NextRequest) {
       };
       req.signal.addEventListener("abort", onAbort, { once: true });
 
+      let turnFinished = false;
       try {
         for await (const event of runWearableChatAgent(context, history)) {
           if (closed || req.signal.aborted) break;
@@ -172,6 +177,7 @@ export async function POST(req: NextRequest) {
           }
           safeEnqueue(encoder.encode(sseLine(event)));
         }
+        turnFinished = !closed && !req.signal.aborted;
       } catch (err) {
         if (!closed && !req.signal.aborted) {
           console.error("[api/embed/wearable POST]", err);
@@ -183,6 +189,16 @@ export async function POST(req: NextRequest) {
       } finally {
         req.signal.removeEventListener("abort", onAbort);
         safeClose();
+      }
+
+      if (turnFinished) {
+        await flushSessionMeter({
+          meter,
+          ownerId: workspace.ownerId,
+          sessionId,
+          history,
+          cycleStartIso: billing.cycleStartIso,
+        });
       }
     },
   });

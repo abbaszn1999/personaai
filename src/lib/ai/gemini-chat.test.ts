@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { toGeminiContents, toToolCalls, type ChatCompletionMessage } from "./gemini-chat";
+import { readGeminiTokenUsage, toGeminiContents, toToolCalls, type ChatCompletionMessage } from "./gemini-chat";
 
 function toolCall(id: string, name: string, args: Record<string, unknown>) {
   return { id, type: "function" as const, function: { name, arguments: JSON.stringify(args) } };
@@ -205,5 +205,14 @@ describe("thought signature round trip", () => {
     ]);
 
     expect(contents[0].parts?.[0]).not.toHaveProperty("thoughtSignature");
+  });
+});
+
+describe("readGeminiTokenUsage", () => {
+  it("bills thoughts as output and treats a missing report as zero", () => {
+    expect(
+      readGeminiTokenUsage({ promptTokenCount: 100, candidatesTokenCount: 20, thoughtsTokenCount: 5 })
+    ).toEqual({ inputTokens: 100, outputTokens: 25 });
+    expect(readGeminiTokenUsage(undefined)).toEqual({ inputTokens: 0, outputTokens: 0 });
   });
 });

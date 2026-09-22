@@ -42,7 +42,7 @@ function UsageDashboardContent() {
     <>
       <DashboardPageHeader
         title="Usage"
-        description="Track image generation usage and remaining credit on your account"
+        description="Track image generation, live try-on, and session usage against your plan"
       />
       <div className="p-6 space-y-6">
         <SettingsSection

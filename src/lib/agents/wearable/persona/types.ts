@@ -10,6 +10,7 @@ import type {
   HardRule,
   RetrievalMode,
 } from "@/lib/retrieval/types";
+import type { SessionMeter } from "@/lib/billing/session-meter";
 import type { WearableChatProfileContext } from "../types";
 
 export type IntakeField = "occasion" | "style" | "budget";
@@ -72,6 +73,9 @@ export interface WearableChatContext {
    *  connection before being sent to ACS (see `buildAcsVisitorId`), not here, so this stays the
    *  same raw value the rest of the app already keys the avatar cache and chat-event log by. */
   visitorId: string;
+  /** Accumulates this turn's Gemini tokens and ACS searches. Absent in tests and any caller
+   *  that is not a shopper session. */
+  meter?: SessionMeter;
 }
 
 export interface SearchCallResult {

@@ -1,3 +1,4 @@
+import { addAcsSearch, type SessionMeter } from "@/lib/billing/session-meter";
 import { getAcsAccessToken } from "./auth";
 import { branchPath, catalogPath, defaultPlacementPath, getAcsConfig } from "./config";
 import { categoryScopeFilterClause, merchantFilterClause } from "./isolation";
@@ -257,6 +258,9 @@ export interface SearchOptions {
   /** Set from a previous call's `nextPageToken` to fetch the next page. Used by the
    *  catalog-reads facet/browse paths, which need more than one page's worth of results. */
   pageToken?: string;
+  /** Set only for a shopper turn. Catalog maintenance omits it, and a `system:` visitor is
+   *  never charged even if one is passed. */
+  meter?: SessionMeter;
 }
 
 /**
@@ -277,7 +281,9 @@ export async function searchProducts(options: SearchOptions): Promise<AcsSearchR
   const clauses = [merchantFilterClause(options.connectionId), scopeClause];
   if (options.extraFilter) clauses.push(`(${options.extraFilter})`);
 
-  return searchProductsRaw(clauses.join(" AND "), options);
+  const response = await searchProductsRaw(clauses.join(" AND "), options);
+  if (options.meter && !options.visitorId.startsWith("system:")) addAcsSearch(options.meter);
+  return response;
 }
 
 /**

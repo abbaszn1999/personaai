@@ -1,3 +1,4 @@
+import type { SessionMeter } from "@/lib/billing/session-meter";
 import type { CatalogCandidate, CatalogFilter, CategoryPath } from "@/lib/retrieval/types";
 import { searchProducts } from "./client";
 import { buildAcsFilterExpression } from "./filter-expression";
@@ -127,6 +128,8 @@ export interface AcsSearchParams {
    *  token to carry). Callers read `.current` once `searchWithRelaxation` resolves, which holds
    *  the token from whichever rung actually produced the results shown. */
   attributionTokenOut?: { current?: string };
+  /** Shopper-session accumulator. Catalog maintenance never sets this. */
+  meter?: SessionMeter;
 }
 
 /** Semantic-leaning search — the ACS analogue of `searchCatalogProducts`. `queryText` is the
@@ -147,6 +150,7 @@ export async function acsSearchCatalogProducts(
     query: queryText,
     pageSize: params.limit,
     extraFilter: buildAcsFilterExpression(filter, params.connectionId),
+    meter: params.meter,
   });
 
   if (params.attributionTokenOut) params.attributionTokenOut.current = response.attributionToken;
@@ -167,6 +171,7 @@ export async function acsFilterCatalogProducts(filter: CatalogFilter, params: Ac
     query: "",
     pageSize: params.limit,
     extraFilter: buildAcsFilterExpression(filter, params.connectionId),
+    meter: params.meter,
   });
 
   if (params.attributionTokenOut) params.attributionTokenOut.current = response.attributionToken;

@@ -1,5 +1,7 @@
 import { MediaResolution, type Part } from "@google/genai";
 import { encodeImageForVision, getGeminiClient } from "@/lib/ai/gemini";
+import { readGeminiTokenUsage } from "@/lib/ai/gemini-chat";
+import { addTokenCost, type SessionMeter } from "@/lib/billing/session-meter";
 import type { CatalogCandidate } from "@/lib/retrieval/types";
 import { loadSkill, renderSkill } from "../load-skill";
 
@@ -72,6 +74,7 @@ export interface SelectBundlesInput {
   pools: BundleCandidatePool[];
   /** Already chosen, and present in every returned bundle. */
   anchor: CatalogCandidate | null;
+  meter?: SessionMeter;
 }
 
 const bundleSchema = {
@@ -192,6 +195,9 @@ export async function selectBundles(input: SelectBundlesInput): Promise<StyledBu
         responseJsonSchema: bundleSchema,
       },
     });
+
+    const usage = readGeminiTokenUsage(response.usageMetadata);
+    addTokenCost(input.meter, usage.inputTokens, usage.outputTokens);
 
     const parsed = JSON.parse(response.text ?? "{}") as { bundles?: VisionBundle[] };
     const byLabel = new Map(labelled.map((entry) => [entry.label, entry.candidate]));

@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getAccountBillingContext } from "@/lib/billing/account";
 import { getWorkspaceByIdForOwner, getWorkspacesByOwner } from "@/lib/db/workspaces";
-import { getChatMessageCountForOwner } from "@/lib/db/chat-events";
+import { SESSION_INCLUDED_UNITS_PER_CYCLE } from "@/lib/billing/pricing";
 import { LIVE_TRYON_PRICE_PER_MINUTE_CENTS } from "@/modules/billing/constants";
 
 export async function GET(req: NextRequest) {
@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
 
     const billing = await getAccountBillingContext(user.id);
     if (!billing) return Response.json({ error: "Account not found" }, { status: 404 });
-    const chatMessagesThisCycle = await getChatMessageCountForOwner(user.id, billing.cycleStartIso);
+    const sessionUnitsBalance = billing.user.session_units_balance ?? 0;
 
     return Response.json(
       {
@@ -50,7 +50,12 @@ export async function GET(req: NextRequest) {
           purchasedSecondsBalance: billing.user.live_tryon_seconds_balance,
           pricePerMinuteCents: LIVE_TRYON_PRICE_PER_MINUTE_CENTS,
         },
-        chatMessagesThisCycle,
+        sessions: {
+          includedAllowance: SESSION_INCLUDED_UNITS_PER_CYCLE,
+          usedThisCycle: billing.sessionUnitsUsedThisCycle,
+          includedRemaining: Math.max(SESSION_INCLUDED_UNITS_PER_CYCLE - billing.sessionUnitsUsedThisCycle, 0),
+          unitsBalance: sessionUnitsBalance,
+        },
       },
       { headers: { "Cache-Control": "no-store" } }
     );

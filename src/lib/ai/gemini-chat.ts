@@ -64,9 +64,34 @@ interface CreateChatCompletionOpts {
   thinking?: "minimal" | "default";
 }
 
+/** Input is `promptTokenCount`. Output is candidates plus thoughts: Gemini bills reasoning
+ *  tokens as output, and a structured call that asked for "minimal" thinking can still report
+ *  a non-zero `thoughtsTokenCount`. */
+export interface GeminiTokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
+export function readGeminiTokenUsage(metadata: {
+  promptTokenCount?: number | null;
+  candidatesTokenCount?: number | null;
+  thoughtsTokenCount?: number | null;
+} | null | undefined): GeminiTokenUsage {
+  const inputTokens = metadata?.promptTokenCount ?? 0;
+  const candidateTokens = metadata?.candidatesTokenCount ?? 0;
+  const thoughtTokens = metadata?.thoughtsTokenCount ?? 0;
+  return {
+    inputTokens: Number.isFinite(inputTokens) ? inputTokens : 0,
+    outputTokens:
+      (Number.isFinite(candidateTokens) ? candidateTokens : 0) +
+      (Number.isFinite(thoughtTokens) ? thoughtTokens : 0),
+  };
+}
+
 export interface CreateChatCompletionResult {
   content: string | null;
   toolCalls: ToolCall[];
+  usage: GeminiTokenUsage;
 }
 
 function parseArguments(raw: string): Record<string, unknown> {
@@ -285,6 +310,7 @@ export async function createChatCompletion(
     return {
       content: response.text ?? null,
       toolCalls: toToolCalls(response.candidates?.[0]?.content?.parts ?? []),
+      usage: readGeminiTokenUsage(response.usageMetadata),
     };
   } catch (err) {
     throw toChatError(err);

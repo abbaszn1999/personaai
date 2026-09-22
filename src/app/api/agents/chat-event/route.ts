@@ -14,9 +14,8 @@ const VALID_ROLES: ChatEventRole[] = ["user", "assistant"];
 
 /**
  * Authenticated counterpart to `/api/embed/chat-event` — logs one chat turn from the
- * dashboard's own Shopping/Style Assistant preview (a merchant testing their own workspace
- * while logged in), so "Messages Sent This Cycle" reflects that testing too. Mode-agnostic:
- * both the unwearable ChatInterface and wearable TryOnLayout call this when not embedded.
+ * dashboard preview so Assistant Insights includes a merchant testing their own store.
+ * Session-unit billing is settled on the chat route, not from these rows.
  */
 export async function POST(req: NextRequest) {
   try {

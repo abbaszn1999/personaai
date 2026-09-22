@@ -168,6 +168,7 @@ export async function handleSearchCatalog(
     budgetMax,
     budgetMin,
     visitorId: context.visitorId,
+    meter: context.meter,
   };
 
   try {

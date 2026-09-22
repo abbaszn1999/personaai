@@ -57,6 +57,7 @@ export async function runRetrieval(
     anchor: context.anchor,
     bundle: context.bundle,
     apiKey: context.apiKey,
+    meter: context.meter,
   });
   console.log(
     `[persona route] mode=${route.mode}` +
@@ -270,6 +271,7 @@ async function runBundleTurn(
     styleGuide: retrievalContext.styleGuide,
     query: retrievalContext.query,
     apiKey: retrievalContext.apiKey,
+    meter: retrievalContext.meter,
   });
 
   const bundles = await assembleBundles(retrievalContext, allocated, anchorCandidate);

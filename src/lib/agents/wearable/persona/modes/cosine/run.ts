@@ -67,6 +67,7 @@ export async function runCosineMode(context: RetrievalContext, options: CosineOp
           anchorCategory: context.anchor?.category,
           budgetMax: context.budgetMax,
           budgetMin: context.budgetMin,
+          meter: context.meter,
         }),
     buildQueryStatement({
       query: context.query,
@@ -75,6 +76,7 @@ export async function runCosineMode(context: RetrievalContext, options: CosineOp
       styleGuide: context.styleGuide,
       targetCategory: options.targetCategory,
       apiKey: context.apiKey,
+      meter: context.meter,
     }),
   ]);
 
@@ -90,6 +92,7 @@ export async function runCosineMode(context: RetrievalContext, options: CosineOp
     visitorId: context.visitorId,
     limit: options.limit ?? MAX_RESULTS,
     attributionTokenOut,
+    meter: context.meter,
   };
 
   const outcome = await searchWithRelaxation(context.connectionId, filter, (relaxed: CatalogFilter) =>

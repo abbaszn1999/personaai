@@ -10,6 +10,8 @@ import { buildWearableChatContext } from "@/lib/agents/wearable/persona/context"
 import { getWearableAvatar, rememberWearableAvatar } from "@/lib/agents/wearable/persona/avatar-cache";
 import type { ChatMessage, Product } from "@/modules/commerce/types";
 import { canUsePaidPlatform, getAccountBillingContext } from "@/lib/billing/account";
+import { flushSessionMeter } from "@/lib/billing/flush-session-meter";
+import { createSessionMeter } from "@/lib/billing/session-meter";
 
 export const maxDuration = 60;
 
@@ -86,6 +88,7 @@ export async function POST(req: NextRequest) {
   }
   const cached = getWearableAvatar(user.id);
 
+  const meter = createSessionMeter();
   const context: WearableChatContext = await buildWearableChatContext({
     ownerId: user.id,
     // The dashboard's chat preview is the merchant's own authenticated account, not an anonymous
@@ -112,6 +115,7 @@ export async function POST(req: NextRequest) {
     intake,
     retrievalState,
   });
+  context.meter = meter;
 
   const encoder = new TextEncoder();
   let latestCreditsRemaining = billing.user.credits;
@@ -150,6 +154,7 @@ export async function POST(req: NextRequest) {
       };
       req.signal.addEventListener("abort", onAbort, { once: true });
 
+      let turnFinished = false;
       try {
         for await (const event of runWearableChatAgent(context, history)) {
           if (closed || req.signal.aborted) break;
@@ -163,6 +168,7 @@ export async function POST(req: NextRequest) {
           }
           safeEnqueue(encoder.encode(sseLine(event)));
         }
+        turnFinished = !closed && !req.signal.aborted;
       } catch (err) {
         // AbortError / closed-controller noise after client disconnect is expected.
         if (!closed && !req.signal.aborted) {
@@ -188,6 +194,16 @@ export async function POST(req: NextRequest) {
         } catch (err) {
           console.error("[api/agents/wearable] failed to persist credits to session", err);
         }
+      }
+
+      if (turnFinished) {
+        await flushSessionMeter({
+          meter,
+          ownerId: user.id,
+          sessionId: user.id,
+          history,
+          cycleStartIso: billing.cycleStartIso,
+        });
       }
     },
   });

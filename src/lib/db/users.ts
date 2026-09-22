@@ -21,6 +21,8 @@ export interface UserRow {
   gemini_api_key_encrypted: string | null;
   credits: number;
   live_tryon_seconds_balance: number;
+  session_units_balance: number;
+  session_cost_carry_nanos: number;
   subscription_tier: string;
   created_at: string;
   updated_at: string;

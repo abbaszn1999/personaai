@@ -1,4 +1,5 @@
 import { createChatCompletion, type ChatCompletionMessage } from "@/lib/ai/gemini-chat";
+import { addTokenCost } from "@/lib/billing/session-meter";
 import type { BundleSuggestion, ChatMessage, Product } from "@/modules/commerce/types";
 import { buildSystemPrompt } from "./prompt";
 import { dispatchToolCall, WEARABLE_AGENT_TOOLS } from "./tools";
@@ -210,9 +211,10 @@ export async function* runWearableChatAgent(
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const allowTools = round < MAX_TOOL_ROUNDS - 1;
 
-      const { content, toolCalls } = await createChatCompletion(context.geminiApiKey, messages, {
+      const { content, toolCalls, usage } = await createChatCompletion(context.geminiApiKey, messages, {
         tools: allowTools ? WEARABLE_AGENT_TOOLS : undefined,
       });
+      addTokenCost(context.meter, usage?.inputTokens ?? 0, usage?.outputTokens ?? 0);
 
       if (toolCalls.length === 0) {
         finalContent = content ?? "";

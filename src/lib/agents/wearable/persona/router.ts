@@ -1,4 +1,5 @@
 import { createChatCompletion, type ToolDefinition } from "@/lib/ai/gemini-chat";
+import { addTokenCost, type SessionMeter } from "@/lib/billing/session-meter";
 import { RETRIEVAL_MODES, isRetrievalMode, type AnchorState, type BundleState, type ConversationTurn, type RetrievalMode } from "@/lib/retrieval/types";
 import { loadSkill, renderSkill } from "../load-skill";
 import { describeSkillsForRouter } from "./registry";
@@ -38,6 +39,7 @@ export interface RouteInput {
   anchor: AnchorState | null;
   bundle: BundleState | null;
   apiKey: string;
+  meter?: SessionMeter;
 }
 
 export interface RouteResult {
@@ -93,6 +95,7 @@ export async function routeRequest(input: RouteInput): Promise<RouteResult> {
         timeoutMs: 12_000,
       }
     );
+    addTokenCost(input.meter, response.usage?.inputTokens ?? 0, response.usage?.outputTokens ?? 0);
 
     const call = response.toolCalls[0];
     if (!call) return { mode: "cosine" };

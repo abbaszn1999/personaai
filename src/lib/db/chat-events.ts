@@ -60,16 +60,3 @@ export async function getChatEventsInRange(
     createdAt: row.created_at as string,
   }));
 }
-
-export async function getChatMessageCountForOwner(ownerId: string, sinceIso: string): Promise<number> {
-  const { count, error } = await db
-    .from("chat_events")
-    .select("id", { count: "exact", head: true })
-    .eq("owner_id", ownerId)
-    .gte("created_at", sinceIso);
-  if (error) {
-    console.error("[db/chat-events getChatMessageCountForOwner]", error);
-    return 0;
-  }
-  return count ?? 0;
-}

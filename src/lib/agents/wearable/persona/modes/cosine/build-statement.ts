@@ -1,4 +1,5 @@
 import { createChatCompletion } from "@/lib/ai/gemini-chat";
+import { addTokenCost, type SessionMeter } from "@/lib/billing/session-meter";
 import type { AnchorState, ConversationTurn } from "@/lib/retrieval/types";
 import { loadSkill } from "../../../load-skill";
 
@@ -18,6 +19,7 @@ export interface BuildStatementInput {
   /** Set in bundle mode: the category currently being resolved. */
   targetCategory?: string | null;
   apiKey: string;
+  meter?: SessionMeter;
 }
 
 export async function buildQueryStatement(input: BuildStatementInput): Promise<string> {
@@ -53,6 +55,7 @@ export async function buildQueryStatement(input: BuildStatementInput): Promise<s
       ],
       { timeoutMs: 15_000 }
     );
+    addTokenCost(input.meter, response.usage?.inputTokens ?? 0, response.usage?.outputTokens ?? 0);
 
     const statement = response.content?.trim();
     if (statement) return statement;

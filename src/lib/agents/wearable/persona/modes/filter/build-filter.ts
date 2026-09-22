@@ -1,4 +1,5 @@
 import { createChatCompletion } from "@/lib/ai/gemini-chat";
+import { addTokenCost, type SessionMeter } from "@/lib/billing/session-meter";
 import { describeTaxonomy, findCategoryForSubcategory, isCanonicalCategory } from "@/lib/retrieval/taxonomy";
 import type { CatalogFacets, CatalogFilter, ConversationTurn, HardRule } from "@/lib/retrieval/types";
 import { loadSkill } from "../../../load-skill";
@@ -183,6 +184,7 @@ export interface BuildFilterInput {
   anchorCategory?: string | null;
   budgetMax?: number;
   budgetMin?: number;
+  meter?: SessionMeter;
 }
 
 /**
@@ -282,6 +284,7 @@ export async function buildFilter(input: BuildFilterInput): Promise<FilterValida
         timeoutMs: 15_000,
       }
     );
+    addTokenCost(input.meter, response.usage?.inputTokens ?? 0, response.usage?.outputTokens ?? 0);
 
     const call = response.toolCalls[0];
     const raw = call ? (JSON.parse(call.function.arguments) as Record<string, unknown>) : {};

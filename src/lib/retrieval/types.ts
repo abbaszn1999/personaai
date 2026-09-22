@@ -1,3 +1,4 @@
+import type { SessionMeter } from "@/lib/billing/session-meter";
 import type { Product } from "@/modules/commerce/types";
 
 export const RETRIEVAL_MODES = ["ask_info", "filter", "cosine", "bundle", "attribute_variant"] as const;
@@ -171,6 +172,9 @@ export interface RetrievalContext {
    *  ACS's `visitorId` on every search call — required for personalization and for the
    *  `attributionToken` returned alongside results to attribute correctly. */
   visitorId: string;
+  /** Same object as `WearableChatContext.meter`, threaded so retrieval's own Gemini and ACS
+   *  calls land on the turn that caused them. */
+  meter?: SessionMeter;
 }
 
 /** One item within a proposed outfit, carrying the category it filled — known for free since

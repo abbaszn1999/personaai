@@ -64,5 +64,10 @@ export interface BillingSummary {
     purchasedSecondsBalance: number;
     pricePerMinuteCents: number;
   };
-  chatMessagesThisCycle: number;
+  sessions: {
+    includedAllowance: number;
+    usedThisCycle: number;
+    includedRemaining: number;
+    unitsBalance: number;
+  };
 }
