@@ -266,7 +266,9 @@ export function mergeOutfitGarments(
  * The avatar is re-keyed onto its magenta plate on the way in and cut back out on the way
  * out; see flattenOntoChromaKey for why a stored transparent PNG can't be sent as-is.
  */
-export async function generateTryOnImage(input: GenerateTryOnImageInput): Promise<{ imageUrl: string }> {
+export async function generateTryOnImage(
+  input: GenerateTryOnImageInput
+): Promise<{ imageUrl: string; garmentCount: number }> {
   const garments = mergeOutfitGarments(input.kept, input.added);
   if (garments.length === 0) {
     throw new PersonaAgentError("At least one garment is required for a try-on render.");
@@ -287,7 +289,10 @@ export async function generateTryOnImage(input: GenerateTryOnImageInput): Promis
       generated.mimeType
     );
 
-    return { imageUrl: `data:${stripped.mimeType};base64,${stripped.imageBase64}` };
+    return {
+      imageUrl: `data:${stripped.mimeType};base64,${stripped.imageBase64}`,
+      garmentCount: garments.length,
+    };
   } catch (err) {
     if (err instanceof PersonaAgentError) throw err;
     const message =

@@ -53,18 +53,13 @@ export function PlanCard({ plan, isActive, loading = false, disabled = false, on
         <Button
           size="md"
           variant={isActive ? "secondary" : "primary"}
-          disabled={isActive || plan.isContactOnly || disabled}
+          disabled={isActive || disabled}
           loading={loading}
-          onClick={plan.isContactOnly ? undefined : onSelect}
+          onClick={onSelect}
           className="w-full"
         >
-          {isActive ? "Current Plan" : plan.isContactOnly ? "Contact Us to Enable" : "Switch to this plan"}
+          {isActive ? "Current Plan" : "Switch to this plan"}
         </Button>
-        {plan.isContactOnly && !isActive && (
-          <p className="text-[11px] text-[var(--color-text-muted)] text-center">
-            Requires a custom contract — contact your account manager to enable this plan.
-          </p>
-        )}
       </div>
     </div>
   );

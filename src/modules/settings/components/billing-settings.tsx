@@ -7,8 +7,8 @@ import { SettingsSection } from "@/components/ui/settings-section";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
 import { PlansSection } from "@/modules/billing/components/plans-section";
-import { CreditBundlesSection } from "@/modules/billing/components/credit-bundles-section";
-import { BuyLiveMinutesSection } from "@/modules/billing/components/buy-live-minutes-section";
+import { SpendCapSection } from "@/modules/billing/components/spend-cap-section";
+import { WalletTopUpSection } from "@/modules/billing/components/wallet-top-up-section";
 import { BillingProvider, useBilling } from "@/modules/billing/hooks/use-billing";
 import { useWorkspaceStore } from "@/modules/workspaces/store";
 
@@ -88,7 +88,7 @@ function BillingSettingsContent() {
           <div className="flex items-center gap-4">
             <div className="hidden sm:flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
               <ImageIcon className="h-3.5 w-3.5" />
-              {loading ? "Loading usage…" : `${(summary?.images.usedThisCycle ?? 0).toLocaleString()} / ${(summary?.images.includedAllowance ?? activeTier.monthlyRenders).toLocaleString()} images this cycle`}
+              {loading ? "Loading usage…" : `${(summary?.images.usedThisCycle ?? 0).toLocaleString()} / ${(summary?.images.includedAllowance ?? activeTier.monthlyGarmentUnits).toLocaleString()} units this cycle · try-on per garment, avatar per image`}
             </div>
             <Link href="/usage">
               <Button variant="secondary" size="sm">
@@ -112,8 +112,8 @@ function BillingSettingsContent() {
       </SettingsSection>
 
       <PlansSection />
-      <CreditBundlesSection />
-      <BuyLiveMinutesSection />
+      <WalletTopUpSection />
+      <SpendCapSection />
     </div>
   );
 }

@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
 
   // Only request as many variations as the account can actually pay for. Callers may ask
   // for fewer (e.g. a single-image regenerate) but never more than the default batch size.
-  const includedRemaining = Math.max(billing.tier.monthlyRenders - billing.imagesUsedThisCycle, 0);
+  const includedRemaining = Math.max(billing.tier.monthlyGarmentUnits - billing.imagesUsedThisCycle, 0);
   const availableGenerations = includedRemaining + billing.user.credits;
   const requestedCount = Math.min(
     typeof count === "number" && count > 0 ? count : DEFAULT_AVATAR_VARIATION_COUNT,
@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
               user.id,
               "avatar",
               billing.cycleStartIso,
-              billing.tier.monthlyRenders
+              billing.tier.monthlyGarmentUnits
             );
             if (consumed) {
               if (includedRemainingInStream > 0) includedRemainingInStream -= 1;

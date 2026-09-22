@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { getUserById } from "@/lib/db/users";
 import { consumeImageGeneration } from "@/lib/db/image-generations";
 import { canGenerateImage, getAccountBillingContext } from "@/lib/billing/account";
-import { generateTryOnImage, PersonaAgentError } from "@/lib/agents/persona-agent";
+import { generateTryOnImage, mergeOutfitGarments, PersonaAgentError } from "@/lib/agents/persona-agent";
 import { PrunaApiError } from "@/lib/ai/pruna";
 import { resolveEmbedRequest } from "@/lib/embed/resolve";
 import { embedJson, embedOptions } from "@/lib/embed/cors";
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
       return embedJson({ error: "Merchant account not found" }, { status: 404 });
     }
     const billing = await getAccountBillingContext(workspace.ownerId);
-    if (!billing || !canGenerateImage(billing)) {
+    if (!billing) {
       return embedJson({ error: "This store has exhausted its monthly image allowance and purchased credits" }, { status: 402 });
     }
 
@@ -40,17 +40,27 @@ export async function POST(req: NextRequest) {
       return embedJson({ error: "At least one garment image is required" }, { status: 400 });
     }
 
-    const { imageUrl } = await generateTryOnImage({
+    const added = garmentImageUrls.map((url: string) => ({
+      name: "garment",
+      slot: "other" as const,
+      imageUrl: url,
+    }));
+    if (!canGenerateImage(billing, mergeOutfitGarments([], added).length)) {
+      return embedJson({ error: "This store has exhausted its monthly image allowance and purchased credits" }, { status: 402 });
+    }
+
+    const { imageUrl, garmentCount } = await generateTryOnImage({
       avatarImageUrl,
       kept: [],
-      added: garmentImageUrls.map((url: string) => ({ name: "garment", slot: "other" as const, imageUrl: url })),
+      added,
     });
 
     const consumed = await consumeImageGeneration(
       workspace.ownerId,
       "try_on",
       billing.cycleStartIso,
-      billing.tier.monthlyRenders
+      billing.tier.monthlyGarmentUnits,
+      garmentCount
     );
     if (!consumed) {
       return embedJson({ error: "This store has exhausted its monthly image allowance and purchased credits" }, { status: 402 });

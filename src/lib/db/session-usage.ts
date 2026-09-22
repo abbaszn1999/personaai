@@ -1,4 +1,6 @@
 import { SESSION_UNIT_NANOS } from "@/lib/billing/pricing";
+import { graceFloor } from "@/lib/billing/wallets";
+import { maybeAlertWalletUsage } from "@/lib/billing/usage-alerts";
 import { db } from "@/lib/supabase/server";
 
 export interface ConsumeSessionUnitsInput {
@@ -25,11 +27,22 @@ export async function consumeSessionUnits(input: ConsumeSessionUnitsInput): Prom
     p_included_allowance: input.includedAllowance,
     p_idempotency_key: input.idempotencyKey,
     p_unit_nanos: SESSION_UNIT_NANOS,
+    p_balance_floor: graceFloor(input.includedAllowance),
   });
 
   if (error) {
     console.error("[db/session-usage consumeSessionUnits]", error);
     throw error;
+  }
+  if (typeof data === "number") {
+    const used = await getSessionUnitsUsedForOwner(input.ownerId, input.cycleStartIso);
+    await maybeAlertWalletUsage({
+      userId: input.ownerId,
+      wallet: "sessions",
+      used,
+      allowance: input.includedAllowance,
+      cycleStartIso: input.cycleStartIso,
+    });
   }
   return typeof data === "number" ? data : null;
 }

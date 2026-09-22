@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
-import { quoteGarmentUnits } from "@/lib/billing/wallets";
-import { GARMENT_MIN_PACKS, GARMENT_PACK_UNITS, GARMENT_MAX_PACKS } from "@/lib/billing/pricing";
+import { quoteSessionUnits } from "@/lib/billing/wallets";
+import { SESSION_MAX_PACKS, SESSION_MIN_PACKS, SESSION_PACK_UNITS } from "@/lib/billing/pricing";
 import { getWorkspaceByIdForOwner, getWorkspacesByOwner } from "@/lib/db/workspaces";
 import { createStripeCheckout } from "@/lib/stripe/checkout";
 
@@ -18,26 +18,26 @@ export async function POST(req: NextRequest) {
     if (!workspace) return Response.json({ error: "Workspace not found" }, { status: 404 });
 
     const units = Number(body.units);
-    const quote = quoteGarmentUnits(units);
+    const quote = quoteSessionUnits(units);
     if (!quote) {
-      const min = GARMENT_MIN_PACKS * GARMENT_PACK_UNITS;
-      const max = GARMENT_MAX_PACKS * GARMENT_PACK_UNITS;
+      const min = SESSION_MIN_PACKS * SESSION_PACK_UNITS;
+      const max = SESSION_MAX_PACKS * SESSION_PACK_UNITS;
       return Response.json(
-        { error: `Garment units must be a multiple of ${GARMENT_PACK_UNITS} between ${min} and ${max}` },
+        { error: `Session units must be a multiple of ${SESSION_PACK_UNITS} between ${min} and ${max}` },
         { status: 400 }
       );
     }
 
     const checkout = await createStripeCheckout({
       user,
-      purchaseKey: "garment_units",
+      purchaseKey: "session_units",
       quantity: quote.stripeQuantity,
     });
     return Response.json({ ...checkout, checkoutMode: "stripe" });
   } catch (error) {
-    console.error("[api/account/credits/purchase POST]", error);
+    console.error("[api/account/session-units/purchase POST]", error);
     return Response.json(
-      { error: error instanceof Error ? error.message : "Unable to purchase garment units" },
+      { error: error instanceof Error ? error.message : "Unable to purchase session units" },
       { status: 500 }
     );
   }

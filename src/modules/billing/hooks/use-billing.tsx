@@ -17,8 +17,10 @@ interface BillingContextValue {
   activeTier: ReturnType<typeof getPlanTiers>[number];
   reload: () => Promise<void>;
   switchTier: (tierId: PlanTierId) => Promise<boolean>;
-  purchaseCreditBundle: (bundleId: string) => Promise<boolean>;
+  purchaseGarmentUnits: (units: number) => Promise<boolean>;
+  purchaseSessionUnits: (units: number) => Promise<boolean>;
   purchaseLiveMinutes: (minutes: number) => Promise<boolean>;
+  saveSpendCap: (capCents: number | null, usageAlerts: boolean) => Promise<boolean>;
   openBillingPortal: () => Promise<boolean>;
 }
 
@@ -143,7 +145,7 @@ export function BillingProvider({ workspaceId, children }: BillingProviderProps)
   }, []);
 
   const tiers = React.useMemo(() => getPlanTiers(), []);
-  const tierId = summary?.tierId ?? "fixed";
+  const tierId = summary?.tierId ?? "trial";
   const activeTier = tiers.find((tier) => tier.id === tierId) ?? tiers[0];
 
   const value = React.useMemo<BillingContextValue>(
@@ -159,10 +161,14 @@ export function BillingProvider({ workspaceId, children }: BillingProviderProps)
       reload: load,
       switchTier: (nextTierId) =>
         mutate(`plan:${nextTierId}`, "/api/account/plan", { tierId: nextTierId }, "PUT"),
-      purchaseCreditBundle: (bundleId) =>
-        mutate(`credits:${bundleId}`, "/api/account/credits/purchase", { bundleId }),
+      purchaseGarmentUnits: (units) =>
+        mutate("garments", "/api/account/credits/purchase", { units }),
+      purchaseSessionUnits: (units) =>
+        mutate("sessions", "/api/account/session-units/purchase", { units }),
       purchaseLiveMinutes: (minutes) =>
         mutate("live-minutes", "/api/account/live-minutes/purchase", { minutes }),
+      saveSpendCap: (capCents, usageAlerts) =>
+        mutate("spend-cap", "/api/account/spend-cap", { capCents, usageAlerts }, "PUT"),
       openBillingPortal,
     }),
     [activeTier, checkoutNotice, error, load, loading, mutate, openBillingPortal, pendingAction, summary, tiers]

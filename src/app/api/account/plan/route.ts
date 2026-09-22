@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getWorkspaceByIdForOwner, getWorkspacesByOwner } from "@/lib/db/workspaces";
 import { getPlanTiers } from "@/modules/billing/constants";
 import { createStripeCheckout } from "@/lib/stripe/checkout";
+import { purchaseKeyForPlan } from "@/lib/stripe/config";
 
 export async function PUT(req: NextRequest) {
   try {
@@ -19,13 +20,10 @@ export async function PUT(req: NextRequest) {
 
     const tier = getPlanTiers().find((candidate) => candidate.id === tierId);
     if (!tier) return Response.json({ error: "Unknown plan" }, { status: 400 });
-    if (tier.isContactOnly) {
-      return Response.json({ error: "This plan requires a custom contract" }, { status: 403 });
-    }
 
     const checkout = await createStripeCheckout({
       user,
-      purchaseKey: "wearable_fixed",
+      purchaseKey: purchaseKeyForPlan(tier.id),
     });
     return Response.json({ ...checkout, checkoutMode: "stripe" });
   } catch (error) {

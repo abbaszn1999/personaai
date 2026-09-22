@@ -1,27 +1,44 @@
+import { graceFloor } from "@/lib/billing/wallets";
+import { maybeAlertWalletUsage } from "@/lib/billing/usage-alerts";
 import { db } from "@/lib/supabase/server";
 
 export type ImageGenerationKind = "avatar" | "try_on";
 
 /**
- * Atomically consumes the monthly included allowance first, then one purchased credit,
- * and logs the generation. Returns false only when both pools are exhausted.
+ * Atomically consumes the monthly included allowance first, then purchased credits for the
+ * remainder, and logs the generation. `units` is 1 for an avatar image and the garment count
+ * for a try-on. Returns false only when the balance cannot cover the remainder.
  */
 export async function consumeImageGeneration(
   userId: string,
   kind: ImageGenerationKind,
   cycleStartIso: string,
-  includedAllowance: number
+  includedAllowance: number,
+  units = 1
 ): Promise<boolean> {
   const { data, error } = await db.rpc("consume_image_generation", {
     p_user_id: userId,
     p_kind: kind,
     p_cycle_start: cycleStartIso,
     p_included_allowance: includedAllowance,
+    p_units: units,
+    p_balance_floor: graceFloor(includedAllowance),
   });
 
   if (error) {
     console.error("[db/image-generations consumeImageGeneration]", error);
     return false;
+  }
+
+  if (data === true) {
+    const used = await getImageUnitsUsed(userId, cycleStartIso);
+    await maybeAlertWalletUsage({
+      userId,
+      wallet: "garments",
+      used,
+      allowance: includedAllowance,
+      cycleStartIso,
+    });
   }
 
   return data === true;
@@ -50,6 +67,22 @@ export async function getImageGenerationCount(userId: string, sinceIso?: string)
   }
 
   return count ?? 0;
+}
+
+/** Sum of billed units since a cycle start. One try-on row can be several units. */
+export async function getImageUnitsUsed(userId: string, sinceIso: string): Promise<number> {
+  const { data, error } = await db.rpc("image_units_used", {
+    p_user_id: userId,
+    p_since: sinceIso,
+  });
+
+  if (error) {
+    console.error("[db/image-generations getImageUnitsUsed]", error);
+    return 0;
+  }
+
+  const sum = Number(data);
+  return Number.isFinite(sum) ? sum : 0;
 }
 
 export interface ImageGenerationUsageRow {

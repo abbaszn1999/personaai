@@ -1,3 +1,5 @@
+import { graceFloor } from "@/lib/billing/wallets";
+import { maybeAlertWalletUsage } from "@/lib/billing/usage-alerts";
 import { db } from "@/lib/supabase/server";
 
 export interface RecordRealtimeTryOnEventInput {
@@ -25,11 +27,22 @@ export async function consumeLiveTryOnSeconds(input: RecordRealtimeTryOnEventInp
     p_included_allowance: input.includedAllowanceSeconds,
     p_idempotency_key: input.idempotencyKey,
     p_billable: input.billable,
+    p_balance_floor: graceFloor(input.includedAllowanceSeconds),
   });
 
   if (error) {
     console.error("[db/realtime-tryon-events consumeLiveTryOnSeconds]", error);
     throw error;
+  }
+  if (input.billable && typeof data === "number") {
+    const used = await getLiveTryOnSecondsUsedForOwner(input.ownerId, input.cycleStartIso);
+    await maybeAlertWalletUsage({
+      userId: input.ownerId,
+      wallet: "live",
+      used,
+      allowance: input.includedAllowanceSeconds,
+      cycleStartIso: input.cycleStartIso,
+    });
   }
   return typeof data === "number" ? data : null;
 }

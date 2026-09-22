@@ -8,7 +8,7 @@ import { getWearableAvatar, rememberWearableAvatar } from "@/lib/agents/wearable
 import { resolveEmbedRequest } from "@/lib/embed/resolve";
 import { embedOptions, EMBED_CORS_HEADERS } from "@/lib/embed/cors";
 import type { ChatMessage, Product } from "@/modules/commerce/types";
-import { canUsePaidPlatform, getAccountBillingContext } from "@/lib/billing/account";
+import { canStartSessionTurn, canUsePaidPlatform, getAccountBillingContext } from "@/lib/billing/account";
 import { flushSessionMeter } from "@/lib/billing/flush-session-meter";
 import { createSessionMeter } from "@/lib/billing/session-meter";
 
@@ -75,6 +75,12 @@ export async function POST(req: NextRequest) {
   if (!billing || !canUsePaidPlatform(billing)) {
     return Response.json(
       { error: "This store's style assistant subscription is inactive.", code: "subscription_required" },
+      { status: 402, headers: EMBED_CORS_HEADERS }
+    );
+  }
+  if (!canStartSessionTurn(billing)) {
+    return Response.json(
+      { error: "This store has reached its session limit.", code: "wallet_limit" },
       { status: 402, headers: EMBED_CORS_HEADERS }
     );
   }
@@ -198,6 +204,7 @@ export async function POST(req: NextRequest) {
           sessionId,
           history,
           cycleStartIso: billing.cycleStartIso,
+          includedAllowance: billing.tier.monthlySessionUnits,
         });
       }
     },

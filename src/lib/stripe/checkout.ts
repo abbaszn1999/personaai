@@ -71,6 +71,7 @@ export async function createStripeCheckout(input: CreateCheckoutInput): Promise<
     quantity,
     creditsToGrant: (item.creditsPerUnit ?? 0) * quantity,
     secondsToGrant: (item.secondsPerUnit ?? 0) * quantity,
+    unitsToGrant: item.kind === "session_units" ? (item.unitsPerUnit ?? 0) * quantity : 0,
     expectedAmountCents: item.amountCents * quantity,
     currency: STRIPE_CURRENCY,
     stripeCustomerId: customerId,

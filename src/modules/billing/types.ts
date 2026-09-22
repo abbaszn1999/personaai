@@ -1,25 +1,25 @@
-export type PlanTierId = "fixed" | "hybrid";
+export type PlanTierId = "trial" | "main";
 
 export interface PlanTier {
   id: PlanTierId;
   name: string;
   priceLabel: string;
   priceSub: string;
-  monthlyRenders: number;
+  /** Included try-on and avatar units for the cycle. A try-on charges one per garment. */
+  monthlyGarmentUnits: number;
   monthlyLiveTryOnSeconds: number;
+  monthlySessionUnits: number;
+  /** Main banks unused include. Trial does not. */
+  carriesBalance: boolean;
   description: string;
   bestFor: string;
   features: string[];
-  /** True when this tier requires a manually-negotiated contract — no self-service "switch to this plan". */
-  isContactOnly?: boolean;
 }
 
-export interface CreditBundle {
-  id: string;
-  name: string;
-  priceLabel: string;
-  credits: number;
-  perCreditLabel: string;
+export interface WalletForecast {
+  dailyBurn: number;
+  projectedCycleTotal: number;
+  suggestedTopUp: number;
 }
 
 export interface UsagePoint {
@@ -51,20 +51,23 @@ export interface BillingSummary {
     cancelAtPeriodEnd: boolean;
     currentPeriodEnd: string | null;
   };
-  images: {
+  overageCents: number;
+  overageCapCents: number | null;
+  usageAlerts: boolean;
+  images: WalletForecast & {
     includedAllowance: number;
     usedThisCycle: number;
     includedRemaining: number;
     creditsBalance: number;
   };
-  liveTryOn: {
+  liveTryOn: WalletForecast & {
     includedAllowanceSeconds: number;
     usedThisCycleSeconds: number;
     includedRemainingSeconds: number;
     purchasedSecondsBalance: number;
     pricePerMinuteCents: number;
   };
-  sessions: {
+  sessions: WalletForecast & {
     includedAllowance: number;
     usedThisCycle: number;
     includedRemaining: number;

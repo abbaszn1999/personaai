@@ -3,10 +3,19 @@ import {
   resolveEntitlement,
   type BillingEntitlementStatus,
 } from "./entitlement";
-import { getImageGenerationCount } from "@/lib/db/image-generations";
+import { allocateImageUnits } from "./image-units";
+import { getImageUnitsUsed } from "@/lib/db/image-generations";
 import { getLiveTryOnSecondsUsedForOwner } from "@/lib/db/realtime-tryon-events";
 import { getSessionUnitsUsedForOwner } from "@/lib/db/session-usage";
 import { getUserById, type UserRow } from "@/lib/db/users";
+import { applyBillingRollover } from "@/lib/db/billing-rollover";
+import {
+  graceFloor,
+  overageBlocksCharge,
+  overageCentsFromMicro,
+  overageMicroCents,
+  walletHeadroom,
+} from "./wallets";
 import {
   getLatestBillingSubscription,
   getOrCreateBillingAccount,
@@ -46,19 +55,38 @@ export async function getAccountBillingContext(userId: string): Promise<AccountB
     stripePeriodEndIso: subscription?.currentPeriodEnd,
   });
   const cycleStartIso = cycle.start.toISOString();
+  const tierId = subscription?.tierId ?? user.subscription_tier;
+  const tier = getPlanTier(tierId);
+  let accountUser = user;
+  try {
+    const rolled = await applyBillingRollover({
+      userId,
+      cycleStartIso,
+      carries: tier.carriesBalance,
+      sessionAllowance: tier.monthlySessionUnits,
+      liveAllowanceSeconds: tier.monthlyLiveTryOnSeconds,
+      garmentAllowance: tier.monthlyGarmentUnits,
+    });
+    if (rolled) {
+      const refreshed = await getUserById(userId);
+      if (refreshed) accountUser = refreshed;
+    }
+  } catch (error) {
+    console.error("[billing/account rollover]", error);
+  }
+
   const [imagesUsedThisCycle, liveTryOnSecondsUsedThisCycle, sessionUnitsUsedThisCycle] = await Promise.all([
-    getImageGenerationCount(userId, cycleStartIso),
+    getImageUnitsUsed(userId, cycleStartIso),
     getLiveTryOnSecondsUsedForOwner(userId, cycleStartIso),
     getSessionUnitsUsedForOwner(userId, cycleStartIso),
   ]);
 
   const accessMode = account?.accessMode ?? "stripe";
   const entitlement = resolveEntitlement(accessMode, subscription);
-  const tierId = subscription?.tierId ?? user.subscription_tier;
 
   return {
-    user,
-    tier: getPlanTier(tierId),
+    user: accountUser,
+    tier,
     cycleStartIso,
     cycleEndIso: cycle.end.toISOString(),
     imagesUsedThisCycle,
@@ -72,25 +100,63 @@ export async function getAccountBillingContext(userId: string): Promise<AccountB
   };
 }
 
-export function canGenerateImage(context: AccountBillingContext): boolean {
-  return (
-    context.entitled &&
-    (
-      context.imagesUsedThisCycle < context.tier.monthlyRenders ||
-      context.user.credits > 0
-    )
-  );
+export function cycleOverageMicroCents(context: AccountBillingContext): number {
+  return overageMicroCents({
+    sessionOverageUnits: context.sessionUnitsUsedThisCycle - context.tier.monthlySessionUnits,
+    liveOverageSeconds: context.liveTryOnSecondsUsedThisCycle - context.tier.monthlyLiveTryOnSeconds,
+    garmentOverageUnits: context.imagesUsedThisCycle - context.tier.monthlyGarmentUnits,
+  });
+}
+
+function capAllowsOverage(context: AccountBillingContext, addsOverage: boolean): boolean {
+  return !overageBlocksCharge({
+    capCents: context.user.overage_cap_cents ?? null,
+    overageMicroCents: cycleOverageMicroCents(context),
+    addsOverage,
+  });
+}
+
+export function canGenerateImage(context: AccountBillingContext, units = 1): boolean {
+  const allowance = context.tier.monthlyGarmentUnits;
+  const charge = allocateImageUnits({
+    usedThisCycle: context.imagesUsedThisCycle,
+    includedAllowance: allowance,
+    units,
+    credits: context.user.credits,
+    balanceFloor: graceFloor(allowance),
+  });
+  if (!context.entitled || !charge) return false;
+  return capAllowsOverage(context, charge.fromCredits > 0);
 }
 
 export function canStartLiveTryOn(context: AccountBillingContext): boolean {
-  return (
-    context.entitled &&
-    (
-      context.liveTryOnSecondsUsedThisCycle < context.tier.monthlyLiveTryOnSeconds ||
-      context.user.live_tryon_seconds_balance > 0
-    )
-  );
+  if (!context.entitled) return false;
+  const included = context.tier.monthlyLiveTryOnSeconds;
+  const includedRemaining = Math.max(included - context.liveTryOnSecondsUsedThisCycle, 0);
+  const headroom = walletHeadroom({
+    used: context.liveTryOnSecondsUsedThisCycle,
+    included,
+    balance: context.user.live_tryon_seconds_balance,
+  });
+  if (headroom <= 0) return false;
+  return capAllowsOverage(context, includedRemaining <= 0);
 }
+
+/** Chat is refused once the session grace floor or the shared spend cap is already hit. */
+export function canStartSessionTurn(context: AccountBillingContext): boolean {
+  if (!context.entitled) return false;
+  const included = context.tier.monthlySessionUnits;
+  const includedRemaining = Math.max(included - context.sessionUnitsUsedThisCycle, 0);
+  const headroom = walletHeadroom({
+    used: context.sessionUnitsUsedThisCycle,
+    included,
+    balance: context.user.session_units_balance,
+  });
+  if (headroom <= 0) return false;
+  return capAllowsOverage(context, includedRemaining <= 0);
+}
+
+export { overageCentsFromMicro, graceFloor };
 
 export function canUsePaidPlatform(context: AccountBillingContext): boolean {
   return context.entitled;

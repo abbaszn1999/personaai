@@ -3,7 +3,7 @@ import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { consumeImageGeneration } from "@/lib/db/image-generations";
 import { getUserById } from "@/lib/db/users";
 import { canGenerateImage, getAccountBillingContext } from "@/lib/billing/account";
-import { generateTryOnImage, PersonaAgentError } from "@/lib/agents/persona-agent";
+import { generateTryOnImage, mergeOutfitGarments, PersonaAgentError } from "@/lib/agents/persona-agent";
 import { PrunaApiError } from "@/lib/ai/pruna";
 
 export async function POST(req: NextRequest) {
@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
     }
 
     const billing = await getAccountBillingContext(user.id);
-    if (!billing || !canGenerateImage(billing)) {
+    if (!billing) {
       return Response.json({ error: "Your monthly image allowance and purchased credits are exhausted" }, { status: 402 });
     }
 
@@ -29,18 +29,25 @@ export async function POST(req: NextRequest) {
     }
 
     // This standalone REST route only receives raw image URLs (no Product/slot data), so
-    // every image is passed through as part of the outfit to render.
-    const { imageUrl } = await generateTryOnImage({
+    // every image is passed through as part of the outfit to render. The billed count is the
+    // length after the 11-garment cap, which is what Pruna receives.
+    const added = garmentImageUrls.map((url: string) => ({ name: "garment", slot: "other" as const, imageUrl: url }));
+    if (!canGenerateImage(billing, mergeOutfitGarments([], added).length)) {
+      return Response.json({ error: "Your monthly image allowance and purchased credits are exhausted" }, { status: 402 });
+    }
+
+    const { imageUrl, garmentCount } = await generateTryOnImage({
       avatarImageUrl,
       kept: [],
-      added: garmentImageUrls.map((url: string) => ({ name: "garment", slot: "other" as const, imageUrl: url })),
+      added,
     });
 
     const consumed = await consumeImageGeneration(
       user.id,
       "try_on",
       billing.cycleStartIso,
-      billing.tier.monthlyRenders
+      billing.tier.monthlyGarmentUnits,
+      garmentCount
     );
     if (!consumed) {
       return Response.json({ error: "Your monthly image allowance and purchased credits are exhausted" }, { status: 402 });

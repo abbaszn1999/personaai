@@ -23,6 +23,7 @@ export interface UserRow {
   live_tryon_seconds_balance: number;
   session_units_balance: number;
   session_cost_carry_nanos: number;
+  overage_cap_cents: number | null;
   subscription_tier: string;
   created_at: string;
   updated_at: string;
@@ -269,6 +270,18 @@ export async function updateSubscriptionTier(id: string, tier: string): Promise<
     .eq("id", id);
   if (error) {
     console.error("[db/users updateSubscriptionTier]", error);
+    return false;
+  }
+  return true;
+}
+
+export async function setOverageCapCents(id: string, capCents: number | null): Promise<boolean> {
+  const { error } = await db
+    .from("users")
+    .update({ overage_cap_cents: capCents, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) {
+    console.error("[db/users setOverageCapCents]", error);
     return false;
   }
   return true;

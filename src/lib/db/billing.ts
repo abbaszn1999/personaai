@@ -1,4 +1,5 @@
 import { db } from "@/lib/supabase/server";
+import type { PlanTierId } from "@/modules/billing/types";
 import type { StripeOrderKind, StripePurchaseKey } from "@/lib/stripe/config";
 
 export type BillingAccessMode = "stripe" | "legacy_test";
@@ -14,7 +15,7 @@ export interface BillingSubscriptionRow {
   stripeCustomerId: string;
   stripeSubscriptionId: string;
   stripePriceId: string;
-  tierId: "fixed" | "hybrid";
+  tierId: PlanTierId;
   status: string;
   currentPeriodStart: string | null;
   currentPeriodEnd: string | null;
@@ -26,10 +27,11 @@ export interface BillingOrderRow {
   userId: string | null;
   kind: StripeOrderKind;
   productKey: StripePurchaseKey;
-  tierId: "fixed" | "hybrid" | null;
+  tierId: PlanTierId | null;
   quantity: number;
   creditsToGrant: number;
   secondsToGrant: number;
+  unitsToGrant: number;
   expectedAmountCents: number;
   currency: string;
   status: string;
@@ -53,7 +55,7 @@ function mapSubscription(row: Record<string, unknown>): BillingSubscriptionRow {
     stripeCustomerId: row.stripe_customer_id as string,
     stripeSubscriptionId: row.stripe_subscription_id as string,
     stripePriceId: row.stripe_price_id as string,
-    tierId: row.tier_id as "fixed" | "hybrid",
+    tierId: row.tier_id as PlanTierId,
     status: row.status as string,
     currentPeriodStart: (row.current_period_start as string | null) ?? null,
     currentPeriodEnd: (row.current_period_end as string | null) ?? null,
@@ -67,10 +69,11 @@ function mapOrder(row: Record<string, unknown>): BillingOrderRow {
     userId: (row.user_id as string | null) ?? null,
     kind: row.kind as StripeOrderKind,
     productKey: row.product_key as StripePurchaseKey,
-    tierId: (row.tier_id as "fixed" | "hybrid" | null) ?? null,
+    tierId: (row.tier_id as PlanTierId | null) ?? null,
     quantity: Number(row.quantity),
     creditsToGrant: Number(row.credits_to_grant),
     secondsToGrant: Number(row.seconds_to_grant),
+    unitsToGrant: Number(row.units_to_grant ?? 0),
     expectedAmountCents: Number(row.expected_amount_cents),
     currency: row.currency as string,
     status: row.status as string,
@@ -126,10 +129,11 @@ export interface CreateBillingOrderInput {
   userId: string;
   kind: StripeOrderKind;
   productKey: StripePurchaseKey;
-  tierId?: "fixed" | null;
+  tierId?: PlanTierId | null;
   quantity: number;
   creditsToGrant: number;
   secondsToGrant: number;
+  unitsToGrant: number;
   expectedAmountCents: number;
   currency: string;
   stripeCustomerId?: string | null;
@@ -147,6 +151,7 @@ export async function createBillingOrder(input: CreateBillingOrderInput): Promis
       quantity: input.quantity,
       credits_to_grant: input.creditsToGrant,
       seconds_to_grant: input.secondsToGrant,
+      units_to_grant: input.unitsToGrant,
       expected_amount_cents: input.expectedAmountCents,
       currency: input.currency,
     })
@@ -219,7 +224,7 @@ export interface UpsertSubscriptionInput {
   stripeSubscriptionId: string;
   stripeProductId: string | null;
   stripePriceId: string;
-  tierId: "fixed" | "hybrid";
+  tierId: PlanTierId;
   status: string;
   currentPeriodStart: string | null;
   currentPeriodEnd: string | null;

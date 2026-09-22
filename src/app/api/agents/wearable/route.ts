@@ -9,7 +9,7 @@ import { runWearableChatAgent, type WearableChatContext, type IntakeState } from
 import { buildWearableChatContext } from "@/lib/agents/wearable/persona/context";
 import { getWearableAvatar, rememberWearableAvatar } from "@/lib/agents/wearable/persona/avatar-cache";
 import type { ChatMessage, Product } from "@/modules/commerce/types";
-import { canUsePaidPlatform, getAccountBillingContext } from "@/lib/billing/account";
+import { canStartSessionTurn, canUsePaidPlatform, getAccountBillingContext } from "@/lib/billing/account";
 import { flushSessionMeter } from "@/lib/billing/flush-session-meter";
 import { createSessionMeter } from "@/lib/billing/session-meter";
 
@@ -56,6 +56,12 @@ export async function POST(req: NextRequest) {
   if (!billing || !canUsePaidPlatform(billing)) {
     return Response.json(
       { error: "An active subscription is required.", code: "subscription_required" },
+      { status: 402 }
+    );
+  }
+  if (!canStartSessionTurn(billing)) {
+    return Response.json(
+      { error: "Session usage has reached this plan's limit.", code: "wallet_limit" },
       { status: 402 }
     );
   }
@@ -203,6 +209,7 @@ export async function POST(req: NextRequest) {
           sessionId: user.id,
           history,
           cycleStartIso: billing.cycleStartIso,
+          includedAllowance: billing.tier.monthlySessionUnits,
         });
       }
     },

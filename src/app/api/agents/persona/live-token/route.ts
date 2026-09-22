@@ -2,6 +2,7 @@ import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { createDecartClientToken, DecartApiError } from "@/lib/ai/decart";
 import { getWorkspaceByIdForOwner } from "@/lib/db/workspaces";
 import { canStartLiveTryOn, getAccountBillingContext } from "@/lib/billing/account";
+import { walletHeadroom } from "@/lib/billing/wallets";
 import { isLiveTryOnEnabled } from "@/modules/workspaces/constants";
 
 export async function POST(req: Request) {
@@ -29,11 +30,11 @@ export async function POST(req: Request) {
       );
     }
 
-    const remainingSeconds =
-      Math.max(
-        billing.tier.monthlyLiveTryOnSeconds - billing.liveTryOnSecondsUsedThisCycle,
-        0
-      ) + billing.user.live_tryon_seconds_balance;
+    const remainingSeconds = walletHeadroom({
+      used: billing.liveTryOnSecondsUsedThisCycle,
+      included: billing.tier.monthlyLiveTryOnSeconds,
+      balance: billing.user.live_tryon_seconds_balance,
+    });
     const token = await createDecartClientToken(remainingSeconds);
     return Response.json({ apiKey: token.apiKey, expiresAt: token.expiresAt });
   } catch (error) {

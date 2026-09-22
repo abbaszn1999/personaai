@@ -1,9 +1,9 @@
 import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getWorkspaceByIdForOwner, getWorkspacesByOwner } from "@/lib/db/workspaces";
+import { quoteLiveMinutes } from "@/lib/billing/wallets";
+import { LIVE_MAX_MINUTES, LIVE_MIN_MINUTES } from "@/lib/billing/pricing";
 import { createStripeCheckout } from "@/lib/stripe/checkout";
-
-const MAX_MINUTES_PER_PURCHASE = 10_000;
 
 export async function POST(req: NextRequest) {
   try {
@@ -18,9 +18,10 @@ export async function POST(req: NextRequest) {
     if (!workspace) return Response.json({ error: "Workspace not found" }, { status: 404 });
 
     const minutes = Number(body.minutes);
-    if (!Number.isInteger(minutes) || minutes < 1 || minutes > MAX_MINUTES_PER_PURCHASE) {
+    const quote = quoteLiveMinutes(minutes);
+    if (!quote) {
       return Response.json(
-        { error: `Minutes must be a whole number between 1 and ${MAX_MINUTES_PER_PURCHASE}` },
+        { error: `Minutes must be a whole number between ${LIVE_MIN_MINUTES} and ${LIVE_MAX_MINUTES}` },
         { status: 400 }
       );
     }
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest) {
     const checkout = await createStripeCheckout({
       user,
       purchaseKey: "live_minutes",
-      quantity: minutes,
+      quantity: quote.stripeQuantity,
     });
     return Response.json({ ...checkout, checkoutMode: "stripe" });
   } catch (error) {

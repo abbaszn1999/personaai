@@ -3,6 +3,7 @@ import { createDecartClientToken, DecartApiError } from "@/lib/ai/decart";
 import { resolveEmbedRequest } from "@/lib/embed/resolve";
 import { embedJson, embedOptions } from "@/lib/embed/cors";
 import { canStartLiveTryOn, getAccountBillingContext } from "@/lib/billing/account";
+import { walletHeadroom } from "@/lib/billing/wallets";
 import { isLiveTryOnEnabled } from "@/modules/workspaces/constants";
 
 export async function OPTIONS() {
@@ -26,11 +27,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const remainingSeconds =
-      Math.max(
-        billing.tier.monthlyLiveTryOnSeconds - billing.liveTryOnSecondsUsedThisCycle,
-        0
-      ) + billing.user.live_tryon_seconds_balance;
+    const remainingSeconds = walletHeadroom({
+      used: billing.liveTryOnSecondsUsedThisCycle,
+      included: billing.tier.monthlyLiveTryOnSeconds,
+      balance: billing.user.live_tryon_seconds_balance,
+    });
     const token = await createDecartClientToken(remainingSeconds);
     return embedJson({ apiKey: token.apiKey, expiresAt: token.expiresAt });
   } catch (error) {

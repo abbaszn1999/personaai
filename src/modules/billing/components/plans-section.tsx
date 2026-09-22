@@ -7,7 +7,7 @@ import { useBilling } from "../hooks/use-billing";
 import { getInfraNotes } from "../constants";
 export function PlansSection() {
   const { summary, tiers, switchTier, pendingAction, error } = useBilling();
-  const activeTierId = summary?.tierId ?? "fixed";
+  const activeTierId = summary?.tierId ?? "trial";
   const hasPaidSubscription =
     summary?.billing.accessMode === "stripe" &&
     Boolean(summary.billing.subscriptionStatus);

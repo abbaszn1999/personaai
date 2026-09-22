@@ -458,7 +458,7 @@ function SidebarAccountCard({
   const displayName = user
     ? [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email
     : "My Account";
-  const tier = user?.subscriptionTier ?? "fixed";
+  const tier = user?.subscriptionTier ?? "trial";
   const tierLabel = tier.charAt(0).toUpperCase() + tier.slice(1);
 
   const trigger = (

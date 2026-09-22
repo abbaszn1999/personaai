@@ -16,6 +16,30 @@ export const ACS_SEARCH_NANOS = 2_500_000;
 
 export const SESSION_UNIT_NANOS = 2_500_000;
 
-/** Temporary monthly included allowance, large enough that metering can run without stopping a
- *  merchant. Real per-plan allowances arrive with the session wallet. */
-export const SESSION_INCLUDED_UNITS_PER_CYCLE = 1_000_000;
+/**
+ * At-cost top-ups. Stripe bills whole cents, so sessions and garments are sold in packs.
+ * One session pack is 1,000 units at $2.50. One garment pack is 100 units at $0.80 ($0.008 each).
+ * Lucy is already one cent-aligned minute at $1.20.
+ */
+export const SESSION_PACK_UNITS = 1_000;
+export const SESSION_PACK_CENTS = 250;
+export const SESSION_MIN_PACKS = 10;
+export const SESSION_MAX_PACKS = 10_000;
+
+export const LIVE_MINUTE_CENTS = 120;
+export const LIVE_MIN_MINUTES = 25;
+export const LIVE_MAX_MINUTES = 10_000;
+
+export const GARMENT_PACK_UNITS = 100;
+export const GARMENT_PACK_CENTS = 80;
+export const GARMENT_MIN_PACKS = 50;
+export const GARMENT_MAX_PACKS = 5_000;
+
+/** Each wallet may run this far past zero, as a fraction of that plan's included allowance. */
+export const WALLET_GRACE_FRACTION = 0.05;
+
+/** Unused included units roll into the purchased balance only up to twice the monthly include. */
+export const ROLLOVER_CAP_MULTIPLIER = 2;
+
+/** Suggested top-up covers this many days at the current burn, then rises to the wallet minimum. */
+export const SUGGESTED_TOP_UP_DAYS = 14;

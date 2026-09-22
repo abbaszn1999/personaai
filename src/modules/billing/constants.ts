@@ -1,47 +1,45 @@
-import type { PlanTier, CreditBundle } from "./types";
+import { LIVE_MINUTE_CENTS } from "@/lib/billing/pricing";
+import type { PlanTier } from "./types";
 
-export const MONTHLY_INCLUDED_RENDERS = 5000;
+export const LIVE_TRYON_PRICE_PER_MINUTE_CENTS = LIVE_MINUTE_CENTS;
 
-/** Decart bills by realtime session-seconds, not per-generation, so live camera try-on gets its
- * own included allowance rather than sharing the render cap above. */
-export const MONTHLY_INCLUDED_LIVE_TRYON_SECONDS = 100 * 60;
-export const LIVE_TRYON_PRICE_PER_MINUTE_CENTS = 120;
-
+/** Trial is first so an unknown stored tier resolves here rather than to Main. */
 export const PLAN_TIERS: PlanTier[] = [
   {
-    id: "fixed",
-    name: "Fixed Platform Tier",
-    priceLabel: "$2,000",
-    priceSub: "/month flat fee",
-    monthlyRenders: MONTHLY_INCLUDED_RENDERS,
-    monthlyLiveTryOnSeconds: MONTHLY_INCLUDED_LIVE_TRYON_SECONDS,
-    description: "5,000 high-fidelity 2K renders and 100 live try-on minutes included every month.",
-    bestFor: "Ideal for established brands with high, predictable traffic who want to keep 100% of their driven sales revenue.",
+    id: "trial",
+    name: "Trial",
+    priceLabel: "$450",
+    priceSub: " / 30 days",
+    monthlyGarmentUnits: 12_500,
+    monthlyLiveTryOnSeconds: 50 * 60,
+    monthlySessionUnits: 50_000,
+    carriesBalance: false,
+    description: "50,000 session units, 50 live minutes, and 12,500 garment units for 30 days.",
+    bestFor: "For a store evaluating Persona before a monthly plan.",
     features: [
-      "5,000 High-Fidelity 2K Renders / month",
-      "100 minutes of Live Camera Try-On / month",
-      "Unlimited prompt & reference images",
-      "Keep 100% of driven sales revenue",
-      "Predictable flat monthly cost",
+      "50,000 session units",
+      "50 minutes of live try-on",
+      "12,500 garment units",
     ],
   },
   {
-    id: "hybrid",
-    name: "Hybrid Performance Tier",
-    priceLabel: "$500",
-    priceSub: "/month base + 10% commission",
-    monthlyRenders: MONTHLY_INCLUDED_RENDERS,
-    monthlyLiveTryOnSeconds: MONTHLY_INCLUDED_LIVE_TRYON_SECONDS,
-    description: "5,000 high-fidelity 2K renders and 100 live try-on minutes included, plus a 10% commission on direct conversions.",
-    bestFor: "Perfect for brands wanting a lower upfront entry cost while aligning Autommerce directly with active sales growth.",
+    id: "main",
+    name: "Main",
+    priceLabel: "$1,500",
+    priceSub: " / month + 3% of GMV",
+    monthlyGarmentUnits: 25_000,
+    monthlyLiveTryOnSeconds: 100 * 60,
+    monthlySessionUnits: 100_000,
+    carriesBalance: true,
+    description:
+      "100,000 session units, 100 live minutes, and 25,000 garment units every month, plus 3% of GMV sold through Persona.",
+    bestFor: "For a store running Persona as its ongoing shopper experience.",
     features: [
-      "5,000 High-Fidelity 2K Renders / month",
-      "100 minutes of Live Camera Try-On / month",
-      "Unlimited prompt & reference images",
-      "Lower upfront monthly cost",
-      "10% commission on direct conversions only",
+      "100,000 session units",
+      "100 minutes of live try-on",
+      "25,000 garment units",
+      "3% of GMV sold through Persona",
     ],
-    isContactOnly: true,
   },
 ];
 
@@ -53,34 +51,10 @@ export function getPlanTier(tierId: string): PlanTier {
   return PLAN_TIERS.find((tier) => tier.id === tierId) ?? PLAN_TIERS[0];
 }
 
-export const CREDIT_BUNDLES: CreditBundle[] = [
-  {
-    id: "starter",
-    name: "Starter Top-Up",
-    priceLabel: "$100",
-    credits: 500,
-    perCreditLabel: "$0.20 / credit",
-  },
-  {
-    id: "growth",
-    name: "Growth Top-Up",
-    priceLabel: "$250",
-    credits: 1500,
-    perCreditLabel: "~$0.166 / credit",
-  },
-  {
-    id: "scale",
-    name: "Scale Top-Up",
-    priceLabel: "$500",
-    credits: 3300,
-    perCreditLabel: "~$0.151 / credit",
-  },
-];
-
 export const INFRA_NOTES: string[] = [
-  "Conversational chat is included with your plan.",
-  "Mannequin & styling generations are managed natively by Autommerce, fixed to studio-grade 2K high-fidelity output.",
-  "Unlimited prompt and image input references are included at no extra credit cost — only 2K visual outputs are deducted from your monthly cap.",
+  "Session units cover catalog search and conversation, up to the allowance on your plan.",
+  "Size chart enrichment, the style guide, and size recommendation are included.",
+  "Monthly catalogue sync and the analytics dashboard are included.",
 ];
 
 export function getInfraNotes(): string[] {

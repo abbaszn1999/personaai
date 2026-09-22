@@ -1,5 +1,4 @@
 import { consumeSessionUnits } from "@/lib/db/session-usage";
-import { SESSION_INCLUDED_UNITS_PER_CYCLE } from "./pricing";
 import { sessionUsageIdempotencyKey, type SessionMeter } from "./session-meter";
 
 /** Records the turn and settles whole units. A billing failure is logged and swallowed so a
@@ -10,6 +9,7 @@ export async function flushSessionMeter(input: {
   sessionId: string;
   history: Array<{ role: string; id?: string }>;
   cycleStartIso: string;
+  includedAllowance: number;
 }): Promise<void> {
   const meter = input.meter;
   if (!meter || (meter.nanos <= 0 && meter.acsSearches === 0 && meter.geminiCalls === 0)) return;
@@ -29,7 +29,7 @@ export async function flushSessionMeter(input: {
       acsSearches: meter.acsSearches,
       geminiCalls: meter.geminiCalls,
       cycleStartIso: input.cycleStartIso,
-      includedAllowance: SESSION_INCLUDED_UNITS_PER_CYCLE,
+      includedAllowance: input.includedAllowance,
       idempotencyKey,
     });
   } catch (error) {

@@ -1,59 +1,72 @@
+import {
+  GARMENT_PACK_CENTS,
+  GARMENT_PACK_UNITS,
+  LIVE_MINUTE_CENTS,
+  SESSION_PACK_CENTS,
+  SESSION_PACK_UNITS,
+} from "@/lib/billing/pricing";
+import type { PlanTierId } from "@/modules/billing/types";
+
 export const STRIPE_CURRENCY = "usd";
 
 export type StripePurchaseKey =
-  | "wearable_fixed"
-  | "credits_starter"
-  | "credits_growth"
-  | "credits_scale"
+  | "plan_trial"
+  | "plan_main"
+  | "garment_units"
+  | "session_units"
   | "live_minutes";
 
-export type StripeOrderKind = "subscription" | "image_credits" | "live_tryon_seconds";
+export type StripeOrderKind = "subscription" | "image_credits" | "live_tryon_seconds" | "session_units";
 
 export interface StripeCatalogItem {
   key: StripePurchaseKey;
   kind: StripeOrderKind;
   envKey: string;
   amountCents: number;
-  tierId?: "fixed";
+  tierId?: PlanTierId;
   creditsPerUnit?: number;
   secondsPerUnit?: number;
+  /** Purchased units represented by one Stripe quantity. Sessions and garments are packs. */
+  unitsPerUnit?: number;
 }
 
 export const STRIPE_CATALOG: Record<StripePurchaseKey, StripeCatalogItem> = {
-  wearable_fixed: {
-    key: "wearable_fixed",
+  plan_trial: {
+    key: "plan_trial",
     kind: "subscription",
-    envKey: "STRIPE_PRICE_WEARABLE_FIXED",
-    amountCents: 200_000,
-    tierId: "fixed",
+    envKey: "STRIPE_PRICE_PLAN_TRIAL",
+    amountCents: 45_000,
+    tierId: "trial",
   },
-  credits_starter: {
-    key: "credits_starter",
-    kind: "image_credits",
-    envKey: "STRIPE_PRICE_CREDITS_STARTER",
-    amountCents: 10_000,
-    creditsPerUnit: 500,
+  plan_main: {
+    key: "plan_main",
+    kind: "subscription",
+    envKey: "STRIPE_PRICE_PLAN_MAIN",
+    amountCents: 150_000,
+    tierId: "main",
   },
-  credits_growth: {
-    key: "credits_growth",
+  garment_units: {
+    key: "garment_units",
     kind: "image_credits",
-    envKey: "STRIPE_PRICE_CREDITS_GROWTH",
-    amountCents: 25_000,
-    creditsPerUnit: 1_500,
+    envKey: "STRIPE_PRICE_GARMENT_UNITS",
+    amountCents: GARMENT_PACK_CENTS,
+    creditsPerUnit: GARMENT_PACK_UNITS,
+    unitsPerUnit: GARMENT_PACK_UNITS,
   },
-  credits_scale: {
-    key: "credits_scale",
-    kind: "image_credits",
-    envKey: "STRIPE_PRICE_CREDITS_SCALE",
-    amountCents: 50_000,
-    creditsPerUnit: 3_300,
+  session_units: {
+    key: "session_units",
+    kind: "session_units",
+    envKey: "STRIPE_PRICE_SESSION_UNITS",
+    amountCents: SESSION_PACK_CENTS,
+    unitsPerUnit: SESSION_PACK_UNITS,
   },
   live_minutes: {
     key: "live_minutes",
     kind: "live_tryon_seconds",
     envKey: "STRIPE_PRICE_LIVE_MINUTE",
-    amountCents: 120,
+    amountCents: LIVE_MINUTE_CENTS,
     secondsPerUnit: 60,
+    unitsPerUnit: 1,
   },
 };
 
@@ -92,6 +105,10 @@ export function getStripeServerConfig(): StripeServerConfig {
     automaticTax: process.env.STRIPE_AUTOMATIC_TAX_ENABLED === "true",
     pastDueGraceDays: getStripePastDueGraceDays(),
   };
+}
+
+export function purchaseKeyForPlan(tierId: PlanTierId): "plan_trial" | "plan_main" {
+  return tierId === "main" ? "plan_main" : "plan_trial";
 }
 
 export function getStripePriceId(key: StripePurchaseKey): string {

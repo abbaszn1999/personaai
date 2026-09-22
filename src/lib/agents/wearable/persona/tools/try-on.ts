@@ -1,5 +1,10 @@
 import type { ToolDefinition } from "@/lib/ai/gemini-chat";
-import { generateTryOnImage, PersonaAgentError, type TryOnGarmentRef } from "@/lib/agents/persona-agent";
+import {
+  generateTryOnImage,
+  mergeOutfitGarments,
+  PersonaAgentError,
+  type TryOnGarmentRef,
+} from "@/lib/agents/persona-agent";
 import { recordDetailPageViewEvent } from "@/lib/catalog/acs/user-events";
 import { consumeImageGeneration } from "@/lib/db/image-generations";
 import { getUserById } from "@/lib/db/users";
@@ -18,7 +23,7 @@ export const tryOnTool: ToolDefinition = {
   type: "function",
   name: "try_on",
   description:
-    "Renders the shopper's avatar and returns a photorealistic preview. Pass only the new or replacement product ids: each item replaces the current garment in the same slot while unrelated garments stay on (new shoes replace shoes but keep the shirt/pants/jacket). Omit productIds to render the current outfit unchanged. Consumes one image credit — only call when the shopper explicitly asks to see/try on/preview something.",
+    "Renders the shopper's avatar and returns a photorealistic preview. Pass only the new or replacement product ids: each item replaces the current garment in the same slot while unrelated garments stay on (new shoes replace shoes but keep the shirt/pants/jacket). Omit productIds to render the current outfit unchanged. Consumes one image credit per garment in the rendered outfit — only call when the shopper explicitly asks to see/try on/preview something.",
   parameters: {
     type: "object",
     properties: {
@@ -70,16 +75,17 @@ export async function handleTryOn(
     return { resultForModel: JSON.stringify({ error: "No avatar is set up yet." }), events: [] };
   }
 
+  const outfit = mergeOutfitGarments(kept.map(toGarmentRef), added.map(toGarmentRef));
   const billing = await getAccountBillingContext(context.userId);
-  if (!billing || !canGenerateImage(billing)) {
+  if (!billing || !canGenerateImage(billing, outfit.length)) {
     return {
-      resultForModel: JSON.stringify({ error: "The shopper is out of image credits — let them know they'll need more credits to generate a preview." }),
+      resultForModel: JSON.stringify({ error: "The shopper doesn't have enough image credits for this outfit — one credit per garment. Let them know they'll need more credits to generate a preview." }),
       events: [],
     };
   }
 
   try {
-    const { imageUrl } = await generateTryOnImage({
+    const { imageUrl, garmentCount } = await generateTryOnImage({
       avatarImageUrl: context.profile.avatarUrl,
       kept: kept.map(toGarmentRef),
       added: added.map(toGarmentRef),
@@ -89,7 +95,8 @@ export async function handleTryOn(
       context.userId,
       "try_on",
       billing.cycleStartIso,
-      billing.tier.monthlyRenders
+      billing.tier.monthlyGarmentUnits,
+      garmentCount
     );
     if (!consumed) throw new PersonaAgentError("The account's image allowance is exhausted.");
     runtime.creditsRemaining = (await getUserById(context.userId))?.credits ?? runtime.creditsRemaining;
