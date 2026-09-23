@@ -25,9 +25,9 @@ export async function PUT(req: NextRequest) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { firstName, lastName, profileImageUrl } = await req.json();
+    const { firstName, lastName } = await req.json();
 
-    const updated = await updateProfile(user.id, { firstName, lastName, profileImageUrl });
+    const updated = await updateProfile(user.id, { firstName, lastName });
 
     if (!updated) {
       return Response.json({ error: "Update failed" }, { status: 500 });
@@ -39,9 +39,6 @@ export async function PUT(req: NextRequest) {
     if (session.profile) {
       session.profile.firstName = firstName ?? null;
       session.profile.lastName = lastName ?? null;
-      if (profileImageUrl !== undefined) {
-        session.profile.profileImageUrl = profileImageUrl || null;
-      }
       await session.save();
     }
 

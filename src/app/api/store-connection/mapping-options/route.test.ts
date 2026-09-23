@@ -66,6 +66,8 @@ function row(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRow {
     cmsColumnDiscoveryScanned: 0,
     cmsColumnDiscoveryError: null,
     cmsColumnDiscoveryUpdatedAt: null,
+    ownerId: "owner-1",
+    ordersAccess: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides,

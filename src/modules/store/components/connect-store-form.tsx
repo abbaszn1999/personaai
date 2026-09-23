@@ -172,7 +172,7 @@ export function ConnectStoreForm({
                     placeholder="Paste your app's Client ID"
                     value={clientId}
                     onChange={(e) => onChange({ clientId: e.target.value })}
-                    hint="Create a Custom app for your store in the Shopify Dev Dashboard (Settings → Client credentials), grant it the read_products scope, and install it on your store — then paste its Client ID and Client Secret here. Verified live and stored encrypted."
+                    hint="Create a Custom app for your store in the Shopify Dev Dashboard (Settings → Client credentials), grant it the read_products and read_orders scopes, and install it on your store — then paste its Client ID and Client Secret here. Verified live and stored encrypted."
                   />
                   <Input
                     label="Client Secret"

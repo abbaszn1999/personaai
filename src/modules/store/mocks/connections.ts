@@ -8,6 +8,7 @@ export const MOCK_CONNECTIONS: StoreConnection[] = [
     storeUrl: "trendwear.myshopify.com",
     status: "connected",
     connectedAt: "2026-06-15T10:00:00Z",
+    ordersAccess: null,
   },
 ];
 

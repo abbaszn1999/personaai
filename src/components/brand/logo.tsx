@@ -1,4 +1,3 @@
-import * as React from "react";
 import { cn } from "@/lib/utils/cn";
 
 /**
@@ -67,65 +66,28 @@ export function Logo({
   );
 }
 
-/* ── The triangular "A" symbol ───────────────────────────────────────────── */
+/** Official mark. White on dark surfaces, full color on light. Both sit in the
+ *  box and CSS picks one from `html[data-theme]` so the first paint matches. */
 export function LogoMark({ size = 32, className }: { size?: number; className?: string }) {
-  const id = React.useId();
-  const orange = `orange-${id}`;
-  const purple = `purple-${id}`;
-  const red = `red-${id}`;
-
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 120 120"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
+    <span
+      className={cn("relative inline-flex shrink-0 items-center justify-center", className)}
+      style={{ width: size, height: size }}
       role="img"
       aria-label="Autommerce"
     >
-      <defs>
-        <linearGradient id={orange} x1="60" y1="14" x2="60" y2="70" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#FF8A2B" />
-          <stop offset="0.55" stopColor="#F76D01" />
-          <stop offset="1" stopColor="#DC3708" />
-        </linearGradient>
-        <linearGradient id={purple} x1="22" y1="60" x2="98" y2="60" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#9A6BB0" />
-          <stop offset="0.5" stopColor="#6B358D" />
-          <stop offset="1" stopColor="#400095" />
-        </linearGradient>
-        <linearGradient id={red} x1="60" y1="62" x2="60" y2="86" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#C40000" />
-          <stop offset="1" stopColor="#79081D" />
-        </linearGradient>
-      </defs>
-
-      {/* Orange peaks (the "A" / mountain) */}
-      <path
-        d="M63 16 L75 20 L60.5 64 L47 60 Z"
-        fill={`url(#${orange})`}
-        strokeLinejoin="round"
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/brand/autommerce-white.png"
+        alt=""
+        className="theme-icon-for-dark h-full w-full object-contain"
       />
-      <path
-        d="M44 38 L53.5 41 L46 64 L35.5 61 Z"
-        fill={`url(#${orange})`}
-        strokeLinejoin="round"
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/brand/autommerce-natural.png"
+        alt=""
+        className="theme-icon-for-light h-full w-full object-contain"
       />
-
-      {/* Purple arc cradling the peaks */}
-      <path
-        d="M22 56 Q60 96 98 56"
-        stroke={`url(#${purple})`}
-        strokeWidth="14"
-        strokeLinecap="round"
-        fill="none"
-      />
-
-      {/* Red feet */}
-      <path d="M25 66 L40 64 L37 82 L22 82 Z" fill={`url(#${red})`} strokeLinejoin="round" />
-      <path d="M80 64 L95 66 L98 82 L83 82 Z" fill={`url(#${red})`} strokeLinejoin="round" />
-    </svg>
+    </span>
   );
 }

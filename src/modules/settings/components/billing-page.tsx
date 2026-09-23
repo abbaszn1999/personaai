@@ -6,6 +6,7 @@ import { DashboardPageHeader } from "@/components/layout/dashboard-header-contex
 import { EmptyState } from "@/components/ui/empty-state";
 import { FormError } from "@/components/ui/settings-card";
 import { PlanSummaryCard } from "@/modules/billing/components/plan-summary-card";
+import { GmvCard } from "@/modules/billing/components/gmv-card";
 import { PlansSection } from "@/modules/billing/components/plans-section";
 import { SpendCapSection } from "@/modules/billing/components/spend-cap-section";
 import { WalletTopUpSection } from "@/modules/billing/components/wallet-top-up-section";
@@ -48,6 +49,7 @@ function BillingContent() {
       )}
       {error && pendingAction === null && <FormError>{error}</FormError>}
       <PlanSummaryCard />
+      <GmvCard />
       <PlansSection />
       <WalletTopUpSection />
       <SpendCapSection />

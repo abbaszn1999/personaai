@@ -1,9 +1,7 @@
 "use client";
 
-import * as React from "react";
 import Link from "next/link";
 import { Plus } from "lucide-react";
-import { AgentOrb } from "@/components/ui/agent-orb";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Workspace } from "@/modules/workspaces/types";
 import { cn } from "@/lib/utils/cn";
@@ -15,29 +13,46 @@ interface SidebarWorkspaceCardProps {
   storeName: string | null;
 }
 
+function initialOf(name: string): string {
+  const letter = name.trim().charAt(0).toUpperCase();
+  return letter || "?";
+}
+
+/** Project identity, not the person. A rounded square with the project initial
+ *  is how workspace switchers stay distinct from the account photo below. */
+function ProjectMark({ name }: { name: string }) {
+  return (
+    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] gradient-brand text-sm font-semibold text-white">
+      {initialOf(name)}
+    </span>
+  );
+}
+
 export function SidebarWorkspaceCard({
   workspace,
   collapsed,
   storeConnected,
   storeName,
 }: SidebarWorkspaceCardProps) {
+  const storeLabel = storeConnected ? (storeName ?? "Store connected") : "No store";
+
   if (collapsed) {
     return (
-      <div className="px-1 py-1 flex flex-col items-center gap-1.5">
+      <div className="flex flex-col items-center px-1 py-1">
         <Tooltip>
           <TooltipTrigger asChild>
             {workspace ? (
-              <div className="flex items-center justify-center p-1.5">
-                <AgentOrb size="sm" />
+              <div className="flex items-center justify-center p-1">
+                <ProjectMark name={workspace.name} />
               </div>
             ) : (
               <Link
                 href="/setup"
-                className="flex items-center justify-center p-1.5 rounded-[var(--radius-md)] sidebar-glass-hover transition-colors"
+                className="flex items-center justify-center rounded-[var(--radius-md)] p-1.5 sidebar-glass-hover transition-colors"
               >
-                <div className="h-8 w-8 rounded-full gradient-brand shrink-0 flex items-center justify-center">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] gradient-brand">
                   <Plus className="h-4 w-4 text-white" />
-                </div>
+                </span>
               </Link>
             )}
           </TooltipTrigger>
@@ -45,57 +60,52 @@ export function SidebarWorkspaceCard({
             side="right"
             className="bg-[var(--color-sidebar-bg)] border-[var(--color-sidebar-border)] text-[var(--color-sidebar-text)]"
           >
-            {workspace?.name ?? "Add Project"}
+            {workspace ? `${workspace.name} · ${storeLabel}` : "Add Project"}
           </TooltipContent>
         </Tooltip>
       </div>
     );
   }
 
-  return (
-    <div className="mx-2.5 mb-2 rounded-[var(--radius-xl)] sidebar-glass p-3 space-y-2.5">
-      <div className="flex items-center gap-1.5">
-        {workspace ? (
-          <div className="flex-1 min-w-0 flex items-center gap-2.5 px-2.5 py-2">
-            <AgentOrb size="sm" />
-            <div className="flex-1 min-w-0 text-left">
-              <div className="text-sm font-semibold truncate text-[var(--color-sidebar-text)]">
-                {workspace.name}
-              </div>
-            </div>
-          </div>
-        ) : (
-          <Link
-            href="/setup"
-            className="group flex-1 min-w-0 flex items-center gap-2.5 px-2.5 py-2 rounded-[var(--radius-lg)] sidebar-glass-hover transition-colors"
-          >
-            <div className="h-8 w-8 rounded-full gradient-brand shrink-0 flex items-center justify-center">
-              <Plus className="h-4 w-4 text-white" />
-            </div>
-            <div className="flex-1 min-w-0 text-left">
-              <div className="text-sm font-semibold truncate text-[var(--color-sidebar-text)] group-hover:text-[var(--color-brand)] transition-colors">
-                Add Project
-              </div>
-            </div>
-          </Link>
-        )}
+  if (!workspace) {
+    return (
+      <div className="mx-2.5 mb-2">
+        <Link
+          href="/setup"
+          className="group flex items-center gap-2.5 rounded-[var(--radius-xl)] sidebar-glass px-3 py-2.5 sidebar-glass-hover transition-colors"
+        >
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] gradient-brand">
+            <Plus className="h-4 w-4 text-white" />
+          </span>
+          <span className="truncate text-sm font-semibold text-[var(--color-sidebar-text)] group-hover:text-[var(--color-brand)] transition-colors">
+            Add Project
+          </span>
+        </Link>
       </div>
+    );
+  }
 
-      {workspace && (
-        <div className="flex items-center justify-end gap-2 pt-0.5 border-t border-[var(--color-sidebar-border)]">
-          <span className="flex items-center gap-1.5 min-w-0">
+  return (
+    <div className="mx-2.5 mb-2 rounded-[var(--radius-xl)] sidebar-glass px-3 py-2.5">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <ProjectMark name={workspace.name} />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-semibold leading-tight text-[var(--color-sidebar-text)]">
+            {workspace.name}
+          </div>
+          <div className="mt-1 flex min-w-0 items-center gap-1.5">
             <span
               className={cn(
-                "h-1.5 w-1.5 rounded-full shrink-0",
-                storeConnected ? "bg-[var(--color-success)] animate-pulse-dot" : "bg-[var(--color-sidebar-text-muted)]"
+                "h-1.5 w-1.5 shrink-0 rounded-full",
+                storeConnected ? "bg-[var(--color-success)]" : "bg-[var(--color-sidebar-text-muted)]"
               )}
             />
-            <span className="text-[10px] text-[var(--color-sidebar-text-muted)] truncate">
-              {storeConnected ? (storeName ?? "Store connected") : "No store"}
+            <span className="truncate text-[10px] leading-none text-[var(--color-sidebar-text-muted)]">
+              {storeLabel}
             </span>
-          </span>
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

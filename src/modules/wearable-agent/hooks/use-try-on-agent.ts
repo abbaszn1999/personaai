@@ -1945,6 +1945,8 @@ export function useTryOnAgent(
       for (const product of products) {
         let success = false;
         let lastError: unknown = null;
+        let platform: string | undefined;
+        let platformItemId: number | undefined;
         setState((s) => ({ ...s, pendingCartItemIds: [...s.pendingCartItemIds, product.id] }));
         // A one-shot mutation attempt can transiently fail on the very first real-cart sync
         // of a fresh session — e.g. Shopify's Standard Storefront Action script hasn't
@@ -1975,10 +1977,12 @@ export function useTryOnAgent(
             if (!res.ok || typeof data.id !== "number") {
               throw new Error(data.error || "Couldn't add this to your cart.");
             }
+            platform = data.platform;
+            platformItemId = data.id;
 
             const result =
               data.platform === "shopify"
-                ? await addItemToShopifyCart(origin, data.id, 1)
+                ? await addItemToShopifyCart(origin, data.id, 1, sessionId)
                 : await addItemToWooCommerceCart(origin, data.id, 1);
             if (!result.ok) throw new Error(result.error || "Couldn't add this to your cart.");
             success = true;
@@ -2038,6 +2042,7 @@ export function useTryOnAgent(
               currency: product.currency,
               quantity: 1,
               success,
+              ...(platform && platformItemId ? { platform, platformItemId: String(platformItemId) } : {}),
             }),
           }).catch(() => {});
         }

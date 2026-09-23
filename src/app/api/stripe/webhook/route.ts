@@ -5,17 +5,27 @@ import {
   getStripeServerConfig,
   STRIPE_CATALOG,
 } from "@/lib/stripe/config";
+import { getPlanTier } from "@/modules/billing/constants";
 import {
+  shouldBillRemainingOnDelete,
+  shouldStopTrialRenewal,
+  trialPeriodOpen,
+  trialWasPaid,
+} from "@/lib/billing/trial-carryover";
+import {
+  applyTrialCarryover,
   claimStripeEvent,
   finishStripeEvent,
   fulfillBillingOrder,
   getBillingAccountByCustomerId,
   getBillingOrderById,
   getBillingOrderByPaymentIntent,
+  getLiveTrialSubscription,
   refundBillingOrder,
   updateBillingOrder,
   upsertBillingSubscription,
 } from "@/lib/db/billing";
+import { attachGmvCommission, invoicePeriodEndIso } from "@/lib/attribution/invoice";
 
 export const runtime = "nodejs";
 
@@ -72,6 +82,70 @@ async function syncSubscription(subscription: Stripe.Subscription, eventCreated:
     stripeEventCreatedAt: new Date(eventCreated * 1000).toISOString(),
   });
   if (!ok) throw new Error("Unable to synchronize Stripe subscription");
+
+  if (catalogItem.tierId === "trial") await stopTrialRenewal(subscription.id);
+
+  if (catalogItem.tierId === "main" && subscription.status === "active") {
+    await settleTrialOnUpgrade(userId);
+  }
+}
+
+function isMissing(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && (error as { code?: string }).code === "resource_missing");
+}
+
+/** Reads Stripe's current state, since this event may be older than a cancel that already ran. */
+async function stopTrialRenewal(subscriptionId: string): Promise<void> {
+  let current: Stripe.Subscription;
+  try {
+    current = await getStripe().subscriptions.retrieve(subscriptionId);
+  } catch (error) {
+    if (isMissing(error)) return;
+    throw error;
+  }
+  if (
+    !shouldStopTrialRenewal({
+      tierId: "trial",
+      status: current.status,
+      cancelAtPeriodEnd: current.cancel_at_period_end,
+    })
+  ) {
+    return;
+  }
+  await getStripe().subscriptions.update(subscriptionId, { cancel_at_period_end: true });
+}
+
+/** Moves unused Trial units into the wallets, then ends Trial without refunding the $450. */
+async function settleTrialOnUpgrade(userId: string): Promise<void> {
+  const trial = await getLiveTrialSubscription(userId);
+  if (!trial) return;
+
+  let current: Stripe.Subscription | null = null;
+  try {
+    current = await getStripe().subscriptions.retrieve(trial.stripeSubscriptionId);
+  } catch (error) {
+    if (!isMissing(error)) throw error;
+  }
+  const status = current?.status ?? trial.status;
+
+  if (trialWasPaid(status) && trialPeriodOpen(trial.currentPeriodEnd)) {
+    if (!trial.currentPeriodStart) throw new Error("Trial subscription has no billing period start");
+    const allowance = getPlanTier("trial");
+    await applyTrialCarryover({
+      userId,
+      trialSubscriptionId: trial.stripeSubscriptionId,
+      periodStartIso: trial.currentPeriodStart,
+      sessionAllowance: allowance.monthlySessionUnits,
+      liveAllowanceSeconds: allowance.monthlyLiveTryOnSeconds,
+      garmentAllowance: allowance.monthlyGarmentUnits,
+    });
+  }
+
+  if (!current || current.status === "canceled" || current.status === "incomplete_expired") return;
+  await getStripe().subscriptions.cancel(trial.stripeSubscriptionId, {
+    prorate: false,
+    invoice_now: false,
+  });
 }
 
 async function processCheckoutSession(session: Stripe.Checkout.Session, event: Stripe.Event): Promise<void> {
@@ -144,6 +218,37 @@ async function processRefundedCharge(charge: Stripe.Charge, eventId: string): Pr
   }
 }
 
+async function processRenewalInvoice(invoice: Stripe.Invoice): Promise<void> {
+  if (invoice.status !== "draft" || invoice.billing_reason !== "subscription_cycle" || !invoice.id) return;
+  const customerId = stripeId(invoice.customer);
+  if (!customerId) return;
+  const account = await getBillingAccountByCustomerId(customerId);
+  if (!account) return;
+  await attachGmvCommission({
+    userId: account.userId,
+    stripeCustomerId: customerId,
+    stripeInvoiceId: invoice.id,
+    stripeSubscriptionId: subscriptionIdFromInvoice(invoice),
+    untilIso: invoicePeriodEndIso(invoice),
+    idempotencyKey: `gmv:${invoice.id}`,
+  });
+}
+
+async function billRemainingGmv(subscription: Stripe.Subscription): Promise<void> {
+  const customerId = stripeId(subscription.customer);
+  if (!customerId) return;
+  const account = await getBillingAccountByCustomerId(customerId);
+  if (!account) return;
+  await attachGmvCommission({
+    userId: account.userId,
+    stripeCustomerId: customerId,
+    stripeInvoiceId: null,
+    stripeSubscriptionId: null,
+    untilIso: new Date().toISOString(),
+    idempotencyKey: `gmv-final:${subscription.id}`,
+  });
+}
+
 async function processEvent(event: Stripe.Event): Promise<void> {
   switch (event.type) {
     case "checkout.session.completed":
@@ -158,8 +263,19 @@ async function processEvent(event: Stripe.Event): Promise<void> {
     }
     case "customer.subscription.created":
     case "customer.subscription.updated":
-    case "customer.subscription.deleted":
       await syncSubscription(event.data.object as Stripe.Subscription, event.created);
+      return;
+    case "customer.subscription.deleted": {
+      const subscription = event.data.object as Stripe.Subscription;
+      await syncSubscription(subscription, event.created);
+      const priceId = subscription.items.data[0]?.price.id;
+      const purchaseKey = priceId ? getPurchaseKeyForPriceId(priceId) : null;
+      const tierId = purchaseKey ? STRIPE_CATALOG[purchaseKey].tierId ?? null : null;
+      if (shouldBillRemainingOnDelete(tierId)) await billRemainingGmv(subscription);
+      return;
+    }
+    case "invoice.created":
+      await processRenewalInvoice(event.data.object as Stripe.Invoice);
       return;
     case "invoice.paid":
     case "invoice.payment_failed": {

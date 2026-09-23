@@ -939,7 +939,13 @@ export function mapWooWebhookProduct(payload: unknown): RawCatalogProduct | null
   return mapWooCatalogProduct(normalized, variants);
 }
 
-const WOO_WEBHOOK_TOPICS = ["product.created", "product.updated", "product.deleted"];
+const WOO_WEBHOOKS: Array<{ topic: string; name: string }> = [
+  { topic: "product.created", name: "Catalog sync — product.created" },
+  { topic: "product.updated", name: "Catalog sync — product.updated" },
+  { topic: "product.deleted", name: "Catalog sync — product.deleted" },
+  { topic: "order.created", name: "Persona GMV — order.created" },
+  { topic: "order.updated", name: "Persona GMV — order.updated" },
+];
 
 interface WooWebhookRecord {
   id: number;
@@ -949,8 +955,9 @@ interface WooWebhookRecord {
 }
 
 /**
- * Subscribes to product changes, skipping topics already pointed at this callback so a
- * reconnect doesn't stack duplicate subscriptions.
+ * Subscribes to product changes and to orders. A topic already aimed at this callback and still
+ * active is left alone. A disabled one (Woo turns a webhook off after repeated delivery
+ * failures) is switched back on, using the same secret, so a recheck can recover it.
  *
  * Unlike Shopify, WooCommerce signs with a per-webhook secret of our choosing rather than an
  * existing credential, so the caller passes one it can re-derive at verification time.
@@ -961,7 +968,7 @@ export async function registerWooWebhooks(
   appPassword: string,
   callbackUrl: string,
   secret: string
-): Promise<{ registered: string[] }> {
+): Promise<{ registered: string[]; failed: string[]; ordersAccess: "active" | "missing" }> {
   const existing = await wooFetch<WooWebhookRecord[]>(
     siteUrl,
     username,
@@ -969,40 +976,83 @@ export async function registerWooWebhooks(
     "/webhooks?per_page=100"
   ).catch(() => ({ data: [] as WooWebhookRecord[], headers: new Headers() }));
 
-  const already = new Set(
-    (existing.data ?? []).filter((hook) => hook.delivery_url === callbackUrl).map((hook) => hook.topic)
-  );
-
+  const atCallback = (existing.data ?? []).filter((hook) => hook.delivery_url === callbackUrl);
   const registered: string[] = [];
+  const failed: string[] = [];
 
-  for (const topic of WOO_WEBHOOK_TOPICS) {
-    if (already.has(topic)) continue;
+  for (const hook of WOO_WEBHOOKS) {
+    const found = atCallback.find((candidate) => candidate.topic === hook.topic);
+    if (found?.status === "active") continue;
 
-    const res = await fetch(`${siteUrl}${API_BASE}/webhooks`, {
-      method: "POST",
-      headers: {
-        Authorization: buildAuthHeader(username, appPassword),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        name: `Catalog sync — ${topic}`,
-        topic,
-        delivery_url: callbackUrl,
-        secret,
-        status: "active",
-      }),
-      cache: "no-store",
-    });
+    const res = found
+      ? await fetch(`${siteUrl}${API_BASE}/webhooks/${found.id}`, {
+          method: "PUT",
+          headers: {
+            Authorization: buildAuthHeader(username, appPassword),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ status: "active", secret }),
+          cache: "no-store",
+        })
+      : await fetch(`${siteUrl}${API_BASE}/webhooks`, {
+          method: "POST",
+          headers: {
+            Authorization: buildAuthHeader(username, appPassword),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name: hook.name,
+            topic: hook.topic,
+            delivery_url: callbackUrl,
+            secret,
+            status: "active",
+          }),
+          cache: "no-store",
+        });
 
     if (res.ok) {
-      registered.push(topic);
+      registered.push(hook.topic);
     } else {
-      // Non-fatal — the reconcile schedule still catches the change, just not instantly.
-      console.error(`[woocommerce registerWooWebhooks] ${topic} failed (${res.status})`);
+      failed.push(hook.topic);
+      console.error(`[woocommerce registerWooWebhooks] ${hook.topic} failed (${res.status})`);
     }
   }
 
-  return { registered };
+  const orderFailed = failed.some((topic) => topic.startsWith("order."));
+  return { registered, failed, ordersAccess: orderFailed ? "missing" : "active" };
+}
+
+export interface WooOrderRefundLine {
+  id?: number;
+  name?: string;
+  product_id?: number;
+  variation_id?: number;
+  total?: string;
+  /** `_refunded_item_id` here is the id of the original order line this refund reverses. */
+  meta_data?: Array<{ key?: string; value?: unknown }>;
+}
+
+export interface WooOrderRefund {
+  id: number;
+  date_created?: string;
+  date_created_gmt?: string;
+  line_items?: WooOrderRefundLine[];
+}
+
+/** Refund rows for one order, including the per-line amount. Shop Manager credentials can read these. */
+export async function getWooOrderRefunds(
+  siteUrl: string,
+  username: string,
+  appPassword: string,
+  orderId: string
+): Promise<WooOrderRefund[]> {
+  const { data } = await wooFetch<WooOrderRefund[]>(
+    siteUrl,
+    username,
+    appPassword,
+    `/orders/${encodeURIComponent(orderId)}/refunds`
+  );
+  return data ?? [];
 }
 
 // ─── Real add-to-cart item resolution ─────────────────────────────────────────

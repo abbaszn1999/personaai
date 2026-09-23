@@ -223,6 +223,22 @@ export async function updateProfile(id: string, input: UpdateProfileInput) {
   return data;
 }
 
+export async function setProfileImageUrl(id: string, profileImageUrl: string | null): Promise<string | null> {
+  const { data, error } = await db
+    .from("users")
+    .update({ profile_image_url: profileImageUrl, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select("profile_image_url")
+    .single();
+
+  if (error) {
+    console.error("[db/users setProfileImageUrl]", error);
+    return null;
+  }
+
+  return (data.profile_image_url as string | null) ?? null;
+}
+
 export async function completeOnboarding(id: string, onboardingData: Record<string, unknown>): Promise<void> {
   await db
     .from("users")

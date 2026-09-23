@@ -30,7 +30,7 @@ export function SidebarPreviewCta({ href, active, collapsed }: SidebarPreviewCta
       <span className="absolute inset-0 rounded-[var(--radius-xl)] opacity-90 gradient-violet" />
       <span className="absolute inset-[1px] rounded-[var(--radius-xl)] bg-[var(--color-sidebar-bg)]/90 backdrop-blur-sm" />
 
-      <span className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/15 text-white">
+      <span className="relative z-10 sidebar-icon-pill shrink-0">
         <Shirt className="h-4 w-4" />
       </span>
 

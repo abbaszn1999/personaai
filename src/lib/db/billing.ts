@@ -1,4 +1,5 @@
 import { db } from "@/lib/supabase/server";
+import { LIVE_SUBSCRIPTION_STATUSES, pickCurrentSubscription } from "@/lib/billing/current-subscription";
 import type { PlanTierId } from "@/modules/billing/types";
 import type { StripeOrderKind, StripePurchaseKey } from "@/lib/stripe/config";
 
@@ -192,6 +193,17 @@ export async function getBillingOrderForUser(orderId: string, userId: string): P
   return error || !data ? null : mapOrder(data);
 }
 
+export async function listOpenSubscriptionOrders(userId: string): Promise<BillingOrderRow[]> {
+  const { data, error } = await db
+    .from("billing_orders")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("kind", "subscription")
+    .in("status", ["checkout_open", "processing"]);
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => mapOrder(row as Record<string, unknown>));
+}
+
 export async function getBillingOrderById(orderId: string): Promise<BillingOrderRow | null> {
   const { data, error } = await db.from("billing_orders").select("*").eq("id", orderId).single();
   return error || !data ? null : mapOrder(data);
@@ -254,27 +266,92 @@ export async function upsertBillingSubscription(input: UpsertSubscriptionInput):
 }
 
 export async function getLatestBillingSubscription(userId: string): Promise<BillingSubscriptionRow | null> {
-  const { data, error } = await db
-    .from("billing_subscriptions")
-    .select("*")
-    .eq("user_id", userId)
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  return error || !data ? null : mapSubscription(data);
+  const { data, error } = await db.from("billing_subscriptions").select("*").eq("user_id", userId);
+  if (error || !data || data.length === 0) {
+    if (error) console.error("[db/billing getLatestBillingSubscription]", error);
+    return null;
+  }
+  const picked = pickCurrentSubscription(
+    data.map((row) => ({
+      row,
+      status: String(row.status),
+      tierId: row.tier_id as PlanTierId,
+      updatedAt: String(row.updated_at ?? ""),
+    }))
+  );
+  return picked ? mapSubscription(picked.row as Record<string, unknown>) : null;
 }
 
-export async function hasLiveSubscription(userId: string): Promise<boolean> {
-  const { count, error } = await db
+export async function hasLiveSubscription(userId: string, tierId?: PlanTierId): Promise<boolean> {
+  let query = db
     .from("billing_subscriptions")
     .select("id", { count: "exact", head: true })
     .eq("user_id", userId)
-    .in("status", ["active", "trialing", "past_due", "incomplete"]);
+    .in("status", [...LIVE_SUBSCRIPTION_STATUSES]);
+  if (tierId) query = query.eq("tier_id", tierId);
+  const { count, error } = await query;
   if (error) {
     console.error("[db/billing hasLiveSubscription]", error);
     return false;
   }
   return (count ?? 0) > 0;
+}
+
+export async function listLiveSubscriptions(userId: string): Promise<BillingSubscriptionRow[]> {
+  const { data, error } = await db
+    .from("billing_subscriptions")
+    .select("*")
+    .eq("user_id", userId)
+    .in("status", [...LIVE_SUBSCRIPTION_STATUSES]);
+  if (error || !data) {
+    if (error) console.error("[db/billing listLiveSubscriptions]", error);
+    return [];
+  }
+  return data.map((row) => mapSubscription(row as Record<string, unknown>));
+}
+
+export async function hasUsedTrial(userId: string): Promise<boolean> {
+  const { data, error } = await db
+    .from("billing_accounts")
+    .select("trial_used_at")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return Boolean(data?.trial_used_at);
+}
+
+export async function getLiveTrialSubscription(userId: string): Promise<BillingSubscriptionRow | null> {
+  const { data, error } = await db
+    .from("billing_subscriptions")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("tier_id", "trial")
+    .in("status", [...LIVE_SUBSCRIPTION_STATUSES])
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? mapSubscription(data as Record<string, unknown>) : null;
+}
+
+export async function applyTrialCarryover(input: {
+  userId: string;
+  trialSubscriptionId: string;
+  periodStartIso: string;
+  sessionAllowance: number;
+  liveAllowanceSeconds: number;
+  garmentAllowance: number;
+}): Promise<boolean> {
+  const { data, error } = await db.rpc("apply_trial_carryover", {
+    p_user_id: input.userId,
+    p_trial_subscription_id: input.trialSubscriptionId,
+    p_period_start: input.periodStartIso,
+    p_session_allowance: input.sessionAllowance,
+    p_live_allowance: input.liveAllowanceSeconds,
+    p_garment_allowance: input.garmentAllowance,
+  });
+  if (error) throw new Error(error.message);
+  return data === true;
 }
 
 export async function claimStripeEvent(input: {

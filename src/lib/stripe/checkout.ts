@@ -1,10 +1,14 @@
 import type Stripe from "stripe";
+import { subscriptionCheckoutBlock } from "@/lib/billing/plan-checkout";
 import {
   attachCheckoutSession,
   createBillingOrder,
   getOrCreateBillingAccount,
   hasLiveSubscription,
+  hasUsedTrial,
+  listOpenSubscriptionOrders,
   setStripeCustomerId,
+  updateBillingOrder,
 } from "@/lib/db/billing";
 import { getStripe } from "./client";
 import {
@@ -42,6 +46,28 @@ async function getOrCreateStripeCustomer(user: CheckoutUser): Promise<string> {
   return customer.id;
 }
 
+/**
+ * One subscription checkout at a time. A second open tab could otherwise buy Trial twice, or
+ * buy it again in the seconds before the paid session's webhook marks it used.
+ */
+async function closeEarlierSubscriptionCheckouts(userId: string): Promise<void> {
+  const orders = await listOpenSubscriptionOrders(userId);
+  for (const order of orders) {
+    if (!order.stripeCheckoutSessionId) {
+      await updateBillingOrder(order.id, { status: "canceled" });
+      continue;
+    }
+    const session = await getStripe().checkout.sessions.retrieve(order.stripeCheckoutSessionId);
+    if (session.status === "complete") {
+      throw new Error("A subscription payment is still being confirmed. Try again in a minute.");
+    }
+    if (session.status === "open") {
+      await getStripe().checkout.sessions.expire(session.id);
+    }
+    await updateBillingOrder(order.id, { status: "canceled" });
+  }
+}
+
 export interface CreateCheckoutInput {
   user: CheckoutUser;
   purchaseKey: StripePurchaseKey;
@@ -58,8 +84,20 @@ export async function createStripeCheckout(input: CreateCheckoutInput): Promise<
   const item = STRIPE_CATALOG[input.purchaseKey];
   const quantity = input.quantity ?? 1;
   if (!Number.isInteger(quantity) || quantity < 1) throw new Error("Invalid checkout quantity");
-  if (item.kind === "subscription" && (await hasLiveSubscription(input.user.id))) {
-    throw new Error("An active or pending subscription already exists");
+  if (item.kind === "subscription") {
+    const [trialUsed, liveSubscription, liveMain] = await Promise.all([
+      hasUsedTrial(input.user.id),
+      hasLiveSubscription(input.user.id),
+      hasLiveSubscription(input.user.id, "main"),
+    ]);
+    const block = subscriptionCheckoutBlock({
+      purchaseKey: item.key,
+      trialUsed,
+      hasLiveSubscription: liveSubscription,
+      hasLiveMain: liveMain,
+    });
+    if (block) throw new Error(block);
+    await closeEarlierSubscriptionCheckouts(input.user.id);
   }
 
   const customerId = await getOrCreateStripeCustomer(input.user);

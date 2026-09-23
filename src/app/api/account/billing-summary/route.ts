@@ -13,6 +13,7 @@ import {
   SESSION_PACK_UNITS,
 } from "@/lib/billing/pricing";
 import { suggestedTopUpQuantity } from "@/lib/billing/wallets";
+import { hasUsedTrial } from "@/lib/db/billing";
 import { getWorkspaceByIdForOwner, getWorkspacesByOwner } from "@/lib/db/workspaces";
 import { LIVE_TRYON_PRICE_PER_MINUTE_CENTS } from "@/modules/billing/constants";
 
@@ -62,7 +63,14 @@ export async function GET(req: NextRequest) {
       : (await getWorkspacesByOwner(user.id))[0] ?? null;
     if (!workspace) return Response.json({ error: "Workspace not found" }, { status: 404 });
 
-    const billing = await getAccountBillingContext(user.id);
+    // Checkout enforces the one-time rule on its own, so a failed read only affects the label.
+    const [billing, trialUsed] = await Promise.all([
+      getAccountBillingContext(user.id),
+      hasUsedTrial(user.id).catch((error: unknown) => {
+        console.error("[api/account/billing-summary trialUsed]", error);
+        return false;
+      }),
+    ]);
     if (!billing) return Response.json({ error: "Account not found" }, { status: 404 });
     const sessionUnitsBalance = billing.user.session_units_balance ?? 0;
     const imageRemaining = Math.max(billing.tier.monthlyGarmentUnits - billing.imagesUsedThisCycle, 0);
@@ -77,6 +85,7 @@ export async function GET(req: NextRequest) {
     return Response.json(
       {
         tierId: billing.tier.id,
+        trialUsed,
         cycleStart: billing.cycleStartIso,
         cycleEnd: billing.cycleEndIso,
         overageCents: overageCentsFromMicro(cycleOverageMicroCents(billing)),

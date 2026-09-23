@@ -24,6 +24,8 @@ export interface WalletForecast {
 
 export interface BillingSummary {
   tierId: PlanTierId;
+  /** True after this account has started Trial, which cannot be bought again. */
+  trialUsed: boolean;
   cycleStart: string;
   cycleEnd: string;
   billing: {
