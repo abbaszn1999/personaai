@@ -51,3 +51,9 @@ export const ROLLOVER_CAP_MULTIPLIER = 2;
 
 /** Suggested top-up covers this many days at the current burn, then rises to the wallet minimum. */
 export const SUGGESTED_TOP_UP_DAYS = 14;
+
+/** Share of attributed, paid Persona GMV charged on the Main plan. Trial records the sales and does not bill them. */
+export const GMV_COMMISSION_RATE = 0.03;
+
+/** Below this, Stripe cannot collect an invoice item, so the balance waits for the next invoice. */
+export const GMV_MIN_COMMISSION_CENTS = 50;

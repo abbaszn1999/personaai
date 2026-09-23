@@ -9,6 +9,10 @@ export interface RecordCartEventInput {
   currency: string;
   quantity: number;
   success: boolean;
+  platform?: string | null;
+  platformItemId?: string | null;
+  ipHash?: string | null;
+  uaHash?: string | null;
 }
 
 /** Logs one add-to-cart attempt the embedded widget caused, with the real success/failure
@@ -27,11 +31,86 @@ export async function recordCartEvent(input: RecordCartEventInput): Promise<void
     currency: input.currency,
     quantity: input.quantity,
     success: input.success,
+    platform: input.platform ?? null,
+    platform_item_id: input.platformItemId ?? null,
+    ip_hash: input.ipHash ?? null,
+    ua_hash: input.uaHash ?? null,
   });
 
   if (error) {
     console.error("[db/cart-events recordCartEvent]", error);
   }
+}
+
+export async function hasSuccessfulCartAdd(input: {
+  ownerId: string;
+  platform: string;
+  platformItemId: string;
+  sessionId: string;
+  sinceIso: string;
+  untilIso: string;
+}): Promise<boolean> {
+  const { data, error } = await db
+    .from("cart_events")
+    .select("id")
+    .eq("owner_id", input.ownerId)
+    .eq("platform", input.platform)
+    .eq("platform_item_id", input.platformItemId)
+    .eq("session_id", input.sessionId)
+    .eq("success", true)
+    .gte("created_at", input.sinceIso)
+    .lte("created_at", input.untilIso)
+    .limit(1);
+
+  if (error) throw new Error(error.message);
+  return (data ?? []).length > 0;
+}
+
+export interface CartAddCandidate {
+  platformItemId: string;
+  sessionId: string;
+  ipHash: string | null;
+  uaHash: string | null;
+  createdAt: string;
+}
+
+export async function listCartAddsForItems(input: {
+  ownerId: string;
+  platform: string;
+  platformItemIds: string[];
+  sinceIso: string;
+  untilIso: string;
+}): Promise<CartAddCandidate[]> {
+  const ids = [...new Set(input.platformItemIds.filter(Boolean))];
+  if (ids.length === 0) return [];
+
+  const { data, error } = await db
+    .from("cart_events")
+    .select("platform_item_id, session_id, ip_hash, ua_hash, created_at")
+    .eq("owner_id", input.ownerId)
+    .eq("platform", input.platform)
+    .eq("success", true)
+    .in("platform_item_id", ids)
+    .gte("created_at", input.sinceIso)
+    .lte("created_at", input.untilIso);
+
+  if (error) throw new Error(error.message);
+
+  return (data ?? []).flatMap((row) => {
+    const record = row as Record<string, unknown>;
+    const platformItemId = record.platform_item_id;
+    const sessionId = record.session_id;
+    if (typeof platformItemId !== "string" || typeof sessionId !== "string") return [];
+    return [
+      {
+        platformItemId,
+        sessionId,
+        ipHash: (record.ip_hash as string | null) ?? null,
+        uaHash: (record.ua_hash as string | null) ?? null,
+        createdAt: record.created_at as string,
+      },
+    ];
+  });
 }
 
 export interface CartEventRow {

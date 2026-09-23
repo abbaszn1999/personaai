@@ -47,6 +47,40 @@ export function ConnectionCard({
   onContinueToCategories,
 }: ConnectionCardProps) {
   const [confirmingDisconnect, setConfirmingDisconnect] = React.useState(false);
+  const [checkedAccess, setCheckedAccess] = React.useState<{ id: string; access: "active" | "missing" } | null>(null);
+  const [rechecking, setRechecking] = React.useState(false);
+  const [recheckError, setRecheckError] = React.useState<string | null>(null);
+
+  const ordersAccess = checkedAccess?.id === connection.id ? checkedAccess.access : connection.ordersAccess;
+
+  const tracksOrders =
+    connection.platform === "shopify" || connection.platform === "wordpress" || connection.platform === "woocommerce";
+  const ordersAccessLabel =
+    ordersAccess === "active"
+      ? "Active"
+      : ordersAccess === "missing"
+        ? connection.platform === "shopify"
+          ? "Missing read_orders"
+          : "Webhooks not registered"
+        : "Not checked";
+
+  async function recheckOrderAccess() {
+    setRechecking(true);
+    setRecheckError(null);
+    try {
+      const res = await fetch("/api/store-connection/order-access", { method: "POST" });
+      const data = (await res.json().catch(() => ({}))) as { ordersAccess?: "active" | "missing"; error?: string };
+      if (!res.ok || (data.ordersAccess !== "active" && data.ordersAccess !== "missing")) {
+        setRecheckError(data.error || "Couldn't recheck order access.");
+        return;
+      }
+      setCheckedAccess({ id: connection.id, access: data.ordersAccess });
+    } catch {
+      setRecheckError("Couldn't recheck order access.");
+    } finally {
+      setRechecking(false);
+    }
+  }
 
   async function confirmDisconnect() {
     await onDisconnect();
@@ -89,6 +123,22 @@ export function ConnectionCard({
               </strong>{" "}
               across {categoryCount.toLocaleString()} selected categories.
             </p>
+            {tracksOrders && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Badge variant={ordersAccess === "active" ? "success" : ordersAccess === "missing" ? "warning" : "neutral"}>
+                  Order tracking: {ordersAccessLabel}
+                </Badge>
+                <Button variant="secondary" size="sm" loading={rechecking} onClick={() => void recheckOrderAccess()}>
+                  Recheck order access
+                </Button>
+                {ordersAccess === "missing" && connection.platform === "shopify" && (
+                  <p className="w-full text-xs text-[var(--color-text-secondary)]">
+                    Add the read_orders scope in the Shopify Dev Dashboard, release a new version, approve it on the store, then recheck.
+                  </p>
+                )}
+                {recheckError && <p className="w-full text-xs text-[var(--color-error)]">{recheckError}</p>}
+              </div>
+            )}
           </div>
         </div>
 

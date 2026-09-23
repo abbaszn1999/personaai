@@ -16,6 +16,7 @@ import {
   updateBillingOrder,
   upsertBillingSubscription,
 } from "@/lib/db/billing";
+import { attachGmvCommission, invoicePeriodEndIso } from "@/lib/attribution/invoice";
 
 export const runtime = "nodejs";
 
@@ -144,6 +145,37 @@ async function processRefundedCharge(charge: Stripe.Charge, eventId: string): Pr
   }
 }
 
+async function processRenewalInvoice(invoice: Stripe.Invoice): Promise<void> {
+  if (invoice.status !== "draft" || invoice.billing_reason !== "subscription_cycle" || !invoice.id) return;
+  const customerId = stripeId(invoice.customer);
+  if (!customerId) return;
+  const account = await getBillingAccountByCustomerId(customerId);
+  if (!account) return;
+  await attachGmvCommission({
+    userId: account.userId,
+    stripeCustomerId: customerId,
+    stripeInvoiceId: invoice.id,
+    stripeSubscriptionId: subscriptionIdFromInvoice(invoice),
+    untilIso: invoicePeriodEndIso(invoice),
+    idempotencyKey: `gmv:${invoice.id}`,
+  });
+}
+
+async function billRemainingGmv(subscription: Stripe.Subscription): Promise<void> {
+  const customerId = stripeId(subscription.customer);
+  if (!customerId) return;
+  const account = await getBillingAccountByCustomerId(customerId);
+  if (!account) return;
+  await attachGmvCommission({
+    userId: account.userId,
+    stripeCustomerId: customerId,
+    stripeInvoiceId: null,
+    stripeSubscriptionId: null,
+    untilIso: new Date().toISOString(),
+    idempotencyKey: `gmv-final:${subscription.id}`,
+  });
+}
+
 async function processEvent(event: Stripe.Event): Promise<void> {
   switch (event.type) {
     case "checkout.session.completed":
@@ -158,8 +190,16 @@ async function processEvent(event: Stripe.Event): Promise<void> {
     }
     case "customer.subscription.created":
     case "customer.subscription.updated":
-    case "customer.subscription.deleted":
       await syncSubscription(event.data.object as Stripe.Subscription, event.created);
+      return;
+    case "customer.subscription.deleted": {
+      const subscription = event.data.object as Stripe.Subscription;
+      await syncSubscription(subscription, event.created);
+      await billRemainingGmv(subscription);
+      return;
+    }
+    case "invoice.created":
+      await processRenewalInvoice(event.data.object as Stripe.Invoice);
       return;
     case "invoice.paid":
     case "invoice.payment_failed": {

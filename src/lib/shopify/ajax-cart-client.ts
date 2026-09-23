@@ -15,6 +15,8 @@
  * endpoint is kept only as a defensive fallback for stores where that action isn't available.
  */
 
+import { PERSONA_LINE_PROPERTY } from "@/lib/attribution/constants";
+
 const LOG_PREFIX = "[shopify-cart]";
 
 interface AddToCartResult {
@@ -44,7 +46,11 @@ interface ShopifyUpdateCartResult {
 
 interface ShopifyStandardActions {
   updateCart?: (payload: {
-    lines: Array<{ merchandiseId: string; quantity: number }>;
+    lines: Array<{
+      merchandiseId: string;
+      quantity: number;
+      attributes?: Array<{ key: string; value: string }>;
+    }>;
   }) => Promise<ShopifyUpdateCartResult>;
 }
 
@@ -81,7 +87,8 @@ function notifyThemeCartUpdated() {
 async function addItemViaLegacyAjaxCart(
   origin: string,
   variantId: number,
-  quantity: number
+  quantity: number,
+  personaTag?: string
 ): Promise<AddToCartResult> {
   const url = `${origin.replace(/\/+$/, "")}/cart/add.js`;
   try {
@@ -92,7 +99,11 @@ async function addItemViaLegacyAjaxCart(
         "Content-Type": "application/json",
         Accept: "application/json",
       },
-      body: JSON.stringify({ id: variantId, quantity }),
+      body: JSON.stringify({
+        id: variantId,
+        quantity,
+        ...(personaTag ? { properties: { [PERSONA_LINE_PROPERTY]: personaTag } } : {}),
+      }),
     });
 
     console.debug(`${LOG_PREFIX} POST add.js id=${variantId} ->`, res.status);
@@ -139,7 +150,8 @@ async function addItemViaLegacyAjaxCart(
 async function addItemViaStandardAction(
   updateCart: NonNullable<ShopifyStandardActions["updateCart"]>,
   variantId: number,
-  quantity: number
+  quantity: number,
+  personaTag?: string
 ): Promise<AddToCartResult> {
   const merchandiseId = `gid://shopify/ProductVariant/${variantId}`;
   const backoffMs = [400, 900, 1500];
@@ -148,7 +160,13 @@ async function addItemViaStandardAction(
   for (let attempt = 0; attempt <= backoffMs.length; attempt++) {
     try {
       const result = await updateCart({
-        lines: [{ merchandiseId, quantity }],
+        lines: [
+          {
+            merchandiseId,
+            quantity,
+            ...(personaTag ? { attributes: [{ key: PERSONA_LINE_PROPERTY, value: personaTag }] } : {}),
+          },
+        ],
       });
 
       if (result.userErrors && result.userErrors.length > 0) {
@@ -185,11 +203,12 @@ async function addItemViaStandardAction(
 export async function addItemToShopifyCart(
   origin: string,
   variantId: number,
-  quantity = 1
+  quantity = 1,
+  personaTag?: string
 ): Promise<AddToCartResult> {
   const updateCart = typeof window !== "undefined" ? window.Shopify?.actions?.updateCart : undefined;
   if (updateCart) {
-    return addItemViaStandardAction(updateCart, variantId, quantity);
+    return addItemViaStandardAction(updateCart, variantId, quantity, personaTag);
   }
-  return addItemViaLegacyAjaxCart(origin, variantId, quantity);
+  return addItemViaLegacyAjaxCart(origin, variantId, quantity, personaTag);
 }

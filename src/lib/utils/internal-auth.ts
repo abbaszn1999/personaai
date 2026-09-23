@@ -39,6 +39,16 @@ export function deriveWebhookSecret(connectionId: string): string {
   return createHmac("sha256", root).update(`webhook:${connectionId}`).digest("hex");
 }
 
+/**
+ * One-way fingerprint of a shopper IP or user agent, keyed per merchant.
+ * The raw value is never stored. The same inputs always hash the same way, which is what
+ * lets a WooCommerce order be matched to the add-to-cart that came from that device.
+ */
+export function hashVisitorSignal(ownerId: string, kind: "ip" | "ua", value: string): string {
+  const normalized = kind === "ip" ? value.trim().toLowerCase() : value.trim();
+  return createHmac("sha256", deriveWebhookSecret(ownerId)).update(`${kind}:${normalized}`).digest("hex");
+}
+
 /** Constant-time compare of two base64 HMAC digests. */
 export function verifyHmacSignature(rawBody: string, signature: string | null, secret: string): boolean {
   if (!signature) return false;

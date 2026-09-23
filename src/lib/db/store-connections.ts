@@ -34,9 +34,12 @@ export type CatalogSyncStatus = "idle" | "pending" | "indexing" | "ready" | "err
  *  anything, so a store can run (or fail, or finish) one independently of ACS sync state. */
 export type CmsColumnDiscoveryStatus = "idle" | "running" | "done" | "error";
 
+export type OrdersAccess = "active" | "missing";
+
 /** Raw DB row shape for the `store_connections` table (camelCase, app-facing). */
 export interface StoreConnectionRow {
   id: string;
+  ownerId: string;
   platform: StorePlatform;
   storeName: string;
   storeUrl: string;
@@ -100,6 +103,8 @@ export interface StoreConnectionRow {
   cmsColumnDiscoveryScanned: number;
   cmsColumnDiscoveryError: string | null;
   cmsColumnDiscoveryUpdatedAt: string | null;
+  /** Whether paid-order webhooks are in place. Null until the first registration attempt. */
+  ordersAccess: OrdersAccess | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -110,6 +115,7 @@ function rowToConnection(row: Record<string, unknown>): StoreConnectionRow {
   const personaCategoryMap = parsePersonaCategoryMap(row.persona_category_map, categories);
   return {
     id: row.id as string,
+    ownerId: row.owner_id as string,
     platform: row.platform as StorePlatform,
     storeName: row.store_name as string,
     storeUrl: row.store_url as string,
@@ -144,6 +150,7 @@ function rowToConnection(row: Record<string, unknown>): StoreConnectionRow {
     cmsColumnDiscoveryScanned: (row.cms_column_discovery_scanned as number) ?? 0,
     cmsColumnDiscoveryError: (row.cms_column_discovery_error as string | null) ?? null,
     cmsColumnDiscoveryUpdatedAt: (row.cms_column_discovery_updated_at as string | null) ?? null,
+    ordersAccess: row.orders_access === "active" || row.orders_access === "missing" ? row.orders_access : null,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
   };
@@ -462,6 +469,20 @@ export async function deleteStoreConnection(ownerId: string): Promise<boolean> {
 
   if (error) {
     console.error("[db/store-connections deleteStoreConnection]", error);
+    return false;
+  }
+
+  return true;
+}
+
+export async function setStoreOrdersAccess(connectionId: string, ordersAccess: OrdersAccess): Promise<boolean> {
+  const { error } = await db
+    .from("store_connections")
+    .update({ orders_access: ordersAccess, updated_at: new Date().toISOString() })
+    .eq("id", connectionId);
+
+  if (error) {
+    console.error("[db/store-connections setStoreOrdersAccess]", error);
     return false;
   }
 

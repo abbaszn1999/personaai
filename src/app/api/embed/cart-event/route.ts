@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { resolveEmbedRequest } from "@/lib/embed/resolve";
 import { embedJson, embedOptions } from "@/lib/embed/cors";
 import { recordCartEvent } from "@/lib/db/cart-events";
+import { hashVisitorSignal } from "@/lib/utils/internal-auth";
 
 interface RequestBody {
   embedToken?: string;
@@ -12,6 +13,8 @@ interface RequestBody {
   currency?: string;
   quantity?: number;
   success?: boolean;
+  platform?: string;
+  platformItemId?: string;
 }
 
 export async function OPTIONS() {
@@ -49,6 +52,25 @@ export async function POST(req: NextRequest) {
         : 1;
     const currency = typeof body.currency === "string" && body.currency ? body.currency : "USD";
 
+    const platform = body.platform === "shopify" || body.platform === "wordpress" || body.platform === "woocommerce"
+      ? body.platform
+      : null;
+    const platformItemId = typeof body.platformItemId === "string" && body.platformItemId.trim()
+      ? body.platformItemId.trim()
+      : null;
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip")?.trim() || "";
+    const ua = req.headers.get("user-agent")?.trim() || "";
+    // Hashing needs INTERNAL_JOB_SECRET. Without it the add is still logged for analytics,
+    // it just can't be matched to a WooCommerce order.
+    let ipHash: string | null = null;
+    let uaHash: string | null = null;
+    try {
+      ipHash = ip ? hashVisitorSignal(workspace.workspaceId, "ip", ip) : null;
+      uaHash = ua ? hashVisitorSignal(workspace.workspaceId, "ua", ua) : null;
+    } catch (err) {
+      console.error("[api/embed/cart-event POST] visitor hash unavailable", err);
+    }
+
     await recordCartEvent({
       workspaceId: workspace.workspaceId,
       sessionId,
@@ -58,6 +80,10 @@ export async function POST(req: NextRequest) {
       currency,
       quantity,
       success,
+      platform,
+      platformItemId,
+      ipHash,
+      uaHash,
     });
 
     return embedJson({ ok: true });
