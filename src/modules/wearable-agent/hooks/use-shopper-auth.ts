@@ -5,7 +5,9 @@ import type { EmbedRuntimeConfig } from "@/modules/wearable-agent/hooks/use-try-
 import {
   clearEmbedState,
   clearShopperToken,
+  getOrCreateEmbedSessionId,
   loadShopperToken,
+  resetEmbedSessionId,
   saveShopperToken,
 } from "@/lib/embed/client/embed-storage";
 import {
@@ -56,7 +58,12 @@ export function useShopperAuth(embed: EmbedRuntimeConfig): ShopperRuntime {
       }
       tokenRef.current = existing;
 
-      const result = await fetchShopperMe(embed.apiBase, embed.embedToken, existing);
+      const result = await fetchShopperMe(
+        embed.apiBase,
+        embed.embedToken,
+        existing,
+        getOrCreateEmbedSessionId(embed.embedToken)
+      );
       if (cancelled) return;
       if (!result.ok || !result.body.account) {
         clearShopperToken(embed.embedToken);
@@ -90,7 +97,12 @@ export function useShopperAuth(embed: EmbedRuntimeConfig): ShopperRuntime {
   const verifyCode = React.useCallback(
     async (email: string, code: string, acceptPrivacy?: boolean) => {
       setError(null);
-      const result = await verifyShopperCode(embed.apiBase, embed.embedToken, { email, code, acceptPrivacy });
+      const result = await verifyShopperCode(embed.apiBase, embed.embedToken, {
+        email,
+        code,
+        acceptPrivacy,
+        sessionId: getOrCreateEmbedSessionId(embed.embedToken),
+      });
       if (result.body.code === "privacy_required") {
         return { ok: false, privacyRequired: true };
       }
@@ -116,6 +128,7 @@ export function useShopperAuth(embed: EmbedRuntimeConfig): ShopperRuntime {
     tokenRef.current = null;
     clearShopperToken(embed.embedToken);
     clearEmbedState(embed.embedToken);
+    resetEmbedSessionId(embed.embedToken);
     setAccount(null);
     setProfiles([]);
     setStatus("signed-out");

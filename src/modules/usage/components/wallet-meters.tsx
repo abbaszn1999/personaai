@@ -51,7 +51,7 @@ export function WalletMeters({ summary, loading }: { summary: BillingSummary | n
     );
   }
   if (!summary) return null;
-  const billingHref = "/settings?section=billing";
+  const billingHref = "/settings/billing#add-balance";
   const sessionRatio = summary.sessions.includedAllowance > 0 ? summary.sessions.usedThisCycle / summary.sessions.includedAllowance : 0;
   const garmentRatio = summary.images.includedAllowance > 0 ? summary.images.usedThisCycle / summary.images.includedAllowance : 0;
   const liveUsed = summary.liveTryOn.usedThisCycleSeconds / 60;
@@ -101,7 +101,7 @@ export function AccountStrip({ summary }: { summary: BillingSummary | null }) {
       <span>{capLabel}</span>
       <span>Overage this cycle {overage}</span>
       <span>Usage alerts {summary.usageAlerts ? "on" : "off"}</span>
-      <Link href="/settings?section=billing" className="font-semibold text-[var(--color-brand-strong)] hover:underline">
+      <Link href="/settings/billing" className="font-semibold text-[var(--color-brand-strong)] hover:underline">
         Manage billing
       </Link>
     </div>

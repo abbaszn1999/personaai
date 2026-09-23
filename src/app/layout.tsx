@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Poppins, Inter, Geist_Mono } from "next/font/google";
+import { colorSchemeBootScript } from "@/modules/theme/color-scheme";
 import "./globals.css";
 
 /*
@@ -43,7 +44,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       // our control — suppress the warning instead of trying to "fix" third-party DOM.
       suppressHydrationWarning
     >
-      <body className="h-full bg-mesh">{children}</body>
+      <body className="h-full bg-mesh">
+        <script dangerouslySetInnerHTML={{ __html: colorSchemeBootScript }} />
+        {children}
+      </body>
     </html>
   );
 }

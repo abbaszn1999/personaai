@@ -16,7 +16,7 @@ export async function POST() {
     const config = getStripeServerConfig();
     const session = await getStripe().billingPortal.sessions.create({
       customer: account.stripeCustomerId,
-      return_url: `${config.appUrl}/settings?section=billing`,
+      return_url: `${config.appUrl}/settings/billing`,
       ...(config.portalConfigurationId
         ? { configuration: config.portalConfigurationId }
         : {}),

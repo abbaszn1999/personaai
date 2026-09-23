@@ -93,6 +93,7 @@ describe("shoppers and csv", () => {
   const shopper: ShopperUsage = {
     sessionId: "abc-123",
     source: "store",
+    email: null,
     chatCalls: 2,
     chatUnits: 1,
     searches: 0,
@@ -107,10 +108,11 @@ describe("shoppers and csv", () => {
     lastSeen: null,
   };
 
-  it("labels store, preview, and unattributed sessions", () => {
-    expect(shopperLabel("abc-123", "store")).toBe("Shopper #abc123");
-    expect(shopperLabel("abc-123", "preview")).toBe("Preview #abc123");
-    expect(shopperLabel(null, null)).toBe("Unattributed (before tracking)");
+  it("labels signed-in, guest, preview, and unattributed shoppers", () => {
+    expect(shopperLabel({ ...shopper, sessionId: "acct:1", email: "sara@example.com" })).toBe("sara@example.com");
+    expect(shopperLabel(shopper)).toBe("Guest #abc123");
+    expect(shopperLabel({ ...shopper, source: "preview" })).toBe("Preview #abc123");
+    expect(shopperLabel({ ...shopper, sessionId: null, source: null })).toBe("Unattributed (before tracking)");
     expect(shopperCostNanos(shopper)).toBe(2_500_000);
   });
 
@@ -120,7 +122,7 @@ describe("shoppers and csv", () => {
       shoppers: [{ ...shopper, sessionId: "a,b" }],
     });
     expect(csv).toContain("trend,2026-09-01,chat,,,2,1,0.002500");
-    expect(csv).toContain('"Shopper #a,b"');
+    expect(csv).toContain('"Guest #a,b"');
   });
 });
 

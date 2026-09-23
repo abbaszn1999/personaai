@@ -50,7 +50,7 @@ export function ShoppersTable({ shoppers, shopperCount, page, pageSize, onPage, 
                   onClick={() => onOpen(shopperKey(shopper.sessionId))}
                 >
                   <td className="px-5 py-3 font-medium text-[var(--color-text-primary)]">
-                    {shopperLabel(shopper.sessionId, shopper.source)}
+                    {shopperLabel(shopper)}
                   </td>
                   <td className="px-3 py-3 text-[var(--color-text-secondary)]">
                     {shopper.source === "preview" ? "Preview" : shopper.source === "store" ? "Store" : "—"}

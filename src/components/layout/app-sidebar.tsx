@@ -11,7 +11,6 @@ import {
   Palette,
   Crown,
   CreditCard,
-  Bell,
   LogOut,
   ChevronsLeft,
   ChevronsRight,
@@ -46,6 +45,7 @@ import { useWorkspaceStore } from "@/modules/workspaces/store";
 import { useStoreConnectionStore } from "@/modules/store/store";
 import { useUser } from "@/modules/auth/context/user-context";
 import { cn } from "@/lib/utils/cn";
+import { ThemeToggle } from "@/modules/theme/theme-toggle";
 
 const COLLAPSE_KEY = "persona-ai.sidebar.collapsed";
 
@@ -183,13 +183,16 @@ export function AppSidebar() {
             </AnimatePresence>
           </Link>
 
-          <button
-            onClick={toggleCollapsed}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-md)] text-[var(--color-sidebar-text-muted)] sidebar-glass sidebar-glass-hover transition-colors"
-          >
-            {collapsed ? <ChevronsRight className="h-4 w-4" /> : <ChevronsLeft className="h-4 w-4" />}
-          </button>
+          <div className={cn("flex shrink-0 items-center gap-1", collapsed && "flex-col")}>
+            <ThemeToggle />
+            <button
+              onClick={toggleCollapsed}
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-md)] text-[var(--color-sidebar-text-muted)] sidebar-glass sidebar-glass-hover transition-colors"
+            >
+              {collapsed ? <ChevronsRight className="h-4 w-4" /> : <ChevronsLeft className="h-4 w-4" />}
+            </button>
+          </div>
         </div>
 
         {/* ── Workspace card ───────────────────────────────────────── */}
@@ -527,16 +530,13 @@ function SidebarAccountCard({
         <SidebarAccountInfo />
         <DropdownMenuSeparator className="bg-[var(--color-sidebar-border)]" />
         <DropdownMenuItem asChild className="text-[var(--color-sidebar-text-muted)] data-[highlighted]:bg-[var(--color-sidebar-surface-hover)] data-[highlighted]:text-[var(--color-sidebar-text)]">
-          <Link href="/settings?section=profile"><User className="h-4 w-4" /> Account Settings</Link>
+          <Link href="/settings"><User className="h-4 w-4" /> Account</Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild className="text-[var(--color-sidebar-text-muted)] data-[highlighted]:bg-[var(--color-sidebar-surface-hover)] data-[highlighted]:text-[var(--color-sidebar-text)]">
-          <Link href="/settings?section=billing"><CreditCard className="h-4 w-4" /> Billing & Plan</Link>
+          <Link href="/settings/billing"><CreditCard className="h-4 w-4" /> Billing & Plan</Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild className="text-[var(--color-sidebar-text-muted)] data-[highlighted]:bg-[var(--color-sidebar-surface-hover)] data-[highlighted]:text-[var(--color-sidebar-text)]">
           <Link href="/usage"><Gauge className="h-4 w-4" /> Usage</Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild className="text-[var(--color-sidebar-text-muted)] data-[highlighted]:bg-[var(--color-sidebar-surface-hover)] data-[highlighted]:text-[var(--color-sidebar-text)]">
-          <Link href="/settings?section=notifications"><Bell className="h-4 w-4" /> Notifications</Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator className="bg-[var(--color-sidebar-border)]" />
         <DropdownMenuItem danger asChild>

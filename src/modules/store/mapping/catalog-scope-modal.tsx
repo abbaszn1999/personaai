@@ -521,7 +521,7 @@ export function CatalogScopeModal({ isOpen, onClose, scopeState, onSaveScope }: 
                       key={cat.id}
                       className={cn(
                         "space-y-3 rounded-[var(--radius-2xl)] border p-3.5 sm:p-4",
-                        enabledCount > 0 ? "border-[var(--color-mapping-border)] bg-[var(--color-mapping-panel-alt)]" : "border-[var(--color-mapping-border)] bg-[#181120]"
+                        enabledCount > 0 ? "border-[var(--color-mapping-border)] bg-[var(--color-mapping-panel-alt)]" : "border-[var(--color-mapping-border)] bg-[var(--color-mapping-canvas)]"
                       )}
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">

@@ -63,7 +63,7 @@ export async function requestShopperCode(apiBase: string, embedToken: string, em
 export async function verifyShopperCode(
   apiBase: string,
   embedToken: string,
-  input: { email: string; code: string; acceptPrivacy?: boolean }
+  input: { email: string; code: string; acceptPrivacy?: boolean; sessionId?: string }
 ) {
   return shopperFetch(apiBase, "/shopper/verify-code", {
     method: "POST",
@@ -72,8 +72,10 @@ export async function verifyShopperCode(
   });
 }
 
-export async function fetchShopperMe(apiBase: string, embedToken: string, token: string) {
-  return shopperFetch(apiBase, `/shopper/me?embedToken=${encodeURIComponent(embedToken)}`, {
+export async function fetchShopperMe(apiBase: string, embedToken: string, token: string, sessionId?: string) {
+  const query = new URLSearchParams({ embedToken });
+  if (sessionId) query.set("sessionId", sessionId);
+  return shopperFetch(apiBase, `/shopper/me?${query.toString()}`, {
     method: "GET",
     embedToken,
     token,

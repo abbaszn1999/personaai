@@ -24,8 +24,8 @@ function ChartTooltip({
 }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-[var(--radius-lg)] panel-glass shadow-lg px-3 py-2.5 text-xs backdrop-blur-md">
-      <p className="font-semibold text-[var(--color-text-primary)] mb-1.5">{label}</p>
+    <div className="min-w-[10rem] space-y-1 rounded-[var(--radius-lg)] border border-white/10 bg-[#0c0910] px-3 py-2.5 text-xs shadow-[0_8px_24px_rgb(0_0_0/0.6)]">
+      <p className="font-semibold text-white mb-1.5">{label}</p>
       {payload
         .filter((entry) => entry.value > 0)
         .map((entry) => {
@@ -35,8 +35,8 @@ function ChartTooltip({
           return (
             <div key={entry.dataKey} className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full shrink-0" style={{ background: entry.color }} />
-              <span className="text-[var(--color-text-secondary)]">{meta?.label ?? entry.dataKey}</span>
-              <span className="font-semibold text-[var(--color-text-primary)]">{text}</span>
+              <span className="flex-1 text-white/85">{meta?.label ?? entry.dataKey}</span>
+              <span className="font-semibold text-white">{text}</span>
             </div>
           );
         })}
@@ -76,7 +76,7 @@ export function SpendTrendChart({ points, bucket, view, tool }: SpendTrendChartP
               width={56}
               tickFormatter={(value: number) => (view === "usd" ? formatUsdFromNanos(value) : value.toLocaleString())}
             />
-            <Tooltip content={<ChartTooltip view={view} />} />
+            <Tooltip cursor={{ fill: "rgba(255,255,255,0.06)" }} content={<ChartTooltip view={view} />} />
             {tools.map((item) => (
               <Bar key={item} dataKey={item} stackId="spend" fill={TOOL_META[item].color} radius={[0, 0, 0, 0]} />
             ))}

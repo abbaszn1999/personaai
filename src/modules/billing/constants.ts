@@ -50,13 +50,3 @@ export function getPlanTiers(): PlanTier[] {
 export function getPlanTier(tierId: string): PlanTier {
   return PLAN_TIERS.find((tier) => tier.id === tierId) ?? PLAN_TIERS[0];
 }
-
-export const INFRA_NOTES: string[] = [
-  "Session units cover catalog search and conversation, up to the allowance on your plan.",
-  "Size chart enrichment, the style guide, and size recommendation are included.",
-  "Monthly catalogue sync and the analytics dashboard are included.",
-];
-
-export function getInfraNotes(): string[] {
-  return INFRA_NOTES;
-}

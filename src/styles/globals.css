@@ -88,6 +88,7 @@
   --shadow-modal:             0 20px 60px -12px rgb(23 18 29 / 0.18), 0 4px 16px -4px rgb(23 18 29 / 0.08);
   --shadow-glow:              0 8px 24px -6px rgb(247 109 1 / 0.45), 0 2px 8px -2px rgb(196 0 0 / 0.30);
   --shadow-sidebar:           0 8px 32px -4px rgb(0 0 0 / 0.45), 0 2px 8px -2px rgb(64 0 149 / 0.25);
+  --color-app-frame:          #0a0810;
 
   /* Sidebar (dark glass panel) */
   --color-sidebar-bg:         #14101c;
@@ -664,6 +665,217 @@ h1, h2, h3, h4, h5, .font-display {
 .dashboard-theme textarea:focus {
   border-color: var(--color-brand) !important;
   box-shadow: 0 0 0 1px var(--color-brand);
+}
+
+/* ─── Light scheme ───────────────────────────────────────────────────────── *
+ * Dark is the default (no attribute, or data-theme="dark"): `.dashboard-theme` and the
+ * sidebar tokens above already describe it. Light puts the original palette back on those
+ * same variables, so every button, card, input, and section that reads a token follows
+ * without its own override. The shopper widget is unaffected — it does not use these classes.
+ * -------------------------------------------------------------------------- */
+html[data-theme="light"] {
+  color-scheme: light;
+  --color-app-frame:          #efeaf4;
+  --color-sidebar-bg:         #ffffff;
+  --color-sidebar-surface:    #f7f6f9;
+  --color-sidebar-surface-hover: #efeaf4;
+  --color-sidebar-border:     #e9e6ef;
+  --color-sidebar-text:       #17121d;
+  --color-sidebar-text-muted: #6b6478;
+  --color-sidebar-active-glow: 0 8px 18px -10px rgb(247 109 1 / 0.55);
+  --shadow-sidebar:           0 10px 28px -16px rgb(23 18 29 / 0.28);
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+html[data-theme="light"] .dashboard-theme {
+  --color-surface-base:       #f7f6f9;
+  --color-surface-card:       #ffffff;
+  --color-surface-elevated:   #ffffff;
+  --color-surface-overlay:    rgba(255, 255, 255, 0.92);
+  --color-border:             #e9e6ef;
+  --color-border-strong:      #d3ccdd;
+  --color-text-primary:       #17121d;
+  --color-text-secondary:     #524b5c;
+  --color-text-muted:         #918a9c;
+  --color-brand-light:        #ffe9d6;
+  --color-accent-light:       #ece4f3;
+  --color-success-light:      #d1fae5;
+  --color-error-light:        #ffe4e9;
+  --color-warning-light:      #fef3c7;
+  --color-info-light:         #dbeafe;
+  --shadow-card:              0 1px 3px 0 rgb(23 18 29 / 0.06), 0 1px 2px -1px rgb(23 18 29 / 0.04);
+  --shadow-elevated:          0 4px 16px -2px rgb(23 18 29 / 0.08), 0 2px 6px -2px rgb(23 18 29 / 0.04);
+}
+
+/* Store pages lift hues for a dark surface. In light mode those lifts are too pale, so hand
+ * the semantic colors back to the base palette. */
+html[data-theme="light"] .store-theme {
+  --color-success:            #10b981;
+  --color-warning:            #f59e0b;
+  --color-error:              #e11d48;
+  --color-info:               #3b82f6;
+  --color-brand:              #f76d01;
+  --color-brand-strong:       #c40000;
+  --color-brand-light:        #ffe9d6;
+  --color-success-light:      #d1fae5;
+  --color-warning-light:      #fef3c7;
+  --color-error-light:        #ffe4e9;
+  --color-info-light:         #dbeafe;
+  --color-success-fill-strong: #d1fae5;
+  --color-warning-fill-strong: #fef3c7;
+  --color-error-fill-strong:   #ffe4e9;
+  --color-info-fill-strong:    #dbeafe;
+  --color-neutral-fill-strong: #f7f6f9;
+  --color-success-border:     #a7f3d0;
+  --color-warning-border:     #fde68a;
+  --color-error-border:       #fecdd3;
+  --color-info-border:        #bfdbfe;
+  --color-surface-sticky:     #ffffff;
+  --color-parent-tops:        #6b358d;
+  --color-parent-outerwear:   #0891b2;
+  --color-parent-bottoms:     #10b981;
+  --color-parent-dresses:     #c026d3;
+  --color-parent-footwear:    #f59e0b;
+  --shadow-glow:              0 8px 24px -6px rgb(247 109 1 / 0.45), 0 2px 8px -2px rgb(196 0 0 / 0.30);
+  --color-sidebar-active-glow: 0 8px 18px -10px rgb(247 109 1 / 0.55);
+  --color-mapping-canvas:        #f7f6f9;
+  --color-mapping-panel:         #ffffff;
+  --color-mapping-panel-alt:     #f7f6f9;
+  --color-mapping-control:       #ffffff;
+  --color-mapping-control-hover: #f4f0f8;
+  --color-mapping-brand-soft:    #fff1eb;
+  --color-mapping-success-soft:  #ecfdf5;
+  --color-mapping-warning-soft:  #fffbeb;
+  --color-mapping-info-soft:     #eff6ff;
+  --color-mapping-border:        #e9e6ef;
+  --color-mapping-border-strong: #d3ccdd;
+}
+
+html[data-theme="light"] .content-panel {
+  background-color: #f7f6f9;
+  background-image:
+    radial-gradient(at 10% 0%, rgba(247, 109, 1, 0.07) 0px, transparent 42%),
+    radial-gradient(at 90% 100%, rgba(64, 0, 149, 0.06) 0px, transparent 46%);
+  background-size: auto, auto;
+  border-color: #e9e6ef;
+  box-shadow: 0 12px 32px -20px rgb(23 18 29 / 0.28);
+}
+
+html[data-theme="light"] .panel-header {
+  background: rgba(255, 255, 255, 0.92);
+  border-bottom-color: #e9e6ef;
+}
+
+html[data-theme="light"] .panel-glass {
+  background: #ffffff;
+  border-color: #e9e6ef;
+}
+
+html[data-theme="light"] .panel-icon-pill {
+  background: #f7f6f9;
+  border-color: #e9e6ef;
+}
+
+html[data-theme="light"] .sidebar-mesh {
+  background-image:
+    radial-gradient(at 0% 0%, rgba(247, 109, 1, 0.08) 0px, transparent 46%),
+    radial-gradient(at 100% 100%, rgba(64, 0, 149, 0.06) 0px, transparent 50%);
+  background-size: auto, auto;
+}
+
+html[data-theme="light"] .sidebar-glass-hover:hover {
+  border-color: #d3ccdd;
+}
+
+html[data-theme="light"] .sidebar-scroll::-webkit-scrollbar-thumb {
+  background: rgba(23, 18, 29, 0.16);
+}
+
+html[data-theme="light"] .dashboard-theme .card-base,
+html[data-theme="light"] .dashboard-theme .card-elevated,
+html[data-theme="light"] .dashboard-theme .card-interactive {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+html[data-theme="light"] .dashboard-theme .card-interactive:hover {
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-elevated);
+}
+
+html[data-theme="light"] .dashboard-theme input,
+html[data-theme="light"] .dashboard-theme select,
+html[data-theme="light"] .dashboard-theme textarea {
+  background: #ffffff !important;
+  border-color: #e9e6ef !important;
+  color: #17121d;
+}
+
+html[data-theme="light"] .mapping-panel {
+  box-shadow: 0 16px 36px -28px rgb(23 18 29 / 0.35);
+}
+
+html[data-theme="light"] .mapping-status-brand {
+  border-color: #f3c7b8 !important;
+}
+
+html[data-theme="light"] .mapping-status-success {
+  border-color: #a7f3d0 !important;
+}
+
+html[data-theme="light"] .mapping-status-warning {
+  border-color: #fde68a !important;
+}
+
+html[data-theme="light"] .catalog-scope-demo {
+  --color-mapping-panel: #ffffff;
+  --color-mapping-panel-alt: #f7f6f9;
+  --color-mapping-control: #ffffff;
+  --color-mapping-control-hover: #f4f0f8;
+  --color-mapping-brand-soft: #fff1eb;
+  --color-mapping-border: #e9e6ef;
+  --color-mapping-border-strong: #d3ccdd;
+  --color-surface-base: #f7f6f9;
+  --color-surface-card: #ffffff;
+  --color-surface-sticky: #ffffff;
+  --color-surface-elevated: #f7f6f9;
+  --color-border: #e9e6ef;
+  --color-border-strong: #d3ccdd;
+  --color-text-primary: #17121d;
+  --color-text-secondary: #524b5c;
+  --color-text-muted: #918a9c;
+  --color-brand: #f76d01;
+  --color-brand-strong: #c40000;
+  --color-brand-light: #ffe9d6;
+  --color-warning: #f59e0b;
+  --color-warning-light: #fef3c7;
+  --color-warning-border: #fde68a;
+}
+
+html[data-theme="light"] .catalog-scope-demo .mapping-status-brand {
+  border-color: #f3c7b8 !important;
+  background: #fff1eb !important;
+}
+
+.theme-icon-for-dark,
+.theme-icon-for-light {
+  display: none;
+}
+
+html[data-theme="dark"] .theme-icon-for-dark,
+html:not([data-theme="light"]) .theme-icon-for-dark {
+  display: block;
+}
+
+html[data-theme="light"] .theme-icon-for-light {
+  display: block;
+}
+
+html[data-theme="light"] .theme-icon-for-dark {
+  display: none;
 }
 
 /* ─── Scrollbar ──────────────────────────────────────────────────────────── */

@@ -81,6 +81,7 @@ export async function queryUsageSessions(input: {
   const shoppers = rows.map((row) => ({
     sessionId: (row.session_id as string | null) ?? null,
     source: surface(row.source),
+    email: (row.shopper_email as string | null) ?? null,
     chatCalls: num(row.chat_calls),
     chatUnits: num(row.chat_units),
     searches: num(row.searches),

@@ -23,8 +23,10 @@ export interface UsageAggregateRow {
 }
 
 export interface ShopperUsage {
+  /** `acct:<id>` for a signed-in shopper (all their sessions together), else the browser session. */
   sessionId: string | null;
   source: "store" | "preview" | null;
+  email: string | null;
   chatCalls: number;
   chatUnits: number;
   searches: number;
@@ -114,11 +116,12 @@ export function formatUsdFromNanos(nanos: number): string {
   });
 }
 
-export function shopperLabel(sessionId: string | null, source: "store" | "preview" | null): string {
-  if (!sessionId) return "Unattributed (before tracking)";
-  const short = sessionId.replace(/-/g, "").slice(0, 6);
-  if (source === "preview") return `Preview #${short}`;
-  return `Shopper #${short}`;
+export function shopperLabel(shopper: Pick<ShopperUsage, "sessionId" | "source" | "email">): string {
+  if (shopper.email) return shopper.email;
+  if (!shopper.sessionId) return "Unattributed (before tracking)";
+  const short = shopper.sessionId.replace(/-/g, "").slice(0, 6);
+  if (shopper.source === "preview") return `Preview #${short}`;
+  return `Guest #${short}`;
 }
 
 export function shopperKey(sessionId: string | null): string {
@@ -372,7 +375,7 @@ export function usageCsv(input: { rows: UsageAggregateRow[]; shoppers: ShopperUs
           "shopper",
           "",
           tool,
-          shopperLabel(shopper.sessionId, shopper.source),
+          shopperLabel(shopper),
           shopper.source ?? "",
           quantity,
           units,

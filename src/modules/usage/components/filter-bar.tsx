@@ -1,12 +1,53 @@
 "use client";
 
+import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { USAGE_TOOLS } from "@/lib/billing/usage-report";
 import { RANGE_OPTIONS, TOOL_META } from "../constants";
 import type { UsageFilters } from "../hooks/use-usage-filters";
 
-const SELECT_CLASS =
+const FIELD_CLASS =
   "h-8 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-card)] px-3 text-xs font-semibold text-[var(--color-text-primary)]";
+
+function FilterMenu({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: Array<{ id: string; label: string }>;
+  onChange: (id: string) => void;
+}) {
+  const current = options.find((option) => option.id === value)?.label ?? label;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        aria-label={label}
+        className={cn(FIELD_CLASS, "inline-flex items-center gap-1.5")}
+      >
+        {current}
+        <ChevronDown className="h-3.5 w-3.5 text-[var(--color-text-muted)]" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="dashboard-theme min-w-[11rem] !bg-[var(--color-sidebar-bg)] !text-[var(--color-text-secondary)]">
+        {options.map((option) => {
+          const selected = option.id === value;
+          return (
+            <DropdownMenuItem
+              key={option.id}
+              onSelect={() => onChange(option.id)}
+              className={selected ? "bg-[var(--color-brand-light)] text-[var(--color-text-primary)]" : undefined}
+            >
+              {option.label}
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 interface FilterBarProps {
   filters: UsageFilters;
@@ -46,7 +87,7 @@ export function FilterBar({ filters, generatedAt, onChange }: FilterBarProps) {
               type="date"
               value={filters.from}
               onChange={(event) => onChange({ from: event.target.value })}
-              className={SELECT_CLASS}
+              className={cn(FIELD_CLASS, "scheme-dark")}
               aria-label="Start date"
             />
             <span className="text-xs text-[var(--color-text-muted)]">to</span>
@@ -54,7 +95,7 @@ export function FilterBar({ filters, generatedAt, onChange }: FilterBarProps) {
               type="date"
               value={filters.to}
               onChange={(event) => onChange({ to: event.target.value })}
-              className={SELECT_CLASS}
+              className={cn(FIELD_CLASS, "scheme-dark")}
               aria-label="End date"
             />
           </div>
@@ -66,38 +107,34 @@ export function FilterBar({ filters, generatedAt, onChange }: FilterBarProps) {
         )}
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <select
-          aria-label="Source"
-          className={SELECT_CLASS}
+        <FilterMenu
+          label="Source"
           value={filters.source}
-          onChange={(event) => onChange({ source: event.target.value })}
-        >
-          <option value="all">All sources</option>
-          <option value="store">Store</option>
-          <option value="preview">Preview</option>
-        </select>
-        <select
-          aria-label="Tool"
-          className={SELECT_CLASS}
+          options={[
+            { id: "all", label: "All sources" },
+            { id: "store", label: "Store" },
+            { id: "preview", label: "Preview" },
+          ]}
+          onChange={(source) => onChange({ source })}
+        />
+        <FilterMenu
+          label="Tool"
           value={filters.tool}
-          onChange={(event) => onChange({ tool: event.target.value })}
-        >
-          <option value="all">All tools</option>
-          {USAGE_TOOLS.map((tool) => (
-            <option key={tool} value={tool}>
-              {TOOL_META[tool].label}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Group by"
-          className={SELECT_CLASS}
+          options={[
+            { id: "all", label: "All tools" },
+            ...USAGE_TOOLS.map((tool) => ({ id: tool, label: TOOL_META[tool].label })),
+          ]}
+          onChange={(tool) => onChange({ tool })}
+        />
+        <FilterMenu
+          label="Group by"
           value={filters.bucket}
-          onChange={(event) => onChange({ bucket: event.target.value })}
-        >
-          <option value="day">By day</option>
-          <option value="week">By week</option>
-        </select>
+          options={[
+            { id: "day", label: "By day" },
+            { id: "week", label: "By week" },
+          ]}
+          onChange={(bucket) => onChange({ bucket })}
+        />
         <div className="flex items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-base)] p-1">
           {(["usd", "units"] as const).map((view) => (
             <button

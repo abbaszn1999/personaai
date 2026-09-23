@@ -2,6 +2,7 @@
 
 import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { StatusBadge } from "@/components/ui/settings-card";
 import { cn } from "@/lib/utils/cn";
 import type { PlanTier } from "../types";
 
@@ -17,50 +18,43 @@ export function PlanCard({ plan, isActive, loading = false, disabled = false, on
   return (
     <div
       className={cn(
-        "rounded-[var(--radius-xl)] border p-5 flex flex-col gap-4 transition-all",
+        "flex flex-col gap-4 rounded-[var(--radius-xl)] border p-5",
         isActive
           ? "border-[var(--color-brand)] bg-[var(--color-brand-light)]"
-          : "border-[var(--color-border)] hover:border-[var(--color-brand)]/40"
+          : "border-[var(--color-border)] bg-[var(--color-surface-base)]"
       )}
     >
       <div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <p className="text-sm font-bold text-[var(--color-text-primary)]">{plan.name}</p>
-          {isActive && (
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[var(--color-brand)] text-white">
-              Current
-            </span>
-          )}
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm font-semibold text-[var(--color-text-primary)]">{plan.name}</p>
+          {isActive && <StatusBadge tone="success">Current</StatusBadge>}
         </div>
-        <p className="text-xl font-display font-extrabold text-[var(--color-text-primary)] mt-1">
+        <p className="mt-1 text-2xl font-display font-extrabold text-[var(--color-text-primary)]">
           {plan.priceLabel}
           <span className="text-xs font-normal text-[var(--color-text-muted)]">{plan.priceSub}</span>
         </p>
-        <p className="text-xs text-[var(--color-text-secondary)] mt-2">{plan.description}</p>
-        <p className="text-xs text-[var(--color-text-muted)] mt-1">{plan.bestFor}</p>
+        <p className="mt-2 text-xs text-[var(--color-text-muted)]">{plan.bestFor}</p>
       </div>
 
-      <ul className="space-y-1.5 flex-1">
-        {plan.features.map((f) => (
-          <li key={f} className="flex items-start gap-1.5 text-xs text-[var(--color-text-secondary)]">
-            <Check className="h-3.5 w-3.5 text-[var(--color-success)] shrink-0 mt-0.5" />
-            {f}
+      <ul className="flex-1 space-y-2">
+        {plan.features.map((feature) => (
+          <li key={feature} className="flex items-start gap-2 text-sm text-[var(--color-text-secondary)]">
+            <Check className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-success)]" />
+            {feature}
           </li>
         ))}
       </ul>
 
-      <div className="space-y-1.5">
-        <Button
-          size="md"
-          variant={isActive ? "secondary" : "primary"}
-          disabled={isActive || disabled}
-          loading={loading}
-          onClick={onSelect}
-          className="w-full"
-        >
-          {isActive ? "Current Plan" : "Switch to this plan"}
-        </Button>
-      </div>
+      <Button
+        size="md"
+        variant={isActive ? "secondary" : "primary"}
+        disabled={isActive || disabled}
+        loading={loading}
+        onClick={onSelect}
+        className="w-full"
+      >
+        {isActive ? "Current plan" : `Switch to ${plan.name}`}
+      </Button>
     </div>
   );
 }

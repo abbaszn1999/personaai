@@ -40,6 +40,18 @@ export function getOrCreateEmbedSessionId(embedToken: string): string {
   return id;
 }
 
+/** Forgets this browser's session id so the next shopper to sign in gets a new one and
+ *  doesn't inherit the previous shopper's spend on the usage page. */
+export function resetEmbedSessionId(embedToken: string): void {
+  const storage = safeLocalStorage();
+  if (!storage) return;
+  try {
+    storage.removeItem(`${SESSION_ID_PREFIX}${embedToken}`);
+  } catch {
+    // Non-fatal.
+  }
+}
+
 export function loadEmbedState<T>(embedToken: string): T | null {
   const storage = safeLocalStorage();
   if (!storage) return null;

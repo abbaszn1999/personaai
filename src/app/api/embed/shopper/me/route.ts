@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { embedJson, embedOptions } from "@/lib/embed/cors";
 import { touchShopperAccountLastSeen } from "@/lib/db/shopper-accounts";
 import { listShopperProfiles } from "@/lib/db/shopper-profiles";
+import { linkShopperSession, parseEmbedSessionId } from "@/lib/db/shopper-session-links";
 import { requireShopperEmbed } from "@/lib/shopper-auth/require";
 import { serializeShopperProfile } from "@/lib/shopper-auth/serialize-profile";
 
@@ -19,6 +20,14 @@ export async function GET(req: NextRequest) {
     if ("error" in auth) return auth.error;
 
     void touchShopperAccountLastSeen(auth.session.account.id);
+    const sessionId = parseEmbedSessionId(req.nextUrl.searchParams.get("sessionId"));
+    if (sessionId) {
+      await linkShopperSession({
+        ownerId: auth.workspace.ownerId,
+        sessionId,
+        shopperAccountId: auth.session.account.id,
+      });
+    }
     const profiles = (await listShopperProfiles(auth.session.account.id)).map(serializeShopperProfile);
 
     return embedJson({

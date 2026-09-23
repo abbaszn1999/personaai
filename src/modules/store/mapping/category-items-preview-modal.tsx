@@ -366,7 +366,7 @@ export function CategoryItemsPreviewModal({ category, onClose, onSelectForMappin
       </div>
 
       {/* Items */}
-      <div className="-mx-5 -mb-5 mt-4 min-h-0 flex-1 overflow-y-auto bg-[#120d19] p-4 sm:p-5">
+      <div className="-mx-5 -mb-5 mt-4 min-h-0 flex-1 overflow-y-auto bg-[var(--color-mapping-canvas)] p-4 sm:p-5">
         {isLoading ? (
             <div className="p-12 text-center text-sm font-semibold text-[var(--color-text-muted)]">Loading live products…</div>
           ) : filteredItems.length === 0 ? (
@@ -389,7 +389,7 @@ export function CategoryItemsPreviewModal({ category, onClose, onSelectForMappin
                     ) : (
                       <div className="flex h-full items-center justify-center text-[var(--color-text-muted)]"><Package className="h-8 w-8" /></div>
                     )}
-                    <span className="absolute left-2 top-2 rounded bg-[#100b16] px-1.5 py-0.5 text-[10px] font-bold text-white">{item.sku}</span>
+                    <span className="absolute left-2 top-2 rounded bg-[var(--color-surface-sticky)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--color-text-primary)]">{item.sku}</span>
                     <span className="absolute bottom-2 right-2 rounded-[var(--radius-md)] bg-[#fff7f0] px-2 py-0.5 text-xs font-extrabold text-slate-900 shadow-[var(--shadow-card)]">{item.price}</span>
                   </div>
                   <div className="flex flex-1 flex-col justify-between gap-2 p-3">

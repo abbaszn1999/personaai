@@ -1012,7 +1012,7 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
                     onClick={() => handleToggleSelectOne(cat.id)}
                     className={cn(
                       "flex select-none flex-col gap-2 border-l-4 p-3 transition-all",
-                      isExcluded ? "cursor-default border-l-[var(--color-border-strong)] bg-[#17121e] text-[var(--color-text-muted)]" : "cursor-grab active:cursor-grabbing",
+                      isExcluded ? "cursor-default border-l-[var(--color-border-strong)] bg-[var(--color-mapping-panel)] text-[var(--color-text-muted)]" : "cursor-grab active:cursor-grabbing",
                       isDragging && "scale-[0.99] border-2 border-dashed border-[var(--color-brand)] bg-[var(--color-brand-light)] opacity-40",
                       !isDragging && isHighlighted && "scale-[1.01] border-l-[var(--color-brand)] bg-[var(--color-brand-light)] ring-2 ring-[var(--color-brand)]/50",
                       !isDragging && !isHighlighted && isSelected && "mapping-status-brand border-l-[var(--color-brand)] ring-1 ring-[var(--color-brand)]/30",

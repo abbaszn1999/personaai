@@ -56,7 +56,7 @@ export function ShopperDrawer({
     };
   }, [apiQuery, sessionId]);
 
-  const title = shopper ? shopperLabel(shopper.sessionId, shopper.source) : "Shopper";
+  const title = shopper ? shopperLabel(shopper) : "Shopper";
   return (
     <Modal
       isOpen

@@ -3,6 +3,7 @@
 import * as React from "react";
 import { usePathname } from "next/navigation";
 import { AppSidebar } from "./app-sidebar";
+import { ThemeToggle } from "@/modules/theme/theme-toggle";
 
 interface DashboardShellProps {
   children: React.ReactNode;
@@ -21,11 +22,18 @@ export function DashboardShell({ children }: DashboardShellProps) {
   const pathname = usePathname();
 
   if (isFullscreenRoute(pathname)) {
-    return <>{children}</>;
+    return (
+      <>
+        <div className="fixed right-4 top-4 z-[80]">
+          <ThemeToggle />
+        </div>
+        {children}
+      </>
+    );
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#0a0810] p-2 gap-2">
+    <div className="flex h-screen overflow-hidden bg-[var(--color-app-frame)] p-2 gap-2">
       <React.Suspense
         fallback={<aside className="h-full w-[272px] shrink-0 rounded-[var(--radius-2xl)] sidebar-panel" />}
       >

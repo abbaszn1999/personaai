@@ -9,6 +9,7 @@ import {
   upsertShopperAccount,
 } from "@/lib/db/shopper-accounts";
 import { listShopperProfiles } from "@/lib/db/shopper-profiles";
+import { linkShopperSession, parseEmbedSessionId } from "@/lib/db/shopper-session-links";
 import { hashToken } from "@/lib/shopper-auth/tokens";
 import { issueShopperSession } from "@/lib/shopper-auth/session";
 import { serializeShopperProfile } from "@/lib/shopper-auth/serialize-profile";
@@ -20,6 +21,7 @@ interface RequestBody {
   email?: string;
   code?: string;
   acceptPrivacy?: boolean;
+  sessionId?: string;
 }
 
 export async function OPTIONS() {
@@ -73,6 +75,11 @@ export async function POST(req: NextRequest) {
     const account = await upsertShopperAccount(workspace.workspaceId, email, body.acceptPrivacy === true);
     if (!account) {
       return embedJson({ error: "Could not create your account — please try again." }, { status: 500 });
+    }
+
+    const sessionId = parseEmbedSessionId(body.sessionId);
+    if (sessionId) {
+      await linkShopperSession({ ownerId: workspace.ownerId, sessionId, shopperAccountId: account.id });
     }
 
     const userAgent = req.headers.get("user-agent");
