@@ -32,7 +32,8 @@ export function SettingsProfileProvider({ children }: { children: React.ReactNod
       lastName: patch.lastName ?? user.lastName,
       email: user.email,
       provider: user.provider,
-      profileImageUrl: patch.profileImageUrl ?? user.profileImageUrl,
+      profileImageUrl:
+        "profileImageUrl" in patch ? (patch.profileImageUrl ?? null) : user.profileImageUrl,
       googleId: user.googleId,
       hasPassword: patch.hasPassword ?? user.hasPassword,
     };

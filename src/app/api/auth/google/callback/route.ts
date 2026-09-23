@@ -35,11 +35,14 @@ export async function GET(req: NextRequest) {
     let user = await getUserByEmail(profile.email);
 
     if (user) {
-      // Link Google ID to existing account
+      // Keep a photo already on the account (including an upload). Google's
+      // picture is used only when the account has none yet.
+      const profileImageUrl = user.profile_image_url || profile.profileImageUrl || null;
       await linkGoogleAccount(user.id, {
         googleId: profile.googleId,
-        profileImageUrl: profile.profileImageUrl ?? user.profile_image_url,
+        profileImageUrl,
       });
+      user = { ...user, profile_image_url: profileImageUrl };
     } else {
       // Create new Google user
       const newUser = await createGoogleUser({
@@ -70,7 +73,7 @@ export async function GET(req: NextRequest) {
     const freshUser = {
       ...user,
       google_id: profile.googleId,
-      profile_image_url: profile.profileImageUrl ?? user.profile_image_url,
+      profile_image_url: user.profile_image_url,
       email_verified: true,
     };
     session.profile = buildSessionProfile(freshUser);

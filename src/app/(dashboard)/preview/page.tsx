@@ -30,11 +30,11 @@ export default function CustomerPreviewPage() {
       {/* Thin banner indicating this is the customer preview */}
       <div className="flex items-center gap-3 px-4 py-2 bg-[var(--color-brand)] text-white text-xs font-medium shrink-0">
         <Link
-          href="/project"
+          href="/branding"
           className="flex items-center gap-1 opacity-80 hover:opacity-100 transition-opacity"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          Back to Settings
+          Back to Branding
         </Link>
         <span className="opacity-40">|</span>
         <span className="flex items-center gap-1.5">
