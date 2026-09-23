@@ -11,10 +11,21 @@ interface PlanCardProps {
   isActive: boolean;
   loading?: boolean;
   disabled?: boolean;
+  /** Replaces the switch label and keeps the button disabled. */
+  blockedLabel?: string;
+  actionLabel?: string;
   onSelect: () => void;
 }
 
-export function PlanCard({ plan, isActive, loading = false, disabled = false, onSelect }: PlanCardProps) {
+export function PlanCard({
+  plan,
+  isActive,
+  loading = false,
+  disabled = false,
+  blockedLabel,
+  actionLabel,
+  onSelect,
+}: PlanCardProps) {
   return (
     <div
       className={cn(
@@ -34,6 +45,7 @@ export function PlanCard({ plan, isActive, loading = false, disabled = false, on
           <span className="text-xs font-normal text-[var(--color-text-muted)]">{plan.priceSub}</span>
         </p>
         <p className="mt-2 text-xs text-[var(--color-text-muted)]">{plan.bestFor}</p>
+        <p className="mt-2 text-xs leading-relaxed text-[var(--color-text-secondary)]">{plan.description}</p>
       </div>
 
       <ul className="flex-1 space-y-2">
@@ -48,12 +60,12 @@ export function PlanCard({ plan, isActive, loading = false, disabled = false, on
       <Button
         size="md"
         variant={isActive ? "secondary" : "primary"}
-        disabled={isActive || disabled}
+        disabled={isActive || disabled || Boolean(blockedLabel)}
         loading={loading}
         onClick={onSelect}
         className="w-full"
       >
-        {isActive ? "Current plan" : `Switch to ${plan.name}`}
+        {isActive ? "Current plan" : blockedLabel ?? actionLabel ?? `Switch to ${plan.name}`}
       </Button>
     </div>
   );

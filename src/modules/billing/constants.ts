@@ -14,7 +14,7 @@ export const PLAN_TIERS: PlanTier[] = [
     monthlyLiveTryOnSeconds: 50 * 60,
     monthlySessionUnits: 50_000,
     carriesBalance: false,
-    description: "50,000 session units, 50 live minutes, and 12,500 garment units for 30 days.",
+    description: "One-time, 30 days. Unused units move to Main if you upgrade during the trial.",
     bestFor: "For a store evaluating Persona before a monthly plan.",
     features: [
       "50,000 session units",

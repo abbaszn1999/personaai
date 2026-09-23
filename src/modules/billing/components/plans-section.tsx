@@ -1,14 +1,16 @@
 "use client";
 
 import { SettingsCard } from "@/components/ui/settings-card";
+import { LIVE_SUBSCRIPTION_STATUSES } from "@/lib/billing/current-subscription";
 import { PlanCard } from "./plan-card";
 import { useBilling } from "../hooks/use-billing";
 
 export function PlansSection() {
   const { summary, tiers, switchTier, pendingAction } = useBilling();
   const activeTierId = summary?.tierId ?? "trial";
-  const hasPaidSubscription =
-    summary?.billing.accessMode === "stripe" && Boolean(summary.billing.subscriptionStatus);
+  const status = summary?.billing.subscriptionStatus ?? "";
+  const live = (LIVE_SUBSCRIPTION_STATUSES as readonly string[]).includes(status);
+  const onTrial = live && activeTierId === "trial";
 
   return (
     <SettingsCard
@@ -21,9 +23,11 @@ export function PlansSection() {
           <PlanCard
             key={plan.id}
             plan={plan}
-            isActive={hasPaidSubscription && plan.id === activeTierId}
+            isActive={live && plan.id === activeTierId}
             loading={pendingAction === `plan:${plan.id}`}
             disabled={pendingAction !== null}
+            blockedLabel={plan.id === "trial" && summary?.trialUsed && !onTrial ? "Trial used" : undefined}
+            actionLabel={plan.id === "main" && onTrial ? "Upgrade to Main" : undefined}
             onSelect={() => void switchTier(plan.id)}
           />
         ))}
