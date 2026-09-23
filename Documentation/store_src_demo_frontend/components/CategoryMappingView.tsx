@@ -56,12 +56,13 @@ import { StoreConnectionInfo } from '../types';
 
 interface CategoryMappingViewProps {
   storeConnection: StoreConnectionInfo;
+  onContinueToSetup?: () => void;
 }
 
 type FilterStatus = 'all' | 'unmapped' | 'mapped' | 'excluded';
 type SortOption = 'unmapped_first' | 'products_desc' | 'name_asc';
 
-export function CategoryMappingView({ storeConnection }: CategoryMappingViewProps) {
+export function CategoryMappingView({ storeConnection, onContinueToSetup }: CategoryMappingViewProps) {
   // Store Categories Master State
   const [categories, setCategories] = useState<StoreCategoryItem[]>(() => {
     // Check localStorage for persisted mapping state if any
@@ -1180,6 +1181,18 @@ export function CategoryMappingView({ storeConnection }: CategoryMappingViewProp
               <span className="w-1.5 h-1.5 rounded-full bg-amber-300 animate-pulse" />
             )}
           </button>
+
+          {/* Proceed to Setup */}
+          {onContinueToSetup && (
+            <button
+              type="button"
+              onClick={onContinueToSetup}
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-bold text-white bg-gradient-to-r from-[#8B5CF6] to-[#EC4899] hover:opacity-95 shadow-sm shadow-purple-500/20 active:scale-98 transition-all cursor-pointer"
+            >
+              <span>Proceed to Setup</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
 

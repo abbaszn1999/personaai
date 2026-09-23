@@ -6,6 +6,7 @@ import {
   storeCategoryBreadcrumb,
 } from "@/lib/catalog/persona-mapping";
 import {
+  ALL_PERSONA_LEAF_KEYS,
   EMPTY_PERSONA_SCOPE,
   PERSONA_TAXONOMY_VERSION,
   derivePersonaValues,
@@ -14,6 +15,30 @@ import {
   type PersonaDepartmentId,
 } from "@/modules/store/mapping/persona-taxonomy";
 import { deactivateAcsCatalogForRemapping } from "@/lib/catalog/acs/catalog-reads";
+import { rewindRun } from "@/lib/db/sizing-runs";
+
+function invalidLeafMappingIds(
+  value: unknown,
+  enabledLeafKeys: readonly string[],
+  customLeaves: readonly { deptId: string; catId: string; subCategory: string }[],
+): string[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const enabled = new Set(enabledLeafKeys);
+  const known = new Set([
+    ...ALL_PERSONA_LEAF_KEYS,
+    ...customLeaves.map((leaf) => `${leaf.deptId}:${leaf.catId}:${leaf.subCategory}`),
+  ]);
+
+  return Object.entries(value as Record<string, unknown>).flatMap(([sourceId, raw]) => {
+    if (!raw || typeof raw !== "object" || (raw as Record<string, unknown>).status !== "mapped") return [];
+    const mapping = raw as Record<string, unknown>;
+    const dept = typeof mapping.departmentId === "string" ? mapping.departmentId.trim() : "";
+    const category = typeof mapping.categoryId === "string" ? mapping.categoryId.trim() : "";
+    const subCategory = typeof mapping.subCategory === "string" ? mapping.subCategory.trim() : "";
+    const leafKey = `${dept}:${category}:${subCategory}`;
+    return dept && category && subCategory && known.has(leafKey) && enabled.has(leafKey) ? [] : [sourceId];
+  });
+}
 
 function responseFor(connection: NonNullable<Awaited<ReturnType<typeof getStoreConnectionByOwner>>>) {
   return {
@@ -23,7 +48,11 @@ function responseFor(connection: NonNullable<Awaited<ReturnType<typeof getStoreC
     autoMatchCompletedAt: connection.personaAutoMatchCompletedAt,
     categories: connection.categories.map((category) => {
       const mapping = connection.personaCategoryMap[category.id];
-      const mapped = mapping?.status === "mapped" && mapping.departmentId && mapping.categoryId;
+      const mapped =
+        mapping?.status === "mapped" &&
+        mapping.departmentId &&
+        mapping.categoryId &&
+        mapping.subCategory;
       return {
         id: category.id,
         name: category.name,
@@ -81,19 +110,37 @@ export async function PUT(req: NextRequest) {
     return Response.json({ error: "Invalid mapping payload" }, { status: 400 });
   }
 
+  const payload = body as Record<string, unknown>;
   const config = buildPersonaMappingConfig(
-    (body as Record<string, unknown>).scope,
-    (body as Record<string, unknown>).mappings,
+    payload.scope,
+    payload.mappings,
     connection.categories,
   );
   if (!config.scope.configured) {
     return Response.json({ error: "Configure the Persona taxonomy scope before saving mappings." }, { status: 400 });
   }
 
+  const invalidMappings = invalidLeafMappingIds(
+    payload.mappings,
+    config.scope.enabledLeafKeys,
+    config.scope.customLeaves,
+  );
+  if (invalidMappings.length > 0) {
+    return Response.json(
+      {
+        error:
+          "Every mapped store category must target one enabled subcategory leaf. " +
+          `${invalidMappings.length} mapping${invalidMappings.length === 1 ? "" : "s"} must be completed or left unmapped.`,
+        invalidCategoryIds: invalidMappings,
+      },
+      { status: 400 },
+    );
+  }
+
   // Auto-Match is a one-shot action: the mapping-view marks this save as its completion, which
   // stamps the connection so `POST .../auto-match` refuses to run again until a full clear (see
   // the DELETE handler below). A manual save never sets this — only Auto-Match's own request does.
-  const markAutoMatchCompleted = (body as Record<string, unknown>).markAutoMatchCompleted === true;
+  const markAutoMatchCompleted = payload.markAutoMatchCompleted === true;
 
   const now = new Date().toISOString();
   const updated = await updateStoreConnection(user.id, {
@@ -109,7 +156,13 @@ export async function PUT(req: NextRequest) {
   });
 
   if (!updated) return Response.json({ error: "Could not save category mappings" }, { status: 500 });
-  await deactivateAcsCatalogForRemapping(updated.id);
+  await Promise.all([
+    deactivateAcsCatalogForRemapping(updated.id),
+    // Category paths are one of the scan's inputs. Keeping a completed/blocked run after changing
+    // them leaves `sizing_path_coverage` describing the old mapping — exactly how leafless products
+    // remained in Stage 4 after their mapping was corrected.
+    rewindRun(updated.id, "scan"),
+  ]);
   return Response.json(responseFor(updated));
 }
 
@@ -134,6 +187,9 @@ export async function DELETE() {
   });
 
   if (!updated) return Response.json({ error: "Could not clear category mappings" }, { status: 500 });
-  await deactivateAcsCatalogForRemapping(updated.id);
+  await Promise.all([
+    deactivateAcsCatalogForRemapping(updated.id),
+    rewindRun(updated.id, "scan"),
+  ]);
   return Response.json(responseFor(updated));
 }

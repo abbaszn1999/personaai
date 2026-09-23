@@ -63,10 +63,8 @@ const ALIAS_HEADERS: Record<SizeAliasKey, string> = {
   eu: "EU",
   uk: "UK",
   us: "US",
-  fr: "FR",
-  it: "IT",
-  de: "DE",
-  jp: "JP",
+  numeric: "Numeric",
+  age: "Age",
   neck: "Collar",
   waist_inseam: "W/L",
 };

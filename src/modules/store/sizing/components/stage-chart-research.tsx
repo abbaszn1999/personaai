@@ -16,11 +16,14 @@ import {
   Globe,
   Sparkles,
   Ban,
+  ListTree,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
 import { cn } from "@/lib/utils/cn";
 import { CHART_CONFIDENCE_PERCENT } from "@/lib/sizing/chart-review";
+import { leafLabel } from "@/modules/store/mapping/persona-taxonomy";
 import { useSizingStore } from "../store";
 import {
   isRunWorking,
@@ -72,6 +75,9 @@ export function StageChartResearch() {
   const startResearch = useSizingStore((s) => s.startResearch);
   const researchStarting = useSizingStore((s) => s.researchStarting);
   const openChartModal = useSizingStore((s) => s.openChartModal);
+  const mappedLeaves = useSizingStore((s) => s.mappedLeaves);
+  const loadAssignments = useSizingStore((s) => s.loadAssignments);
+  const openBrandMappingEditor = useSizingStore((s) => s.openBrandMappingEditor);
 
   const [tab, setTab] = React.useState<ResultTab>("brands");
   const [statusFilter, setStatusFilter] = React.useState<StatusFilter>("all");
@@ -87,6 +93,13 @@ export function StageChartResearch() {
   React.useEffect(() => {
     if (!researching) void loadCharts();
   }, [researching, loadCharts]);
+
+  // Subcategory coverage is scoped to this merchant's enabled taxonomy leaves, not every leaf a
+  // global brand happens to publish for. Stage 5's assignments endpoint already returns that one
+  // authoritative leaf set, including selected leaves with zero current stock.
+  React.useEffect(() => {
+    void loadAssignments();
+  }, [loadAssignments]);
 
   // Research persists each brand's outcome as it finishes, so progress is a re-read of real rows
   // rather than an animated timer. Only while a pass is live: this response carries every chart's
@@ -138,15 +151,29 @@ export function StageChartResearch() {
   const filteredBrands = React.useMemo(
     () =>
       brands.filter((brand) => {
-        const variantNames = (chartsByBrand.get(brand.brandKey) ?? []).map((chart) => chart.variantName);
-        if (!matchesQuery([brand.brandName, brand.searchName, ...brand.sizingCategories, ...variantNames])) {
+        const brandCharts = chartsByBrand.get(brand.brandKey) ?? [];
+        const variantNames = brandCharts.map((chart) => chart.variantName);
+        const coveredLeafLabels = [
+          ...new Set(
+            brandCharts.flatMap((chart) => chart.coversLeaves).filter((leaf) => mappedLeaves.includes(leaf))
+          ),
+        ].map(leafLabel);
+        if (
+          !matchesQuery([
+            brand.brandName,
+            brand.searchName,
+            ...brand.sizingCategories,
+            ...variantNames,
+            ...coveredLeafLabels,
+          ])
+        ) {
           return false;
         }
         if (statusFilter === "done") return brand.status === "done";
         if (statusFilter === "needs_action") return brand.status !== "done";
         return true;
       }),
-    [brands, chartsByBrand, matchesQuery, statusFilter]
+    [brands, chartsByBrand, mappedLeaves, matchesQuery, statusFilter]
   );
 
   const filterGaps = React.useCallback(
@@ -192,6 +219,9 @@ export function StageChartResearch() {
         aiPowered
         actions={
           <>
+            <Button variant="ghost" size="sm" onClick={openBrandMappingEditor} disabled={busy}>
+              <PencilLine className="h-3.5 w-3.5" /> Edit brand mapping
+            </Button>
             <Button variant="ghost" size="sm" onClick={() => void loadCharts({ force: true })} disabled={loading}>
               <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> Refresh
             </Button>
@@ -286,6 +316,7 @@ export function StageChartResearch() {
         <BrandResearchTable
           brands={filteredBrands}
           chartsByBrand={chartsByBrand}
+          mappedLeaves={mappedLeaves}
           hasBrands={brands.length > 0}
           busy={busy}
           startingKey={researchStarting}
@@ -426,6 +457,7 @@ function BrandStatusBadge({ status }: { status: BrandResearchStatus }) {
 function BrandResearchTable({
   brands,
   chartsByBrand,
+  mappedLeaves,
   hasBrands,
   busy,
   startingKey,
@@ -434,13 +466,26 @@ function BrandResearchTable({
 }: {
   brands: BrandResearchRow[];
   chartsByBrand: Map<string, ResearchedChart[]>;
+  mappedLeaves: string[];
   hasBrands: boolean;
   busy: boolean;
   startingKey: string | null;
   onGenerate: (brandKey: string) => void;
   onViewChart: (charts: ResearchedChart[], initialCategory?: string) => void;
 }) {
+  const [coverageModal, setCoverageModal] = React.useState<{ brandName: string; leaves: string[] } | null>(null);
+  const merchantLeafSet = React.useMemo(() => new Set(mappedLeaves), [mappedLeaves]);
+
+  const coverageFor = React.useCallback(
+    (charts: readonly ResearchedChart[]) =>
+      [...new Set(charts.flatMap((chart) => chart.coversLeaves))]
+        .filter((leaf) => merchantLeafSet.has(leaf))
+        .sort((a, b) => leafLabel(a).localeCompare(leafLabel(b))),
+    [merchantLeafSet],
+  );
+
   return (
+    <>
     <div className="overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] shadow-[var(--shadow-elevated)] backdrop-blur-xl">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-border)] bg-[var(--color-brand-light)]/30 px-6 py-4">
         <div className="flex items-center gap-2">
@@ -458,6 +503,7 @@ function BrandResearchTable({
             <tr>
               <th className="px-6 py-3.5">Brand</th>
               <th className="px-6 py-3.5">Sizing keys carried</th>
+              <th className="px-6 py-3.5">Subcategory coverage</th>
               <th className="px-6 py-3.5">Charts</th>
               <th className="px-6 py-3.5">SKU count</th>
               <th className="px-6 py-3.5">Status</th>
@@ -467,7 +513,7 @@ function BrandResearchTable({
           <tbody className="divide-y divide-[var(--color-border)]">
             {brands.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-6 py-10 text-center text-xs text-[var(--color-text-muted)]">
+                <td colSpan={7} className="px-6 py-10 text-center text-xs text-[var(--color-text-muted)]">
                   {hasBrands
                     ? "No brand matches the active filter."
                     : "No brand in this catalog was classified as a global brand, so there is nothing to search for."}
@@ -476,6 +522,7 @@ function BrandResearchTable({
             ) : (
               brands.map((brand) => {
                 const variants = chartsByBrand.get(brand.brandKey) ?? [];
+                const coveredLeaves = coverageFor(variants);
                 const starting = startingKey === brand.brandKey;
                 const live = brand.status === "queued" || brand.status === "researching";
                 // A partial brand gets both: charts to look at, and parents still missing one.
@@ -510,6 +557,13 @@ function BrandResearchTable({
                           );
                         })}
                       </div>
+                    </td>
+                    <td className="max-w-[22rem] px-6 py-4">
+                      <SubcategoryCoverage
+                        leaves={coveredLeaves}
+                        charted={variants.length > 0}
+                        onViewAll={() => setCoverageModal({ brandName: brand.brandName, leaves: coveredLeaves })}
+                      />
                     </td>
                     <td className="px-6 py-4 font-mono text-xs font-semibold text-[var(--color-text-secondary)]">
                       {brand.chartedCategories}/{brand.sizingCategories.length} keys
@@ -565,6 +619,94 @@ function BrandResearchTable({
         </table>
       </div>
     </div>
+    <SubcategoryCoverageModal value={coverageModal} onClose={() => setCoverageModal(null)} />
+    </>
+  );
+}
+
+const VISIBLE_SUBCATEGORY_CHIPS = 4;
+
+function SubcategoryCoverage({
+  leaves,
+  charted,
+  onViewAll,
+}: {
+  leaves: string[];
+  charted: boolean;
+  onViewAll: () => void;
+}) {
+  if (leaves.length === 0) {
+    return (
+      <span className="text-[11px] text-[var(--color-text-muted)]">
+        {charted ? "No selected leaves covered" : "Available after research"}
+      </span>
+    );
+  }
+
+  const visible = leaves.slice(0, VISIBLE_SUBCATEGORY_CHIPS);
+  const hidden = leaves.length - visible.length;
+
+  return (
+    <div className="flex max-w-[20rem] flex-wrap items-center gap-1">
+      {visible.map((leaf) => (
+        <span
+          key={leaf}
+          title={leaf}
+          className="max-w-36 truncate rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-2 py-0.5 text-[10px] font-semibold text-[var(--color-text-secondary)]"
+        >
+          {leafLabel(leaf)}
+        </span>
+      ))}
+      {hidden > 0 && (
+        <button
+          type="button"
+          onClick={onViewAll}
+          className="rounded-md border border-[var(--color-brand)]/30 bg-[var(--color-brand-light)] px-2 py-0.5 text-[10px] font-bold text-[var(--color-brand-strong)] transition-colors hover:border-[var(--color-brand)]"
+        >
+          View {hidden} more
+        </button>
+      )}
+    </div>
+  );
+}
+
+function SubcategoryCoverageModal({
+  value,
+  onClose,
+}: {
+  value: { brandName: string; leaves: string[] } | null;
+  onClose: () => void;
+}) {
+  return (
+    <Modal
+      isOpen={value !== null}
+      onClose={onClose}
+      size="md"
+      icon={<ListTree className="h-4 w-4" />}
+      title={value ? `${value.brandName} subcategory coverage` : "Subcategory coverage"}
+      description={
+        value
+          ? `${value.leaves.length} selected taxonomy ${value.leaves.length === 1 ? "leaf" : "leaves"} covered by this brand's charts.`
+          : undefined
+      }
+      footer={
+        <Button size="sm" onClick={onClose}>
+          Done
+        </Button>
+      }
+    >
+      <div className="grid gap-2 p-5 sm:grid-cols-2">
+        {value?.leaves.map((leaf) => (
+          <div
+            key={leaf}
+            className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-2"
+          >
+            <p className="text-xs font-bold text-[var(--color-text-primary)]">{leafLabel(leaf)}</p>
+            <p className="mt-0.5 font-mono text-[10px] text-[var(--color-text-muted)]">{leaf}</p>
+          </div>
+        ))}
+      </div>
+    </Modal>
   );
 }
 
@@ -614,7 +756,8 @@ export function ChartCard({ chart, onOpen }: { chart: FoundSizeChart; onOpen: ()
 
       <div className="mt-3 flex items-center justify-between text-[11px] text-[var(--color-text-muted)]">
         <span>
-          {chart.rows.length} sizes · {chart.region}
+          {chart.rows.length} sizes
+          {chart.labelSystems && ` · ${chart.labelSystems}`}
           {chart.skuCount !== undefined && ` · ${chart.skuCount.toLocaleString()} items`}
         </span>
         <span className="inline-flex items-center gap-1 text-[var(--color-brand)] opacity-0 transition-opacity group-hover:opacity-100">

@@ -56,19 +56,8 @@ function targetsForScope(scope: SerializedTaxonomyScope): PersonaMatchTarget[] {
       const enabledSubCategories = PERSONA_SUB_CATEGORIES[department.id][category.id]
         .filter((subCategory) => scope.enabledLeafKeys.includes(`${department.id}:${category.id}:${subCategory}`));
 
-      // The category-level target is gated on the category actually being in scope. Scope stores no
-      // per-category flag, so "in scope" means at least one of its leaves is enabled — a merchant who
-      // enabled no womenswear footwear leaf is telling us they don't sell women's shoes. Offering
-      // `women:footwear` unconditionally let a 2,045-SKU root-level "Shoes & Bags" bucket land in a
-      // department the merchant had opted out of, carrying handbags and baby shoes with it.
       if (enabledSubCategories.length === 0) continue;
 
-      targets.push({
-        key: `${department.id}:${category.id}`,
-        departmentId: department.id,
-        categoryId: category.id,
-        label: `${department.name} > ${category.name}`,
-      });
       for (const subCategory of enabledSubCategories) {
         const key = `${department.id}:${category.id}:${subCategory}`;
         targets.push({
@@ -79,14 +68,6 @@ function targetsForScope(scope: SerializedTaxonomyScope): PersonaMatchTarget[] {
           label: key.replaceAll(":", " > "),
         });
       }
-    }
-    for (const category of scope.customCategories.filter((item) => item.deptId === department.id && item.sizingGroup)) {
-      targets.push({
-        key: `${department.id}:${category.id}`,
-        departmentId: department.id,
-        categoryId: category.id,
-        label: `${department.name} > ${category.name}`,
-      });
     }
     for (const leaf of scope.customLeaves.filter((item) => item.deptId === department.id)) {
       const key = `${leaf.deptId}:${leaf.catId}:${leaf.subCategory}`;
@@ -174,15 +155,13 @@ const CLASSIFICATION_RULES = [
   "4. If there are zero or near-zero sample titles and the breadcrumb itself is not self-explanatory",
   "   (e.g. \"Sale\", \"Clearance\", \"Collection 24\") -> action=\"unmapped\". Do not guess from a",
   "   generic name alone.",
-  "5. Otherwise, pick the SINGLE allowed target key whose department + category (+ sub-category,",
-  "   when the titles are specific enough to justify one) best matches the dominant garment type",
+  "5. Otherwise, pick the SINGLE allowed target key whose department + category + sub-category",
+  "   best matches the garment type",
   "   shown across the sample titles. Copy that key from the allowed list character-for-character —",
   "   never invent, abbreviate, or partially match a key.",
-  "6. A category-level target (no sub-category, e.g. \"women:top\") is a valid, often-correct",
-  "   choice when titles justify the category but not a specific sub-category (e.g. a category with",
-  "   both \"Blouse\" and \"Sweater\" titles under women's tops maps to \"women:top\", not one of its",
-  "   sub-categories). It still requires the department, category and age group to be certain — it",
-  "   is a way to decline picking a sub-category, never a way to hedge on who the product is for.",
+  "6. Every mapped result MUST be a complete leaf with all three segments. Department-level and",
+  "   category-level targets are forbidden. If one leaf cannot honestly govern every product in",
+  "   the store category, return action=\"unmapped\" so the merchant can split or resolve it.",
   "",
   "CONFIDENCE — reflects how certain the evidence makes the chosen action, on a 0.0-1.0 scale:",
   "- 0.9-1.0: titles unambiguously match the target's garment type, gender, and age group.",
@@ -323,7 +302,7 @@ export function parsePersonaAutoMatch(
     }
 
     const target = typeof row.target_key === "string" ? targetsByKey.get(row.target_key) : undefined;
-    if (row.action === "mapped" && target) {
+    if (row.action === "mapped" && target?.subCategory) {
       // A wrong mapping on a large category is the most expensive mistake this endpoint can make:
       // it is written silently, it dominates the scan, and it survives into paid chart research.
       // Below the floor the verdict is kept as a suggestion-shaped "unmapped" so it surfaces in the

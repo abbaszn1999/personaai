@@ -164,12 +164,10 @@ function table(overrides: Partial<ExtractedTable> = {}): ExtractedTable {
     section: null,
     audience: "mens",
     variantName: "Men",
-    variantGender: "mens",
-    variantFitType: null,
+    coversLeaves: [],
     garmentGroup: "tops",
     measurementKind: "body",
     unit: "cm",
-    region: "EU",
     sourceUrl: "https://brand.example/size-guide/men",
     columns: ["Size", "Chest"],
     rows: [
@@ -247,17 +245,17 @@ describe("variantNameFor", () => {
     expect(variantNameFor(table({ variantName: "Men Tall" }))).toBe("Men Tall");
   });
 
-  it("falls back to the stated gender, not the table heading", () => {
+  it("falls back to the table's audience, not the table heading", () => {
     // A heading like "TOPS, OUTERWEAR, CASUAL SHIRTS" is noise in Phase 5's dropdown; "Women" is
     // both the likely right answer and one a merchant can act on.
     const named = variantNameFor(
-      table({ variantName: "", variantGender: "womens", title: "TOPS, OUTERWEAR, CASUAL SHIRTS" })
+      table({ variantName: "", audience: "womens", title: "TOPS, OUTERWEAR, CASUAL SHIRTS" })
     );
     expect(named).toBe("Women");
   });
 
-  it("falls back to the table's audience when the gender is absent too", () => {
-    expect(variantNameFor(table({ variantName: "", variantGender: null, audience: "kids" }))).toBe("Kids");
+  it("falls back to the table's audience for every audience, not only the adult ones", () => {
+    expect(variantNameFor(table({ variantName: "", audience: "kids" }))).toBe("Kids");
   });
 });
 
@@ -338,10 +336,7 @@ describe("researchBrandCharts", () => {
             section: null,
             audience: "womens",
             variant_name: "Women",
-            variant_gender: "womens",
-            variant_fit_type: null,
             garment_group: "tops",
-            region: "EU",
             source_url: "https://brand.example/size-guide",
             confidence: 0.96,
             rows: [

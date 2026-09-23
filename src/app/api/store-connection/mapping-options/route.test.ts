@@ -45,6 +45,7 @@ function row(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRow {
     personaMappingUpdatedAt: null,
     personaAutoMatchCompletedAt: null,
     storeSizeSettings: { default: "Alpha", overrides: {} },
+    sizingBrandMapping: { version: 1, confirmedAt: null, sourceFingerprint: "", observed: {}, aliases: {} },
     productCount: 0,
     syncedAt: null,
     hardRules: [],

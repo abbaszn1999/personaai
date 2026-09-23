@@ -66,15 +66,14 @@ describe("personaPathLabel", () => {
     expect(personaPathLabel(path, config)).toBe("Women > Top > T-Shirts");
   });
 
-  it("stops at the category when the mapping has no subcategory", () => {
+  it("rejects a mapping that stops at the category with no leaf", () => {
     const config = buildPersonaMappingConfig(
       { ...scope, enabledLeafKeys: [] },
       { tees: { status: "mapped", departmentId: "women", categoryId: "top" } },
       categories,
     );
-    const [path] = resolvePersonaPaths(["tees"], config);
-
-    expect(personaPathLabel(path, config)).toBe("Women > Top");
+    expect(resolvePersonaPaths(["tees"], config)).toEqual([]);
+    expect(config.mappings).toEqual({});
   });
 
   it("falls back to a merchant's own custom category and leaf names", () => {

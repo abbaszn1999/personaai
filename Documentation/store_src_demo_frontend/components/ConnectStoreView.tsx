@@ -21,13 +21,15 @@ import { PlatformType, StoreConnectionInfo } from '../types';
 interface ConnectStoreViewProps {
   storeConnection: StoreConnectionInfo;
   onUpdateStoreConnection: (info: StoreConnectionInfo) => void;
-  onContinueToCategories: () => void;
+  onContinueToCategories?: () => void;
+  onContinueToMapping?: () => void;
 }
 
 export function ConnectStoreView({
   storeConnection,
   onUpdateStoreConnection,
   onContinueToCategories,
+  onContinueToMapping,
 }: ConnectStoreViewProps) {
   const [selectedPlatform, setSelectedPlatform] = useState<PlatformType>(storeConnection.platform);
   const [storeDomain, setStoreDomain] = useState(storeConnection.storeUrl);
@@ -517,10 +519,10 @@ export function ConnectStoreView({
                 {storeConnection.isConnected && (
                   <button
                     type="button"
-                    onClick={onContinueToCategories}
+                    onClick={onContinueToMapping || onContinueToCategories}
                     className="w-full sm:w-auto px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 transition-all shadow-sm shadow-purple-600/30 cursor-pointer flex items-center justify-center gap-2"
                   >
-                    <span>Proceed to Categories</span>
+                    <span>Proceed to Mapping</span>
                     <ArrowRight className="w-3.5 h-3.5" />
                   </button>
                 )}
@@ -537,7 +539,7 @@ export function ConnectStoreView({
           <span>Why Connect First? Architectural Isolation &amp; Scope Discipline</span>
         </div>
         <p className="leading-relaxed">
-          Authenticating your store platform unlocks the lightweight taxonomy endpoint. In the next step (<strong>Tab 2: Categories</strong>), you define the leaf-level category scope. Every downstream agent workflow in <strong>Setup (Stage 1 to 6)</strong> will only ingest products inside your selected categories, eliminating wasted compute on non-apparel items like gift cards or accessories.
+          Authenticating your store platform unlocks the store taxonomy and collection endpoints. In the next step (<strong>Tab 2: Mapping</strong>), you map your store collections and product listing categories to the Persona fixed taxonomy. Every downstream agent workflow in <strong>Setup (Stage 1 to 6)</strong> will only ingest products inside your mapped categories, eliminating wasted compute on non-apparel items like gift cards or accessories.
         </p>
       </div>
     </div>

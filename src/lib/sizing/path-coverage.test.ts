@@ -36,6 +36,29 @@ describe("PathCoverageAggregator", () => {
     expect(rows[1]).toMatchObject({ categoryId: "4", skuCount: 1 });
   });
 
+  it("merges alias paths under the confirmed canonical brand key", () => {
+    const paths = aggregator();
+    paths.addPersonaPath({
+      externalId: "a",
+      brand: "Tom Tailor Men",
+      brandKey: "tom_tailor",
+      sizingGroup: "tops",
+      pathKey: "men:top:t-shirt",
+      path: ["Men", "T-Shirts"],
+    });
+    paths.addPersonaPath({
+      externalId: "b",
+      brand: "Tom Tailor Women",
+      brandKey: "tom_tailor",
+      sizingGroup: "tops",
+      pathKey: "men:top:t-shirt",
+      path: ["Men", "T-Shirts"],
+    });
+
+    expect(paths.result()).toHaveLength(1);
+    expect(paths.result()[0]).toMatchObject({ brandKey: "tom_tailor", skuCount: 2 });
+  });
+
   it("splits one sizing parent across the merchant paths that carry it", () => {
     // The entire reason this table exists. Both rows are `tops` for the same brand, which coverage
     // reports as a single pair — and a single chart assignment, which would be wrong for one of them.

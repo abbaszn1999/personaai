@@ -1,6 +1,11 @@
 import { getPlatformGeminiClient, GeminiApiError } from "@/lib/ai/gemini";
 import type { StoreConnectionRow } from "@/lib/db/store-connections";
-import { listSizingCoverage, setBrandType, type BrandType } from "@/lib/db/sizing-coverage";
+import {
+  getProvenGlobalBrands,
+  listSizingCoverage,
+  setBrandType,
+  type BrandType,
+} from "@/lib/db/sizing-coverage";
 import { UNKNOWN_BRAND_KEY } from "./keys";
 
 /**
@@ -61,6 +66,22 @@ export async function runBrandClassification(connection: StoreConnectionRow): Pr
   if (hasUnbranded) {
     const saved = await setBrandType(connection.id, UNKNOWN_BRAND_KEY, "none", null);
     if (!saved) throw new Error("Could not save the no-brand classification.");
+  }
+
+  const canonicalNames = new Map(
+    Object.values(connection.sizingBrandMapping?.aliases ?? {}).map((alias) => [
+      alias.canonicalKey,
+      alias.canonicalName,
+    ]),
+  );
+  const proven = await getProvenGlobalBrands([...named.keys()]);
+  for (const [brandKey, fallbackName] of proven) {
+    const canonicalName = canonicalNames.get(brandKey) ?? fallbackName ?? named.get(brandKey) ?? brandKey;
+    const saved = await setBrandType(connection.id, brandKey, "global", canonicalName);
+    if (!saved) throw new Error(`Could not save the shared classification for ${canonicalName}.`);
+    named.delete(brandKey);
+    result.classified += 1;
+    result.global += 1;
   }
 
   const entries = [...named.entries()];

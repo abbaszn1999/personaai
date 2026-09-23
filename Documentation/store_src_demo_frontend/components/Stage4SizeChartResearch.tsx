@@ -84,6 +84,7 @@ export function Stage4SizeChartResearch({
   // Local state for found charts so user can interactively trigger research for un-enriched charts
   const [localFoundCharts, setLocalFoundCharts] = useState<FoundSizeChart[]>(foundCharts);
   const [enrichingIds, setEnrichingIds] = useState<Set<string>>(new Set());
+  const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setLocalFoundCharts(foundCharts);
@@ -97,8 +98,8 @@ export function Stage4SizeChartResearch({
     setStatusMessageIndex(0);
     setProgressPercent(0);
 
-    const totalDuration = 4800;
-    const updateFreq = 60;
+    const totalDuration = 2400;
+    const updateFreq = 50;
     const steps = totalDuration / updateFreq;
     let step = 0;
 
@@ -120,28 +121,119 @@ export function Stage4SizeChartResearch({
       if (step >= steps) {
         if (intervalRef.current) clearInterval(intervalRef.current);
         setIsRunning(false);
-        // Mark all as researched when simulation completes
+        // Distinguish found templates vs not_found templates
         setLocalFoundCharts((prev) =>
-          prev.map((c) => ({
-            ...c,
-            isResearched: true,
-            researchStatus: 'done',
-            confidence: c.confidence > 0 ? c.confidence : 99.1,
-            lastUpdated: c.lastUpdated.includes('Not enriched')
-              ? 'Live Extracted from Official Brand Guide'
-              : c.lastUpdated,
-          }))
+          prev.map((c) => {
+            if (c.templateStatus === 'not_found' || (c.rows && c.rows.length === 0)) {
+              return {
+                ...c,
+                templateStatus: 'not_found' as const,
+                isResearched: false,
+                researchStatus: 'needs_research' as const,
+                confidence: 0,
+              };
+            }
+            return {
+              ...c,
+              templateStatus: 'found' as const,
+              isResearched: true,
+              researchStatus: 'done' as const,
+              confidence: c.confidence > 0 ? c.confidence : 99.1,
+              lastUpdated: c.lastUpdated.includes('Not enriched')
+                ? 'Live Extracted from Official Brand Guide'
+                : c.lastUpdated,
+            };
+          })
         );
         onSetCompleted(true);
       }
     }, updateFreq);
   };
 
+  // Auto-run research loading when Stage 4 is opened if not yet completed
+  useEffect(() => {
+    if (!isCompleted && !isRunning) {
+      startResearch();
+    }
+  }, []);
+
   useEffect(() => {
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, []);
+
+  // Handler to generate size template for global brands where template was not found
+  const handleGenerateTemplate = (chartId: string) => {
+    setGeneratingIds((prev) => new Set(prev).add(chartId));
+
+    setTimeout(() => {
+      let newlyGeneratedChart: FoundSizeChart | null = null;
+      setLocalFoundCharts((prev) => {
+        return prev.map((c) => {
+          if (c.id === chartId) {
+            let headers = c.headers && c.headers.length > 0 ? c.headers : ['Size', 'Chest (cm)', 'Waist (cm)', 'Body Length (cm)'];
+            let rows: Record<string, string>[] = [];
+
+            if (c.categories.includes('Footwear')) {
+              headers = ['US Size', 'UK Size', 'EUR Size', 'Foot Length (cm)'];
+              rows = [
+                { 'US Size': '8.0', 'UK Size': '7.5', 'EUR Size': '41.5', 'Foot Length (cm)': '26.0' },
+                { 'US Size': '8.5', 'UK Size': '8.0', 'EUR Size': '42.0', 'Foot Length (cm)': '26.5' },
+                { 'US Size': '9.0', 'UK Size': '8.5', 'EUR Size': '42.5', 'Foot Length (cm)': '27.0' },
+                { 'US Size': '9.5', 'UK Size': '9.0', 'EUR Size': '43.0', 'Foot Length (cm)': '27.5' },
+                { 'US Size': '10.0', 'UK Size': '9.5', 'EUR Size': '44.0', 'Foot Length (cm)': '28.0' },
+                { 'US Size': '10.5', 'UK Size': '10.0', 'EUR Size': '44.5', 'Foot Length (cm)': '28.5' },
+                { 'US Size': '11.0', 'UK Size': '10.5', 'EUR Size': '45.0', 'Foot Length (cm)': '29.0' },
+                { 'US Size': '12.0', 'UK Size': '11.5', 'EUR Size': '46.5', 'Foot Length (cm)': '30.0' },
+              ];
+            } else if (c.categories.includes('Bottoms')) {
+              headers = ['Waist Size', 'Waist (in)', 'Waist (cm)', 'Inseam (in)', 'Hip (cm)'];
+              rows = [
+                { 'Waist Size': '30', 'Waist (in)': '30.0–30.5', 'Waist (cm)': '76–78', 'Inseam (in)': '32', 'Hip (cm)': '92–95' },
+                { 'Waist Size': '32', 'Waist (in)': '32.0–32.5', 'Waist (cm)': '81–83', 'Inseam (in)': '32', 'Hip (cm)': '97–100' },
+                { 'Waist Size': '34', 'Waist (in)': '34.0–34.5', 'Waist (cm)': '86–88', 'Inseam (in)': '32', 'Hip (cm)': '102–105' },
+                { 'Waist Size': '36', 'Waist (in)': '36.0–36.5', 'Waist (cm)': '91–93', 'Inseam (in)': '32', 'Hip (cm)': '107–110' },
+              ];
+            } else {
+              headers = ['Size', 'Chest (cm)', 'Waist (cm)', 'Body Length (cm)', 'Shoulder (cm)'];
+              rows = [
+                { Size: 'S', 'Chest (cm)': '88–94', 'Waist (cm)': '74–79', 'Body Length (cm)': '69', 'Shoulder (cm)': '44' },
+                { Size: 'M', 'Chest (cm)': '96–102', 'Waist (cm)': '81–86', 'Body Length (cm)': '71', 'Shoulder (cm)': '46' },
+                { Size: 'L', 'Chest (cm)': '104–110', 'Waist (cm)': '89–94', 'Body Length (cm)': '73', 'Shoulder (cm)': '48' },
+                { Size: 'XL', 'Chest (cm)': '112–118', 'Waist (cm)': '96–101', 'Body Length (cm)': '75', 'Shoulder (cm)': '50' },
+                { Size: 'XXL', 'Chest (cm)': '120–126', 'Waist (cm)': '104–109', 'Body Length (cm)': '77', 'Shoulder (cm)': '52' },
+              ];
+            }
+
+            newlyGeneratedChart = {
+              ...c,
+              templateStatus: 'found',
+              isResearched: true,
+              researchStatus: 'done',
+              confidence: 98.7,
+              lastUpdated: 'AI Generated Official Sizing Matrix',
+              headers,
+              rows,
+            };
+            return newlyGeneratedChart;
+          }
+          return c;
+        });
+      });
+
+      setGeneratingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(chartId);
+        return next;
+      });
+
+      // Immediately open the size chart popup modal so user can check and verify it!
+      if (newlyGeneratedChart) {
+        onViewChart(newlyGeneratedChart);
+      }
+    }, 850);
+  };
 
   // Individual chart research handler to enrich a specific brand
   const handleEnrichChart = (chartId: string) => {
@@ -154,6 +246,7 @@ export function Stage4SizeChartResearch({
           if (c.id === chartId) {
             updatedItem = {
               ...c,
+              templateStatus: 'found',
               isResearched: true,
               researchStatus: 'done',
               confidence: 99.4,
@@ -188,16 +281,17 @@ export function Stage4SizeChartResearch({
       const matchesSearch =
         searchQuery.trim() === '' ||
         chart.brand.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        chart.categories.some((c) => c.toLowerCase().includes(searchQuery.toLowerCase()));
+        chart.categories.some((c) => c.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        Boolean(chart.subCategories && chart.subCategories.some((sc) => sc.toLowerCase().includes(searchQuery.toLowerCase())));
 
       if (!matchesSearch) return false;
 
-      const isDone = chart.isResearched !== false && chart.researchStatus !== 'needs_research';
+      const isFound = chart.templateStatus !== 'not_found' && Boolean(chart.rows && chart.rows.length > 0);
       if (statusFilter === 'done') {
-        return isDone;
+        return isFound;
       }
       if (statusFilter === 'needs_action') {
-        return !isDone;
+        return !isFound;
       }
       return true;
     });
@@ -425,7 +519,7 @@ export function Stage4SizeChartResearch({
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  All Entries
+                  All Global Brands ({localFoundCharts.length})
                 </button>
                 <button
                   type="button"
@@ -437,7 +531,7 @@ export function Stage4SizeChartResearch({
                   }`}
                 >
                   <CheckCircle2 className="w-3 h-3" />
-                  <span>Done</span>
+                  <span>Template Found ({localFoundCharts.filter(c => c.templateStatus === 'found' || (c.rows && c.rows.length > 0)).length})</span>
                 </button>
                 <button
                   type="button"
@@ -449,7 +543,7 @@ export function Stage4SizeChartResearch({
                   }`}
                 >
                   <AlertTriangle className="w-3 h-3" />
-                  <span>Needs Research / To Fill</span>
+                  <span>Template Not Found ({localFoundCharts.filter(c => c.templateStatus === 'not_found' || !c.rows || c.rows.length === 0).length})</span>
                 </button>
               </div>
 
@@ -458,7 +552,7 @@ export function Stage4SizeChartResearch({
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  placeholder="Search brands or categories…"
+                  placeholder="Search global brands or categories…"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-purple-500 focus:bg-white transition-all"
@@ -470,47 +564,53 @@ export function Stage4SizeChartResearch({
           {/* TAB A CONTENT: FOUND & FILLED / GLOBAL BRANDS */}
           {activeTab === 'found' && (
             <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
-              <div className="px-6 py-4 border-b border-slate-200 bg-emerald-50/40 flex items-center justify-between">
+              <div className="px-6 py-4 border-b border-slate-200 bg-emerald-50/40 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
                   <h3 className="font-bold text-sm text-slate-900">
-                    {isSyncFlow
-                      ? `Global Brand Sizing Charts (${filteredFoundCharts.length} Brands)`
-                      : `Automatically Extracted Sizing Charts (${filteredFoundCharts.length} Brands)`}
+                    Global Brand Sizing Charts ({filteredFoundCharts.length} Brands)
                   </h3>
                 </div>
-                <span className="text-xs text-emerald-800 font-semibold bg-emerald-100/80 px-2.5 py-0.5 rounded-full border border-emerald-200">
-                  Ready for fit prediction
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-emerald-800 font-semibold bg-emerald-100/80 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                    {localFoundCharts.filter(c => c.templateStatus === 'found' || (c.rows && c.rows.length > 0)).length} Templates Found
+                  </span>
+                  {localFoundCharts.filter(c => c.templateStatus === 'not_found' || !c.rows || c.rows.length === 0).length > 0 && (
+                    <span className="text-xs text-amber-800 font-semibold bg-amber-100/80 px-2.5 py-0.5 rounded-full border border-amber-200">
+                      {localFoundCharts.filter(c => c.templateStatus === 'not_found' || !c.rows || c.rows.length === 0).length} Need Generation
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead className="bg-slate-50/90 text-xs font-bold text-slate-600 uppercase tracking-wider border-b border-slate-200">
                     <tr>
-                      <th className="px-6 py-3.5">Brand</th>
-                      <th className="px-6 py-3.5">Category Coverage</th>
-                      <th className="px-6 py-3.5">SKU Count</th>
-                      <th className="px-6 py-3.5">Source &amp; Confidence</th>
-                      <th className="px-6 py-3.5 text-right">Action</th>
+                      <th className="px-5 py-3.5">Brand</th>
+                      <th className="px-5 py-3.5">Category Coverage</th>
+                      <th className="px-5 py-3.5">Sub Category Coverage</th>
+                      <th className="px-5 py-3.5">SKU Count</th>
+                      <th className="px-5 py-3.5">Source &amp; Status</th>
+                      <th className="px-5 py-3.5 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredFoundCharts.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-6 py-10 text-center text-xs text-slate-500">
+                        <td colSpan={6} className="px-6 py-10 text-center text-xs text-slate-500">
                           No matching brand size charts found for the active filter.
                         </td>
                       </tr>
                     ) : (
                       filteredFoundCharts.map((chart) => {
-                        const isDone = chart.isResearched !== false && chart.researchStatus !== 'needs_research';
-                        const isEnriching = enrichingIds.has(chart.id);
+                        const hasTemplate = chart.templateStatus === 'found' || (chart.rows && chart.rows.length > 0);
+                        const isGenerating = generatingIds.has(chart.id);
 
                         return (
                           <tr key={chart.id} className="hover:bg-slate-50/70 transition-colors">
                             {/* Brand */}
-                            <td className="px-6 py-4">
+                            <td className="px-5 py-4">
                               <div className="space-y-1.5">
                                 <div className="flex items-center gap-2">
                                   <span className="font-bold text-slate-900">{chart.brand}</span>
@@ -547,7 +647,7 @@ export function Stage4SizeChartResearch({
                             </td>
 
                             {/* Category Coverage Tags */}
-                            <td className="px-6 py-4">
+                            <td className="px-5 py-4">
                               <div className="flex flex-wrap gap-1.5">
                                 {chart.categories.map((cat) => {
                                   const normCat = normalizeToParentCategory(cat);
@@ -555,9 +655,19 @@ export function Stage4SizeChartResearch({
                                     <button
                                       key={cat}
                                       type="button"
-                                      onClick={() => onViewChart(chart, undefined, normCat)}
-                                      className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-purple-50 hover:bg-purple-100 text-purple-700 hover:text-purple-900 text-xs font-semibold border border-purple-200 transition-colors cursor-pointer"
-                                      title={`View ${chart.brand} ${cat}`}
+                                      onClick={() => {
+                                        if (hasTemplate) {
+                                          onViewChart(chart, undefined, normCat);
+                                        } else {
+                                          handleGenerateTemplate(chart.id);
+                                        }
+                                      }}
+                                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold border transition-colors cursor-pointer ${
+                                        hasTemplate
+                                          ? 'bg-purple-50 hover:bg-purple-100 text-purple-700 hover:text-purple-900 border-purple-200'
+                                          : 'bg-slate-50 hover:bg-amber-50 text-slate-600 hover:text-amber-800 border-slate-200'
+                                      }`}
+                                      title={hasTemplate ? `View ${chart.brand} ${cat} template` : `Click to generate ${chart.brand} ${cat} template`}
                                     >
                                       <span>{cat}</span>
                                     </button>
@@ -566,73 +676,91 @@ export function Stage4SizeChartResearch({
                               </div>
                             </td>
 
+                            {/* Sub Category Coverage */}
+                            <td className="px-5 py-4 max-w-[280px]">
+                              <div className="flex flex-wrap gap-1.5">
+                                {chart.subCategories && chart.subCategories.length > 0 ? (
+                                  chart.subCategories.map((subCat) => (
+                                    <span
+                                      key={subCat}
+                                      className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-200/80 shadow-2xs"
+                                      title={`${chart.brand} · Sub-category: ${subCat}`}
+                                    >
+                                      {subCat}
+                                    </span>
+                                  ))
+                                ) : (
+                                  <span className="text-xs text-slate-400 italic">No subcategories mapped</span>
+                                )}
+                              </div>
+                            </td>
+
                             {/* SKU Count */}
-                            <td className="px-6 py-4 font-mono text-slate-700 font-semibold">
+                            <td className="px-5 py-4 font-mono text-slate-700 font-semibold whitespace-nowrap">
                               {chart.skuCount ?? 6} SKUs
                             </td>
 
-                            {/* Source & Confidence */}
-                            <td className="px-6 py-4">
-                              {isDone ? (
+                            {/* Source & Status */}
+                            <td className="px-5 py-4">
+                              {hasTemplate ? (
                                 <div className="flex items-center gap-2">
                                   <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
                                     <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                                    {chart.confidence}%
+                                    {chart.confidence > 0 ? chart.confidence : 99.2}%
                                   </span>
                                   <span className="text-xs text-slate-500 truncate max-w-[240px]" title={chart.lastUpdated}>
                                     {chart.lastUpdated}
                                   </span>
                                 </div>
                               ) : (
-                                <span className="text-xs text-amber-700 italic">
-                                  Chart not enriched yet · Click Research to extract
-                                </span>
+                                <div className="flex items-center gap-2">
+                                  <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                                    Template Not Found
+                                  </span>
+                                  <span className="text-xs text-slate-500 truncate max-w-[220px]" title={chart.lastUpdated}>
+                                    {chart.lastUpdated}
+                                  </span>
+                                </div>
                               )}
                             </td>
 
-                            {/* Action Button: Shows Done vs Need Research */}
+                            {/* Action Button: Template Found (opens popup) vs Generate (creates chart & opens popup) */}
                             <td className="px-6 py-4 text-right">
                               <div className="inline-flex items-center gap-2 justify-end">
-                                {isDone ? (
-                                  <>
-                                    <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
-                                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                      Done
-                                    </span>
-                                    <button
-                                      type="button"
-                                      onClick={() => onViewChart(chart)}
-                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 transition-colors cursor-pointer"
-                                    >
-                                      <Eye className="w-3.5 h-3.5 text-slate-500" />
-                                      View Chart
-                                    </button>
-                                  </>
+                                {hasTemplate ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => onViewChart(chart)}
+                                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100/90 border border-emerald-300 shadow-2xs hover:shadow-xs transition-all cursor-pointer group"
+                                    title={`Click to check ${chart.brand} size chart template in popup`}
+                                  >
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                    <span>Template Found</span>
+                                    <Eye className="w-3.5 h-3.5 text-emerald-600/70 group-hover:text-emerald-800 transition-colors ml-0.5" />
+                                  </button>
                                 ) : (
-                                  <>
-                                    <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-800 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
-                                      <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-                                      Needs Research
-                                    </span>
+                                  <div className="inline-flex items-center gap-2">
                                     <button
                                       type="button"
-                                      onClick={() => handleEnrichChart(chart.id)}
-                                      disabled={isEnriching}
+                                      onClick={() => handleGenerateTemplate(chart.id)}
+                                      disabled={isGenerating}
                                       className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold text-white bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-95 shadow-sm shadow-purple-500/20 active:scale-98 transition-all cursor-pointer disabled:opacity-60"
+                                      title={`Generate size chart template for ${chart.brand}`}
                                     >
-                                      {isEnriching ? (
+                                      {isGenerating ? (
                                         <>
-                                          <Globe className="w-3.5 h-3.5 animate-spin" />
-                                          <span>Researching…</span>
+                                          <Sparkles className="w-3.5 h-3.5 text-pink-200 animate-spin" />
+                                          <span>Generating…</span>
                                         </>
                                       ) : (
                                         <>
                                           <Sparkles className="w-3.5 h-3.5 text-pink-200" />
-                                          <span>Research Chart</span>
+                                          <span>Generate</span>
                                         </>
                                       )}
                                     </button>
-                                  </>
+                                  </div>
                                 )}
                               </div>
                             </td>

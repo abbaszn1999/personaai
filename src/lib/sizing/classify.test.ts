@@ -4,6 +4,7 @@ import type { StoreConnectionRow } from "@/lib/db/store-connections";
 const mocks = vi.hoisted(() => ({
   generateContent: vi.fn(),
   listSizingCoverage: vi.fn(),
+  getProvenGlobalBrands: vi.fn(async () => new Map()),
   setBrandType: vi.fn(async () => true),
 }));
 
@@ -13,6 +14,7 @@ vi.mock("@/lib/ai/gemini", () => ({
 }));
 vi.mock("@/lib/db/sizing-coverage", () => ({
   listSizingCoverage: mocks.listSizingCoverage,
+  getProvenGlobalBrands: mocks.getProvenGlobalBrands,
   setBrandType: mocks.setBrandType,
 }));
 
@@ -31,6 +33,7 @@ function coverage(brandKey: string, brandName: string | null) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.setBrandType.mockResolvedValue(true);
+  mocks.getProvenGlobalBrands.mockResolvedValue(new Map());
 });
 
 describe("runBrandClassification", () => {
@@ -90,6 +93,22 @@ describe("runBrandClassification", () => {
     expect(mocks.generateContent).not.toHaveBeenCalled();
     expect(mocks.setBrandType).not.toHaveBeenCalled();
     expect(result).toEqual({ classified: 0, global: 0, private: 0, none: 0 });
+  });
+
+  it("inherits a proven shared chart brand without asking Gemini", async () => {
+    mocks.listSizingCoverage.mockResolvedValue([coverage("tom_tailor", "Tom Tailor")]);
+    mocks.getProvenGlobalBrands.mockResolvedValue(new Map([["tom_tailor", "Tom Tailor"]]));
+
+    const result = await runBrandClassification(connection);
+
+    expect(mocks.generateContent).not.toHaveBeenCalled();
+    expect(mocks.setBrandType).toHaveBeenCalledWith(
+      "connection-1",
+      "tom_tailor",
+      "global",
+      "Tom Tailor",
+    );
+    expect(result).toEqual({ classified: 1, global: 1, private: 0, none: 0 });
   });
 
   it("fails the run instead of publishing a partial classification", async () => {

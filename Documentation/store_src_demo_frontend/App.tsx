@@ -45,8 +45,8 @@ import { SizeChartModal } from './components/SizeChartModal';
 import { GapFillModal } from './components/GapFillModal';
 import { SyncView } from './components/SyncView';
 import { ConnectStoreView } from './components/ConnectStoreView';
-import { CategoriesScopeView } from './components/CategoriesScopeView';
 import { CategoryMappingView } from './components/CategoryMappingView';
+import { SizingTesterView } from './components/SizingTesterView';
 
 export default function App() {
   // Primary Navigation Tab (Connect Store vs Categories vs Setup vs Sync)
@@ -228,10 +228,6 @@ export default function App() {
   };
 
   // Setup Navigation handlers
-  const hasExistingSizeChart = Boolean(
-    sizingConfig.sizeChart && sizingConfig.sizeChart !== 'none'
-  );
-
   const goToStage = (stage: StageNumber) => {
     setIsMappingLoading(false);
     setCurrentStage(stage);
@@ -242,10 +238,6 @@ export default function App() {
   };
 
   const handleNext = () => {
-    if (currentStage === 1 && hasExistingSizeChart) {
-      goToStage(6);
-      return;
-    }
     if (currentStage < 6) {
       const next = (currentStage + 1) as StageNumber;
       goToStage(next);
@@ -253,10 +245,6 @@ export default function App() {
   };
 
   const handlePrev = () => {
-    if (currentStage === 6 && hasExistingSizeChart) {
-      goToStage(1);
-      return;
-    }
     if (currentStage > 1) {
       const prev = (currentStage - 1) as StageNumber;
       goToStage(prev);
@@ -265,21 +253,13 @@ export default function App() {
 
   // Trigger loading between Stage 1 (Mapping) and Stage 2 (Preview)
   const handleConfirmMapping = () => {
-    if (hasExistingSizeChart) {
-      goToStage(6);
-    } else {
-      setIsMappingLoading(true);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
+    setIsMappingLoading(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleMappingLoadingComplete = () => {
     setIsMappingLoading(false);
-    if (hasExistingSizeChart) {
-      goToStage(6);
-    } else {
-      goToStage(2);
-    }
+    goToStage(2);
   };
 
   // Reset demo to stage 1
@@ -387,29 +367,12 @@ export default function App() {
             <ConnectStoreView
               storeConnection={storeConnection}
               onUpdateStoreConnection={setStoreConnection}
-              onContinueToCategories={() => {
-                setActiveTab('categories');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-            />
-          </main>
-        )}
-
-        {/* ========================================================================= */}
-        {/* Tab 2: Categories (Leaf-Level Sizing Scope Definition)                    */}
-        {/* ========================================================================= */}
-        {activeTab === 'categories' && (
-          <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6">
-            <CategoriesScopeView
-              storeConnection={storeConnection}
-              selectedLeafIds={selectedLeafIds}
-              onUpdateSelectedLeafIds={setSelectedLeafIds}
-              onContinueToSetup={() => {
+              onContinueToMapping={() => {
                 setActiveTab('mapping');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
-              onGoToConnectStore={() => {
-                setActiveTab('connect_store');
+              onContinueToCategories={() => {
+                setActiveTab('mapping');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
             />
@@ -417,11 +380,18 @@ export default function App() {
         )}
 
         {/* ========================================================================= */}
-        {/* Tab 3: Mapping (Persona Fixed Taxonomy & Store Category Calibration)      */}
+        {/* Tab 2: Mapping (Persona Fixed Taxonomy & Store Category Calibration)      */}
+        {/* Replaces Categories tab fully in sidebar and main workspace               */}
         {/* ========================================================================= */}
-        {activeTab === 'mapping' && (
+        {(activeTab === 'mapping' || activeTab === 'categories') && (
           <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6">
-            <CategoryMappingView storeConnection={storeConnection} />
+            <CategoryMappingView
+              storeConnection={storeConnection}
+              onContinueToSetup={() => {
+                setActiveTab('setup');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+            />
           </main>
         )}
 
@@ -435,7 +405,6 @@ export default function App() {
               currentStage={currentStage}
               highestReachedStage={highestReachedStage}
               onSelectStage={goToStage}
-              hasExistingSizeChart={hasExistingSizeChart}
             />
 
             {/* Main Pipeline Content Area */}
@@ -516,7 +485,7 @@ export default function App() {
                   !jsonExtractionDone ? (
                     <JsonExtractorLoading
                       onComplete={() => setJsonExtractionDone(true)}
-                      onCancel={() => goToStage(hasExistingSizeChart ? 1 : 5)}
+                      onCancel={() => goToStage(5)}
                     />
                   ) : (
                     <Stage6Confirmation
@@ -535,7 +504,6 @@ export default function App() {
                       onPrev={handlePrev}
                       onReset={handleResetDemo}
                       onRerunExtraction={() => setJsonExtractionDone(false)}
-                      hasExistingSizeChart={hasExistingSizeChart}
                     />
                   )
                 )}
@@ -543,6 +511,11 @@ export default function App() {
             </main>
           </div>
         )}
+
+        {/* ========================================================================= */}
+        {/* Tab 4: Sizing Tester (Reserved empty workspace under Setup)               */}
+        {/* ========================================================================= */}
+        {activeTab === 'sizing_tester' && <SizingTesterView />}
 
         {/* ========================================================================= */}
         {/* Tab 5: Sync Tab (Dashboard -> Delta Pipeline Stepper & Stages)             */}

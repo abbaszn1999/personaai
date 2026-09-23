@@ -298,6 +298,10 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
   function handleDropOnTaxonomy(droppedCatId: string, deptId: string, catId: string, subCat?: string, customPath?: string) {
     const droppedCat = categories.find((c) => c.id === droppedCatId);
     if (!droppedCat) return;
+    if (!subCat) {
+      showFeedback("Choose a subcategory leaf. Department and category nodes cannot receive products.", "warn");
+      return;
+    }
 
     const assignedPath = customPath || formatPersonaPath(deptId, catId, subCat);
     if (droppedCat.status === "mapped" && droppedCat.assignedPersonaPath === assignedPath) {
@@ -444,7 +448,7 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
             isAutoMatched: true,
           };
         }
-        if (!mapping.departmentId || !mapping.categoryId) return category;
+        if (!mapping.departmentId || !mapping.categoryId || !mapping.subCategory) return category;
         return {
           ...category,
           status: "mapped" as const,
@@ -493,7 +497,12 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
           excludeReason: category.excludeReason,
           isAutoMatched: category.isAutoMatched,
         };
-      } else if (category.status === "mapped" && category.departmentId && category.categoryId) {
+      } else if (
+        category.status === "mapped" &&
+        category.departmentId &&
+        category.categoryId &&
+        category.subCategory
+      ) {
         mappings[category.id] = {
           status: "mapped",
           departmentId: category.departmentId,
@@ -1389,18 +1398,13 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
                                       <button type="button" onClick={() => toggleCatExpanded(dept.id, cat.id)} className="p-0.5 text-[var(--color-text-muted)]" title={isCatExpanded ? "Collapse" : "Expand"}>
                                         {isCatExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
                                       </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleAssignTaxonomy(dept.id, cat.id)}
-                                        title="Click to map category-level path to selected category"
-                                        className="flex min-w-0 items-center gap-1.5 text-left text-xs font-bold text-[var(--color-text-primary)] hover:text-[var(--color-brand-strong)]"
-                                      >
+                                      <div className="flex min-w-0 items-center gap-1.5 text-left text-xs font-bold text-[var(--color-text-primary)]">
                                         <Tag className="h-3.5 w-3.5 shrink-0 text-[var(--color-brand)]" />
                                         <span>{catDisplayName}</span>
                                         <span className="truncate rounded border border-[var(--color-border)] bg-[var(--color-surface-base)] px-1.5 py-0.5 font-mono text-[10px] font-normal text-[var(--color-text-muted)]">
                                           Path: {dept.name} &gt; {catDisplayName}
                                         </span>
-                                      </button>
+                                      </div>
                                       {showCategoryLevel && (
                                         <span className="inline-flex shrink-0 items-center gap-1 rounded bg-[var(--color-success)] px-1.5 py-0.5 text-[10px] font-bold text-white">
                                           <Check className="h-2.5 w-2.5" />

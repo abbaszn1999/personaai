@@ -8,6 +8,7 @@ import { listSizingNullRecords } from "@/lib/db/sizing-null-records";
 import { summarizeCoverage } from "@/lib/sizing/summary";
 import { buildIdentification, buildRouting } from "@/lib/sizing/routing";
 import { mappedSourceCategoryIds } from "@/lib/catalog/persona-mapping";
+import { buildBrandMappingState } from "@/lib/sizing/brand-mapping-state";
 
 /**
  * The size-intelligence pipeline's run state and its results.
@@ -59,6 +60,12 @@ export async function GET() {
       identification: buildIdentification(coverage, nullRecords),
       routing: buildRouting(coverage, nullRecords),
       mappingApproved: hasApprovedCurrentMapping(connection, MAPPER_VERSION),
+      brandMappingStatus: buildBrandMappingState({
+        coverage,
+        mapping: connection.sizingBrandMapping,
+        sharedBrandKeys: [],
+        run,
+      }).status,
     });
   } catch (err) {
     console.error("[store-connection sizing/run GET]", err);

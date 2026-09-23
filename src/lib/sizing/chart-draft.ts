@@ -1,4 +1,5 @@
 import { parseSizeChartRow, type SizeChartRow } from "./chart-schema";
+import type { Audience } from "./keys";
 import {
   MEASUREMENTS,
   measurementsFor,
@@ -41,9 +42,13 @@ export interface ChartDraftRow {
  * Both are offered rather than only the required set, because doc Part 6 lists the optional fields
  * as part of each template and a brand's own printed chart usually has them. Leaving them out would
  * force a merchant to discard real numbers they are looking at.
+ *
+ * `audience` is passed through to `requiredMeasurementsFor` so a kids chart's grid marks `height`
+ * required rather than `chest` — undefined (a gap opened before a variant/audience is chosen) keeps
+ * the adult template, the same one every caller got before audience existed here.
  */
-export function draftColumnsFor(group: SizingGroup): ChartDraftColumn[] {
-  const required = new Set<Measurement>(requiredMeasurementsFor(group));
+export function draftColumnsFor(group: SizingGroup, audience?: Audience): ChartDraftColumn[] {
+  const required = new Set<Measurement>(requiredMeasurementsFor(group, audience));
   return measurementsFor(group).map((measurement) => ({
     measurement,
     label: MEASUREMENTS[measurement].label,
@@ -69,10 +74,10 @@ const FOOTWEAR_SEED = ["38", "39", "40", "41", "42"];
  * Turns a stored chart back into an editable grid — doc Part 6's "editable as a table", and the
  * seed for Phase 5's Make Template, which forks a merchant-owned copy of a researched variant.
  */
-export function draftRowsFrom(rows: SizeChartRow[], group: SizingGroup): ChartDraftRow[] {
+export function draftRowsFrom(rows: SizeChartRow[], group: SizingGroup, audience?: Audience): ChartDraftRow[] {
   return rows.map((row) => {
     const values: Partial<Record<Measurement, string>> = {};
-    for (const { measurement } of draftColumnsFor(group)) {
+    for (const { measurement } of draftColumnsFor(group, audience)) {
       const min = row[`${measurement}_min`];
       const max = row[`${measurement}_max`];
       const text = formatDraftBound(min, max);
@@ -156,8 +161,8 @@ export interface ParsedDraft {
  * through, so a hand-filled chart is held to the identical plausibility rules — a waist of 900cm is
  * rejected whether a model or a merchant typed it.
  */
-export function parseDraft(rows: ChartDraftRow[], group: SizingGroup): ParsedDraft {
-  const columns = draftColumnsFor(group);
+export function parseDraft(rows: ChartDraftRow[], group: SizingGroup, audience?: Audience): ParsedDraft {
+  const columns = draftColumnsFor(group, audience);
   const problems: DraftProblem[] = [];
   const parsed: SizeChartRow[] = [];
   const seen = new Set<string>();

@@ -74,7 +74,8 @@ export interface FoundSizeChart {
   /** Merchant category paths this chart covers, e.g. "Women > Tops". */
   categories: string[];
   skuCount?: number;
-  region: string;
+  /** Regional scales the chart carries — `EU · UK · US`. Empty when it is alpha-only. */
+  labelSystems: string;
   confidence: number;
   lastUpdated: string;
   headers: string[];

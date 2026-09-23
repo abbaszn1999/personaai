@@ -188,6 +188,7 @@ export interface FoundSizeChart {
   id: string;
   brand: string;
   categories: string[];
+  subCategories?: string[];
   skuCount?: number;
   region: string;
   confidence: number;
@@ -200,6 +201,7 @@ export interface FoundSizeChart {
   sourceOrigin?: 'setup_cached' | 'delta_researched';
   isResearched?: boolean;
   researchStatus?: 'done' | 'needs_research';
+  templateStatus?: 'found' | 'not_found';
 }
 
 export type GapStatus = 'not_started' | 'in_progress' | 'complete';

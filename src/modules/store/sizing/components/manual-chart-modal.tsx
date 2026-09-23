@@ -14,9 +14,25 @@ import {
   type DraftProblem,
 } from "@/lib/sizing/chart-draft";
 import { SIZE_TYPE_LABELS } from "@/lib/sizing/size-types";
-import { isSizingGroup, SIZING_GROUP_LABELS, type Measurement } from "@/lib/sizing/measurements";
+import { isSizingGroup, SIZING_GROUP_LABELS, type Measurement, type SizingGroup } from "@/lib/sizing/measurements";
+import { audienceCompatible, audienceForPersonaPath } from "@/lib/sizing/variant-match";
+import {
+  leafKeysFor,
+  leafLabel,
+  PERSONA_DEPARTMENTS,
+  type PersonaCategoryId,
+} from "@/modules/store/mapping/persona-taxonomy";
 import { useStoreConnectionStore } from "@/modules/store/store";
 import { useSizingStore } from "../store";
+
+/** Inverse of `personaSizingGroup` — the leaf checklist walks categories, not sizing groups. */
+const GROUP_TO_CATEGORY_ID: Record<SizingGroup, PersonaCategoryId> = {
+  tops: "top",
+  bottoms: "bottom",
+  dresses: "full-body",
+  outerwear: "outerwear",
+  footwear: "footwear",
+};
 
 /**
  * Doc Parts 4 and 6 — hand-filling a chart for stock research could not reach.
@@ -45,12 +61,33 @@ function ManualChartForm() {
   const storeSizeType = useStoreConnectionStore((s) => s.storeSizeSettings.default);
 
   const group = isSizingGroup(target.sizingCategory) ? target.sizingCategory : "tops";
-  const columns = React.useMemo(() => draftColumnsFor(group), [group]);
+  const columns = React.useMemo(() => draftColumnsFor(group, target.audience), [group, target.audience]);
+  const catId = GROUP_TO_CATEGORY_ID[group];
+
+  // Departments this chart's audience may cover, grouped for the checklist below. Only rendered
+  // when the target carries a known audience: a fresh gap has none (doc note on `ManualChartTarget`),
+  // and offering a checklist with no audience to filter it by would let a merchant tick a boys leaf
+  // onto a chart later read as adult — the same cross-audience mistake `audienceCompatible` exists to
+  // block everywhere else.
+  const leafGroups = React.useMemo(() => {
+    if (!target.audience) return [];
+    return PERSONA_DEPARTMENTS.filter((dept) => {
+      const deptAudience = audienceForPersonaPath(dept.id);
+      return deptAudience !== null && audienceCompatible(deptAudience, target.audience!);
+    }).map((dept) => ({ dept, leaves: leafKeysFor(dept.id, catId) }));
+  }, [target.audience, catId]);
+
+  function toggleLeaf(leafKey: string) {
+    setCoveredLeaves((current) =>
+      current.includes(leafKey) ? current.filter((leaf) => leaf !== leafKey) : [...current, leafKey]
+    );
+  }
 
   const [rows, setRows] = React.useState<ChartDraftRow[]>(
     () => target.seedRows ?? emptyDraftRows(group)
   );
   const [variantName, setVariantName] = React.useState(target.variantName);
+  const [coveredLeaves, setCoveredLeaves] = React.useState<string[]>(target.coversLeaves ?? []);
   const [view, setView] = React.useState<"table" | "json">("table");
   const [saving, setSaving] = React.useState(false);
   const [serverError, setServerError] = React.useState<string | null>(null);
@@ -58,7 +95,10 @@ function ManualChartForm() {
   // the grid opens turns an empty template into a wall of errors before anyone has typed anything.
   const [submitted, setSubmitted] = React.useState(false);
 
-  const { rows: parsedRows, problems } = React.useMemo(() => parseDraft(rows, group), [rows, group]);
+  const { rows: parsedRows, problems } = React.useMemo(
+    () => parseDraft(rows, group, target.audience),
+    [rows, group, target.audience]
+  );
   const shown = submitted ? problems : [];
 
   function updateCell(rowIndex: number, measurement: Measurement, value: string) {
@@ -81,7 +121,7 @@ function ManualChartForm() {
     if (problems.length > 0 || !variantName.trim()) return;
 
     setSaving(true);
-    const error = await saveChart({ rows, variantName: variantName.trim() });
+    const error = await saveChart({ rows, variantName: variantName.trim(), coversLeaves: coveredLeaves });
     setSaving(false);
     if (error) setServerError(error);
   }
@@ -96,6 +136,7 @@ function ManualChartForm() {
       variant_name: variantName.trim() || null,
       size_type: storeSizeType,
       provenance: "manual",
+      covers_leaves: coveredLeaves,
       rows: parsedRows,
     },
     null,
@@ -155,6 +196,48 @@ function ManualChartForm() {
           another variant for the same brand and category later.
         </span>
       </label>
+
+      {leafGroups.length > 0 && (
+        <div className="mt-4">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+            Covers these sub-categories
+          </span>
+          <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+            Which mapped categories should auto-match to this exact chart. Leave a sub-category
+            unchecked if another chart already covers it, or if nothing should auto-pick this one for
+            it.
+          </p>
+          <div className="mt-2 flex flex-col gap-2.5 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-base)] p-3">
+            {leafGroups.map(({ dept, leaves }) => (
+              <div key={dept.id} className="flex flex-wrap items-start gap-1.5">
+                <span className="mr-1 mt-0.5 w-20 shrink-0 text-[11px] font-semibold text-[var(--color-text-primary)]">
+                  {dept.shortLabel}
+                </span>
+                <div className="flex flex-1 flex-wrap gap-1.5">
+                  {leaves.map((leafKey) => {
+                    const checked = coveredLeaves.includes(leafKey);
+                    return (
+                      <button
+                        key={leafKey}
+                        type="button"
+                        onClick={() => toggleLeaf(leafKey)}
+                        className={cn(
+                          "rounded-full border px-2 py-0.5 text-[11px] font-semibold transition-colors",
+                          checked
+                            ? "border-[var(--color-brand)] bg-[var(--color-brand-light)] text-[var(--color-brand-strong)]"
+                            : "border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+                        )}
+                      >
+                        {leafLabel(leafKey).split(" · ")[1] ?? leafLabel(leafKey)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="mt-4 flex items-start gap-2 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-base)] px-3 py-2.5">
         <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--color-text-muted)]" />

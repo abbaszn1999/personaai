@@ -6,7 +6,15 @@
  * display labels or breadcrumbs. Labels can therefore change without orphaning a merchant's map.
  */
 
-export const PERSONA_TAXONOMY_VERSION = 1;
+/**
+ * Bumped to 2: added `bra` (women:top), `sock` (footwear, every department) and `bathrobe`
+ * (kids full-body). All three were seeded chart variants — `Women Bras (Wired)`, `Men Socks`,
+ * `Women Socks`, `Kids Bathrobes` — with no leaf a merchant could map a category onto, which made
+ * them permanently unreachable by auto-match: `pickVariant`'s garment-specialization pass can only
+ * fire for a leaf id it is given, and none of these four had one. Additive only — no existing leaf
+ * id changed or moved — so no stored mapping is invalidated by the bump.
+ */
+export const PERSONA_TAXONOMY_VERSION = 2;
 
 export type PersonaDepartmentId = "women" | "men" | "unisex" | "kids-boys" | "kids-girls" | "kids-unisex";
 
@@ -121,50 +129,129 @@ export const PERSONA_CATEGORIES: PersonaCategoryDef[] = [
 
 export const PERSONA_SUB_CATEGORIES: Record<PersonaDepartmentId, Record<PersonaCategoryId, string[]>> = {
   women: {
-    top: ["t-shirt", "shirt", "blouse", "camisole", "tank-top", "crop-top", "bodysuit", "knit", "sweater", "hoodie", "sweatshirt", "tunic", "activewear-top", "swim-top", "sleep-top"],
+    top: ["t-shirt", "shirt", "blouse", "camisole", "tank-top", "crop-top", "bodysuit", "knit", "sweater", "hoodie", "sweatshirt", "tunic", "activewear-top", "swim-top", "sleep-top", "bra"],
     bottom: ["trouser", "jean", "skirt", "short", "legging", "culotte", "activewear-bottom", "swim-bottom", "sleep-bottom"],
     "full-body": ["dress", "gown", "jumpsuit", "romper", "kaftan", "abaya", "swimsuit", "set", "sleepwear-set"],
     outerwear: ["blazer", "jacket", "coat", "trench", "cardigan", "vest", "kimono", "activewear-jacket"],
-    footwear: ["heel", "flat", "sneaker", "boot", "sandal", "loafer", "mule", "wedge", "slipper"],
+    footwear: ["heel", "flat", "sneaker", "boot", "sandal", "loafer", "mule", "wedge", "slipper", "sock"],
   },
   men: {
     top: ["t-shirt", "shirt", "polo-shirt", "knit", "sweater", "hoodie", "sweatshirt", "activewear-top", "sleep-top"],
     bottom: ["trouser", "jean", "chino", "short", "jogger", "activewear-bottom", "swim-short", "sleep-bottom"],
     "full-body": ["suit", "jumpsuit", "thobe", "overall", "set", "sleepwear-set"],
     outerwear: ["blazer", "suit-jacket", "jacket", "coat", "cardigan", "gilet", "activewear-jacket"],
-    footwear: ["sneaker", "dress-shoe", "boot", "loafer", "sandal", "espadrille", "slipper"],
+    footwear: ["sneaker", "dress-shoe", "boot", "loafer", "sandal", "espadrille", "slipper", "sock"],
   },
   unisex: {
     top: ["t-shirt", "shirt", "knit", "sweater", "hoodie", "sweatshirt", "activewear-top"],
     bottom: ["trouser", "jean", "short", "jogger", "activewear-bottom"],
     "full-body": ["jumpsuit", "overall", "set"],
     outerwear: ["jacket", "coat", "cardigan", "gilet"],
-    footwear: ["sneaker", "boot", "sandal", "slide", "slipper"],
+    footwear: ["sneaker", "boot", "sandal", "slide", "slipper", "sock"],
   },
   "kids-boys": {
     top: ["t-shirt", "shirt", "knit", "hoodie", "sweatshirt", "bodysuit", "activewear-top", "sleep-top"],
     bottom: ["trouser", "jean", "short", "legging", "jogger", "swim-short", "sleep-bottom"],
-    "full-body": ["romper", "all-in-one", "sleepsuit", "set", "swimsuit"],
+    "full-body": ["romper", "all-in-one", "sleepsuit", "set", "swimsuit", "bathrobe"],
     outerwear: ["jacket", "coat", "cardigan", "snowsuit", "pramsuit"],
-    footwear: ["sneaker", "shoe", "boot", "sandal", "bootie", "slipper"],
+    footwear: ["sneaker", "shoe", "boot", "sandal", "bootie", "slipper", "sock"],
   },
   "kids-girls": {
     top: ["t-shirt", "shirt", "blouse", "knit", "hoodie", "sweatshirt", "bodysuit", "activewear-top", "sleep-top"],
     bottom: ["trouser", "jean", "skirt", "short", "legging", "jogger", "sleep-bottom"],
-    "full-body": ["dress", "romper", "all-in-one", "sleepsuit", "set", "swimsuit"],
+    "full-body": ["dress", "romper", "all-in-one", "sleepsuit", "set", "swimsuit", "bathrobe"],
     outerwear: ["jacket", "coat", "cardigan", "snowsuit", "pramsuit"],
-    footwear: ["sneaker", "shoe", "boot", "sandal", "bootie", "slipper"],
+    footwear: ["sneaker", "shoe", "boot", "sandal", "bootie", "slipper", "sock"],
   },
   "kids-unisex": {
     top: ["t-shirt", "shirt", "knit", "hoodie", "sweatshirt", "bodysuit", "sleep-top"],
     bottom: ["trouser", "jean", "short", "legging", "jogger", "sleep-bottom"],
     // `swimsuit` is present for kids-boys and kids-girls; its absence here left a mixed-gender
     // kids swimwear collection with no target at all, so Auto-Match's answer for one was rejected.
-    "full-body": ["romper", "all-in-one", "sleepsuit", "set", "swimsuit"],
+    "full-body": ["romper", "all-in-one", "sleepsuit", "set", "swimsuit", "bathrobe"],
     outerwear: ["jacket", "coat", "cardigan", "snowsuit", "pramsuit"],
-    footwear: ["sneaker", "shoe", "boot", "sandal", "bootie", "slipper"],
+    footwear: ["sneaker", "shoe", "boot", "sandal", "bootie", "slipper", "sock"],
   },
 };
+
+/** `deptId:catId:sub` — the identity a merchant's category mapping stores and `leafOfPersonaPath`/
+ *  `audienceForPersonaPath` in `variant-match.ts` read back apart. */
+export function personaLeafKey(deptId: PersonaDepartmentId, catId: PersonaCategoryId, sub: string): string {
+  return `${deptId}:${catId}:${sub}`;
+}
+
+/** Every leaf key under one department + category, e.g. every `women:top:*`. What a chart's
+ *  coverage checklist (the manual editor, the seed backfill) enumerates against. */
+export function leafKeysFor(deptId: PersonaDepartmentId, catId: PersonaCategoryId): string[] {
+  return (PERSONA_SUB_CATEGORIES[deptId][catId] ?? []).map((sub) => personaLeafKey(deptId, catId, sub));
+}
+
+/**
+ * Every leaf this merchant's own category mapping resolves to a subcategory — the structural fact
+ * of their taxonomy, independent of live stock. `sizing_path_coverage` (what Stage 5 and this
+ * chart-view modal otherwise read leaves from) is a scan artifact: it only has a row for a leaf a
+ * product currently exists under, so a leaf the merchant mapped a store category to but which
+ * happens to hold zero SKUs of one particular brand right now — or zero SKUs at all, between scans —
+ * is invisible to it. This reads the mapping itself instead, so "does this merchant's taxonomy have
+ * a `jean` leaf under women's bottoms" answers independently of whether any product has landed there
+ * yet, which is what lets a chart's "Covers" show every leaf it is the honest answer for rather than
+ * only the leaves that happen to be non-empty at this exact moment.
+ *
+ * A mapping missing `subCategory` (`persona > women > top`, no leaf chosen — a real, common
+ * classifier gap, not a taxonomy leaf) contributes nothing here, same as it contributes no leaf to
+ * `covers_leaves` matching elsewhere: there is no leaf to name until a merchant or the classifier
+ * picks one.
+ */
+export function mappedPersonaLeaves(
+  map: PersonaCategoryMap | null | undefined,
+  scope?: SerializedTaxonomyScope | null
+): string[] {
+  // Once Merchandise Scope Setup has been saved, its enabled leaf list is the merchant's explicit,
+  // authoritative taxonomy. It includes selected leaves even when they currently have zero products,
+  // which is exactly what chart coverage needs. The source-category map below answers a different
+  // question ("where did scanned products route?") and may contain category-level mappings with no
+  // leaf when classification could not safely choose one.
+  if (scope?.configured) return [...new Set(scope.enabledLeafKeys)];
+
+  // Compatibility fallback for connections created before Merchandise Scope Setup was persisted.
+  const leaves = new Set<string>();
+  for (const mapping of Object.values(map ?? {})) {
+    if (mapping.status !== "mapped") continue;
+    if (!mapping.departmentId || !mapping.categoryId || !mapping.subCategory) continue;
+    leaves.add(personaLeafKey(mapping.departmentId, mapping.categoryId as PersonaCategoryId, mapping.subCategory));
+  }
+  return [...leaves];
+}
+
+/**
+ * The complete, flat Persona leaf vocabulary — every `deptId:catId:sub` combination that exists,
+ * across all six departments. This is the closed enum wherever something has to state "one of
+ * every leaf that exists" rather than free text: the research prompt's `covers_leaves` field, and
+ * the seed-coverage completeness check that asserts every leaf under a seeded brand's departments
+ * is claimed by exactly one chart.
+ */
+export const ALL_PERSONA_LEAF_KEYS: string[] = PERSONA_DEPARTMENTS.flatMap((dept) =>
+  PERSONA_CATEGORIES.flatMap((cat) => leafKeysFor(dept.id, cat.id))
+);
+
+/**
+ * `women:top:t-shirt` → `"Women · T-Shirt"`. For chips and checklists that show a chart's
+ * `covers_leaves` — the department, because one chart can legitimately cover the same leaf name
+ * across several departments (`Kids Bathrobes` covers `bathrobe` under boys, girls and kids-unisex
+ * alike), and the leaf's own kebab-case name, titled. The category is left out: every leaf in one
+ * chart's `covers_leaves` shares that chart's own `sizingCategory`, so repeating it on every chip
+ * would say nothing the chart's own heading doesn't already.
+ */
+export function leafLabel(leafKey: string): string {
+  const [deptId, , sub] = leafKey.split(":");
+  const dept = PERSONA_DEPARTMENTS.find((d) => d.id === deptId);
+  const subLabel = (sub ?? "")
+    .split("-")
+    .filter(Boolean)
+    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .join("-");
+  return dept ? `${dept.shortLabel} · ${subLabel}` : subLabel || leafKey;
+}
 
 export function derivePersonaValues(deptId: PersonaDepartmentId, catId: PersonaCategoryId): PersonaDerivedValues {
   let gender: PersonaDerivedValues["gender"] = "male+female";
@@ -221,7 +308,7 @@ const LEAF_LABELS: Record<string, string> = {
   "activewear-top": "Activewear Tops", "activewear-bottom": "Activewear Bottoms", "activewear-jacket": "Activewear Jackets",
   "swim-top": "Swim Tops", "swim-bottom": "Swim Bottoms", "swim-short": "Swim Shorts", "sleep-top": "Sleep Tops",
   "sleep-bottom": "Sleep Bottoms", "sleepwear-set": "Sleepwear Sets", swimsuit: "Swimsuits", set: "Sets", suit: "Suits",
-  slipper: "Slippers",
+  slipper: "Slippers", bra: "Bras & Lingerie", sock: "Socks & Hosiery", bathrobe: "Bathrobes",
 };
 
 export function formatLeafLabel(sub: string): string {

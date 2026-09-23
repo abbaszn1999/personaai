@@ -85,6 +85,17 @@ describe("sizeScaleFamily", () => {
   it("keeps half sizes with their integers", () => {
     expect(sizeScaleFamily("40.5")).toBe(sizeScaleFamily("40"));
   });
+
+  it("never reads an age band as alpha, now that it has its own alias key", () => {
+    // `age` moved out of `alpha` in the kids seeds specifically because ALPHA_LABEL must not treat
+    // a month or year band as S/M/L. Confirms it still doesn't, post-move.
+    for (const label of ["NB", "3M", "24M", "PRE44"]) {
+      expect(sizeScaleFamily(label)).not.toBe("alpha");
+    }
+    for (const label of ["3y", "8-9y", "16y"]) {
+      expect(sizeScaleFamily(label)).not.toBe("alpha");
+    }
+  });
 });
 
 describe("pinnedMeasurements", () => {

@@ -10,7 +10,8 @@ import {
   listSizingProductRecordsPage,
   type SizingProductRecordRow,
 } from "@/lib/db/sizing-product-records";
-import { normalizeBrandKey, UNKNOWN_BRAND_KEY } from "@/lib/sizing/keys";
+import { UNKNOWN_BRAND_KEY } from "@/lib/sizing/keys";
+import { parseStoreBrandMapping, resolveMappedBrand } from "@/lib/sizing/brand-mapping";
 import { isSizingGroup, SIZING_GROUP_KEYS } from "@/lib/sizing/measurements";
 import { labelFor } from "@/lib/sizing/summary";
 import { toRawFormat } from "@/lib/sizing/aggregate";
@@ -175,6 +176,7 @@ export async function GET(request: Request) {
       connection.personaCategoryMap,
       connection.categories,
     );
+    const brandMapping = parseStoreBrandMapping(connection.sizingBrandMapping);
 
     // One entry per brand: a brand's type is the same in every category it appears in.
     const brandTypes = new Map<string, BrandType>();
@@ -185,8 +187,10 @@ export async function GET(request: Request) {
       const storeCategoryPaths = resolveCategoryPaths(raw, connection);
       const primaryPersonaPath = resolvePersonaPaths(raw.sourceCategoryIds, personaConfig)[0] ?? null;
 
-      const brand = variants.brands[0] ?? raw.brand;
-      const brandKey = normalizeBrandKey(brand);
+      const rawBrand = variants.brands[0] ?? raw.brand;
+      const resolvedBrand = resolveMappedBrand(rawBrand, brandMapping);
+      const brand = resolvedBrand.brandName;
+      const brandKey = resolvedBrand.brandKey;
       const override = connection.skuParentOverrides[raw.externalId];
 
       // Resolved exactly the way the scan resolves it, through the same function, off the merchant's

@@ -127,6 +127,36 @@ export interface SizingRunResponse {
   identification: BrandIdentification;
   routing: RoutingPlan;
   mappingApproved: boolean;
+  brandMappingStatus: BrandMappingStatus;
+}
+
+export type BrandMappingStatus = "needs_mapping" | "rescanning" | "ready";
+
+export interface DiscoveredBrandMapping {
+  rawKey: string;
+  labels: string[];
+  skuCount: number;
+  sizingCategories: string[];
+}
+
+export interface CanonicalBrandOption {
+  canonicalKey: string;
+  canonicalName: string;
+  shared: boolean;
+}
+
+export interface CanonicalBrandGroup extends CanonicalBrandOption {
+  rawKeys: string[];
+}
+
+export interface BrandMappingResponse {
+  ready: boolean;
+  status: BrandMappingStatus;
+  confirmedAt: string | null;
+  sourceFingerprint: string;
+  brands: DiscoveredBrandMapping[];
+  groups: CanonicalBrandGroup[];
+  targets: CanonicalBrandOption[];
 }
 
 // ─── Stage 4: researched charts and the gaps between them ─────────────────────
@@ -177,7 +207,9 @@ export interface ResearchedChart {
    *  identity — it says which page the variant was transcribed from. */
   sourceTitle: string;
   skuCount: number;
-  region: string;
+  /** Regional scales this chart carries, pre-joined for display — `EU · UK · US`. Derived from the
+   *  rows server-side; empty when the source published alpha labels only. */
+  labelSystems: string;
   /** 0-100, to match the demo display scale. Stored 0-1. */
   confidence: number;
   lastUpdated: string;
@@ -191,6 +223,9 @@ export interface ResearchedChart {
    *  without re-parsing formatted strings. */
   chartRows: SizeChartRow[];
   quality: ChartQualityFlag[];
+  /** The Persona leaf keys this exact chart claims — see `coversLeaves` on the server-side
+   *  `ResearchedChartResult` in `chart-results.ts`. */
+  coversLeaves: string[];
   /** Whether a merchant should check this chart before it drives recommendations. Decided on the
    *  server so there is one confidence bar in the system rather than one per component. */
   needsReview: boolean;
@@ -284,8 +319,9 @@ export interface AssignableVariant {
   chartId: string;
   variantName: string;
   audience: ChartAudience;
-  variantGender: ChartAudience | null;
-  variantFitType: string | null;
+  /** The Persona leaf keys this exact chart claims — see `coversLeaves` on the server-side
+   *  `AssignableVariant` in `assignments.ts`. */
+  coversLeaves: string[];
   /** 0-100. */
   confidence: number;
   sourceTitle: string;
@@ -319,7 +355,15 @@ export interface PathAssignment {
   variantName: string | null;
   decided: boolean;
   source: "merchant" | "auto" | null;
+  /** Only the variants that may size this path's audience — an adult path is never offered a child's
+   *  table. A stored choice is always included, even if the guard would now exclude it. */
   variants: AssignableVariant[];
+  /** Read off the path's Persona department. Null for pre-Universal-Mapping rows, which state no
+   *  audience and so are offered everything. */
+  audience: ChartAudience | null;
+  /** Variants the audience guard removed. Non-zero with an empty `variants` means the brand has charts
+   *  for this parent but none for this audience — a Stage 4 coverage gap, not a missing research run. */
+  variantsOtherAudience: number;
   /** The stored name matches no current chart: research renamed or dropped the table the merchant
    *  chose. Shown rather than cleared, since their decision is still the best evidence of intent. */
   missingVariant: boolean;
@@ -340,6 +384,9 @@ export interface SizingAssignmentsResponse {
   totals: AssignmentTotals;
   /** How many paths this read resolved by itself — sole variants and unambiguous audience matches. */
   autoMatched: number;
+  /** Every leaf enabled in this merchant's taxonomy scope — brand-agnostic and independent of
+   *  `paths`' live SKU counts. See `mappedPersonaLeaves`. */
+  mappedLeaves: string[];
 }
 
 export const EMPTY_ASSIGNMENT_TOTALS: AssignmentTotals = {
@@ -462,7 +509,10 @@ export function isScanIncomplete(run: SizingRun | null): boolean {
  * the merchant got to. The rule is: the screen where the run's pending action is taken.
  *
  */
-export function stageForRun(run: SizingRun | null): StageNumber {
+export function stageForRun(
+  run: SizingRun | null,
+  brandMappingStatus: BrandMappingStatus = "needs_mapping",
+): StageNumber {
   if (!run) return 1;
 
   switch (run.stage) {
@@ -470,7 +520,7 @@ export function stageForRun(run: SizingRun | null): StageNumber {
     // it is where a scan still in flight is watched rather than stage 2.
     case "scan":
     case "classify":
-      return 3;
+      return brandMappingStatus === "rescanning" ? 4 : 3;
     // Every research state now lands on stage 4, blocked included. It used to send a blocked run back
     // to stage 3, because leaving stage 3 was the authorization to spend on a bulk search. Stage 4
     // owns that decision per brand now, so `research`/`blocked` is not a pending decision on stage 3 —

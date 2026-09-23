@@ -115,6 +115,15 @@ describe("CoverageAggregator", () => {
     expect(rows[0].brandName).toBe("Hermès");
   });
 
+  it("merges different store labels when scan supplies one confirmed canonical key", () => {
+    const aggregator = new CoverageAggregator();
+    aggregator.add(product({ externalId: "a", brand: "Tom Tailor Men", brandKey: "tom_tailor" }));
+    aggregator.add(product({ externalId: "b", brand: "Tom Tailor", brandKey: "tom_tailor" }));
+
+    expect(aggregator.rows()).toHaveLength(1);
+    expect(aggregator.rows()[0]).toMatchObject({ brandKey: "tom_tailor", skuCount: 2 });
+  });
+
   it("counts a product once but merges its categories when it appears in several collections", () => {
     // Overlapping collections are the norm — a shirt in both "Men" and "Sale". Counting each
     // sighting would inflate every SKU total the merchant is shown and every cost estimate from it.

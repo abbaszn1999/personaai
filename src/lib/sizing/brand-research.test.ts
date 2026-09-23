@@ -39,11 +39,9 @@ function chart(overrides: Partial<SizingChartRow> = {}): SizingChartRow {
     brandKey: "nike",
     sizingCategory: "tops",
     variantName: "Men",
-    variantGender: "mens",
-    variantFitType: null,
+    coversLeaves: [],
     audience: "mens",
     sourceTitle: "Men's Tops",
-    region: "EU",
     chartRows: [{ size: "M", chest_min: 96, chest_max: 104 }],
     confidence: 0.95,
     sourceUrl: "https://nike.example/size-guide",
@@ -92,7 +90,7 @@ describe("buildBrandResearch", () => {
     // that as two covered parents would show a store carrying only tops as over-covered.
     const rows = buildBrandResearch([coverage()], [
       chart({ id: "c1", variantName: "Men" }),
-      chart({ id: "c2", variantName: "Women", audience: "womens", variantGender: "womens" }),
+      chart({ id: "c2", variantName: "Women", audience: "womens" }),
     ]);
 
     expect(rows[0].chartCount).toBe(2);

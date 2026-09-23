@@ -35,6 +35,11 @@ describe("stageForRun", () => {
     expect(isScanIncomplete(run("scan", "running"))).toBe(true);
   });
 
+  it("keeps a canonical-mapping rescan on stage 4, including after refresh", () => {
+    expect(stageForRun(run("scan", "running"), "rescanning")).toBe(4);
+    expect(stageForRun(run("classify", "pending"), "rescanning")).toBe(4);
+  });
+
   it("lands a run parked after classification on stage 4, not stage 3", () => {
     // This inverts the old rule, and the inversion is the point. `research`/`blocked` used to mean "the
     // merchant has not yet authorised a bulk search", and the authorisation was the Continue press on

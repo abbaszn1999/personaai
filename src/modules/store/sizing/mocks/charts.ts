@@ -3,7 +3,7 @@ import type { FoundSizeChart } from "../types";
 /**
  * Size charts the research agent found for the global brands.
  *
- * Headers vary by category on purpose — a footwear chart has nothing in common with a tops chart,
+ * Headers vary by category on purpose · a footwear chart has nothing in common with a tops chart,
  * and any UI that assumes one fixed column set falls apart on the first shoe. Every row is a
  * range in cm, which is the only form the fit filter can compare a shopper against.
  */
@@ -13,7 +13,7 @@ export const FOUND_SIZE_CHARTS: FoundSizeChart[] = [
     brand: "Nike",
     categories: ["Men > Tops", "Men > Outerwear"],
     skuCount: 284,
-    region: "US / EU",
+    labelSystems: "US · EU",
     confidence: 96,
     lastUpdated: "2026-08-14",
     headers: ["Size", "Chest (cm)", "Waist (cm)", "Body Length (cm)"],
@@ -30,7 +30,7 @@ export const FOUND_SIZE_CHARTS: FoundSizeChart[] = [
     brand: "Adidas",
     categories: ["Men > Bottoms"],
     skuCount: 148,
-    region: "EU",
+    labelSystems: "EU",
     confidence: 93,
     lastUpdated: "2026-08-11",
     headers: ["Size", "Waist (cm)", "Hip (cm)", "Inseam (cm)"],
@@ -47,7 +47,7 @@ export const FOUND_SIZE_CHARTS: FoundSizeChart[] = [
     brand: "Zara",
     categories: ["Women > Dresses", "Women > Tops"],
     skuCount: 388,
-    region: "EU",
+    labelSystems: "EU",
     confidence: 89,
     lastUpdated: "2026-07-29",
     headers: ["Size", "EU", "Bust (cm)", "Waist (cm)", "Hip (cm)"],
@@ -63,7 +63,7 @@ export const FOUND_SIZE_CHARTS: FoundSizeChart[] = [
     brand: "Levi's",
     categories: ["Men > Bottoms"],
     skuCount: 197,
-    region: "US",
+    labelSystems: "US",
     confidence: 98,
     lastUpdated: "2026-08-02",
     headers: ["Size", "Waist (cm)", "Hip (cm)", "Inseam (cm)"],
@@ -79,7 +79,7 @@ export const FOUND_SIZE_CHARTS: FoundSizeChart[] = [
     brand: "H&M",
     categories: ["Women > Tops"],
     skuCount: 156,
-    region: "EU",
+    labelSystems: "EU",
     confidence: 84,
     lastUpdated: "2026-06-18",
     headers: ["Size", "Bust (cm)", "Waist (cm)"],
@@ -95,7 +95,7 @@ export const FOUND_SIZE_CHARTS: FoundSizeChart[] = [
     brand: "Uniqlo",
     categories: ["Men > Tops"],
     skuCount: 121,
-    region: "JP / EU",
+    labelSystems: "EU",
     confidence: 91,
     lastUpdated: "2026-08-20",
     headers: ["Size", "Chest (cm)", "Body Length (cm)", "Shoulder (cm)"],
@@ -111,7 +111,7 @@ export const FOUND_SIZE_CHARTS: FoundSizeChart[] = [
 /**
  * The delta-sync view of the same registry.
  *
- * The Nike chart is reused rather than re-researched — that reuse is the entire cost argument for
+ * The Nike chart is reused rather than re-researched · that reuse is the entire cost argument for
  * a shared registry, so the flag is surfaced in the UI rather than left implicit.
  */
 export const NEW_SYNC_FOUND_SIZE_CHARTS: FoundSizeChart[] = [
@@ -128,7 +128,7 @@ export const NEW_SYNC_FOUND_SIZE_CHARTS: FoundSizeChart[] = [
     brand: "Puma",
     categories: ["Men > Outerwear"],
     skuCount: 9,
-    region: "EU",
+    labelSystems: "EU",
     confidence: 88,
     lastUpdated: "2026-09-01",
     headers: ["Size", "Chest (cm)", "Waist (cm)", "Sleeve (cm)"],

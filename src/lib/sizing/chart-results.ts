@@ -1,5 +1,5 @@
 import type { SizingChartRow } from "@/lib/db/sizing-charts";
-import type { SizeChartRow } from "./chart-schema";
+import { formatLabelSystems, type SizeChartRow } from "./chart-schema";
 import type { BrandType, ResearchStatus, SizingCoverageRow } from "@/lib/db/sizing-coverage";
 import {
   assessChart,
@@ -9,6 +9,7 @@ import {
   type ChartQualityFlag,
 } from "./chart-review";
 import { isSizingCategory, UNKNOWN_BRAND_KEY, type Audience } from "./keys";
+import { variantTags } from "./variant-match";
 
 /**
  * Joins what the store carries (`sizing_coverage`) against what research produced
@@ -38,7 +39,10 @@ export interface ResearchedChartResult {
    *  mainline one from the Tommy Jeans one without opening all three. */
   sourceTitle: string;
   skuCount: number;
-  region: string;
+  /** Which regional scales this chart can speak to — `EU · UK · US` — derived from the rows rather
+   *  than stored, because one chart's rows carry several at once and a single stored value could only
+   *  ever name one of them. Empty string when the source printed alpha labels only. */
+  labelSystems: string;
   confidence: number;
   lastUpdated: string;
   sourceUrl: string | null;
@@ -51,6 +55,10 @@ export interface ResearchedChartResult {
    *  formatted table it just rendered. */
   chartRows: SizeChartRow[];
   quality: ChartQualityFlag[];
+  /** The Persona leaf keys this exact chart claims — `sizing_charts.covers_leaves`. Shown so a
+   *  merchant reviewing Stage 4 can see which sub-categories a chart is the authoritative answer
+   *  for, the same fact Stage 5's auto-match reads via `chartsForLeaf`. */
+  coversLeaves: string[];
   /**
    * Whether a merchant should look at this chart before it drives recommendations.
    *
@@ -149,11 +157,18 @@ function lookupKey(brandKey: string, sizingCategory: string): string {
  * here, or the review screen would show them the shared chart they deliberately overrode. Keyed on
  * the variant since doc Part 5, matching `sizing_charts`' own index — on the old `(audience, source
  * title)` a merchant's forked copy sat *beside* the researched row instead of replacing it.
+ *
+ * Fit-class tables (`Men Big & Tall`, `Women Petite`, ...) are dropped here rather than shown and
+ * left unauto-matched: this pipeline's one source of truth for which chart governs a SKU is the
+ * taxonomy path — department → category → leaf — and a fit-class table has no leaf of its own to be
+ * reached by, on any brand, seed or research-generated. Filtered at the one place both Stage 4's
+ * display and Stage 5's dropdown read charts from, so neither screen can ever offer one.
  */
 function indexCharts(charts: SizingChartRow[]): Map<string, SizingChartRow[]> {
   const byKey = new Map<string, Map<string, SizingChartRow>>();
 
   for (const chart of charts) {
+    if (variantTags(chart.variantName).fit.length > 0) continue;
     const key = lookupKey(chart.brandKey, chart.sizingCategory);
     let variants = byKey.get(key);
     if (!variants) {
@@ -301,7 +316,7 @@ export function buildChartResults(coverage: SizingCoverageRow[], charts: SizingC
         audience: chart.audience,
         sourceTitle: chart.sourceTitle,
         skuCount: row.skuCount,
-        region: chart.region ?? "—",
+        labelSystems: formatLabelSystems(chart.chartRows),
         // Stored 0-1, displayed 0-100. Rounded rather than truncated so 0.949 doesn't read as 94.
         confidence,
         lastUpdated: chart.updatedAt.slice(0, 10),
@@ -311,6 +326,7 @@ export function buildChartResults(coverage: SizingCoverageRow[], charts: SizingC
         headers,
         rows,
         chartRows: chart.chartRows,
+        coversLeaves: chart.coversLeaves,
         quality,
         needsReview: confidence < CHART_CONFIDENCE_PERCENT || hasBlockingQualityIssue(quality),
       });

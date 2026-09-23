@@ -87,8 +87,19 @@ const UPSERT_CHUNK = 200;
  * re-establishing: a brand the finder failed on last week may publish a guide today, and carrying
  * `not_found` across would mean it was never looked for again.
  */
-export async function replaceSizingCoverage(connectionId: string, rows: CoverageRow[]): Promise<boolean> {
+export async function replaceSizingCoverage(
+  connectionId: string,
+  rows: CoverageRow[],
+  confirmedAliases: Record<string, { canonicalKey: string; canonicalName: string }> = {},
+): Promise<boolean> {
   const previousTypes = await getBrandTypes(connectionId);
+  for (const [rawKey, alias] of Object.entries(confirmedAliases)) {
+    const previous = previousTypes.get(rawKey);
+    previousTypes.set(alias.canonicalKey, {
+      brandType: "global",
+      canonicalName: alias.canonicalName || previous?.canonicalName || null,
+    });
+  }
 
   const { error: deleteError } = await db.from("sizing_coverage").delete().eq("connection_id", connectionId);
   if (deleteError) {
