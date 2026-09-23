@@ -32,6 +32,14 @@ export const LIVE_MAX_MINUTES = 10_000;
 
 export const GARMENT_PACK_UNITS = 100;
 export const GARMENT_PACK_CENTS = 80;
+
+/** One garment or avatar unit, in nano-dollars. $0.008, from the pack price. */
+export const GARMENT_UNIT_NANOS = (GARMENT_PACK_CENTS * 10_000_000) / GARMENT_PACK_UNITS;
+
+/** One billed live second, in nano-dollars. $1.20 per minute. */
+export const LIVE_SECOND_NANOS = (LIVE_MINUTE_CENTS * 10_000_000) / 60;
+
+export type UsageSurface = "store" | "preview";
 export const GARMENT_MIN_PACKS = 50;
 export const GARMENT_MAX_PACKS = 5_000;
 

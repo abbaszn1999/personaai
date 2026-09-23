@@ -22,16 +22,6 @@ export interface WalletForecast {
   suggestedTopUp: number;
 }
 
-export interface UsagePoint {
-  date: string;
-  renders: number;
-}
-
-export interface LiveTryOnUsagePoint {
-  date: string;
-  seconds: number;
-}
-
 export interface BillingSummary {
   tierId: PlanTierId;
   cycleStart: string;

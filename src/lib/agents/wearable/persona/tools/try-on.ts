@@ -96,7 +96,11 @@ export async function handleTryOn(
       "try_on",
       billing.cycleStartIso,
       billing.tier.monthlyGarmentUnits,
-      garmentCount
+      garmentCount,
+      {
+        sessionId: context.visitorId,
+        source: context.usageSource ?? (context.visitorId === context.userId ? "preview" : "store"),
+      }
     );
     if (!consumed) throw new PersonaAgentError("The account's image allowance is exhausted.");
     runtime.creditsRemaining = (await getUserById(context.userId))?.credits ?? runtime.creditsRemaining;

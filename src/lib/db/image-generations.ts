@@ -1,8 +1,14 @@
+import type { UsageSurface } from "@/lib/billing/pricing";
 import { graceFloor } from "@/lib/billing/wallets";
 import { maybeAlertWalletUsage } from "@/lib/billing/usage-alerts";
 import { db } from "@/lib/supabase/server";
 
 export type ImageGenerationKind = "avatar" | "try_on";
+
+export interface ImageUsageAttribution {
+  sessionId?: string | null;
+  source?: UsageSurface | null;
+}
 
 /**
  * Atomically consumes the monthly included allowance first, then purchased credits for the
@@ -14,7 +20,8 @@ export async function consumeImageGeneration(
   kind: ImageGenerationKind,
   cycleStartIso: string,
   includedAllowance: number,
-  units = 1
+  units = 1,
+  attribution?: ImageUsageAttribution
 ): Promise<boolean> {
   const { data, error } = await db.rpc("consume_image_generation", {
     p_user_id: userId,
@@ -23,6 +30,8 @@ export async function consumeImageGeneration(
     p_included_allowance: includedAllowance,
     p_units: units,
     p_balance_floor: graceFloor(includedAllowance),
+    p_session_id: attribution?.sessionId ?? null,
+    p_source: attribution?.source ?? null,
   });
 
   if (error) {

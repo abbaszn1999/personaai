@@ -1,3 +1,4 @@
+import type { UsageSurface } from "@/lib/billing/pricing";
 import { graceFloor } from "@/lib/billing/wallets";
 import { maybeAlertWalletUsage } from "@/lib/billing/usage-alerts";
 import { db } from "@/lib/supabase/server";
@@ -13,6 +14,7 @@ export interface RecordRealtimeTryOnEventInput {
   idempotencyKey: string;
   /** False for a garment preview. Only the session row moves the allowance and balance. */
   billable: boolean;
+  source?: UsageSurface | null;
 }
 
 /** Atomically logs a completed preview and charges only its marginal overage seconds. */
@@ -28,6 +30,7 @@ export async function consumeLiveTryOnSeconds(input: RecordRealtimeTryOnEventInp
     p_idempotency_key: input.idempotencyKey,
     p_billable: input.billable,
     p_balance_floor: graceFloor(input.includedAllowanceSeconds),
+    p_source: input.source ?? null,
   });
 
   if (error) {

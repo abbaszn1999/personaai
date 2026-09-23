@@ -1,4 +1,4 @@
-import { SESSION_UNIT_NANOS } from "@/lib/billing/pricing";
+import { SESSION_UNIT_NANOS, type UsageSurface } from "@/lib/billing/pricing";
 import { graceFloor } from "@/lib/billing/wallets";
 import { maybeAlertWalletUsage } from "@/lib/billing/usage-alerts";
 import { db } from "@/lib/supabase/server";
@@ -12,6 +12,7 @@ export interface ConsumeSessionUnitsInput {
   cycleStartIso: string;
   includedAllowance: number;
   idempotencyKey: string;
+  source?: UsageSurface | null;
 }
 
 /** Atomically folds one turn's cost into the carry, charges whole units past the allowance,
@@ -28,6 +29,7 @@ export async function consumeSessionUnits(input: ConsumeSessionUnitsInput): Prom
     p_idempotency_key: input.idempotencyKey,
     p_unit_nanos: SESSION_UNIT_NANOS,
     p_balance_floor: graceFloor(input.includedAllowance),
+    p_source: input.source ?? null,
   });
 
   if (error) {

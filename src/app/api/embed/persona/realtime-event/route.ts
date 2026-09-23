@@ -54,6 +54,7 @@ export async function POST(req: NextRequest) {
       includedAllowanceSeconds: billing.tier.monthlyLiveTryOnSeconds,
       idempotencyKey,
       billable: body.billable !== false,
+      source: "store",
     });
     return embedJson({ ok: true, secondsBalance });
   } catch (error) {

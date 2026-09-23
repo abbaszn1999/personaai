@@ -7,6 +7,7 @@ import { toAnchor } from "./anchor";
 import { parseHardRules } from "./hard-rules";
 import { toProducts } from "./hydrate";
 import type { ChatMessage, Product } from "@/modules/commerce/types";
+import type { UsageSurface } from "@/lib/billing/pricing";
 import type { IntakeState, WearableChatContext, WearableChatProfileContext } from "./types";
 
 /** How much conversation the router, filter builder and statement builder each see. Enough for
@@ -28,6 +29,7 @@ export interface BuildContextInput {
   ownerId: string;
   /** Stable per-shopper id for ACS user events — see `WearableChatContext.visitorId`. */
   visitorId: string;
+  usageSource?: UsageSurface;
   geminiApiKey: string;
   creditsRemaining: number;
   profile: WearableChatProfileContext;
@@ -99,6 +101,7 @@ export async function buildWearableChatContext(input: BuildContextInput): Promis
   return {
     userId: input.ownerId,
     visitorId: input.visitorId,
+    usageSource: input.usageSource,
     geminiApiKey: input.geminiApiKey,
     creditsRemaining: input.creditsRemaining,
     profile: input.profile,

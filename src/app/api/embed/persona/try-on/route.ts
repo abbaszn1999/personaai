@@ -55,12 +55,14 @@ export async function POST(req: NextRequest) {
       added,
     });
 
+    const sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
     const consumed = await consumeImageGeneration(
       workspace.ownerId,
       "try_on",
       billing.cycleStartIso,
       billing.tier.monthlyGarmentUnits,
-      garmentCount
+      garmentCount,
+      { sessionId: sessionId || null, source: "store" }
     );
     if (!consumed) {
       return embedJson({ error: "This store has exhausted its monthly image allowance and purchased credits" }, { status: 402 });

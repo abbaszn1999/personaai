@@ -75,7 +75,12 @@ export async function handleUpdateMeasurements(
       context.userId,
       "avatar",
       billing.cycleStartIso,
-      billing.tier.monthlyGarmentUnits
+      billing.tier.monthlyGarmentUnits,
+      1,
+      {
+        sessionId: context.visitorId,
+        source: context.usageSource ?? (context.visitorId === context.userId ? "preview" : "store"),
+      }
     );
     if (!consumed) throw new PersonaAgentError("The account's image allowance is exhausted.");
     runtime.creditsRemaining = (await getUserById(context.userId))?.credits ?? runtime.creditsRemaining;

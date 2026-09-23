@@ -1,5 +1,10 @@
-import { UsageDashboard } from "@/modules/billing/components/usage-dashboard";
+import { Suspense } from "react";
+import { UsagePage } from "@/modules/usage/components/usage-page";
 
-export default function UsagePage() {
-  return <UsageDashboard />;
+export default function Page() {
+  return (
+    <Suspense fallback={null}>
+      <UsagePage />
+    </Suspense>
+  );
 }

@@ -1,3 +1,4 @@
+import type { UsageSurface } from "@/lib/billing/pricing";
 import { consumeSessionUnits } from "@/lib/db/session-usage";
 import { sessionUsageIdempotencyKey, type SessionMeter } from "./session-meter";
 
@@ -10,6 +11,7 @@ export async function flushSessionMeter(input: {
   history: Array<{ role: string; id?: string }>;
   cycleStartIso: string;
   includedAllowance: number;
+  source: UsageSurface;
 }): Promise<void> {
   const meter = input.meter;
   if (!meter || (meter.nanos <= 0 && meter.acsSearches === 0 && meter.geminiCalls === 0)) return;
@@ -31,6 +33,7 @@ export async function flushSessionMeter(input: {
       cycleStartIso: input.cycleStartIso,
       includedAllowance: input.includedAllowance,
       idempotencyKey,
+      source: input.source,
     });
   } catch (error) {
     console.error("[billing/flush-session-meter]", error);

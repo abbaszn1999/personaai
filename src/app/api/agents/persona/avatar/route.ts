@@ -101,7 +101,9 @@ export async function POST(req: NextRequest) {
               user.id,
               "avatar",
               billing.cycleStartIso,
-              billing.tier.monthlyGarmentUnits
+              billing.tier.monthlyGarmentUnits,
+              1,
+              { sessionId: user.id, source: "preview" }
             );
             if (consumed) {
               if (includedRemainingInStream > 0) includedRemainingInStream -= 1;

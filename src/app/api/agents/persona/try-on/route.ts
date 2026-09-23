@@ -47,7 +47,8 @@ export async function POST(req: NextRequest) {
       "try_on",
       billing.cycleStartIso,
       billing.tier.monthlyGarmentUnits,
-      garmentCount
+      garmentCount,
+      { sessionId: user.id, source: "preview" }
     );
     if (!consumed) {
       return Response.json({ error: "Your monthly image allowance and purchased credits are exhausted" }, { status: 402 });

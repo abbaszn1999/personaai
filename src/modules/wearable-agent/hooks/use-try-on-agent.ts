@@ -289,7 +289,8 @@ async function streamAvatarVariations(
   profile: TryOnProfile,
   embed: EmbedRuntimeConfig | undefined,
   onVariation: (variation: AvatarVariation) => void,
-  count?: number
+  count?: number,
+  sessionId?: string | null
 ): Promise<{ successCount: number } | { error: string }> {
   try {
     const res = await fetch(embed ? `${embed.apiBase}/persona/avatar` : "/api/agents/persona/avatar", {
@@ -305,6 +306,7 @@ async function streamAvatarVariations(
         waistCm: profile.waistCm,
         shoeSizeEu: profile.shoeSizeEu,
         ...(count ? { count } : {}),
+        ...(sessionId ? { sessionId } : {}),
       }),
     });
 
@@ -1124,7 +1126,7 @@ export function useTryOnAgent(
           ? { ...s, generationProgress: Math.max(s.generationProgress, arrived) }
           : s
       );
-    }).then((result) => {
+    }, undefined, embed ? embedSessionIdRef.current : null).then((result) => {
       stopTimer();
 
       if ("error" in result && !receivedAny) {
@@ -1319,7 +1321,8 @@ export function useTryOnAgent(
       (variation) => {
         regeneratedVariation = variation;
       },
-      1
+      1,
+      embed ? embedSessionIdRef.current : null
     );
 
     setState((s) => {
@@ -1408,6 +1411,7 @@ export function useTryOnAgent(
           ...(embed ? { embedToken: embed.embedToken } : {}),
           avatarImageUrl: toAbsoluteImageUrl(avatarImageUrl),
           garmentImageUrls: items.map((p) => toAbsoluteImageUrl(p.imageUrl)),
+          ...(embed ? { sessionId: embedSessionIdRef.current } : {}),
         }),
       });
       const data: TryOnApiResponse = await res.json().catch(() => ({}));

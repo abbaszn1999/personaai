@@ -102,6 +102,7 @@ export async function POST(req: NextRequest) {
     // separate per-tab id here the way the embed surface needs one (see dashboardSessionIdRef's
     // comment client-side, which is used for chat-event logging only, not this).
     visitorId: user.id,
+    usageSource: "preview",
     geminiApiKey,
     creditsRemaining: billing.user.credits,
     profile: {
@@ -210,6 +211,7 @@ export async function POST(req: NextRequest) {
           history,
           cycleStartIso: billing.cycleStartIso,
           includedAllowance: billing.tier.monthlySessionUnits,
+          source: "preview",
         });
       }
     },

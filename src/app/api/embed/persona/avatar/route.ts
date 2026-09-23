@@ -118,11 +118,14 @@ export async function POST(req: NextRequest) {
           if (closed || req.signal.aborted) break;
 
           if (event.type === "variation") {
+            const sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
             const consumed = await consumeImageGeneration(
               workspace.ownerId,
               "avatar",
               billing.cycleStartIso,
-              billing.tier.monthlyGarmentUnits
+              billing.tier.monthlyGarmentUnits,
+              1,
+              { sessionId: sessionId || null, source: "store" }
             );
             if (consumed) {
               if (includedRemainingInStream > 0) includedRemainingInStream -= 1;

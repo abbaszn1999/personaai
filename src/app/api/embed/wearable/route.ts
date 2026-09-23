@@ -117,6 +117,7 @@ export async function POST(req: NextRequest) {
     // The browser-generated session id already used to key the avatar cache — a stable
     // per-shopper id without requiring shopper login, exactly what ACS's visitorId wants.
     visitorId: sessionId,
+    usageSource: "store",
     geminiApiKey,
     creditsRemaining: billing.user.credits,
     profile: {
@@ -205,6 +206,7 @@ export async function POST(req: NextRequest) {
           history,
           cycleStartIso: billing.cycleStartIso,
           includedAllowance: billing.tier.monthlySessionUnits,
+          source: "store",
         });
       }
     },
