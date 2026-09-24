@@ -93,7 +93,7 @@ const TOOLBAR_ACTIONS = [
 /** Image ⇄ Live mode switcher shown in the left toolbar (replaces the old
  *  disabled "3D — coming soon" slot; 3D will land in that same spot later). */
 const MODE_TOGGLE_ACTIONS = [
-  { id: "photo", icon: null, label: "Image" },
+  { id: "photo", icon: ImageIcon, label: "Image" },
   { id: "live", icon: Camera, label: "Live" },
 ] as const;
 
@@ -110,7 +110,7 @@ const PANEL_TONE = {
   dark: {
     rail: "border-white/[0.12] bg-black/50 shadow-[0_8px_28px_rgba(0,0,0,0.5)]",
     railIdle: "text-white/50 hover:text-white/90 hover:bg-white/[0.08]",
-    railActive: "text-[var(--color-brand)] bg-white/[0.1]",
+    railActive: "text-white bg-white/[0.14] ring-1 ring-[var(--color-brand)]",
     divider: "bg-white/[0.1]",
     popover: "border-white/[0.1] bg-[rgba(12,10,18,0.96)] shadow-[0_16px_48px_rgba(0,0,0,0.6)]",
     label: "text-white/35",
@@ -123,7 +123,7 @@ const PANEL_TONE = {
   light: {
     rail: "border-black/[0.08] bg-white/90 shadow-[0_8px_28px_rgba(23,18,29,0.12)]",
     railIdle: "text-[#17121d]/55 hover:text-[#17121d] hover:bg-black/[0.05]",
-    railActive: "text-[var(--color-brand)] bg-black/[0.06]",
+    railActive: "text-[#17121d] bg-black/[0.06] ring-1 ring-[var(--color-brand)]",
     divider: "bg-black/[0.08]",
     popover: "border-black/[0.08] bg-[rgba(255,255,255,0.97)] shadow-[0_16px_48px_rgba(23,18,29,0.16)]",
     label: "text-[#17121d]/45",
@@ -557,16 +557,10 @@ export function AvatarMannequinPanel({
               onClick={() => changeViewMode(mode.id)}
               className={cn(
                 "h-9 w-9 rounded-[var(--radius-md)] flex items-center justify-center transition-all",
-                viewMode === mode.id
-                  ? "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-[var(--color-brand-contrast)] shadow-sm"
-                  : tone.railIdle
+                viewMode === mode.id ? tone.railActive : tone.railIdle
               )}
             >
-              {mode.icon ? (
-                <mode.icon className="h-[17px] w-[17px]" strokeWidth={1.6} />
-              ) : (
-                <ImageIcon className="h-[17px] w-[17px]" strokeWidth={1.6} />
-              )}
+              <mode.icon className="h-[17px] w-[17px]" strokeWidth={1.6} />
             </button>
           ))}
 
@@ -761,7 +755,7 @@ export function AvatarMannequinPanel({
           disabled={anyPendingInCart}
           className={cn(
             "w-full h-[54px] rounded-[var(--radius-lg)] font-semibold text-[13px] flex items-center justify-between px-5 transition-all",
-            "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-[var(--color-brand-contrast)]",
+            "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-[#17121d]",
             "shadow-[var(--shadow-glow)] hover:brightness-110 active:scale-[0.98] disabled:cursor-wait"
           )}
         >
