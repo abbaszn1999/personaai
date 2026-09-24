@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  LayoutDashboard,
   Plug,
   BarChart2,
   Palette,
@@ -97,7 +96,6 @@ export function AppSidebar() {
     ? [
         { label: "Analytics", href: "/analytics", icon: <BarChart2 className="h-4 w-4" /> },
         { label: "Branding & Embed", href: "/branding", icon: <Palette className="h-4 w-4" /> },
-        { label: "Project Settings", href: "/project", icon: <LayoutDashboard className="h-4 w-4" /> },
       ]
     : [];
 

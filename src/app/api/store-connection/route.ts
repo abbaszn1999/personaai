@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import {
   getStoreConnectionByOwner,
+  setStoreOrdersAccess,
   upsertStoreConnection,
   updateStoreConnection,
   deleteStoreConnection,
@@ -53,6 +54,7 @@ function toPublicConnection(row: StoreConnectionRow) {
     storeUrl: row.storeUrl,
     status: row.status,
     connectedAt: row.createdAt,
+    ordersAccess: row.ordersAccess,
   };
 }
 
@@ -86,29 +88,36 @@ function toResponse(row: StoreConnectionRow) {
  * blocking outbound calls — is still perfectly usable; it just refreshes on the schedule
  * instead of instantly, and failing the whole connection over that would be the wrong trade.
  */
-async function registerProductWebhooks(row: StoreConnectionRow): Promise<void> {
+async function registerProductWebhooks(row: StoreConnectionRow): Promise<StoreConnectionRow["ordersAccess"]> {
   const appUrl = process.env.APP_URL;
-  if (!appUrl || !row.apiKeyEncrypted) return;
+  if (!appUrl || !row.apiKeyEncrypted) return row.ordersAccess;
 
   try {
-    if (row.platform === "shopify") {
-      const { clientId, clientSecret } = decodeCredentials(row.apiKeyEncrypted);
-      const domain = normalizeShopifyDomain(row.storeUrl);
-      const token = await getShopifyAccessToken(domain, clientId, clientSecret, row.id);
-      await registerShopifyWebhooks(domain, token, `${appUrl.replace(/\/+$/, "")}/api/webhooks/shopify`);
-      return;
-    }
-
-    const { wpUsername, wpAppPassword } = decodeCredentials(row.apiKeyEncrypted);
-    await registerWooWebhooks(
-      normalizeWordPressUrl(row.storeUrl),
-      wpUsername,
-      wpAppPassword,
-      `${appUrl.replace(/\/+$/, "")}/api/webhooks/woocommerce`,
-      deriveWebhookSecret(row.id)
-    );
+    const callbackBase = appUrl.replace(/\/+$/, "");
+    const result =
+      row.platform === "shopify"
+        ? await registerShopifyWebhooks(
+            normalizeShopifyDomain(row.storeUrl),
+            await getShopifyAccessToken(
+              normalizeShopifyDomain(row.storeUrl),
+              decodeCredentials(row.apiKeyEncrypted).clientId,
+              decodeCredentials(row.apiKeyEncrypted).clientSecret,
+              row.id
+            ),
+            `${callbackBase}/api/webhooks/shopify`
+          )
+        : await registerWooWebhooks(
+            normalizeWordPressUrl(row.storeUrl),
+            decodeCredentials(row.apiKeyEncrypted).wpUsername,
+            decodeCredentials(row.apiKeyEncrypted).wpAppPassword,
+            `${callbackBase}/api/webhooks/woocommerce`,
+            deriveWebhookSecret(row.id)
+          );
+    await setStoreOrdersAccess(row.id, result.ordersAccess);
+    return result.ordersAccess;
   } catch (err) {
     console.error("[store-connection registerProductWebhooks]", row.id, err);
+    return row.ordersAccess;
   }
 }
 
@@ -243,11 +252,12 @@ export async function POST(req: NextRequest) {
     // part an agent should sell from, and enrichment is billed per product, so connecting a
     // 100,000-product store would spend the cost of the whole catalog before anyone had said
     // which of it matters. Indexing begins when the category selection is saved.
+    let connected = row;
     if (platform === "shopify" || platform === "wordpress" || platform === "woocommerce") {
-      await registerProductWebhooks(row);
+      connected = { ...row, ordersAccess: await registerProductWebhooks(row) };
     }
 
-    return Response.json(toResponse(row), { status: 201 });
+    return Response.json(toResponse(connected), { status: 201 });
   } catch (err) {
     console.error("[store-connection POST]", err);
     return Response.json({ error: "Internal server error" }, { status: 500 });

@@ -25,6 +25,7 @@ interface ConnectionCardProps {
   syncedAt: string | null;
   onDisconnect: () => Promise<boolean>;
   onSync: () => void;
+  onEnableOrderTracking: () => Promise<{ ordersAccess: "active" | "missing" | null; error: string | null }>;
   onContinueToCategories: () => void;
 }
 
@@ -44,9 +45,21 @@ export function ConnectionCard({
   syncedAt,
   onDisconnect,
   onSync,
+  onEnableOrderTracking,
   onContinueToCategories,
 }: ConnectionCardProps) {
   const [confirmingDisconnect, setConfirmingDisconnect] = React.useState(false);
+  const [checkingOrders, setCheckingOrders] = React.useState(false);
+  const [orderMessage, setOrderMessage] = React.useState<string | null>(null);
+  const ordersOn = connection.ordersAccess === "active";
+
+  async function turnOnOrderTracking() {
+    setCheckingOrders(true);
+    setOrderMessage(null);
+    const result = await onEnableOrderTracking();
+    setCheckingOrders(false);
+    setOrderMessage(result.error);
+  }
 
   async function confirmDisconnect() {
     await onDisconnect();
@@ -77,6 +90,9 @@ export function ConnectionCard({
                 {PLATFORM_EMOJI[connection.platform]} {PLATFORM_LABELS[connection.platform]}
               </Badge>
               <Badge variant="success">Live</Badge>
+              <Badge variant={ordersOn ? "success" : "warning"}>
+                {ordersOn ? "Order tracking on" : "Order tracking off"}
+              </Badge>
             </div>
             <p className="max-w-xl text-xs leading-relaxed text-[var(--color-text-secondary)]">
               Store endpoint{" "}
@@ -129,6 +145,18 @@ export function ConnectionCard({
         <MetricTile label="Last Sync" value={lastSync} />
         <MetricTile label="Next Required Step" value="Scope Categories" accent />
       </div>
+
+      {!ordersOn && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-card)] px-4 py-3">
+          <p className="text-xs text-[var(--color-text-secondary)]">
+            Order tracking is what lets Analytics count sales from this store. Turn it on once, then reload Analytics.
+          </p>
+          <Button variant="secondary" size="sm" loading={checkingOrders} onClick={() => void turnOnOrderTracking()}>
+            {checkingOrders ? "Checking…" : "Turn on order tracking"}
+          </Button>
+        </div>
+      )}
+      {orderMessage && <p className="text-xs text-[var(--color-error)]">{orderMessage}</p>}
 
       <Modal
         isOpen={confirmingDisconnect}

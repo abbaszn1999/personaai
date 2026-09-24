@@ -5,11 +5,11 @@ import type { OrderTrackingStatus } from "../types";
 const COPY: Partial<Record<OrderTrackingStatus, { title: string; body: string }>> = {
   missing: {
     title: "Order tracking is off",
-    body: "Persona can't read orders from your store, so sales, orders and return stay at zero. Turn on order access to start counting them.",
+    body: "Persona could not register order webhooks, so sales stay at zero. On the Store page, choose Turn on order tracking again.",
   },
   unknown: {
     title: "Order tracking hasn't been checked",
-    body: "Check order access on the Store page so Persona can count the sales it drives.",
+    body: "Open Store and choose Turn on order tracking. This notice stays until that succeeds.",
   },
   not_connected: {
     title: "No store connected",

@@ -44,6 +44,7 @@ export function useStoreConnect() {
     connect: connectStore,
     disconnect: disconnectStore,
     syncNow: syncNowStore,
+    enableOrderTracking,
   } = useStoreConnectionStore();
 
   const [form, setForm] = React.useState<ConnectForm>(INITIAL_FORM);
@@ -112,6 +113,7 @@ export function useStoreConnect() {
     connect,
     disconnect,
     syncNow,
+    enableOrderTracking,
     syncedAt,
     productCount,
     categoryCount: selectedCategoryIds.length,
