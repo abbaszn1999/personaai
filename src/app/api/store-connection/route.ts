@@ -32,6 +32,7 @@ import { deleteAllAcsProductsForConnection } from "@/lib/catalog/acs/catalog-rea
 import { parseSkuParentOverrides } from "@/lib/catalog/category-parents";
 import { DEFAULT_SIZE_SETTINGS, parseSizeSettings } from "@/lib/sizing/size-types";
 import { deriveWebhookSecret } from "@/lib/utils/internal-auth";
+import { isPublicCallback } from "@/lib/utils/public-url";
 import { MAPPER_VERSION } from "@/lib/catalog/acs/map-product";
 import { hasApprovedCurrentMapping } from "@/lib/catalog/acs/field-overrides";
 import { STYLE_GUIDE_MAX_LENGTH, type StorePlatform, type StoreCategory } from "@/modules/store/types";
@@ -90,7 +91,7 @@ function toResponse(row: StoreConnectionRow) {
  */
 async function registerProductWebhooks(row: StoreConnectionRow): Promise<StoreConnectionRow["ordersAccess"]> {
   const appUrl = process.env.APP_URL;
-  if (!appUrl || !row.apiKeyEncrypted) return row.ordersAccess;
+  if (!appUrl || !row.apiKeyEncrypted || !isPublicCallback(appUrl.replace(/\/+$/, ""))) return row.ordersAccess;
 
   try {
     const callbackBase = appUrl.replace(/\/+$/, "");

@@ -2,6 +2,7 @@ import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner, setStoreOrdersAccess } from "@/lib/db/store-connections";
 import { decodeCredentials } from "@/lib/utils/crypto";
 import { deriveWebhookSecret } from "@/lib/utils/internal-auth";
+import { isPublicCallback } from "@/lib/utils/public-url";
 import { getShopifyAccessToken, normalizeShopifyDomain, registerShopifyWebhooks, ShopifyApiError } from "@/lib/shopify/client";
 import { normalizeWordPressUrl, registerWooWebhooks, WooCommerceApiError } from "@/lib/woocommerce/client";
 
@@ -25,6 +26,12 @@ export async function POST() {
     const appUrl = process.env.APP_URL;
     if (!appUrl) return Response.json({ error: "APP_URL is not configured" }, { status: 500 });
     const callbackBase = appUrl.replace(/\/+$/, "");
+    if (!isPublicCallback(callbackBase)) {
+      return Response.json(
+        { error: "Order tracking can only be turned on from the live site. Your store can't send orders to a local address." },
+        { status: 400 }
+      );
+    }
 
     if (row.platform === "shopify") {
       const { clientId, clientSecret } = decodeCredentials(row.apiKeyEncrypted);
@@ -60,6 +67,6 @@ export async function POST() {
       return Response.json({ error: err.message }, { status: 502 });
     }
     console.error("[store-connection/order-access POST]", err);
-    return Response.json({ error: "Internal server error" }, { status: 500 });
+    return Response.json({ error: "Could not reach your store. Try again in a minute." }, { status: 502 });
   }
 }
