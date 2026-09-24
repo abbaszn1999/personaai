@@ -27,14 +27,12 @@ export default function BrandingPage() {
   }
 
   return (
-    <>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <DashboardPageHeader
         title="Branding & Embed"
         description="Customize your agent's appearance and get the embed snippet"
       />
-      <div className="p-6">
-        <WsBrandingEditor workspace={ws} />
-      </div>
-    </>
+      <WsBrandingEditor workspace={ws} />
+    </div>
   );
 }

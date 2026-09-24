@@ -8,6 +8,7 @@ import {
   type PreviewViewportMode,
 } from "@/modules/wearable-agent/components/preview-viewport-toggle";
 import { useWorkspaceStore } from "@/modules/workspaces/store";
+import { toWearableBranding } from "@/modules/workspaces/branding-schema";
 import { CatalogReadyGate } from "@/modules/store/components/catalog-ready-gate";
 
 export default function TryOnPage() {
@@ -31,17 +32,7 @@ export default function TryOnPage() {
             viewportMode={viewportMode}
             workspaceId={ws?.id}
             theme={ws?.branding.theme}
-            branding={
-              ws
-                ? {
-                    agentName: ws.branding.agentName,
-                    welcomeMessage: ws.branding.welcomeMessage,
-                    logoUrl: ws.branding.logoUrl,
-                    borderRadius: ws.branding.borderRadius,
-                    liveTryOnEnabled: ws.branding.liveTryOnEnabled,
-                  }
-                : undefined
-            }
+            branding={ws ? toWearableBranding(ws.branding) : undefined}
           />
         </CatalogReadyGate>
       </div>

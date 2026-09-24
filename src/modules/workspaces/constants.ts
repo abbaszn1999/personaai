@@ -7,11 +7,16 @@ export function defaultBranding(): WorkspaceBranding {
     logoUrl: null,
     primaryColor: "#f76d01",
     fontFamily: "Inter",
-    borderRadius: "12px",
+    borderRadius: "16px",
     position: "bottom-right",
     displayMode: "fullpage",
     theme: "dark",
     liveTryOnEnabled: true,
+    statusText: "Online — personalised for your profile",
+    inputPlaceholder: "Ask about clothes, style, sizing…",
+    quickReplies: null,
+    signInMessage: "Save your profiles and pick up where you left off on any device.",
+    launcherLabel: "Chat with us",
   };
 }
 

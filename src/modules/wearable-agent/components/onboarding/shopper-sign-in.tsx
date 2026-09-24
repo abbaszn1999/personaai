@@ -98,7 +98,7 @@ export function ShopperSignIn({ error, onRequestCode, onVerifyCode }: ShopperSig
         </h2>
         <p className="mt-2 max-w-xs mx-auto text-sm text-[var(--color-text-muted)]">
           {step === "email"
-            ? "Save your profiles and pick up where you left off on any device."
+            ? branding.signInMessage
             : `We sent a 6-digit code to ${email}.`}
         </p>
       </div>

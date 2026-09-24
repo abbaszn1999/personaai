@@ -4,65 +4,121 @@ import * as React from "react";
 import Link from "next/link";
 import {
   Check,
+  Code2,
   Copy,
+  ExternalLink,
   Eye,
   Info,
+  MessageSquareText,
+  Monitor,
+  Moon,
+  Palette,
+  Plus,
   RefreshCw,
+  RotateCcw,
+  Smartphone,
+  Sparkles,
+  Sun,
+  ToggleRight,
   Upload,
   X,
 } from "lucide-react";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { SegmentedTabs } from "@/components/ui/segmented-tabs";
 import { BRAND_COLOR_PRESETS } from "@/modules/settings/mocks/defaults";
 import type { Workspace, WorkspaceBranding, WorkspaceTheme } from "@/modules/workspaces/types";
+import { defaultBranding } from "@/modules/workspaces/constants";
+import {
+  BRANDING_LIMITS,
+  RADIUS_MAX,
+  RADIUS_MIN,
+  RADIUS_ROUNDED,
+  RADIUS_SQUARE,
+  normalizeQuickReplies,
+} from "@/modules/workspaces/branding-schema";
 import { useWorkspaceStore } from "@/modules/workspaces/store";
+import { WEARABLE_QUICK_REPLIES } from "@/modules/wearable-agent/mocks/responses";
 import { CatalogReadyGate } from "@/modules/store/components/catalog-ready-gate";
 import { cn } from "@/lib/utils/cn";
 import { FontPicker } from "./font-picker";
 import { fontFamilyCssValue, loadGoogleFont } from "@/lib/fonts/google-fonts";
 import { resolveBrandCssVars } from "@/lib/branding/resolve-brand-vars";
-import { BrandingAgentPreview } from "./branding-agent-preview";
+import { BrandingAgentPreview, type PreviewDevice, type PreviewScreen } from "./branding-agent-preview";
 
-/* ── Constants ─────────────────────────────────────────────────────────── */
+const MAX_LOGO_BYTES = 2 * 1024 * 1024;
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
-const RADIUS_OPTIONS = [
-  { value: "4px",   label: "Sharp" },
-  { value: "12px",  label: "Rounded" },
-  { value: "999px", label: "Pill" },
-];
+const SECTIONS = [
+  { id: "identity", label: "Identity", icon: Sparkles },
+  { id: "appearance", label: "Appearance", icon: Palette },
+  { id: "conversation", label: "Conversation", icon: MessageSquareText },
+  { id: "features", label: "Features", icon: ToggleRight },
+  { id: "install", label: "Install", icon: Code2 },
+] as const;
 
-const THEME_OPTIONS: { value: WorkspaceTheme; label: string }[] = [
-  { value: "dark",  label: "Dark" },
-  { value: "light", label: "Light" },
-];
+type ReplyMode = "default" | "custom" | "off";
 
-interface BrandingFormState extends WorkspaceBranding {
-  hexInput: string;
+function replyModeOf(replies: string[] | null): ReplyMode {
+  if (replies === null) return "default";
+  return replies.length === 0 ? "off" : "custom";
 }
 
-/* ── Main component ─────────────────────────────────────────────────────── */
+function brandingKey(branding: WorkspaceBranding, embedEnabled: boolean): string {
+  return JSON.stringify({ ...branding, quickReplies: normalizeQuickReplies(branding.quickReplies), embedEnabled });
+}
+
+/* ── Color math for the contrast badge ─────────────────────────────────── */
+
+function luminance(hex: string): number {
+  const channels = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const [r, g, b] = channels.map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** Contrast of the white label the widget draws on brand-colored buttons and bubbles. */
+function whiteContrast(hex: string): number {
+  return 1.05 / (luminance(hex) + 0.05);
+}
+
+/* ── Main component ────────────────────────────────────────────────────── */
 
 interface Props { workspace: Workspace }
 
 export function WsBrandingEditor({ workspace }: Props) {
   const updateWorkspaceInStore = useWorkspaceStore((s) => s.updateWorkspace);
 
-  const [form, setForm] = React.useState<BrandingFormState>({
-    ...workspace.branding,
-    hexInput: workspace.branding.primaryColor,
-  });
+  const [saved, setSaved] = React.useState({ branding: workspace.branding, embedEnabled: workspace.embedEnabled });
+  const [form, setForm] = React.useState<WorkspaceBranding>(workspace.branding);
   const [embedEnabled, setEmbedEnabled] = React.useState(workspace.embedEnabled);
   const [embedToken, setEmbedToken] = React.useState(workspace.embedToken);
+  const [hexInput, setHexInput] = React.useState(workspace.branding.primaryColor);
+  const [replyMode, setReplyMode] = React.useState<ReplyMode>(replyModeOf(workspace.branding.quickReplies));
+  const [replyDraft, setReplyDraft] = React.useState("");
 
-  const [saved, setSaved]   = React.useState(false);
+  const [device, setDevice] = React.useState<PreviewDevice>("desktop");
+  const [screen, setScreen] = React.useState<PreviewScreen>("chat");
+  const [activeSection, setActiveSection] = React.useState<string>("identity");
+
+  const [justSaved, setJustSaved] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const [copied, setCopied] = React.useState(false);
   const [regenerating, setRegenerating] = React.useState(false);
   const [logoError, setLogoError] = React.useState<string | null>(null);
+  const [dragOver, setDragOver] = React.useState(false);
   const logoInputRef = React.useRef<HTMLInputElement>(null);
 
-  const MAX_LOGO_BYTES = 2 * 1024 * 1024;
+  const dirty = brandingKey(form, embedEnabled) !== brandingKey(saved.branding, saved.embedEnabled);
+
+  function update(patch: Partial<WorkspaceBranding>) {
+    setForm((f) => ({ ...f, ...patch }));
+  }
+
+  function applyBranding(next: WorkspaceBranding) {
+    setForm(next);
+    setHexInput(next.primaryColor);
+    setReplyMode(replyModeOf(next.quickReplies));
+  }
 
   function handleLogoFile(file: File | undefined) {
     if (!file) return;
@@ -79,29 +135,54 @@ export function WsBrandingEditor({ workspace }: Props) {
     reader.onload = () => {
       if (typeof reader.result === "string") update({ logoUrl: reader.result });
     };
-    reader.onerror = () => setLogoError("Failed to read that file — please try again");
+    reader.onerror = () => setLogoError("Failed to read that file. Try again.");
     reader.readAsDataURL(file);
   }
 
-  function update(patch: Partial<BrandingFormState>) {
-    setForm((f) => ({ ...f, ...patch }));
-  }
-
   function setColor(color: string) {
-    update({ primaryColor: color, hexInput: color });
+    update({ primaryColor: color.toLowerCase() });
+    setHexInput(color.toLowerCase());
   }
 
-  function handleHex(val: string) {
-    update({ hexInput: val });
-    if (/^#[0-9a-fA-F]{6}$/.test(val)) update({ primaryColor: val, hexInput: val });
+  function handleHex(value: string) {
+    const next = value.startsWith("#") ? value : `#${value}`;
+    setHexInput(next);
+    if (HEX_COLOR.test(next)) update({ primaryColor: next.toLowerCase() });
   }
 
-  async function handleSave() {
+  function changeReplyMode(mode: ReplyMode) {
+    setReplyMode(mode);
+    if (mode === "default") update({ quickReplies: null });
+    if (mode === "off") update({ quickReplies: [] });
+    if (mode === "custom") {
+      const current = form.quickReplies?.length
+        ? form.quickReplies
+        : WEARABLE_QUICK_REPLIES.slice(0, BRANDING_LIMITS.quickReplies).map((q) => q.label);
+      update({ quickReplies: current });
+    }
+  }
+
+  function addReply() {
+    const next = normalizeQuickReplies([...(form.quickReplies ?? []), replyDraft]) ?? [];
+    update({ quickReplies: next });
+    setReplyDraft("");
+  }
+
+  function removeReply(index: number) {
+    update({ quickReplies: (form.quickReplies ?? []).filter((_, i) => i !== index) });
+  }
+
+  function editReply(index: number, value: string) {
+    const list = [...(form.quickReplies ?? [])];
+    list[index] = value.slice(0, BRANDING_LIMITS.quickReply);
+    update({ quickReplies: list });
+  }
+
+  const handleSave = React.useCallback(async () => {
     setSaving(true);
     setSaveError(null);
     try {
-      const { hexInput, ...branding } = form;
-      void hexInput;
+      const branding = { ...form, quickReplies: normalizeQuickReplies(form.quickReplies) ?? null };
       const res = await fetch(`/api/workspaces/${workspace.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -112,14 +193,31 @@ export function WsBrandingEditor({ workspace }: Props) {
         setSaveError(data.error || "Failed to save changes");
         return;
       }
-      updateWorkspaceInStore({ branding: data.workspace.branding, embedEnabled: data.workspace.embedEnabled });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      const next = data.workspace as Workspace;
+      updateWorkspaceInStore({ branding: next.branding, embedEnabled: next.embedEnabled });
+      setSaved({ branding: next.branding, embedEnabled: next.embedEnabled });
+      applyBranding(next.branding);
+      setEmbedEnabled(next.embedEnabled);
+      setJustSaved(true);
+      setTimeout(() => setJustSaved(false), 2000);
     } catch {
-      setSaveError("Network error — please try again");
+      setSaveError("Network error. Try again.");
     } finally {
       setSaving(false);
     }
+  }, [form, embedEnabled, workspace.id, updateWorkspaceInStore]);
+
+  function handleDiscard() {
+    applyBranding(saved.branding);
+    setEmbedEnabled(saved.embedEnabled);
+    setSaveError(null);
+  }
+
+  function handleResetDefaults() {
+    if (!window.confirm("Reset every appearance and conversation setting to Persona's defaults? Your logo is kept. Nothing is saved until you choose Save.")) {
+      return;
+    }
+    applyBranding({ ...defaultBranding(), logoUrl: form.logoUrl });
   }
 
   async function handleRegenerateToken() {
@@ -140,7 +238,6 @@ export function WsBrandingEditor({ workspace }: Props) {
   }
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
-
   const snippet = `<script src="${origin}/widget.js?w=${embedToken}" async></script>`;
   const previewUrl = `/embed/${embedToken}`;
 
@@ -150,263 +247,416 @@ export function WsBrandingEditor({ workspace }: Props) {
     setTimeout(() => setCopied(false), 2000);
   }
 
+  function goToSection(id: string) {
+    setActiveSection(id);
+    document.getElementById(`branding-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function chooseScreen(next: PreviewScreen) {
+    setScreen(next);
+    if (next === "launcher") setDevice("mobile");
+  }
+
+  function chooseDevice(next: PreviewDevice) {
+    setDevice(next);
+    if (next === "desktop" && screen === "launcher") setScreen("chat");
+  }
+
   React.useEffect(() => {
     loadGoogleFont(form.fontFamily);
   }, [form.fontFamily]);
+
+  React.useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
+  React.useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        if (dirty && !saving) void handleSave();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [dirty, saving, handleSave]);
+
+  React.useEffect(() => {
+    const root = document.getElementById("branding-settings-scroll");
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        if (visible[0]) setActiveSection(visible[0].target.id.replace("branding-", ""));
+      },
+      { root, rootMargin: "0px 0px -55% 0px" }
+    );
+    SECTIONS.forEach((s) => {
+      const el = document.getElementById(`branding-${s.id}`);
+      if (el) observer.observe(el);
+    });
+    return () => observer.disconnect();
+  }, []);
 
   const brandStyle: React.CSSProperties = {
     ...resolveBrandCssVars(form.primaryColor),
     fontFamily: fontFamilyCssValue(form.fontFamily),
   };
+  const contrast = whiteContrast(form.primaryColor);
 
   return (
-    <div className="flex gap-6 h-full min-h-[calc(100vh-140px)]">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="grid min-h-0 flex-1 gap-6 overflow-hidden px-6 pt-4 lg:grid-cols-[minmax(0,27rem)_minmax(0,1fr)]">
+        {/* ── Settings column ─────────────────────────────────────────── */}
+        <div className="flex min-h-0 min-w-0 flex-col">
+          <div className="shrink-0 pb-4">
+            <nav className="flex gap-1 overflow-x-auto rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-card)] p-1 shadow-[var(--shadow-card)]">
+              {SECTIONS.map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => goToSection(id)}
+                  className={cn(
+                    "flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-[var(--radius-md)] px-2.5 py-1.5 text-xs font-medium transition-colors",
+                    activeSection === id
+                      ? "bg-[var(--color-brand-light)] text-[var(--color-brand-strong)]"
+                      : "text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+                  )}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {label}
+                </button>
+              ))}
+            </nav>
+          </div>
 
-      {/* ── Left: Controls ──────────────────────────────────────────── */}
-      <div className="w-96 shrink-0 flex flex-col gap-0 overflow-y-auto">
-        <div className="space-y-6">
-
+          <div id="branding-settings-scroll" className="min-h-0 flex-1 space-y-5 overflow-y-auto pb-6 sidebar-scroll">
           {/* Identity */}
-          <ControlGroup title="Identity">
-            <Input
-              label="Agent Name"
+          <Section id="identity" title="Identity" description="Who shoppers are talking to.">
+            <TextField
+              label="Agent name"
               value={form.agentName}
-              onChange={(e) => update({ agentName: e.target.value })}
-              hint="Shown in the chat header"
+              max={BRANDING_LIMITS.agentName}
+              onChange={(agentName) => update({ agentName })}
+              hint="Shown in the chat header and on the sign-in screen."
             />
-            <Input
-              label="Welcome Message"
-              value={form.welcomeMessage}
-              onChange={(e) => update({ welcomeMessage: e.target.value })}
-              hint="First message sent to shoppers"
-            />
-            {/* Logo */}
-            <div>
-              <label className="text-sm font-medium text-[var(--color-text-secondary)] block mb-1.5">Logo</label>
+
+            <Field label="Logo" hint="Square images look best. PNG, JPG, WEBP or SVG, up to 2 MB.">
               <input
                 ref={logoInputRef}
                 type="file"
                 accept="image/png,image/jpeg,image/webp,image/svg+xml"
                 className="hidden"
-                onChange={(e) => handleLogoFile(e.target.files?.[0])}
+                onChange={(e) => {
+                  handleLogoFile(e.target.files?.[0]);
+                  e.target.value = "";
+                }}
               />
-              {form.logoUrl ? (
-                <div className="flex items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--color-border)] px-4 py-2.5">
-                  <img
-                    src={form.logoUrl}
-                    alt="Logo"
-                    className="h-8 w-8 rounded-lg object-cover shrink-0"
-                  />
-                  <p className="flex-1 text-sm text-[var(--color-success)]">Logo uploaded ✓</p>
-                  <button
-                    onClick={() => logoInputRef.current?.click()}
-                    className="text-xs font-medium text-[var(--color-brand)] hover:underline shrink-0"
-                  >
-                    Replace
-                  </button>
-                  <button
-                    onClick={() => { update({ logoUrl: null }); setLogoError(null); }}
-                    className="h-5 w-5 rounded-full hover:bg-red-50 flex items-center justify-center text-[var(--color-text-muted)] hover:text-red-500 transition-colors"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => logoInputRef.current?.click()}
+                onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && logoInputRef.current?.click()}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOver(true);
+                }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOver(false);
+                  handleLogoFile(e.dataTransfer.files?.[0]);
+                }}
+                className={cn(
+                  "group flex cursor-pointer items-center gap-3 rounded-[var(--radius-lg)] border-2 border-dashed px-3 py-3 transition-colors",
+                  dragOver
+                    ? "border-[var(--color-brand)] bg-[var(--color-brand-light)]"
+                    : "border-[var(--color-border)] hover:border-[var(--color-brand)]/60"
+                )}
+              >
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-base)]">
+                  {form.logoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={form.logoUrl} alt="Logo" className="h-full w-full object-cover" />
+                  ) : (
+                    <Upload className="h-5 w-5 text-[var(--color-text-muted)]" />
+                  )}
                 </div>
-              ) : (
-                <div
-                  className="flex items-center gap-3 rounded-[var(--radius-lg)] border-2 border-dashed border-[var(--color-border)] px-4 py-2.5 cursor-pointer hover:border-[var(--color-brand)] hover:bg-[var(--color-brand-light)] transition-colors"
-                  onClick={() => logoInputRef.current?.click()}
-                >
-                  <Upload className="h-4 w-4 text-[var(--color-text-muted)]" />
-                  <div>
-                    <p className="text-sm text-[var(--color-text-secondary)]">Upload logo</p>
-                    <p className="text-xs text-[var(--color-text-muted)]">PNG, JPG, WEBP or SVG, max 2 MB</p>
-                  </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-[var(--color-text-primary)]">
+                    {form.logoUrl ? "Replace logo" : "Upload logo"}
+                  </p>
+                  <p className="text-xs text-[var(--color-text-muted)]">Click or drop an image here</p>
                 </div>
-              )}
-              {logoError && <p className="mt-1.5 text-xs text-red-500">{logoError}</p>}
-            </div>
-          </ControlGroup>
+                {form.logoUrl && (
+                  <button
+                    type="button"
+                    aria-label="Remove logo"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      update({ logoUrl: null });
+                      setLogoError(null);
+                    }}
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-error-light)] hover:text-[var(--color-error)]"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+              {logoError && <p className="mt-1.5 text-xs text-[var(--color-error)]">{logoError}</p>}
+            </Field>
 
-          {/* Theme */}
-          <ControlGroup title="Theme">
-            {/* Color presets + hex */}
-            <div>
-              <label className="text-sm font-medium text-[var(--color-text-secondary)] block mb-2">Primary Color</label>
+            <TextField
+              label="Status line"
+              value={form.statusText}
+              max={BRANDING_LIMITS.statusText}
+              onChange={(statusText) => update({ statusText })}
+              hint="The small line under the agent name."
+            />
+          </Section>
+
+          {/* Appearance */}
+          <Section id="appearance" title="Appearance" description="Match the widget to your storefront.">
+            <Field label="Theme">
+              <div className="grid grid-cols-2 gap-2">
+                {(["light", "dark"] as WorkspaceTheme[]).map((theme) => (
+                  <ThemeCard
+                    key={theme}
+                    theme={theme}
+                    color={form.primaryColor}
+                    active={form.theme === theme}
+                    onSelect={() => update({ theme })}
+                  />
+                ))}
+              </div>
+            </Field>
+
+            <Field label="Brand color" hint="Used for buttons, your shopper's messages, and highlights.">
               <div className="flex flex-wrap items-center gap-2">
                 {BRAND_COLOR_PRESETS.map((color) => {
-                  const active = form.primaryColor === color;
+                  const active = form.primaryColor.toLowerCase() === color.toLowerCase();
                   return (
                     <button
                       key={color}
+                      type="button"
                       onClick={() => setColor(color)}
                       title={color}
+                      aria-label={`Use ${color}`}
                       className={cn(
-                        "h-7 w-7 rounded-full border-2 transition-all shrink-0",
-                        active
-                          ? "border-[var(--color-text-primary)] scale-110 shadow-[var(--shadow-elevated)]"
-                          : "border-transparent hover:scale-105"
+                        "flex h-8 w-8 shrink-0 items-center justify-center rounded-full ring-offset-2 ring-offset-[var(--color-surface-card)] transition-transform",
+                        active ? "ring-2 ring-[var(--color-text-primary)]" : "hover:scale-110"
                       )}
                       style={{ backgroundColor: color }}
                     >
-                      {active && <Check className="h-3.5 w-3.5 text-white mx-auto" />}
+                      {active && <Check className="h-3.5 w-3.5" style={{ color: whiteContrast(color) >= 3 ? "#fff" : "#17121d" }} />}
                     </button>
                   );
                 })}
-                <div className="flex items-center gap-1.5 ml-1">
-                  <div
-                    className="h-7 w-7 rounded-full border border-[var(--color-border)] shrink-0"
-                    style={{ backgroundColor: /^#[0-9a-fA-F]{6}$/.test(form.hexInput) ? form.hexInput : "#ccc" }}
-                  />
-                  <input
-                    type="text"
-                    maxLength={7}
-                    value={form.hexInput}
-                    onChange={(e) => handleHex(e.target.value)}
-                    placeholder="#f76d01"
-                    className="w-20 h-7 px-2 text-xs font-mono bg-[var(--color-surface-base)] border border-[var(--color-border)] rounded-[var(--radius-md)] text-[var(--color-text-primary)] focus:outline-none focus:border-[var(--color-brand)]"
-                  />
-                </div>
               </div>
-            </div>
-
-            {/* Font */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium text-[var(--color-text-secondary)]">Font Family</label>
-              <FontPicker value={form.fontFamily} onChange={(fontFamily) => update({ fontFamily })} />
-            </div>
-
-            {/* Corner style */}
-            <div>
-              <label className="text-sm font-medium text-[var(--color-text-secondary)] block mb-2">Corner Style</label>
-              <div className="flex gap-2">
-                {RADIUS_OPTIONS.map((r) => (
-                  <button
-                    key={r.value}
-                    onClick={() => update({ borderRadius: r.value })}
-                    style={{ borderRadius: r.value }}
-                    className={cn(
-                      "flex-1 py-2 text-xs font-semibold border transition-all",
-                      form.borderRadius === r.value
-                        ? "border-[var(--color-brand)] bg-[var(--color-brand-light)] text-[var(--color-brand)]"
-                        : "border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-brand)]/50"
-                    )}
-                  >
-                    {r.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Preview theme */}
-            <div>
-              <label className="text-sm font-medium text-[var(--color-text-secondary)] block mb-2">Theme</label>
-              <div className="flex gap-2">
-                {THEME_OPTIONS.map((t) => (
-                  <button
-                    key={t.value}
-                    onClick={() => update({ theme: t.value })}
-                    className={cn(
-                      "flex-1 py-2 text-xs font-semibold rounded-[var(--radius-md)] border transition-all",
-                      form.theme === t.value
-                        ? "border-[var(--color-brand)] bg-[var(--color-brand-light)] text-[var(--color-brand)]"
-                        : "border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-brand)]/50"
-                    )}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-              <p className="text-xs text-[var(--color-text-muted)] mt-1.5">
-                Sets a single consistent tone across the whole embed instead of mixing panels.
-              </p>
-            </div>
-          </ControlGroup>
-
-          <ControlGroup title="Features">
-              <div className="flex items-center justify-between rounded-[var(--radius-lg)] border border-[var(--color-border)] px-3 py-2.5">
-                <div>
-                  <p className="text-sm font-medium text-[var(--color-text-primary)]">Live camera try-on</p>
-                  <p className="text-xs text-[var(--color-text-muted)]">
-                    Show the Live camera button in the fitting room. Turn off to keep photo try-on only.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={form.liveTryOnEnabled !== false}
-                  onClick={() => update({ liveTryOnEnabled: form.liveTryOnEnabled === false })}
-                  className={cn(
-                    "relative h-6 w-11 rounded-full transition-colors shrink-0",
-                    form.liveTryOnEnabled !== false ? "bg-[var(--color-brand)]" : "bg-[var(--color-border-strong)]"
-                  )}
+              <div className="mt-3 flex items-center gap-2">
+                <label
+                  className="relative h-9 w-9 shrink-0 cursor-pointer overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)]"
+                  style={{ backgroundColor: form.primaryColor }}
+                  title="Pick any color"
                 >
-                  <span
-                    className={cn(
-                      "absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
-                      form.liveTryOnEnabled !== false && "translate-x-5"
-                    )}
+                  <input
+                    type="color"
+                    value={form.primaryColor}
+                    onChange={(e) => setColor(e.target.value)}
+                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
                   />
-                </button>
-            </div>
-          </ControlGroup>
-
-          {/* Embed */}
-          <ControlGroup title="Embed Code">
-            {/* Enable/disable the public embed — the token in the snippet only works while this is on */}
-            <div className="flex items-center justify-between rounded-[var(--radius-lg)] border border-[var(--color-border)] px-3 py-2.5">
-              <div>
-                <p className="text-sm font-medium text-[var(--color-text-primary)]">Enable public embed</p>
-                <p className="text-xs text-[var(--color-text-muted)]">Turn off to immediately stop the snippet from working</p>
-              </div>
-              <button
-                onClick={() => setEmbedEnabled((v) => !v)}
-                className={cn(
-                  "relative h-6 w-11 rounded-full transition-colors shrink-0",
-                  embedEnabled ? "bg-[var(--color-brand)]" : "bg-[var(--color-border-strong)]"
-                )}
-              >
-                <span
+                </label>
+                <input
+                  type="text"
+                  maxLength={7}
+                  value={hexInput}
+                  onChange={(e) => handleHex(e.target.value.trim())}
+                  onBlur={() => setHexInput(form.primaryColor)}
+                  spellCheck={false}
                   className={cn(
-                    "absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
-                    embedEnabled && "translate-x-5"
+                    "h-9 w-28 rounded-[var(--radius-md)] border bg-[var(--color-surface-card)] px-3 font-mono text-sm uppercase text-[var(--color-text-primary)] focus:outline-none",
+                    HEX_COLOR.test(hexInput) ? "border-[var(--color-border)] focus:border-[var(--color-brand)]" : "border-[var(--color-error)]"
                   )}
                 />
-              </button>
-            </div>
+                <ContrastBadge ratio={contrast} />
+              </div>
+              {contrast < 3 && (
+                <p className="mt-2 text-xs text-[var(--color-warning)]">
+                  White text on this color is hard to read. Pick a darker shade so buttons stay legible.
+                </p>
+              )}
+            </Field>
 
-            <div className="flex items-start gap-2.5 rounded-[var(--radius-lg)] bg-[var(--color-surface-base)] border border-[var(--color-border)] px-3 py-2.5">
-              <Info className="h-4 w-4 text-[var(--color-brand)] mt-0.5 shrink-0" />
-              <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed">
-                Virtual Try-On always embeds as a <strong className="text-[var(--color-text-primary)]">full-page</strong> experience — image generation and navigation require the full viewport.
+            <Field label="Font">
+              <FontPicker value={form.fontFamily} onChange={(fontFamily) => update({ fontFamily })} />
+            </Field>
+
+            <RadiusField value={form.borderRadius} onChange={(borderRadius) => update({ borderRadius })} />
+          </Section>
+
+          {/* Conversation */}
+          <Section id="conversation" title="Conversation" description="The words shoppers see first.">
+            <TextField
+              multiline
+              label="Welcome message"
+              value={form.welcomeMessage}
+              max={BRANDING_LIMITS.welcomeMessage}
+              onChange={(welcomeMessage) => update({ welcomeMessage })}
+              hint="The agent's first message once the shopper's avatar is ready."
+            />
+
+            <Field
+              label="Suggested replies"
+              hint="Tappable chips shown before the shopper's first message. Tapping one sends it."
+            >
+              <SegmentedTabs
+                items={[
+                  { id: "default", label: "Persona's" },
+                  { id: "custom", label: "Custom" },
+                  { id: "off", label: "Off" },
+                ]}
+                activeId={replyMode}
+                onSelect={(id) => changeReplyMode(id as ReplyMode)}
+              />
+              {replyMode === "default" && (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {WEARABLE_QUICK_REPLIES.map((q) => (
+                    <span key={q.label} className="rounded-full border border-[var(--color-border)] px-2.5 py-1 text-xs text-[var(--color-text-muted)]">
+                      {q.label}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {replyMode === "custom" && (
+                <div className="mt-3 space-y-2">
+                  {(form.quickReplies ?? []).map((reply, index) => (
+                    <div key={index} className="flex items-center gap-2">
+                      <input
+                        value={reply}
+                        maxLength={BRANDING_LIMITS.quickReply}
+                        onChange={(e) => editReply(index, e.target.value)}
+                        className="h-9 flex-1 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-card)] px-4 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-brand)] focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        aria-label="Remove suggestion"
+                        onClick={() => removeReply(index)}
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--color-text-muted)] hover:bg-[var(--color-error-light)] hover:text-[var(--color-error)]"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  {(form.quickReplies?.length ?? 0) < BRANDING_LIMITS.quickReplies && (
+                    <form
+                      className="flex items-center gap-2"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (replyDraft.trim()) addReply();
+                      }}
+                    >
+                      <input
+                        value={replyDraft}
+                        maxLength={BRANDING_LIMITS.quickReply}
+                        onChange={(e) => setReplyDraft(e.target.value)}
+                        placeholder="e.g. Summer dresses"
+                        className="h-9 flex-1 rounded-full border border-dashed border-[var(--color-border)] bg-transparent px-4 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-brand)] focus:outline-none"
+                      />
+                      <Button type="submit" size="sm" variant="secondary" disabled={!replyDraft.trim()} className="gap-1">
+                        <Plus className="h-3.5 w-3.5" /> Add
+                      </Button>
+                    </form>
+                  )}
+                  <p className="text-xs text-[var(--color-text-muted)]">
+                    {form.quickReplies?.length ?? 0} of {BRANDING_LIMITS.quickReplies}
+                    {(form.quickReplies?.length ?? 0) === 0 && ". With none added, no chips are shown."}
+                  </p>
+                </div>
+              )}
+            </Field>
+
+            <TextField
+              label="Input placeholder"
+              value={form.inputPlaceholder}
+              max={BRANDING_LIMITS.inputPlaceholder}
+              onChange={(inputPlaceholder) => update({ inputPlaceholder })}
+            />
+
+            <TextField
+              multiline
+              label="Sign-in message"
+              value={form.signInMessage}
+              max={BRANDING_LIMITS.signInMessage}
+              onChange={(signInMessage) => update({ signInMessage })}
+              hint="Shown under “Sign in to your agent” on the first screen."
+              onFocus={() => chooseScreen("sign-in")}
+            />
+
+            <TextField
+              label="Mobile chat button"
+              value={form.launcherLabel}
+              max={BRANDING_LIMITS.launcherLabel}
+              onChange={(launcherLabel) => update({ launcherLabel })}
+              hint="Label on the collapsed chat button on phones."
+              onFocus={() => chooseScreen("launcher")}
+            />
+          </Section>
+
+          {/* Features */}
+          <Section id="features" title="Features" description="Choose what shoppers can do.">
+            <ToggleRow
+              title="Live camera try-on"
+              description="Show the Live camera button in the fitting room. Turn off to keep photo try-on only."
+              checked={form.liveTryOnEnabled !== false}
+              onChange={(liveTryOnEnabled) => update({ liveTryOnEnabled })}
+            />
+          </Section>
+
+          {/* Install */}
+          <Section id="install" title="Install" description="Put the agent on your store.">
+            <ToggleRow
+              title="Public embed"
+              description="Turn off to stop the snippet from working immediately."
+              checked={embedEnabled}
+              onChange={setEmbedEnabled}
+            />
+
+            <div className="flex items-start gap-2.5 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-base)] px-3 py-2.5">
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-brand)]" />
+              <p className="text-xs leading-relaxed text-[var(--color-text-secondary)]">
+                Virtual Try-On always embeds as a <strong className="text-[var(--color-text-primary)]">full-page</strong> experience, because image generation needs the full viewport.
               </p>
             </div>
 
-            {/* Snippet — withheld until the catalog is indexed, since deploying it early puts a
-                live agent in front of shoppers with nothing to find. Appearance controls above
-                stay editable so the wait isn't dead time. */}
             <CatalogReadyGate variant="inline" label="The embed snippet" enabled>
               <div className="space-y-3">
-                <div className="relative rounded-[var(--radius-lg)] bg-[var(--color-surface-base)] border border-[var(--color-border)] p-3 pr-10 font-mono text-xs text-[var(--color-text-secondary)] break-all leading-relaxed">
+                <div className="relative rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-base)] p-3 pr-11 font-mono text-xs leading-relaxed break-all text-[var(--color-text-secondary)]">
                   {snippet}
                   <button
+                    type="button"
                     onClick={handleCopy}
-                    className="absolute top-2.5 right-2.5 h-6 w-6 flex items-center justify-center rounded border border-[var(--color-border)] bg-[var(--color-surface-card)] hover:border-[var(--color-brand)] transition-colors"
+                    className="absolute right-2.5 top-2.5 flex h-7 w-7 items-center justify-center rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-card)] transition-colors hover:border-[var(--color-brand)]"
                     title="Copy"
                   >
-                    {copied
-                      ? <Check className="h-3 w-3 text-[var(--color-success)]" />
-                      : <Copy className="h-3 w-3 text-[var(--color-text-muted)]" />}
+                    {copied ? <Check className="h-3.5 w-3.5 text-[var(--color-success)]" /> : <Copy className="h-3.5 w-3.5 text-[var(--color-text-muted)]" />}
                   </button>
                 </div>
-                <p className="text-xs text-[var(--color-text-muted)]">
-                  Paste before <code>&lt;/body&gt;</code>. Add a <code>data-target=&quot;#el&quot;</code> attribute to mount it into a specific container instead of right after the script tag.
-                </p>
-
+                <ol className="list-decimal space-y-1 pl-4 text-xs text-[var(--color-text-muted)]">
+                  <li>Copy the snippet.</li>
+                  <li>
+                    Paste it before <code>&lt;/body&gt;</code> on the page that should show the agent.
+                  </li>
+                  <li>
+                    To place it inside a specific container, add <code>data-target=&quot;#el&quot;</code> to the script tag.
+                  </li>
+                </ol>
                 <div className="flex gap-2">
                   <Link href={previewUrl} target="_blank" className="flex-1">
                     <Button variant="secondary" size="sm" className="w-full gap-1.5">
                       <Eye className="h-3.5 w-3.5" />
-                      Preview as Customer
+                      Open as a customer
                     </Button>
                   </Link>
                   <Button
@@ -415,71 +665,387 @@ export function WsBrandingEditor({ workspace }: Props) {
                     className="gap-1.5"
                     loading={regenerating}
                     onClick={handleRegenerateToken}
-                    title="Regenerate embed token — invalidates every deployed snippet"
+                    title="Regenerate embed token. Every deployed snippet stops working."
                   >
                     <RefreshCw className="h-3.5 w-3.5" />
+                    New token
                   </Button>
                 </div>
               </div>
             </CatalogReadyGate>
-          </ControlGroup>
+          </Section>
+          </div>
+        </div>
 
-          {/* Save */}
-          <div className="flex items-center justify-end gap-3 pb-4">
-            {saveError && <p className="text-xs text-red-500">{saveError}</p>}
-            <Button size="sm" loading={saving} onClick={handleSave}>
-              {saved ? <><Check className="h-3.5 w-3.5" /> Saved</> : "Save Changes"}
-            </Button>
+        {/* ── Preview column ─────────────────────────────────────────── */}
+        <div className="min-h-0 min-w-0 pb-4">
+          <div className="flex h-full min-h-0 flex-col gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="mr-auto text-xs font-semibold uppercase tracking-widest text-[var(--color-text-muted)]">Live preview</p>
+              <IconToggle
+                options={[
+                  { id: "chat", label: "Chat" },
+                  { id: "sign-in", label: "Sign-in" },
+                  { id: "launcher", label: "Mobile button" },
+                ]}
+                value={screen}
+                onChange={(id) => chooseScreen(id as PreviewScreen)}
+              />
+              <IconToggle
+                options={[
+                  { id: "desktop", label: "Desktop", icon: <Monitor className="h-3.5 w-3.5" /> },
+                  { id: "mobile", label: "Mobile", icon: <Smartphone className="h-3.5 w-3.5" /> },
+                ]}
+                value={device}
+                iconOnly
+                onChange={(id) => chooseDevice(id as PreviewDevice)}
+              />
+              <button
+                type="button"
+                onClick={() => update({ theme: form.theme === "dark" ? "light" : "dark" })}
+                title={form.theme === "dark" ? "Switch to light" : "Switch to dark"}
+                className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-card)] text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-primary)]"
+              >
+                {form.theme === "dark" ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
+              </button>
+            </div>
+
+            <div className="relative flex min-h-0 flex-1 items-stretch justify-center overflow-hidden rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[radial-gradient(circle_at_1px_1px,var(--color-border)_1px,transparent_0)] [background-size:18px_18px] p-4">
+              {device === "desktop" ? (
+                <div className="flex w-full min-w-0 flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-card)] shadow-[var(--shadow-elevated)]">
+                  <div className="flex shrink-0 items-center gap-1.5 border-b border-[var(--color-border)] px-3 py-2.5">
+                    <span className="h-3 w-3 rounded-full bg-red-400" />
+                    <span className="h-3 w-3 rounded-full bg-amber-400" />
+                    <span className="h-3 w-3 rounded-full bg-green-400" />
+                    <div className="ml-2 flex h-5 flex-1 items-center rounded-full bg-[var(--color-surface-base)] px-3 text-[10px] text-[var(--color-text-muted)]">
+                      yourstore.com
+                    </div>
+                  </div>
+                  <div
+                    className={cn("embed-preview-surface relative min-h-0 flex-1 overflow-hidden bg-[var(--color-surface-base)] p-4", form.theme === "dark" && "dark")}
+                    style={brandStyle}
+                  >
+                    <BrandingAgentPreview branding={form} device={device} screen={screen} />
+                  </div>
+                </div>
+              ) : (
+                <div className="flex h-full max-h-[760px] aspect-[9/19] flex-col overflow-hidden rounded-[44px] border-[10px] border-[#0d0b10] bg-[#0d0b10] shadow-[var(--shadow-elevated)]">
+                  <div className="relative flex h-6 shrink-0 items-center justify-center">
+                    <span className="h-4 w-20 rounded-full bg-black" />
+                  </div>
+                  <div
+                    className={cn("embed-preview-surface relative min-h-0 flex-1 overflow-hidden rounded-[30px] bg-[var(--color-surface-base)]", form.theme === "dark" && "dark")}
+                    style={brandStyle}
+                  >
+                    <BrandingAgentPreview branding={form} device={device} screen={screen} />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between text-xs text-[var(--color-text-muted)]">
+              <span>Updates as you type. Shoppers see it after you save.</span>
+              <Link href="/preview" className="inline-flex items-center gap-1 font-medium text-[var(--color-brand)] hover:underline">
+                Try the real agent <ExternalLink className="h-3 w-3" />
+              </Link>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* ── Right: Visual branding preview (not a live agent) ── */}
-      <div className="flex-1 min-w-0 flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-widest">Live Preview</p>
-          <span className="text-xs text-[var(--color-text-muted)]">Visual only — updates as you type</span>
-        </div>
-
-        {/* Mock browser shell */}
-        <div className="flex-1 rounded-[var(--radius-xl)] border border-[var(--color-border)] overflow-hidden flex flex-col bg-[var(--color-surface-base)] min-h-[500px]">
-          {/* Chrome bar */}
-          <div className="flex items-center gap-1.5 px-3 py-2.5 bg-[var(--color-surface-card)] border-b border-[var(--color-border)] shrink-0">
-            <span className="h-3 w-3 rounded-full bg-red-400" />
-            <span className="h-3 w-3 rounded-full bg-amber-400" />
-            <span className="h-3 w-3 rounded-full bg-green-400" />
-            <div className="ml-2 flex-1 h-5 rounded-full bg-[var(--color-surface-base)] text-[10px] text-[var(--color-text-muted)] flex items-center px-3">
-              https://yourstore.com
-            </div>
-          </div>
-
-          <div
-            className={cn(
-              "embed-preview-surface relative flex-1 overflow-hidden",
-              form.theme === "dark" && "dark",
-              "bg-[var(--color-surface-base)] p-4"
-            )}
-            style={brandStyle}
-          >
-            <BrandingAgentPreview
-              agentName={form.agentName}
-              welcomeMessage={form.welcomeMessage}
-              logoUrl={form.logoUrl}
-              borderRadius={form.borderRadius}
+      {/* ── Save bar ───────────────────────────────────────────────────── */}
+      <div className="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-surface-card)] px-6 py-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="mr-auto flex items-center gap-2 text-sm">
+            <span
+              className={cn(
+                "h-2 w-2 rounded-full",
+                saveError ? "bg-[var(--color-error)]" : dirty ? "bg-[var(--color-warning)]" : "bg-[var(--color-success)]"
+              )}
             />
+            <span className={cn(saveError ? "text-[var(--color-error)]" : "text-[var(--color-text-secondary)]")}>
+              {saveError ?? (dirty ? "Unsaved changes" : justSaved ? "Saved" : "All changes saved")}
+            </span>
           </div>
+          <Button variant="ghost" size="sm" onClick={handleResetDefaults} className="gap-1.5">
+            <RotateCcw className="h-3.5 w-3.5" /> Reset to defaults
+          </Button>
+          <Button variant="secondary" size="sm" onClick={handleDiscard} disabled={!dirty || saving}>
+            Discard
+          </Button>
+          <Button size="sm" loading={saving} onClick={handleSave} disabled={!dirty} title="Save (Ctrl+S)">
+            {justSaved && !dirty ? <><Check className="h-3.5 w-3.5" /> Saved</> : "Save changes"}
+          </Button>
         </div>
       </div>
     </div>
   );
 }
 
-/* ── Control group wrapper ────────────────────────────────────────────────── */
-function ControlGroup({ title, children }: { title: string; children: React.ReactNode }) {
+/* ── Building blocks ───────────────────────────────────────────────────── */
+
+function Section({ id, title, description, children }: { id: string; title: string; description: string; children: React.ReactNode }) {
   return (
-    <div className="card-base p-4 space-y-4">
-      <h4 className="text-[11px] font-bold text-[var(--color-text-muted)] uppercase tracking-widest">{title}</h4>
+    <section id={`branding-${id}`} className="card-base scroll-mt-4 space-y-5 p-5">
+      <div>
+        <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">{title}</h3>
+        <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">{description}</p>
+      </div>
       {children}
+    </section>
+  );
+}
+
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <p className="mb-2 text-sm font-medium text-[var(--color-text-secondary)]">{label}</p>
+      {children}
+      {hint && <p className="mt-1.5 text-xs text-[var(--color-text-muted)]">{hint}</p>}
+    </div>
+  );
+}
+
+type RadiusMode = "square" | "rounded" | "custom";
+
+function radiusMode(value: string): RadiusMode {
+  if (value === RADIUS_SQUARE) return "square";
+  if (value === RADIUS_ROUNDED) return "rounded";
+  return "custom";
+}
+
+function RadiusField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const mode = radiusMode(value);
+  const px = Number.parseInt(value, 10) || 0;
+  const [draft, setDraft] = React.useState(String(px));
+
+  function commit(raw: string) {
+    const digits = raw.replace(/\D/g, "");
+    if (!digits) return;
+    const clamped = Math.min(RADIUS_MAX, Math.max(RADIUS_MIN, Number(digits)));
+    onChange(`${clamped}px`);
+  }
+
+  const options: { id: RadiusMode; label: string; radius: string }[] = [
+    { id: "square", label: "Square", radius: RADIUS_SQUARE },
+    { id: "rounded", label: "Rounded", radius: RADIUS_ROUNDED },
+    { id: "custom", label: "Custom", radius: value === RADIUS_SQUARE || value === RADIUS_ROUNDED ? "8px" : value },
+  ];
+
+  return (
+    <Field label="Border radius" hint="Sets every corner in the preview: the frame, messages, cards, and the input.">
+      <div className="grid grid-cols-3 gap-2">
+        {options.map((option) => {
+          const active = mode === option.id;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => onChange(option.radius)}
+              className={cn(
+                "flex flex-col items-center gap-2 rounded-[var(--radius-lg)] border px-2 py-3 text-xs font-medium transition-colors",
+                active
+                  ? "border-[var(--color-brand)] bg-[var(--color-brand-light)] text-[var(--color-brand-strong)]"
+                  : "border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-brand)]/50"
+              )}
+            >
+              <span
+                className={cn("h-6 w-9 border-2", active ? "border-[var(--color-brand)]" : "border-[var(--color-text-muted)]")}
+                style={{ borderRadius: option.id === "custom" ? "6px" : option.radius }}
+              />
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+      {mode === "custom" && (
+        <div className="mt-3 flex items-center gap-2">
+          <input
+            type="number"
+            min={RADIUS_MIN}
+            max={RADIUS_MAX}
+            value={draft}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              commit(e.target.value);
+            }}
+            onBlur={() => setDraft(String(Number.parseInt(value, 10) || 0))}
+            className="h-9 w-24 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-card)] px-3 text-sm tabular-nums text-[var(--color-text-primary)] focus:border-[var(--color-brand)] focus:outline-none"
+          />
+          <span className="text-sm text-[var(--color-text-muted)]">px</span>
+          <span className="text-xs text-[var(--color-text-muted)]">
+            {RADIUS_MIN}–{RADIUS_MAX}
+          </span>
+        </div>
+      )}
+    </Field>
+  );
+}
+
+function TextField({
+  label,
+  value,
+  max,
+  onChange,
+  hint,
+  multiline = false,
+  onFocus,
+}: {
+  label: string;
+  value: string;
+  max: number;
+  onChange: (value: string) => void;
+  hint?: string;
+  multiline?: boolean;
+  onFocus?: () => void;
+}) {
+  const id = React.useId();
+  const inputClass =
+    "w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-card)] px-3 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] transition-colors focus:border-[var(--color-brand)] focus:outline-none focus:ring-1 focus:ring-[var(--color-brand)]";
+  const nearLimit = value.length >= max * 0.9;
+  return (
+    <div>
+      <div className="mb-1.5 flex items-baseline justify-between gap-2">
+        <label htmlFor={id} className="text-sm font-medium text-[var(--color-text-secondary)]">{label}</label>
+        <span className={cn("text-[11px] tabular-nums", nearLimit ? "text-[var(--color-warning)]" : "text-[var(--color-text-muted)]")}>
+          {value.length}/{max}
+        </span>
+      </div>
+      {multiline ? (
+        <textarea
+          id={id}
+          value={value}
+          maxLength={max}
+          rows={3}
+          onChange={(e) => onChange(e.target.value)}
+          onFocus={onFocus}
+          className={cn(inputClass, "resize-none py-2 leading-relaxed")}
+        />
+      ) : (
+        <input
+          id={id}
+          value={value}
+          maxLength={max}
+          onChange={(e) => onChange(e.target.value)}
+          onFocus={onFocus}
+          className={cn(inputClass, "h-9")}
+        />
+      )}
+      {hint && <p className="mt-1.5 text-xs text-[var(--color-text-muted)]">{hint}</p>}
+    </div>
+  );
+}
+
+function ToggleRow({
+  title,
+  description,
+  checked,
+  onChange,
+}: {
+  title: string;
+  description: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-[var(--radius-lg)] border border-[var(--color-border)] px-3 py-3">
+      <div>
+        <p className="text-sm font-medium text-[var(--color-text-primary)]">{title}</p>
+        <p className="text-xs text-[var(--color-text-muted)]">{description}</p>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={title}
+        onClick={() => onChange(!checked)}
+        className={cn(
+          "relative h-6 w-11 shrink-0 rounded-full transition-colors",
+          checked ? "bg-[var(--color-brand)]" : "bg-[var(--color-border-strong)]"
+        )}
+      >
+        <span className={cn("absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform", checked && "translate-x-5")} />
+      </button>
+    </div>
+  );
+}
+
+function ThemeCard({ theme, color, active, onSelect }: { theme: WorkspaceTheme; color: string; active: boolean; onSelect: () => void }) {
+  const dark = theme === "dark";
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        "overflow-hidden rounded-[var(--radius-lg)] border-2 text-left transition-colors",
+        active ? "border-[var(--color-brand)]" : "border-[var(--color-border)] hover:border-[var(--color-brand)]/50"
+      )}
+    >
+      <div className={cn("space-y-1.5 p-3", dark ? "bg-[#17121d]" : "bg-[#f6f4f8]")}>
+        <div className={cn("h-2 w-12 rounded", dark ? "bg-white/25" : "bg-black/15")} />
+        <div className={cn("h-4 w-20 rounded-md", dark ? "bg-white/10" : "bg-white")} />
+        <div className="ml-auto h-4 w-14 rounded-md" style={{ backgroundColor: color }} />
+      </div>
+      <div className="flex items-center justify-between px-3 py-2 text-xs font-medium text-[var(--color-text-primary)]">
+        <span className="flex items-center gap-1.5">
+          {dark ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
+          {dark ? "Dark" : "Light"}
+        </span>
+        {active && <Check className="h-3.5 w-3.5 text-[var(--color-brand)]" />}
+      </div>
+    </button>
+  );
+}
+
+function ContrastBadge({ ratio }: { ratio: number }) {
+  const tone =
+    ratio >= 4.5
+      ? { label: "AA", cls: "bg-[var(--color-success-light)] text-[var(--color-success)]" }
+      : ratio >= 3
+        ? { label: "AA Large", cls: "bg-[var(--color-warning-light)] text-[var(--color-warning)]" }
+        : { label: "Low contrast", cls: "bg-[var(--color-error-light)] text-[var(--color-error)]" };
+  return (
+    <span
+      className={cn("rounded-full px-2 py-1 text-[11px] font-semibold tabular-nums", tone.cls)}
+      title="Contrast of white text on your brand color (WCAG)"
+    >
+      {tone.label} · {ratio.toFixed(1)}:1
+    </span>
+  );
+}
+
+function IconToggle({
+  options,
+  value,
+  onChange,
+  iconOnly = false,
+}: {
+  options: { id: string; label: string; icon?: React.ReactNode }[];
+  value: string;
+  onChange: (id: string) => void;
+  iconOnly?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-0.5 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-card)] p-0.5">
+      {options.map((o) => (
+        <button
+          key={o.id}
+          type="button"
+          onClick={() => onChange(o.id)}
+          title={o.label}
+          aria-pressed={value === o.id}
+          className={cn(
+            "flex h-7 items-center gap-1.5 rounded-[6px] text-xs font-medium transition-colors",
+            iconOnly ? "w-7 justify-center" : "px-2.5",
+            value === o.id
+              ? "bg-[var(--color-brand-light)] text-[var(--color-brand-strong)]"
+              : "text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+          )}
+        >
+          {o.icon}
+          {!iconOnly && o.label}
+        </button>
+      ))}
     </div>
   );
 }

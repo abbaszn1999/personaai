@@ -47,6 +47,24 @@ function contrastText({ r, g, b }: { r: number; g: number; b: number }): string 
  * Alphas match the existing `.dark` overrides in src/styles/globals.css (0.14 brand-light,
  * 0.20 accent-light) so tint intensity stays consistent with the stock look.
  */
+/**
+ * Rewrites the radius tokens for the widget subtree so every corner follows the merchant's
+ * border radius. Avatars stay circular because Tailwind's `rounded-full` doesn't read a token.
+ */
+export function resolveRadiusCssVars(borderRadius: string | undefined): React.CSSProperties {
+  const px = Number.parseInt(borderRadius ?? "", 10);
+  if (!Number.isFinite(px) || px < 0) return {};
+  const scale = (factor: number) => `${Math.round(px * factor)}px`;
+  return {
+    "--radius-sm": scale(0.5),
+    "--radius-md": scale(0.75),
+    "--radius-lg": scale(1),
+    "--radius-xl": scale(1),
+    "--radius-2xl": scale(1),
+    "--radius-full": scale(1),
+  } as React.CSSProperties;
+}
+
 export function resolveBrandCssVars(primaryColor: string): React.CSSProperties {
   const rgb = parseHex(primaryColor) ?? parseHex(DEFAULT_PRIMARY)!;
   const primary = parseHex(primaryColor) ? primaryColor : DEFAULT_PRIMARY;

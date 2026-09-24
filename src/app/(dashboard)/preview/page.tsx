@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, Shirt } from "lucide-react";
 import { TryOnLayout } from "@/modules/wearable-agent/components/try-on-layout";
 import { useWorkspaceStore } from "@/modules/workspaces/store";
+import { toWearableBranding } from "@/modules/workspaces/branding-schema";
 import { fontFamilyCssValue, loadGoogleFont } from "@/lib/fonts/google-fonts";
 import { resolveBrandCssVars } from "@/lib/branding/resolve-brand-vars";
 import { CatalogReadyGate } from "@/modules/store/components/catalog-ready-gate";
@@ -64,13 +65,7 @@ export default function CustomerPreviewPage() {
           <TryOnLayout
             workspaceId={ws.id}
             theme={ws.branding.theme}
-            branding={{
-              agentName: ws.branding.agentName,
-              welcomeMessage: ws.branding.welcomeMessage,
-              logoUrl: ws.branding.logoUrl,
-              borderRadius: ws.branding.borderRadius,
-              liveTryOnEnabled: ws.branding.liveTryOnEnabled,
-            }}
+            branding={toWearableBranding(ws.branding)}
           />
         </CatalogReadyGate>
       </div>

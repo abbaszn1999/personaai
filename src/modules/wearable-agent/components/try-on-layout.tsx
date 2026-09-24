@@ -18,9 +18,10 @@ import { ProfileSwitcher } from "./profile-switcher";
 import type { PreviewViewportMode } from "./preview-viewport-toggle";
 import type { OnboardingPhase } from "@/modules/wearable-agent/types";
 import { WearableThemeProvider, type WearableTheme } from "../theme-context";
-import { WearableBrandingProvider, type WearableBranding } from "../branding-context";
+import { WearableBrandingProvider, type WearableBrandingInput } from "../branding-context";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils/cn";
+import { resolveRadiusCssVars } from "@/lib/branding/resolve-brand-vars";
 
 interface TryOnLayoutProps {
   viewportMode?: PreviewViewportMode;
@@ -36,7 +37,7 @@ interface TryOnLayoutProps {
    *  the first message sent once onboarding finishes, and the corner radius of the whole
    *  widget box. Falls back to the dashboard's own defaults when omitted (internal test
    *  pages that aren't previewing a specific merchant's branding). */
-  branding?: Partial<WearableBranding> & { welcomeMessage?: string; borderRadius?: string };
+  branding?: WearableBrandingInput & { welcomeMessage?: string; borderRadius?: string };
   workspaceId?: string;
   /** Real embeds use this to shrink the host box during sign-in / onboarding, then grow it
    *  back to a full viewport once the avatar is ready and chat needs the height. The
@@ -78,7 +79,11 @@ export function TryOnLayout({
             compact ? "h-auto overflow-visible" : "h-full overflow-hidden",
             theme === "dark" && "dark"
           )}
-          style={branding?.borderRadius ? { borderRadius: branding.borderRadius } : undefined}
+          style={
+            branding?.borderRadius
+              ? { borderRadius: branding.borderRadius, ...resolveRadiusCssVars(branding.borderRadius) }
+              : undefined
+          }
         >
           {embed ? (
             <EmbeddedTryOn

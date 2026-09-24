@@ -42,7 +42,7 @@ export function DashboardShell({ children }: DashboardShellProps) {
       <div className="dashboard-theme flex flex-1 flex-col overflow-hidden rounded-[var(--radius-2xl)] content-panel min-w-0">
         {/* `id` gives dialogs (see `Modal`) something stable to grab to lock scrolling — the actual
          *  scroll container on every dashboard page is this `<main>`, not `<body>`. */}
-        <main id="dashboard-scroll-area" className="flex-1 overflow-y-auto sidebar-scroll">
+        <main id="dashboard-scroll-area" className="flex min-h-0 flex-1 flex-col overflow-y-auto sidebar-scroll">
           {children}
         </main>
       </div>
