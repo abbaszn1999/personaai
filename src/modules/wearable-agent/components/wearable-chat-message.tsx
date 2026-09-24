@@ -389,7 +389,7 @@ export function InlineSuggestionCard({ product, isWorn, inCart, isPending = fals
               "flex-1 flex items-center justify-center gap-1 text-[10px] font-semibold px-2 py-1.5 rounded-full transition-all",
               isWorn
                 ? "bg-[var(--color-brand-light)] text-[var(--color-brand)] cursor-default"
-                : "gradient-brand text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+                : "gradient-brand text-[var(--color-brand-contrast)] hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
             )}
           >
             {wearBusy ? (
@@ -686,7 +686,7 @@ function BundleSuggestionCard({ bundle, index, cartItemIds, pendingCartItemIds =
             type="button"
             onClick={onRender}
             disabled={isGenerating}
-            className="flex-1 flex items-center justify-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-full gradient-brand text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            className="flex-1 flex items-center justify-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-full gradient-brand text-[var(--color-brand-contrast)] hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
           >
             {isGenerating ? (
               <>
@@ -727,7 +727,7 @@ function BundleSuggestionCard({ bundle, index, cartItemIds, pendingCartItemIds =
  */
 function Thumb({ product, className }: { product: Product; className?: string }) {
   return (
-    <div className={cn("relative overflow-hidden rounded-[10px] bg-white", className)}>
+    <div className={cn("relative overflow-hidden rounded-[var(--radius-md)] bg-white", className)}>
       <ProductPreviewImage product={product} className="object-contain" />
     </div>
   );

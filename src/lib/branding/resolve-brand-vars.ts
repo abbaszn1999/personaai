@@ -49,7 +49,7 @@ function contrastText({ r, g, b }: { r: number; g: number; b: number }): string 
  */
 /**
  * Rewrites the radius tokens for the widget subtree so every corner follows the merchant's
- * border radius. Avatars stay circular because Tailwind's `rounded-full` doesn't read a token.
+ * border radius. `--radius-full` is left alone so avatars, dots and icon buttons stay circular.
  */
 export function resolveRadiusCssVars(borderRadius: string | undefined): React.CSSProperties {
   const px = Number.parseInt(borderRadius ?? "", 10);
@@ -61,7 +61,8 @@ export function resolveRadiusCssVars(borderRadius: string | undefined): React.CS
     "--radius-lg": scale(1),
     "--radius-xl": scale(1),
     "--radius-2xl": scale(1),
-    "--radius-full": scale(1),
+    "--radius-3xl": scale(1),
+    "--radius-4xl": scale(1),
   } as React.CSSProperties;
 }
 

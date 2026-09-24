@@ -364,7 +364,7 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
       {/* Input */}
       <div className={cn("border-t border-[var(--color-border)] flex gap-2 shrink-0", compact ? "px-3 py-3" : "px-5 py-4")}>
         <input
-          className="flex-1 h-10 px-4 text-sm bg-[var(--color-surface-base)] border border-[var(--color-border)] rounded-[var(--radius-full)] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-brand)] transition-colors"
+          className="flex-1 h-10 px-4 text-sm bg-[var(--color-surface-base)] border border-[var(--color-border)] rounded-[var(--radius-xl)] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-brand)] transition-colors"
           placeholder={branding.inputPlaceholder}
           value={agent.input}
           onChange={(e) => agent.setInput(e.target.value)}
@@ -376,7 +376,7 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
           onClick={() => agent.sendMessage()}
           disabled={!agent.input.trim() || agent.isTyping || agent.isGenerating || agent.isScanning}
           className={cn(
-            "h-10 w-10 rounded-full gradient-brand text-white flex items-center justify-center shrink-0 transition-all",
+            "h-10 w-10 rounded-full gradient-brand text-[var(--color-brand-contrast)] flex items-center justify-center shrink-0 transition-all",
             "disabled:opacity-40 disabled:cursor-not-allowed hover:shadow-[var(--shadow-glow)]"
           )}
         >
@@ -503,7 +503,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
       <div
         className={cn(
           "absolute inset-x-0 bottom-0 z-[30] flex flex-col backdrop-blur-2xl",
-          showSheetChrome ? cn("rounded-t-[22px] border-t", styles.sheet) : "border-t border-transparent bg-transparent",
+          showSheetChrome ? cn("rounded-t-[var(--radius-2xl)] border-t", styles.sheet) : "border-t border-transparent bg-transparent",
           !sheet.isDragging &&
             "transition-[height,background-color,border-color] duration-300 ease-out motion-reduce:transition-none"
         )}
@@ -701,7 +701,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
                 onClick={() => agent.sendMessage()}
                 disabled={!agent.input.trim() || agent.isTyping || agent.isGenerating || agent.isScanning}
                 className={cn(
-                  "h-11 w-11 rounded-full gradient-brand text-white flex items-center justify-center shrink-0 transition-all",
+                  "h-11 w-11 rounded-full gradient-brand text-[var(--color-brand-contrast)] flex items-center justify-center shrink-0 transition-all",
                   "disabled:opacity-40 disabled:cursor-not-allowed"
                 )}
               >

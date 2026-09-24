@@ -117,7 +117,7 @@ export function ShopperSignIn({ error, onRequestCode, onVerifyCode }: ShopperSig
             autoFocus
           />
           {displayError && <p className="text-sm text-[var(--color-error)]">{displayError}</p>}
-          <Button type="submit" size="lg" loading={busy} className="gradient-violet text-white border-0">
+          <Button type="submit" size="lg" loading={busy} className="gradient-violet text-[var(--color-brand-contrast)] border-0">
             Continue
             <ArrowRight className="h-4 w-4" />
           </Button>
@@ -156,7 +156,7 @@ export function ShopperSignIn({ error, onRequestCode, onVerifyCode }: ShopperSig
             size="lg"
             loading={busy}
             disabled={code.length !== 6 || (needsPrivacy && !acceptPrivacy)}
-            className="gradient-violet text-white border-0"
+            className="gradient-violet text-[var(--color-brand-contrast)] border-0"
           >
             Sign in
             <ArrowRight className="h-4 w-4" />

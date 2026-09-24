@@ -164,7 +164,7 @@ export function AvatarVariationPicker({
           size="lg"
           onClick={onConfirm}
           disabled={!hasSelection}
-          className={cn(hasSelection ? "gradient-violet text-white border-0" : "")}
+          className={cn(hasSelection ? "gradient-violet text-[var(--color-brand-contrast)] border-0" : "")}
         >
           Confirm & start chatting
           <ArrowRight className="h-4 w-4" />

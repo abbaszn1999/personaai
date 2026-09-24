@@ -168,7 +168,7 @@ export function EditModelStatsModal({
             type="button"
             onClick={handleSubmit}
             disabled={isSaving}
-            className="flex-1 h-11 rounded-lg text-sm font-semibold text-white flex items-center justify-center gap-2 gradient-violet bg-[var(--color-violet-from)] disabled:opacity-60"
+            className="flex-1 h-11 rounded-lg text-sm font-semibold text-[var(--color-brand-contrast)] flex items-center justify-center gap-2 gradient-violet bg-[var(--color-violet-from)] disabled:opacity-60"
           >
             {isSaving ? (
               <>

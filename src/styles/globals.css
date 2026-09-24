@@ -5,6 +5,17 @@
  *   Primary   #F76D01 orange · #C40000 red · #400095 deep purple
  *   Secondary #6B358D purple · #C8A8D2 lavender · #79081D wine
  * -------------------------------------------------------------------------- */
+/* Radius lives outside `inline` so `rounded-*` utilities emit `var(--radius-*)` and follow the
+ * per-widget overrides from `resolveRadiusCssVars`, not the literal defaults below. */
+@theme {
+  --radius-sm:                0.375rem;
+  --radius-md:                0.625rem;
+  --radius-lg:                1rem;
+  --radius-xl:                1.25rem;
+  --radius-2xl:               1.5rem;
+  --radius-full:              9999px;
+}
+
 @theme inline {
   /* Surfaces */
   --color-surface-base:       #f7f6f9;
@@ -73,14 +84,6 @@
   --color-violet-to:          #400095;
   --color-ember-from:         #f76d01;
   --color-ember-to:           #c40000;
-
-  /* Radius */
-  --radius-sm:                0.375rem;
-  --radius-md:                0.625rem;
-  --radius-lg:                1rem;
-  --radius-xl:                1.25rem;
-  --radius-2xl:               1.5rem;
-  --radius-full:              9999px;
 
   /* Shadows */
   --shadow-card:              0 1px 3px 0 rgb(23 18 29 / 0.06), 0 1px 2px -1px rgb(23 18 29 / 0.04);

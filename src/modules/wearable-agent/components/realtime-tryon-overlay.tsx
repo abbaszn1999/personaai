@@ -54,7 +54,7 @@ export function RealtimeTryOnOverlay({
   if (status === "idle") {
     return (
       <div className="absolute inset-0 z-[12] flex items-center justify-center bg-[var(--color-surface-base)] px-6">
-        <div className="max-w-sm rounded-[24px] border border-[var(--color-border)] bg-[var(--color-surface-card)] p-6 text-center shadow-[var(--shadow-card)] backdrop-blur-xl">
+        <div className="max-w-sm rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] p-6 text-center shadow-[var(--shadow-card)] backdrop-blur-xl">
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--color-brand-light)] text-[var(--color-brand-strong)]">
             <Camera className="h-6 w-6" />
           </div>
