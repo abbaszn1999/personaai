@@ -112,6 +112,27 @@ export async function listChartsForBrands(
   return ((data as Array<Record<string, unknown>>) ?? []).map(rowToChart);
 }
 
+/** Brand keys that already have a shared chart (connection_id is null), so mapping can offer them. */
+export async function listSharedChartBrandKeys(): Promise<string[]> {
+  const keys = new Set<string>();
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await db
+      .from("sizing_charts")
+      .select("brand_key")
+      .is("connection_id", null)
+      .range(from, from + pageSize - 1);
+    if (error) {
+      console.error("[db/sizing-charts listSharedChartBrandKeys]", error);
+      return [];
+    }
+    const batch = (data ?? []) as Array<{ brand_key: string }>;
+    for (const row of batch) if (row.brand_key) keys.add(row.brand_key);
+    if (batch.length < pageSize) break;
+  }
+  return [...keys];
+}
+
 export interface UpsertChartInput {
   /** Null for a global brand's shared chart; a real connection id for private-label or manual. */
   connectionId: string | null;

@@ -35,6 +35,8 @@ const scope = {
 function row(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRow {
   return {
     id: "11111111-1111-1111-1111-111111111111",
+    ownerId: "user-1",
+    sizingBrandMapping: { version: 1, confirmedAt: null, sourceFingerprint: "", observed: {}, aliases: {} },
     platform: "shopify",
     storeName: "Store",
     storeUrl: "store.myshopify.com",
@@ -69,6 +71,7 @@ function row(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRow {
     cmsColumnDiscoveryScanned: 0,
     cmsColumnDiscoveryError: null,
     cmsColumnDiscoveryUpdatedAt: null,
+    ordersAccess: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides,

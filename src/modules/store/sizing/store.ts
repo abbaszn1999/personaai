@@ -26,6 +26,9 @@ import {
   type CoverageSummary,
   type PathAssignment,
   type ResearchedChart,
+  type BrandMappingResponse,
+  type BrandMappingStatus,
+  type CanonicalBrandGroup,
   type RoutingPlan,
   type SizingAssignmentsResponse,
   type SizingChartsResponse,
@@ -150,6 +153,15 @@ interface SizingUiState {
   chartsError: string | null;
   chartsLoaded: boolean;
   loadCharts: (options?: { force?: boolean }) => Promise<void>;
+  brandMapping: BrandMappingResponse | null;
+  brandMappingStatus: BrandMappingStatus;
+  brandMappingLoading: boolean;
+  brandMappingError: string | null;
+  brandMappingSaving: boolean;
+  brandMappingEditing: boolean;
+  loadBrandMapping: (options?: { force?: boolean }) => Promise<void>;
+  saveBrandMapping: (groups: CanonicalBrandGroup[]) => Promise<void>;
+  closeBrandMappingEditor: () => void;
   /**
    * Asks the server to research one brand, or every brand still outstanding.
    *
@@ -466,6 +478,61 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
   chartsLoading: false,
   chartsError: null,
   chartsLoaded: false,
+  brandMapping: null,
+  brandMappingStatus: "needs_mapping",
+  brandMappingLoading: false,
+  brandMappingError: null,
+  brandMappingSaving: false,
+  brandMappingEditing: false,
+
+  loadBrandMapping: async (options) => {
+    if (!options?.force && (get().brandMapping || get().brandMappingLoading)) return;
+    set({ brandMappingLoading: true, brandMappingError: null });
+    try {
+      const res = await fetch("/api/store-connection/sizing/brand-mapping");
+      const data = (await res.json()) as BrandMappingResponse & { error?: string };
+      if (!res.ok) {
+        set({ brandMappingError: data.error ?? "Could not load brand mapping", brandMappingLoading: false });
+        return;
+      }
+      set({
+        brandMapping: data,
+        brandMappingStatus: data.status,
+        brandMappingLoading: false,
+        brandMappingError: null,
+        brandMappingEditing: data.status !== "ready",
+      });
+    } catch {
+      set({ brandMappingError: "Could not reach the server", brandMappingLoading: false });
+    }
+  },
+
+  saveBrandMapping: async (groups) => {
+    set({ brandMappingSaving: true, brandMappingError: null });
+    try {
+      const res = await fetch("/api/store-connection/sizing/brand-mapping", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groups }),
+      });
+      const data = (await res.json()) as BrandMappingResponse & { error?: string };
+      if (!res.ok) {
+        set({ brandMappingError: data.error ?? "Could not save brand mapping", brandMappingSaving: false });
+        return;
+      }
+      set({
+        brandMapping: data,
+        brandMappingStatus: data.status,
+        brandMappingSaving: false,
+        brandMappingEditing: false,
+        brandMappingError: null,
+      });
+    } catch {
+      set({ brandMappingError: "Could not reach the server", brandMappingSaving: false });
+    }
+  },
+
+  closeBrandMappingEditor: () => set({ brandMappingEditing: false, brandMappingError: null }),
 
   loadCharts: async (options) => {
     // Cached after the first read like the catalog sample, for the same reason: nothing about a

@@ -34,6 +34,7 @@ function connection(overrides: Partial<StoreConnectionRow> = {}): StoreConnectio
     cmsColumnDiscoveryScanned: 0,
     cmsColumnDiscoveryError: null,
     cmsColumnDiscoveryUpdatedAt: null,
+    ordersAccess: null,
     ...overrides,
   } as StoreConnectionRow;
 }

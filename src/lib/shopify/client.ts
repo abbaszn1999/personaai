@@ -65,10 +65,11 @@ export async function getShopifyAccessToken(
   domain: string,
   clientId: string,
   clientSecret: string,
-  cacheKey?: string
+  cacheKey?: string,
+  forceRefresh = false
 ): Promise<string> {
   const key = cacheKey ?? `${domain}:${clientId}`;
-  const cached = isCacheDisabled() ? undefined : tokenCache.get(key);
+  const cached = forceRefresh || isCacheDisabled() ? undefined : tokenCache.get(key);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.accessToken;
   }
@@ -119,6 +120,20 @@ async function shopifyFetch<T>(domain: string, accessToken: string, path: string
   }
 
   return res.json() as Promise<T>;
+}
+
+/** Whether the order's line prices already include tax. Defaults to false when the order can't be read. */
+export async function getShopifyOrderTaxesIncluded(
+  domain: string,
+  accessToken: string,
+  orderId: string
+): Promise<boolean> {
+  const data = await shopifyFetch<{ order?: { taxes_included?: boolean } }>(
+    domain,
+    accessToken,
+    `/orders/${encodeURIComponent(orderId)}.json?fields=taxes_included`
+  );
+  return data.order?.taxes_included === true;
 }
 
 /** Runs `fn` over `items` with at most `limit` calls in flight at once. */
@@ -1362,6 +1377,13 @@ export function mapShopifyWebhookProduct(payload: unknown, domain: string): RawC
 }
 
 const PRODUCT_WEBHOOK_TOPICS = ["products/create", "products/update", "products/delete"];
+const ORDER_WEBHOOK_TOPICS = ["orders/create", "orders/updated", "refunds/create"];
+
+export interface WebhookRegistration {
+  registered: string[];
+  failed: string[];
+  ordersAccess: "active" | "missing";
+}
 
 interface ShopifyWebhookRecord {
   id: number;
@@ -1380,7 +1402,7 @@ export async function registerShopifyWebhooks(
   domain: string,
   accessToken: string,
   callbackUrl: string
-): Promise<{ registered: string[] }> {
+): Promise<WebhookRegistration> {
   const existing = await shopifyFetch<{ webhooks: ShopifyWebhookRecord[] }>(
     domain,
     accessToken,
@@ -1392,8 +1414,9 @@ export async function registerShopifyWebhooks(
   );
 
   const registered: string[] = [];
+  const failed: string[] = [];
 
-  for (const topic of PRODUCT_WEBHOOK_TOPICS) {
+  for (const topic of [...PRODUCT_WEBHOOK_TOPICS, ...ORDER_WEBHOOK_TOPICS]) {
     if (already.has(topic)) continue;
 
     const res = await fetch(`https://${domain}/admin/api/${API_VERSION}/webhooks.json`, {
@@ -1409,13 +1432,17 @@ export async function registerShopifyWebhooks(
     if (res.ok) {
       registered.push(topic);
     } else {
+      failed.push(topic);
       // Non-fatal. Without webhooks the catalog is refreshed by the reconcile schedule
       // instead of instantly, which is a degradation rather than a broken connection.
       console.error(`[shopify registerShopifyWebhooks] ${topic} failed (${res.status})`);
     }
   }
 
-  return { registered };
+  const ordersAccess = ORDER_WEBHOOK_TOPICS.every((topic) => already.has(topic) || registered.includes(topic))
+    ? "active"
+    : "missing";
+  return { registered, failed, ordersAccess };
 }
 
 const ADD_TO_CART_LOOKUP_TIMEOUT_MS = 12_000;

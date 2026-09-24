@@ -433,6 +433,25 @@ export const EMPTY_COVERAGE_SUMMARY: CoverageSummary = {
   counts: { unclassified: 0, global: 0, private: 0, none: 0 },
 };
 
+export type BrandMappingStatus = "needs_mapping" | "rescanning" | "ready";
+
+export interface CanonicalBrandGroup {
+  canonicalKey: string;
+  canonicalName: string;
+  rawKeys: string[];
+  shared: boolean;
+}
+
+export interface BrandMappingResponse {
+  ready: boolean;
+  status: BrandMappingStatus;
+  confirmedAt: string | null;
+  sourceFingerprint: string;
+  brands: Array<{ rawKey: string; labels: string[]; skuCount: number; sizingCategories: string[] }>;
+  groups: CanonicalBrandGroup[];
+  targets: Array<{ canonicalKey: string; canonicalName: string; shared: boolean }>;
+}
+
 export const EMPTY_IDENTIFICATION: BrandIdentification = {
   global_brands: [],
   private_brands: [],

@@ -38,6 +38,8 @@ import { deleteAllAcsProductsForConnection } from "@/lib/catalog/acs/catalog-rea
 function baseRow(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRow {
   return {
     id: "conn-1",
+    ownerId: "user-1",
+    sizingBrandMapping: { version: 1, confirmedAt: null, sourceFingerprint: "", observed: {}, aliases: {} },
     platform: "shopify",
     storeName: "Test Store",
     storeUrl: "test.myshopify.com",
@@ -72,6 +74,7 @@ function baseRow(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRo
     cmsColumnDiscoveryScanned: 0,
     cmsColumnDiscoveryError: null,
     cmsColumnDiscoveryUpdatedAt: null,
+    ordersAccess: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides,

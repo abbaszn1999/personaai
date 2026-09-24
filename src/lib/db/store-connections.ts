@@ -14,6 +14,7 @@ import {
   type SerializedTaxonomyScope,
 } from "@/modules/store/mapping/persona-taxonomy";
 import { mappedSourceCategoryIds, parsePersonaCategoryMap, parsePersonaScope } from "@/lib/catalog/persona-mapping";
+import { parseStoreBrandMapping, type StoreBrandMapping } from "@/lib/sizing/brand-mapping";
 import { parseSizeSettings, type SizeSettings } from "@/lib/sizing/size-types";
 import { parseSizingSource, type SizingSource } from "@/lib/sizing/sizing-source";
 
@@ -34,9 +35,13 @@ export type CatalogSyncStatus = "idle" | "pending" | "indexing" | "ready" | "err
  *  anything, so a store can run (or fail, or finish) one independently of ACS sync state. */
 export type CmsColumnDiscoveryStatus = "idle" | "running" | "done" | "error";
 
+/** Whether this store's order webhooks are registered. Null until that has been checked. */
+export type OrdersAccess = "active" | "missing";
+
 /** Raw DB row shape for the `store_connections` table (camelCase, app-facing). */
 export interface StoreConnectionRow {
   id: string;
+  ownerId: string;
   platform: StorePlatform;
   storeName: string;
   storeUrl: string;
@@ -65,6 +70,7 @@ export interface StoreConnectionRow {
   /** When the merchant skipped setup stages 2-5 because their own charts made them redundant; null if
    *  they never did. Cleared when the size chart binding goes away, since the work is needed again. */
   sizingStagesSkippedAt: string | null;
+  sizingBrandMapping: StoreBrandMapping;
   productCount: number;
   syncedAt: string | null;
   hardRules: HardRule[];
@@ -100,6 +106,7 @@ export interface StoreConnectionRow {
   cmsColumnDiscoveryScanned: number;
   cmsColumnDiscoveryError: string | null;
   cmsColumnDiscoveryUpdatedAt: string | null;
+  ordersAccess: OrdersAccess | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -110,6 +117,7 @@ function rowToConnection(row: Record<string, unknown>): StoreConnectionRow {
   const personaCategoryMap = parsePersonaCategoryMap(row.persona_category_map, categories);
   return {
     id: row.id as string,
+    ownerId: row.owner_id as string,
     platform: row.platform as StorePlatform,
     storeName: row.store_name as string,
     storeUrl: row.store_url as string,
@@ -126,6 +134,7 @@ function rowToConnection(row: Record<string, unknown>): StoreConnectionRow {
     storeSizeSettings: parseSizeSettings(row.store_size_settings),
     sizingSource: parseSizingSource(row.sizing_source),
     sizingStagesSkippedAt: (row.sizing_stages_skipped_at as string | null) ?? null,
+    sizingBrandMapping: parseStoreBrandMapping(row.sizing_brand_mapping),
     productCount: (row.product_count as number) ?? 0,
     syncedAt: (row.synced_at as string | null) ?? null,
     hardRules: (row.hard_rules as HardRule[]) ?? [],
@@ -144,6 +153,7 @@ function rowToConnection(row: Record<string, unknown>): StoreConnectionRow {
     cmsColumnDiscoveryScanned: (row.cms_column_discovery_scanned as number) ?? 0,
     cmsColumnDiscoveryError: (row.cms_column_discovery_error as string | null) ?? null,
     cmsColumnDiscoveryUpdatedAt: (row.cms_column_discovery_updated_at as string | null) ?? null,
+    ordersAccess: row.orders_access === "active" || row.orders_access === "missing" ? row.orders_access : null,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
   };
@@ -259,6 +269,7 @@ export interface UpdateStoreConnectionInput {
   storeSizeSettings?: SizeSettings;
   sizingSource?: SizingSource;
   sizingStagesSkippedAt?: string | null;
+  sizingBrandMapping?: StoreBrandMapping;
   productCount?: number;
   syncedAt?: string | null;
   status?: StoreConnectionStatus;
@@ -286,6 +297,7 @@ export async function updateStoreConnection(
   if (patch.storeSizeSettings !== undefined) dbPatch.store_size_settings = patch.storeSizeSettings;
   if (patch.sizingSource !== undefined) dbPatch.sizing_source = patch.sizingSource;
   if (patch.sizingStagesSkippedAt !== undefined) dbPatch.sizing_stages_skipped_at = patch.sizingStagesSkippedAt;
+  if (patch.sizingBrandMapping !== undefined) dbPatch.sizing_brand_mapping = patch.sizingBrandMapping;
   if (patch.productCount !== undefined) dbPatch.product_count = patch.productCount;
   if (patch.syncedAt !== undefined) dbPatch.synced_at = patch.syncedAt;
   if (patch.status !== undefined) dbPatch.status = patch.status;
@@ -455,6 +467,18 @@ export async function listConnectionsBySyncStatus(status: CatalogSyncStatus): Pr
   }
 
   return (data ?? []).map(rowToConnection);
+}
+
+export async function setStoreOrdersAccess(connectionId: string, ordersAccess: OrdersAccess): Promise<boolean> {
+  const { error } = await db
+    .from("store_connections")
+    .update({ orders_access: ordersAccess, updated_at: new Date().toISOString() })
+    .eq("id", connectionId);
+  if (error) {
+    console.error("[db/store-connections setStoreOrdersAccess]", error);
+    return false;
+  }
+  return true;
 }
 
 export async function deleteStoreConnection(ownerId: string): Promise<boolean> {
