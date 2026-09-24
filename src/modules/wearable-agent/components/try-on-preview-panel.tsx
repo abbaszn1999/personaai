@@ -10,6 +10,7 @@ import {
   Shirt,
   Ruler,
 } from "lucide-react";
+import { studioPlateUrl } from "../constants";
 import type { GeneratedTryOn } from "../hooks/use-try-on-agent";
 import { formatPrice } from "@/modules/commerce/constants";
 import { cn } from "@/lib/utils/cn";
@@ -108,7 +109,7 @@ export function TryOnPreviewPanel({
         ) : currentTryOn ? (
           <>
             {backdropUrl && (
-              <Image src={backdropUrl} alt="" fill className="object-cover" unoptimized />
+              <Image src={studioPlateUrl(backdropUrl)} alt="" fill className="object-cover" unoptimized />
             )}
             <Image
               src={currentTryOn.imageUrl}

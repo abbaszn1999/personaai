@@ -3,6 +3,7 @@
 import * as React from "react";
 import Image from "next/image";
 import { AlertCircle, ArrowRight, Check, Upload, UserRound } from "lucide-react";
+import { studioPlateUrl } from "@/modules/wearable-agent/constants";
 import type { AvatarVariation } from "@/modules/wearable-agent/types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils/cn";
@@ -89,7 +90,7 @@ export function AvatarVariationPicker({
                     background — layer the paired fixed backdrop plate underneath so the card
                     shows the actual studio scene instead of any un-keyed chroma-key residue. */}
                 {variation.backdropUrl && (
-                  <Image src={variation.backdropUrl} alt="" fill sizes="220px" className="object-cover object-top" unoptimized />
+                  <Image src={studioPlateUrl(variation.backdropUrl)} alt="" fill sizes="220px" className="object-cover object-top" unoptimized />
                 )}
                 <Image
                   src={variation.imageUrl}

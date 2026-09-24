@@ -35,7 +35,7 @@ const AVATAR_STYLES = [
 
 /** Each fixed backdrop plate pairs 1:1 with the avatar style at the same index. */
 function backdropPathForIndex(index: number): string {
-  return `/avatars/backgrounds/backdrop-${index + 1}.png`;
+  return `/avatars/backgrounds/backdrop-${index + 1}.webp`;
 }
 
 /**

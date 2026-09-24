@@ -262,7 +262,7 @@ function toAbsoluteImageUrl(url: string): string {
   return new URL(url, window.location.origin).toString();
 }
 
-/** Rewrites root-relative asset paths (e.g. `/avatars/backgrounds/backdrop-1.png`, returned
+/** Rewrites root-relative asset paths (e.g. `/avatars/backgrounds/backdrop-1.webp`, returned
  *  as-is by the server) to absolute URLs against the widget's real origin. Only matters for
  *  `widget.js` running inside a merchant's Shadow DOM — there, a bare `/avatars/...` `<img>`
  *  src resolves against the *host page's* origin instead of ours, rendering as a broken image.
