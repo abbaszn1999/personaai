@@ -9,7 +9,6 @@ import { chartHasBounds } from "@/lib/sizing/chart-schema";
 import { isSizingGroup } from "@/lib/sizing/measurements";
 import { isAudience, normalizeBrandKey, UNKNOWN_BRAND_KEY } from "@/lib/sizing/keys";
 import { sanitizeCoverage } from "@/lib/sizing/variant-match";
-import { buildBrandMappingState } from "@/lib/sizing/brand-mapping-state";
 
 /**
  * Stage 4's whole surface: the coverage-driven chart and gap join, plus one row per global brand at
@@ -36,21 +35,6 @@ export async function GET() {
       listSizingCoverage(connection.id),
       getLatestSizingRun(connection.id),
     ]);
-    const mappingState = buildBrandMappingState({
-      coverage,
-      mapping: connection.sizingBrandMapping,
-      sharedBrandKeys: [],
-      run,
-    });
-    if (!mappingState.ready) {
-      return Response.json(
-        {
-          error: "Canonical brand mapping must be saved and rescanned before charts can be loaded.",
-          reason: mappingState.status === "rescanning" ? "brand_mapping_rescanning" : "brand_mapping_required",
-        },
-        { status: 409 },
-      );
-    }
 
     // Read for every brand in coverage, not only the global ones: a merchant's hand-filled chart for
     // a private label is a chart, and omitting it would leave the gap it closed on the screen.

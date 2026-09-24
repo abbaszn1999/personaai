@@ -24,8 +24,6 @@ export interface ScanProduct {
   sku: string | null;
   title: string;
   brand: string | null;
-  /** Canonical registry key when the merchant has confirmed an alias mapping. */
-  brandKey?: string;
   /**
    * Which of the five parents this product is sized on, resolved from the merchant's own category
    * mapping. `null` means their mapping does not reach this product, and it is skipped.
@@ -197,7 +195,7 @@ export class CoverageAggregator {
       hints: [...product.storeCategoryPaths.flat(), product.title],
     });
 
-    const brandKey = product.brandKey ?? normalizeBrandKey(product.brand);
+    const brandKey = normalizeBrandKey(product.brand);
     const bucket = this.bucketFor(brandKey, product.brand, product.sizingGroup);
 
     for (const path of product.storeCategoryPaths) {

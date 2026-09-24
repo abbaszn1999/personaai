@@ -112,22 +112,6 @@ export async function listChartsForBrands(
   return ((data as Array<Record<string, unknown>>) ?? []).map(rowToChart);
 }
 
-/** Canonical brand targets already proven by a shared researched chart. */
-export async function listSharedChartBrandKeys(): Promise<string[]> {
-  const { data, error } = await db
-    .from("sizing_charts")
-    .select("brand_key")
-    .is("connection_id", null);
-
-  if (error) {
-    console.error("[db/sizing-charts listSharedChartBrandKeys]", error);
-    return [];
-  }
-
-  return [...new Set(((data as Array<Record<string, unknown>>) ?? []).map((row) => row.brand_key as string).filter(Boolean))]
-    .sort();
-}
-
 export interface UpsertChartInput {
   /** Null for a global brand's shared chart; a real connection id for private-label or manual. */
   connectionId: string | null;

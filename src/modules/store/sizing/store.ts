@@ -20,10 +20,7 @@ import {
   stageForRun,
   type AssignmentTotals,
   type BrandIdentification,
-  type BrandMappingResponse,
-  type BrandMappingStatus,
   type BrandResearchRow,
-  type CanonicalBrandGroup,
   type ChartAudience,
   type ChartGap,
   type CoverageSummary,
@@ -126,18 +123,8 @@ interface SizingUiState {
   runError: string | null;
   /** Set while a start request is in flight, so the button can't be double-fired. */
   startingRun: boolean;
-  brandMappingStatus: BrandMappingStatus;
-  brandMapping: BrandMappingResponse | null;
-  brandMappingLoading: boolean;
-  brandMappingSaving: boolean;
-  brandMappingError: string | null;
-  brandMappingEditing: boolean;
 
   loadRun: () => Promise<void>;
-  loadBrandMapping: (options?: { force?: boolean }) => Promise<void>;
-  saveBrandMapping: (groups: CanonicalBrandGroup[]) => Promise<boolean>;
-  openBrandMappingEditor: () => void;
-  closeBrandMappingEditor: () => void;
   startRun: () => Promise<void>;
   /** Unblocks the run's current stage server-side, then resumes polling so the new stage's progress
    *  is visible immediately instead of waiting a full poll interval. */
@@ -360,12 +347,6 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
   runLoading: false,
   runError: null,
   startingRun: false,
-  brandMappingStatus: "needs_mapping",
-  brandMapping: null,
-  brandMappingLoading: false,
-  brandMappingSaving: false,
-  brandMappingError: null,
-  brandMappingEditing: false,
 
   loadRun: async () => {
     // Only the first read shows a spinner. A poll that flipped this would make the whole stage
@@ -383,13 +364,8 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
 
       // Guarded on the high-water mark as well as the one-shot flag, so a merchant who clicked
       // forward while this request was in flight is never pulled back to where the run happens to be.
-      const landing =
-        !get().stageRestored && get().highestStage === 1
-          ? stageForRun(data.run, data.brandMappingStatus)
-          : null;
+      const landing = !get().stageRestored && get().highestStage === 1 ? stageForRun(data.run) : null;
       const previousRun = get().run;
-      const mappingSnapshotStale =
-        get().brandMapping !== null && get().brandMapping?.status !== data.brandMappingStatus;
       const scanRestarted =
         previousRun !== null && !isScanIncomplete(previousRun) && isScanIncomplete(data.run);
 
@@ -399,8 +375,6 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
         identification: data.identification ?? EMPTY_IDENTIFICATION,
         routing: data.routing ?? EMPTY_ROUTING,
         mappingApproved: data.mappingApproved,
-        brandMappingStatus: data.brandMappingStatus ?? "needs_mapping",
-        ...(mappingSnapshotStale ? { brandMapping: null } : {}),
         runLoading: false,
         runError: null,
         ...(scanRestarted
@@ -416,16 +390,6 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
               sampleParentCounts: null,
               sampleLoaded: false,
               sampleScanned: false,
-              chartBrands: [],
-              charts: [],
-              chartGapsNotFound: [],
-              chartGapsNoBrand: [],
-              chartTotals: EMPTY_CHARTS_RESPONSE.totals,
-              chartsResearched: false,
-              chartsLoaded: false,
-              assignmentPaths: [],
-              assignmentTotals: EMPTY_ASSIGNMENT_TOTALS,
-              assignmentsLoaded: false,
             }
           : {}),
         ...(landing !== null ? { stage: landing, highestStage: landing, stageRestored: true } : {}),
@@ -477,75 +441,6 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
       set({ runError: "Could not reach the server", startingRun: false });
     }
   },
-
-  loadBrandMapping: async (options) => {
-    if (!options?.force && (get().brandMappingLoading || get().brandMapping !== null)) return;
-    set({ brandMappingLoading: true, brandMappingError: null });
-    try {
-      const res = await fetch("/api/store-connection/sizing/brand-mapping");
-      const data = (await res.json()) as BrandMappingResponse & { error?: string };
-      if (!res.ok) {
-        set({
-          brandMappingLoading: false,
-          brandMappingError: data.error ?? "Could not load canonical brand mapping",
-        });
-        return;
-      }
-      set({
-        brandMapping: data,
-        brandMappingStatus: data.status,
-        brandMappingLoading: false,
-        brandMappingError: null,
-      });
-    } catch {
-      set({ brandMappingLoading: false, brandMappingError: "Could not reach the server" });
-    }
-  },
-
-  saveBrandMapping: async (groups) => {
-    if (get().brandMappingSaving) return false;
-    set({ brandMappingSaving: true, brandMappingError: null });
-    try {
-      const res = await fetch("/api/store-connection/sizing/brand-mapping", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ groups }),
-      });
-      const data = (await res.json()) as BrandMappingResponse & { error?: string };
-      if (!res.ok) {
-        set({
-          brandMappingSaving: false,
-          brandMappingError: data.error ?? "Could not save canonical brand mapping",
-        });
-        return false;
-      }
-      set({
-        brandMapping: data,
-        brandMappingStatus: data.status,
-        brandMappingSaving: false,
-        brandMappingEditing: false,
-        brandMappingError: null,
-        chartBrands: [],
-        charts: [],
-        chartGapsNotFound: [],
-        chartGapsNoBrand: [],
-        chartTotals: EMPTY_CHARTS_RESPONSE.totals,
-        chartsResearched: false,
-        chartsLoaded: false,
-        assignmentPaths: [],
-        assignmentTotals: EMPTY_ASSIGNMENT_TOTALS,
-        assignmentsLoaded: false,
-      });
-      void get().loadRun();
-      return true;
-    } catch {
-      set({ brandMappingSaving: false, brandMappingError: "Could not reach the server" });
-      return false;
-    }
-  },
-
-  openBrandMappingEditor: () => set({ brandMappingEditing: true, brandMappingError: null }),
-  closeBrandMappingEditor: () => set({ brandMappingEditing: false, brandMappingError: null }),
 
   continueRun: async () => {
     try {

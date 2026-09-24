@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
+  LayoutDashboard,
   Plug,
   BarChart2,
   Palette,
@@ -96,6 +97,7 @@ export function AppSidebar() {
     ? [
         { label: "Analytics", href: "/analytics", icon: <BarChart2 className="h-4 w-4" /> },
         { label: "Branding & Embed", href: "/branding", icon: <Palette className="h-4 w-4" /> },
+        { label: "Project Settings", href: "/project", icon: <LayoutDashboard className="h-4 w-4" /> },
       ]
     : [];
 
@@ -469,13 +471,21 @@ function SidebarAccountCard({
         collapsed ? "justify-center p-1.5 mt-1" : "gap-3 px-2.5 py-2.5 mt-1"
       )}
     >
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full gradient-brand text-sm font-semibold text-white">
+      <div className="relative h-9 w-9 rounded-full gradient-brand flex items-center justify-center shrink-0 shadow-[var(--color-sidebar-active-glow)] ring-2 ring-[rgba(255,255,255,0.1)]">
         {user?.profileImageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={user.profileImageUrl} alt="" className="h-full w-full object-cover" />
+          <img src={user.profileImageUrl} alt={displayName} className="h-full w-full rounded-full object-cover" />
         ) : (
-          displayName.charAt(0).toUpperCase()
+          <span className="text-white font-bold text-sm">
+            {displayName.charAt(0).toUpperCase()}
+          </span>
         )}
+        <span
+          className={cn(
+            "absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[var(--color-sidebar-bg)]",
+            connected ? "bg-[var(--color-success)]" : "bg-[var(--color-sidebar-text-muted)]"
+          )}
+        />
       </div>
       {!collapsed && (
         <div className="flex-1 min-w-0 text-left">

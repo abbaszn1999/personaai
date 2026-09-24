@@ -5,7 +5,6 @@ import { getActiveSizingRun, queueScopedResearch } from "@/lib/db/sizing-runs";
 import { UNKNOWN_BRAND_KEY } from "@/lib/sizing/keys";
 import { buildBrandResearch } from "@/lib/sizing/chart-results";
 import { listChartsForBrands } from "@/lib/db/sizing-charts";
-import { buildBrandMappingState } from "@/lib/sizing/brand-mapping-state";
 
 /**
  * Starts chart research for one brand, or for every brand still outstanding.
@@ -63,22 +62,6 @@ export async function POST(request: Request) {
     }
 
     const coverage = await listSizingCoverage(connection.id);
-    const mappingState = buildBrandMappingState({
-      coverage,
-      mapping: connection.sizingBrandMapping,
-      sharedBrandKeys: [],
-      run,
-    });
-    if (!mappingState.ready) {
-      return Response.json(
-        {
-          error: "Review and save the canonical brand mapping before starting chart research.",
-          reason: mappingState.status === "rescanning" ? "brand_mapping_rescanning" : "brand_mapping_required",
-        },
-        { status: 409 },
-      );
-    }
-
     const charts = await listChartsForBrands(
       connection.id,
       [...new Set(coverage.map((row) => row.brandKey))]

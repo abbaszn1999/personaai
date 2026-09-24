@@ -10,7 +10,6 @@ import { StageFieldMapping } from "./stage-field-mapping";
 import { StageItemPreview } from "./stage-item-preview";
 import { StageBrandDiscovery } from "./stage-brand-discovery";
 import { StageChartResearch } from "./stage-chart-research";
-import { StageBrandMapping } from "./stage-brand-mapping";
 import { StageChartAssignment } from "./stage-chart-assignment";
 import { StageConfirmation } from "./stage-confirmation";
 import { SizeChartModal } from "./size-chart-modal";
@@ -42,8 +41,6 @@ export function SetupPipeline() {
   const chartBrands = useSizingStore((s) => s.chartBrands);
   const chartTotals = useSizingStore((s) => s.chartTotals);
   const run = useSizingStore((s) => s.run);
-  const brandMappingStatus = useSizingStore((s) => s.brandMappingStatus);
-  const brandMappingEditing = useSizingStore((s) => s.brandMappingEditing);
   const mappingApproved = useStoreConnectionStore((s) => s.acsMapping.approved);
   const mappingApproving = useStoreConnectionStore((s) => s.mapping.isApproving);
   const approveMapping = useStoreConnectionStore((s) => s.approveMapping);
@@ -75,8 +72,6 @@ export function SetupPipeline() {
   // is still empty or still unclassified — and read as a pipeline that ran fine.
   const scanIncomplete = run === null || run.stage === "scan" || run.stage === "classify";
   const blockedByScan = stage === 3 && scanIncomplete;
-  const blockedByBrandMapping =
-    stage === 4 && (brandMappingStatus !== "ready" || brandMappingEditing);
 
   // A scoped research pass writes charts from a background job. Leaving mid-pass would carry a
   // half-written chart set into the assignment screen, where the missing variants look like brands
@@ -99,12 +94,12 @@ export function SetupPipeline() {
     // and holding a merchant on stage 4 over those would make the pipeline uncompletable. It is
     // confirmed rather than silent, because the consequence (that stock publishing with no size
     // chart) is invisible from anywhere else.
-    if (stage === 4 && !blockedByBrandMapping && unresearchedBrands > 0) {
+    if (stage === 4 && unresearchedBrands > 0) {
       setConfirmingGaps(true);
       return;
     }
     advance();
-  }, [stage, blockedByBrandMapping, unresearchedBrands, advance]);
+  }, [stage, unresearchedBrands, advance]);
 
   return (
     <div className="space-y-4 pb-4">
@@ -132,7 +127,7 @@ export function SetupPipeline() {
         )}
         {stage === 2 && <StageItemPreview />}
         {stage === 3 && <StageBrandDiscovery />}
-        {stage === 4 && (blockedByBrandMapping ? <StageBrandMapping /> : <StageChartResearch />)}
+        {stage === 4 && <StageChartResearch />}
         {stage === 5 && <StageChartAssignment />}
         {stage === 6 && <StageConfirmation />}
       </div>
@@ -183,16 +178,7 @@ export function SetupPipeline() {
                   Waiting for the brand being researched to finish
                 </p>
               )}
-              {blockedByBrandMapping && (
-                <p className="text-xs font-medium text-[var(--color-text-muted)]">
-                  Save the canonical brand mapping to continue
-                </p>
-              )}
-              <Button
-                size="sm"
-                onClick={handleContinue}
-                disabled={blockedByScan || blockedByBrandMapping || researching}
-              >
+              <Button size="sm" onClick={handleContinue} disabled={blockedByScan || researching}>
                 Continue <ArrowRight className="h-3.5 w-3.5" />
               </Button>
             </div>

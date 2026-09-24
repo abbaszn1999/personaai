@@ -127,36 +127,6 @@ export interface SizingRunResponse {
   identification: BrandIdentification;
   routing: RoutingPlan;
   mappingApproved: boolean;
-  brandMappingStatus: BrandMappingStatus;
-}
-
-export type BrandMappingStatus = "needs_mapping" | "rescanning" | "ready";
-
-export interface DiscoveredBrandMapping {
-  rawKey: string;
-  labels: string[];
-  skuCount: number;
-  sizingCategories: string[];
-}
-
-export interface CanonicalBrandOption {
-  canonicalKey: string;
-  canonicalName: string;
-  shared: boolean;
-}
-
-export interface CanonicalBrandGroup extends CanonicalBrandOption {
-  rawKeys: string[];
-}
-
-export interface BrandMappingResponse {
-  ready: boolean;
-  status: BrandMappingStatus;
-  confirmedAt: string | null;
-  sourceFingerprint: string;
-  brands: DiscoveredBrandMapping[];
-  groups: CanonicalBrandGroup[];
-  targets: CanonicalBrandOption[];
 }
 
 // ─── Stage 4: researched charts and the gaps between them ─────────────────────
@@ -509,10 +479,7 @@ export function isScanIncomplete(run: SizingRun | null): boolean {
  * the merchant got to. The rule is: the screen where the run's pending action is taken.
  *
  */
-export function stageForRun(
-  run: SizingRun | null,
-  brandMappingStatus: BrandMappingStatus = "needs_mapping",
-): StageNumber {
+export function stageForRun(run: SizingRun | null): StageNumber {
   if (!run) return 1;
 
   switch (run.stage) {
@@ -520,7 +487,7 @@ export function stageForRun(
     // it is where a scan still in flight is watched rather than stage 2.
     case "scan":
     case "classify":
-      return brandMappingStatus === "rescanning" ? 4 : 3;
+      return 3;
     // Every research state now lands on stage 4, blocked included. It used to send a blocked run back
     // to stage 3, because leaving stage 3 was the authorization to spend on a bulk search. Stage 4
     // owns that decision per brand now, so `research`/`blocked` is not a pending decision on stage 3 —

@@ -41,7 +41,6 @@ export class PathCoverageAggregator {
   addPersonaPath(product: {
     externalId: string;
     brand: string | null;
-    brandKey?: string;
     sizingGroup: SizingGroup;
     pathKey: string;
     path: string[];
@@ -49,7 +48,7 @@ export class PathCoverageAggregator {
     const seenKey = `${product.externalId}\u0000${product.pathKey}\u0000${product.sizingGroup}`;
     if (this.seenProducts.has(seenKey)) return;
     this.seenProducts.add(seenKey);
-    this.addResolved(product.brand, product.sizingGroup, product.pathKey, product.path, product.brandKey);
+    this.addResolved(product.brand, product.sizingGroup, product.pathKey, product.path);
   }
 
   private addResolved(
@@ -57,10 +56,9 @@ export class PathCoverageAggregator {
     sizingGroup: SizingGroup,
     categoryId: string,
     categoryPath: string[],
-    resolvedBrandKey?: string,
   ): void {
 
-    const brandKey = resolvedBrandKey ?? normalizeBrandKey(brand);
+    const brandKey = normalizeBrandKey(brand);
     const key = `${brandKey}\u0000${categoryId}\u0000${sizingGroup}`;
 
     const existing = this.rows.get(key);

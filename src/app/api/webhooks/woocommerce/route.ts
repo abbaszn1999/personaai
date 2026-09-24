@@ -1,8 +1,6 @@
 import { indexProductIfInScope } from "@/lib/catalog/index-product";
 import { markAcsProductOutOfStock } from "@/lib/catalog/acs/sync";
 import { getStoreConnectionByStoreUrl } from "@/lib/db/store-connections";
-import { applyWooOrder } from "@/lib/attribution/apply-woo-order";
-import { isWooWebhookPing } from "@/lib/attribution/woo-ping";
 import { mapWooWebhookProduct } from "@/lib/woocommerce/client";
 import { deriveWebhookSecret, verifyHmacSignature } from "@/lib/utils/internal-auth";
 
@@ -17,11 +15,6 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(request: Request) {
   const rawBody = await request.text();
-
-  // The creation ping has no signature. A non-2xx here makes WooCommerce disable the webhook.
-  if (isWooWebhookPing(rawBody)) {
-    return Response.json({ ok: true });
-  }
 
   const source = request.headers.get("x-wc-webhook-source");
   const topic = request.headers.get("x-wc-webhook-topic") ?? "";
@@ -48,11 +41,6 @@ export async function POST(request: Request) {
   }
 
   try {
-    if (topic.startsWith("order.")) {
-      await applyWooOrder(connection, payload);
-      return Response.json({ ok: true });
-    }
-
     if (topic === "product.deleted") {
       const id = (payload as { id?: number }).id;
       // Downgraded rather than removed — see the Shopify webhook route's identical note.

@@ -77,7 +77,6 @@ export function StageChartResearch() {
   const openChartModal = useSizingStore((s) => s.openChartModal);
   const mappedLeaves = useSizingStore((s) => s.mappedLeaves);
   const loadAssignments = useSizingStore((s) => s.loadAssignments);
-  const openBrandMappingEditor = useSizingStore((s) => s.openBrandMappingEditor);
 
   const [tab, setTab] = React.useState<ResultTab>("brands");
   const [statusFilter, setStatusFilter] = React.useState<StatusFilter>("all");
@@ -219,9 +218,6 @@ export function StageChartResearch() {
         aiPowered
         actions={
           <>
-            <Button variant="ghost" size="sm" onClick={openBrandMappingEditor} disabled={busy}>
-              <PencilLine className="h-3.5 w-3.5" /> Edit brand mapping
-            </Button>
             <Button variant="ghost" size="sm" onClick={() => void loadCharts({ force: true })} disabled={loading}>
               <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> Refresh
             </Button>

@@ -16,24 +16,12 @@ vi.mock("@/lib/db/sizing-runs", () => ({
   getActiveSizingRun: vi.fn(),
   queueScopedResearch: vi.fn(),
 }));
-vi.mock("@/lib/sizing/brand-mapping-state", () => ({
-  buildBrandMappingState: vi.fn(() => ({
-    ready: true,
-    status: "ready",
-    confirmedAt: "2026-09-23T20:00:00.000Z",
-    sourceFingerprint: "v1-test",
-    brands: [],
-    groups: [],
-    targets: [],
-  })),
-}));
 
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
 import { listSizingCoverage, resetResearchOutcomes } from "@/lib/db/sizing-coverage";
 import { listChartsForBrands } from "@/lib/db/sizing-charts";
 import { getActiveSizingRun, queueScopedResearch } from "@/lib/db/sizing-runs";
-import { buildBrandMappingState } from "@/lib/sizing/brand-mapping-state";
 
 /**
  * The only door into chart research, and the reason it can be a door at all.
@@ -218,23 +206,6 @@ describe("POST /api/store-connection/sizing/research", () => {
       expect(res.status).toBe(409);
       expect((await res.json()).reason).toBe("scan_running");
     }
-    expect(queueScopedResearch).not.toHaveBeenCalled();
-  });
-
-  it("requires a confirmed canonical mapping before research", async () => {
-    vi.mocked(buildBrandMappingState).mockReturnValueOnce({
-      ready: false,
-      status: "needs_mapping",
-      confirmedAt: null,
-      sourceFingerprint: "v1-test",
-      brands: [],
-      groups: [],
-      targets: [],
-    });
-
-    const res = await POST(post({ brandKey: "nike" }));
-    expect(res.status).toBe(409);
-    expect((await res.json()).reason).toBe("brand_mapping_required");
     expect(queueScopedResearch).not.toHaveBeenCalled();
   });
 

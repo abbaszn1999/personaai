@@ -4,10 +4,7 @@ import { buildCategoryIndex } from "@/lib/catalog/category-parents";
 import { buildPersonaMappingConfig, resolvePersonaPaths, type ResolvedPersonaPath } from "@/lib/catalog/persona-mapping";
 import { extractVariantAttributes } from "@/lib/catalog/acs/map-product";
 import { sleep } from "@/lib/catalog/timeout";
-import {
-  updateSizingBrandMappingById,
-  type StoreConnectionRow,
-} from "@/lib/db/store-connections";
+import type { StoreConnectionRow } from "@/lib/db/store-connections";
 import { replaceSizingCoverage } from "@/lib/db/sizing-coverage";
 import { replaceSizingNullRecords } from "@/lib/db/sizing-null-records";
 import { replaceSizingProductRecords } from "@/lib/db/sizing-product-records";
@@ -20,11 +17,7 @@ import { updateSizingRun, type SizingRunRow } from "@/lib/db/sizing-runs";
 import { isSizingGroup, type SizingGroup } from "./measurements";
 import { CoverageAggregator, type AggregateStats } from "./aggregate";
 import { PathCoverageAggregator, pathKey } from "./path-coverage";
-import {
-  mergeObservedBrandLabels,
-  parseStoreBrandMapping,
-  resolveMappedBrand,
-} from "./brand-mapping";
+import { normalizeBrandKey } from "./keys";
 
 /**
  * Pass 1 of the pipeline: read the merchant's catalog once and write down what it contains.
@@ -97,7 +90,6 @@ interface ScanRow {
  * untouched rather than half-replace them.
  */
 export async function runSizingScan(connection: StoreConnectionRow, run: SizingRunRow): Promise<ScanResult> {
-  const brandMapping = parseStoreBrandMapping(connection.sizingBrandMapping);
   const pager = await createCatalogPager(connection);
   if (!pager) {
     throw new Error("No categories are selected for indexing yet, so there is nothing to scan.");
@@ -191,13 +183,11 @@ export async function runSizingScan(connection: StoreConnectionRow, run: SizingR
   const paths = new PathCoverageAggregator(connection.categories, categoryIndex);
 
   for (const row of scanned) {
-    const brand = resolveMappedBrand(row.brandField, brandMapping);
     aggregator.add({
       externalId: row.externalId,
       sku: row.sku,
       title: row.title,
-      brand: brand.brandName,
-      brandKey: brand.brandKey,
+      brand: row.brandField,
       sizingGroup: row.sizingGroup,
       sizes: row.sizes,
       genders: row.genders,
@@ -208,8 +198,7 @@ export async function runSizingScan(connection: StoreConnectionRow, run: SizingR
     for (const personaPath of row.personaPaths) {
       paths.addPersonaPath({
         externalId: row.externalId,
-        brand: brand.brandName,
-        brandKey: brand.brandKey,
+        brand: row.brandField,
         sizingGroup: row.sizingGroup ?? personaPath.sizingGroup,
         pathKey: personaPath.key,
         path: personaPath.segments,
@@ -229,7 +218,7 @@ export async function runSizingScan(connection: StoreConnectionRow, run: SizingR
             externalId: row.externalId,
             sku: row.sku,
             title: row.title,
-            brandKey: resolveMappedBrand(row.brandField, brandMapping).brandKey,
+            brandKey: normalizeBrandKey(row.brandField),
             sizingCategory: row.sizingGroup,
           }]
         : []
@@ -239,11 +228,7 @@ export async function runSizingScan(connection: StoreConnectionRow, run: SizingR
     throw new Error("Scan finished but its Stage 2 product snapshot could not be saved.");
   }
 
-  const written = await replaceSizingCoverage(
-    connection.id,
-    rows,
-    brandMapping.confirmedAt ? brandMapping.aliases : {},
-  );
+  const written = await replaceSizingCoverage(connection.id, rows);
   if (!written) {
     throw new Error("Scan finished but its coverage could not be saved.");
   }
@@ -259,14 +244,6 @@ export async function runSizingScan(connection: StoreConnectionRow, run: SizingR
   const pathsWritten = await replaceSizingPathCoverage(connection.id, pathRows);
   if (!pathsWritten) {
     throw new Error("Scan finished but its category-path coverage could not be saved.");
-  }
-
-  const observedMapping = mergeObservedBrandLabels(
-    brandMapping,
-    scanned.map((row) => row.brandField),
-  );
-  if (!(await updateSizingBrandMappingById(connection.id, observedMapping))) {
-    throw new Error("Scan finished but its observed brand labels could not be saved.");
   }
 
   // Assignments are a merchant decision and survive a rescan, but only where the path still exists.
