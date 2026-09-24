@@ -642,9 +642,10 @@ export function AvatarMannequinPanel({
           disabled={anyPendingInCart}
           className={cn(
             "w-full h-[54px] rounded-[var(--radius-lg)] font-semibold text-[13px] flex items-center justify-between px-5 transition-all",
-            "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-white",
+            "text-white",
             "shadow-[var(--shadow-glow)] hover:brightness-110 active:scale-[0.98] disabled:cursor-wait"
           )}
+          style={{ background: "linear-gradient(to right, var(--color-brand-from), var(--color-brand-to))" }}
         >
           <span className="flex items-center gap-2">
             {anyPendingInCart ? (
@@ -1039,9 +1040,10 @@ function MobileAvatarStrip({
             <button type="button" onClick={handleAddAllToCart} disabled={anyPending}
               className={cn(
                 "h-11 shrink-0 flex items-center gap-1.5 rounded-[var(--radius-md)] px-3.5 text-[12px] font-semibold transition-all",
-                "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-[var(--color-brand-contrast)] shadow-[var(--shadow-glow)]",
+                "text-white shadow-[var(--shadow-glow)]",
                 "hover:brightness-110 active:scale-[0.97] disabled:opacity-70"
               )}
+              style={{ background: "linear-gradient(to right, var(--color-brand-from), var(--color-brand-to))" }}
             >
               {anyPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : justAddedAll ? <Check className="h-3.5 w-3.5" /> : <ShoppingBag className="h-3.5 w-3.5" />}
               {anyPending ? "Adding…" : justAddedAll ? "Added" : `Cart · ${formatPrice(cartTotal, currency)}`}
