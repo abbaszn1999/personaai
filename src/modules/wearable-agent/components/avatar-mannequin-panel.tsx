@@ -107,15 +107,35 @@ const PANEL_BG_BY_THEME = { dark: "#0d0b14", light: "#f2f0f5" } as const;
 
 /** Matches the reference card style: dark near-opaque background, very subtle border,
  *  enough backdrop blur so the card reads as a premium glass surface. */
+const INFO_CARD_TONE = {
+  dark: {
+    "--ic-fg": "#ffffff",
+    "--ic-strong": "rgba(255,255,255,0.85)",
+    "--ic-muted": "rgba(255,255,255,0.45)",
+    "--ic-faint": "rgba(255,255,255,0.35)",
+    "--ic-line": "rgba(255,255,255,0.08)",
+  },
+  light: {
+    "--ic-fg": "#17121d",
+    "--ic-strong": "rgba(23,18,29,0.85)",
+    "--ic-muted": "rgba(23,18,29,0.55)",
+    "--ic-faint": "rgba(23,18,29,0.42)",
+    "--ic-line": "rgba(23,18,29,0.09)",
+  },
+} as const;
+
 function InfoCard({ children, className }: { children: React.ReactNode; className?: string }) {
+  const theme = useWearableTheme();
   return (
     <div
       className={cn(
-        "rounded-[18px] border border-white/[0.07]",
-        "bg-[rgba(13,11,20,0.82)] backdrop-blur-2xl",
-        "shadow-[0_12px_40px_rgba(0,0,0,0.55)]",
+        "rounded-[var(--radius-xl)] border backdrop-blur-2xl",
+        theme === "light"
+          ? "border-black/[0.06] bg-[rgba(255,255,255,0.88)] shadow-[0_12px_40px_rgba(23,18,29,0.12)]"
+          : "border-white/[0.07] bg-[rgba(13,11,20,0.82)] shadow-[0_12px_40px_rgba(0,0,0,0.55)]",
         className
       )}
+      style={INFO_CARD_TONE[theme] as React.CSSProperties}
     >
       {children}
     </div>
@@ -364,9 +384,10 @@ export function AvatarMannequinPanel({
   return (
     <div
       className={cn(
-        "relative w-full h-full min-h-0 rounded-[22px] overflow-hidden",
-        "border border-white/[0.06] shadow-[0_32px_80px_rgba(0,0,0,0.7)]",
-        "bg-[#0d0b14] transition-colors duration-700"
+        "relative w-full h-full min-h-0 rounded-[var(--radius-2xl)] overflow-hidden border transition-colors duration-700",
+        theme === "light"
+          ? "border-black/[0.06] shadow-[0_32px_80px_rgba(23,18,29,0.14)]"
+          : "border-white/[0.06] shadow-[0_32px_80px_rgba(0,0,0,0.7)]"
       )}
       style={{ background: panelBg }}
     >
@@ -427,12 +448,12 @@ export function AvatarMannequinPanel({
 
       {/* ── Layer 2: Top vignette — keeps Save/Share legible ── */}
       <div className="absolute inset-x-0 top-0 h-24 z-[3] pointer-events-none"
-        style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.42), transparent)" }}
+        style={{ background: theme === "light" ? "linear-gradient(to bottom, rgba(242,240,245,0.55), transparent)" : "linear-gradient(to bottom, rgba(0,0,0,0.42), transparent)" }}
       />
 
       {/* ── Layer 3: Bottom vignette — keeps swatches legible ── */}
       <div className="absolute inset-x-0 bottom-0 h-40 z-[3] pointer-events-none"
-        style={{ background: "linear-gradient(to top, rgba(0,0,0,0.60), transparent)" }}
+        style={{ background: theme === "light" ? "linear-gradient(to top, rgba(242,240,245,0.75), transparent)" : "linear-gradient(to top, rgba(0,0,0,0.60), transparent)" }}
       />
 
       {/* ── Hotspots — mapped to exact photo aspect ratio. pointer-events-none on the
@@ -455,7 +476,7 @@ export function AvatarMannequinPanel({
       {/* ── Left toolbar ── */}
       <div ref={bgPickerRef} className="absolute left-5 top-1/2 -translate-y-1/2 z-[20] flex flex-col items-center gap-3">
         <div
-          className="relative flex flex-col items-center gap-1.5 px-1.5 py-2 rounded-[20px] border border-white/[0.12] bg-black/50 backdrop-blur-2xl shadow-[0_8px_28px_rgba(0,0,0,0.5)]"
+          className="relative flex flex-col items-center gap-1.5 px-1.5 py-2 rounded-[var(--radius-xl)] border border-white/[0.12] bg-black/50 backdrop-blur-2xl shadow-[0_8px_28px_rgba(0,0,0,0.5)]"
         >
           {viewMode === "photo" && (
             <>
@@ -604,14 +625,14 @@ export function AvatarMannequinPanel({
 
         {/* Fit Analysis card */}
         <InfoCard className="p-4">
-          <p className="text-[13px] font-semibold text-white mb-3">Fit Analysis</p>
+          <p className="text-[13px] font-semibold text-[var(--ic-fg)] mb-3">Fit Analysis</p>
 
           {/* Circular gauge — centered */}
           <div className="flex flex-col items-center gap-1 mb-4">
-            <p className="text-[10px] text-white/40 font-medium">Fit Score</p>
+            <p className="text-[10px] text-[var(--ic-faint)] font-medium">Fit Score</p>
             <div className="relative h-[88px] w-[88px] my-1">
               <svg className="h-[88px] w-[88px] -rotate-90" viewBox="0 0 88 88">
-                <circle cx="44" cy="44" r="36" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="6" />
+                <circle cx="44" cy="44" r="36" fill="none" stroke="var(--ic-line)" strokeWidth="6" />
                 <circle
                   cx="44" cy="44" r="36" fill="none"
                   stroke="url(#fitGaugeGrad)" strokeWidth="6"
@@ -626,10 +647,10 @@ export function AvatarMannequinPanel({
                 </defs>
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-[22px] font-bold text-white leading-none">{fit.fitScore}%</span>
+                <span className="text-[22px] font-bold text-[var(--ic-fg)] leading-none">{fit.fitScore}%</span>
               </div>
             </div>
-            <p className="text-[12px] font-semibold text-white/80">{fit.fitLabel}</p>
+            <p className="text-[12px] font-semibold text-[var(--ic-strong)]">{fit.fitLabel}</p>
           </div>
 
           {/* Metric bars */}
@@ -637,10 +658,10 @@ export function AvatarMannequinPanel({
             {fit.metrics.map((m) => (
               <div key={m.label}>
                 <div className="flex justify-between text-[11px] mb-1">
-                  <span className="text-white/45">{m.label}</span>
-                  <span className="text-white/85 font-semibold">{m.value}%</span>
+                  <span className="text-[var(--ic-muted)]">{m.label}</span>
+                  <span className="text-[var(--ic-strong)] font-semibold">{m.value}%</span>
                 </div>
-                <div className="h-[3px] rounded-full bg-white/[0.08] overflow-hidden">
+                <div className="h-[3px] rounded-full bg-[var(--ic-line)] overflow-hidden">
                   <div className="h-full rounded-full bg-[var(--color-brand)]" style={{ width: `${m.value}%` }} />
                 </div>
               </div>
@@ -651,7 +672,7 @@ export function AvatarMannequinPanel({
         {/* Model Stats + Size Recommendation card */}
         <InfoCard className="p-4">
           <div className="flex items-center justify-between mb-3">
-            <p className="text-[13px] font-semibold text-white">Model Stats</p>
+            <p className="text-[13px] font-semibold text-[var(--ic-fg)]">Model Stats</p>
             <button
               type="button"
               onClick={() => setIsEditOpen(true)}
@@ -669,22 +690,22 @@ export function AvatarMannequinPanel({
               { label: "Shoe Size", value: formatShoeSizeEu(profile.shoeSizeEu) },
             ].map(({ label, value }) => (
               <div key={label} className="flex items-center justify-between">
-                <span className="text-[12px] text-white/45">{label}</span>
-                <span className="text-[12px] text-white font-semibold">{value}</span>
+                <span className="text-[12px] text-[var(--ic-muted)]">{label}</span>
+                <span className="text-[12px] text-[var(--ic-fg)] font-semibold">{value}</span>
               </div>
             ))}
           </div>
 
-          <div className="my-3.5 h-px bg-white/[0.07]" />
+          <div className="my-3.5 h-px bg-[var(--ic-line)]" />
 
-          <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-white/35 mb-3">Size Recommendation</p>
+          <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-[var(--ic-faint)] mb-3">Size Recommendation</p>
           {sizeRows.length > 0 ? (
             <>
               <div className="space-y-2">
                 {sizeRows.map((row) => (
                   <div key={row.id} className="flex items-center justify-between">
-                    <span className="text-[12px] text-white/45">{row.label}</span>
-                    <span className="text-[12px] text-white/90 font-semibold">{row.size}</span>
+                    <span className="text-[12px] text-[var(--ic-muted)]">{row.label}</span>
+                    <span className="text-[12px] text-[var(--ic-fg)] font-semibold">{row.size}</span>
                   </div>
                 ))}
               </div>
@@ -697,7 +718,7 @@ export function AvatarMannequinPanel({
               </button>
             </>
           ) : (
-            <p className="text-[12px] text-white/40">Add items to see size recommendations.</p>
+            <p className="text-[12px] text-[var(--ic-faint)]">Add items to see size recommendations.</p>
           )}
         </InfoCard>
 
@@ -708,7 +729,7 @@ export function AvatarMannequinPanel({
           onClick={handleAddAllToCart}
           disabled={anyPendingInCart}
           className={cn(
-            "w-full h-[54px] rounded-[16px] font-semibold text-[13px] flex items-center justify-between px-5 transition-all",
+            "w-full h-[54px] rounded-[var(--radius-lg)] font-semibold text-[13px] flex items-center justify-between px-5 transition-all",
             "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-white",
             "shadow-[var(--shadow-glow)] hover:brightness-110 active:scale-[0.98] disabled:opacity-70"
           )}
@@ -777,7 +798,7 @@ export function AvatarMannequinPanel({
             type="button"
             onClick={sw.onClick}
             className={cn(
-              "relative h-[52px] w-[52px] rounded-[12px] overflow-hidden border-2 transition-all duration-200",
+              "relative h-[52px] w-[52px] rounded-[var(--radius-md)] overflow-hidden border-2 transition-all duration-200",
               sw.active
                 ? "border-[var(--color-brand)] shadow-[var(--shadow-glow)]"
                 : "border-white/25 opacity-70 hover:opacity-100 hover:border-white/50"
