@@ -755,7 +755,8 @@ export function AvatarMannequinPanel({
           disabled={anyPendingInCart}
           className={cn(
             "w-full h-[54px] rounded-[var(--radius-lg)] font-semibold text-[13px] flex items-center justify-between px-5 transition-all",
-            "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-[#17121d]",
+            "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)]",
+            theme === "light" ? "text-[#17121d]" : "text-white",
             "shadow-[var(--shadow-glow)] hover:brightness-110 active:scale-[0.98] disabled:cursor-wait"
           )}
         >
