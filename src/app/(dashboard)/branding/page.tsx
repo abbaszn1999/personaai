@@ -8,6 +8,11 @@ import { useWorkspaceStore } from "@/modules/workspaces/store";
 
 export default function BrandingPage() {
   const ws = useWorkspaceStore((s) => s.workspace);
+  const hasLoaded = useWorkspaceStore((s) => s.hasLoaded);
+
+  if (!hasLoaded) {
+    return <DashboardPageHeader title="Branding & Embed" />;
+  }
 
   if (!ws) {
     return (

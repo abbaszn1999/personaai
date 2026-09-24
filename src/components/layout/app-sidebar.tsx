@@ -80,7 +80,10 @@ export function AppSidebar() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const active = useWorkspaceStore((s) => s.workspace);
+  const workspaceLoaded = useWorkspaceStore((s) => s.hasLoaded);
   const connection = useStoreConnectionStore((s) => s.connection);
+  const storeLoaded = useStoreConnectionStore((s) => s.hasLoaded);
+  const loading = !workspaceLoaded || (active !== null && !storeLoaded);
   const collapsed = useSidebarCollapsed();
   const connected = connection?.status === "connected";
 
@@ -195,17 +198,25 @@ export function AppSidebar() {
 
         {/* ── Workspace card ───────────────────────────────────────── */}
         <div className="shrink-0 pt-2.5">
-          <SidebarWorkspaceCard
-            workspace={active}
-            collapsed={collapsed}
-            storeConnected={connected}
-            storeName={connection?.storeName ?? null}
-          />
+          {loading ? (
+            <SidebarCardSkeleton collapsed={collapsed} />
+          ) : (
+            <SidebarWorkspaceCard
+              workspace={active}
+              collapsed={collapsed}
+              storeConnected={connected}
+              storeName={connection?.storeName ?? null}
+            />
+          )}
         </div>
 
         {/* ── Navigation ───────────────────────────────────────────── */}
         <div className="flex-1 flex flex-col overflow-hidden sidebar-scroll">
           <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 space-y-1">
+            {loading ? (
+              <SidebarNavSkeleton collapsed={collapsed} />
+            ) : (
+            <>
             {!collapsed && active && (
               <p className="px-3 pt-1 pb-2 text-[10px] font-bold text-[var(--color-sidebar-text-muted)] uppercase tracking-widest">
                 Manage
@@ -255,6 +266,8 @@ export function AppSidebar() {
                 </div>
               )
             )}
+            </>
+            )}
           </nav>
         </div>
 
@@ -276,6 +289,41 @@ export function AppSidebar() {
         </div>
       </motion.aside>
     </TooltipProvider>
+  );
+}
+
+function SidebarCardSkeleton({ collapsed }: { collapsed: boolean }) {
+  if (collapsed) {
+    return (
+      <div className="flex justify-center px-1 py-1">
+        <span className="m-1 h-9 w-9 animate-pulse rounded-[10px] bg-[var(--color-sidebar-surface)]" />
+      </div>
+    );
+  }
+  return (
+    <div className="mx-2.5 mb-2 flex items-center gap-2.5 rounded-[var(--radius-xl)] sidebar-glass px-3 py-2.5">
+      <span className="h-9 w-9 shrink-0 animate-pulse rounded-[10px] bg-[var(--color-sidebar-surface)]" />
+      <div className="flex-1 space-y-1.5">
+        <span className="block h-3 w-24 animate-pulse rounded bg-[var(--color-sidebar-surface)]" />
+        <span className="block h-2 w-16 animate-pulse rounded bg-[var(--color-sidebar-surface)]" />
+      </div>
+    </div>
+  );
+}
+
+function SidebarNavSkeleton({ collapsed }: { collapsed: boolean }) {
+  return (
+    <div className="space-y-1.5 pt-1" aria-hidden>
+      {[0, 1, 2, 3].map((i) => (
+        <span
+          key={i}
+          className={cn(
+            "block h-9 animate-pulse rounded-[var(--radius-lg)] bg-[var(--color-sidebar-surface)]",
+            collapsed ? "mx-auto w-9" : "mx-1"
+          )}
+        />
+      ))}
+    </div>
   );
 }
 

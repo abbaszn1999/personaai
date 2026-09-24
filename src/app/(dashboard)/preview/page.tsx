@@ -12,10 +12,15 @@ import { cn } from "@/lib/utils/cn";
 
 export default function CustomerPreviewPage() {
   const ws = useWorkspaceStore((s) => s.workspace);
+  const hasLoaded = useWorkspaceStore((s) => s.hasLoaded);
 
   React.useEffect(() => {
     if (ws) loadGoogleFont(ws.branding.fontFamily);
   }, [ws?.branding.fontFamily]);
+
+  if (!hasLoaded) {
+    return <div className="h-screen bg-[var(--color-surface-base)]" />;
+  }
 
   if (!ws) {
     return (
