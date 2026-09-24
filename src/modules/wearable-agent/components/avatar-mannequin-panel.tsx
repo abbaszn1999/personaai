@@ -642,8 +642,7 @@ export function AvatarMannequinPanel({
           disabled={anyPendingInCart}
           className={cn(
             "w-full h-[54px] rounded-[var(--radius-lg)] font-semibold text-[13px] flex items-center justify-between px-5 transition-all",
-            "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)]",
-            theme === "light" ? "text-[#17121d]" : "text-white",
+            "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-white",
             "shadow-[var(--shadow-glow)] hover:brightness-110 active:scale-[0.98] disabled:cursor-wait"
           )}
         >
@@ -1158,7 +1157,7 @@ function MobileAvatarStrip({
               type="button"
               onClick={handleSaveEdit}
               className={cn(
-                "flex-1 h-11 rounded-[var(--radius-md)] text-[13px] font-semibold text-[var(--color-brand-contrast)] flex items-center justify-center gap-1.5",
+                "flex-1 h-11 rounded-[var(--radius-md)] text-[13px] font-semibold text-white flex items-center justify-center gap-1.5",
                 "gradient-violet bg-[var(--color-violet-from)]"
               )}
             >

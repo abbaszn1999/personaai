@@ -600,7 +600,6 @@ const PANEL_TONE = {
     fg: "text-white",
     muted: "text-white/45",
     track: "bg-white/[0.08]",
-    cta: "text-white",
   },
   light: {
     bg: "#f2f0f5",
@@ -611,7 +610,6 @@ const PANEL_TONE = {
     fg: "text-[#17121d]",
     muted: "text-[#17121d]/50",
     track: "bg-black/[0.06]",
-    cta: "text-[#17121d]",
   },
 } as const;
 
@@ -807,8 +805,7 @@ function AvatarPanelScreen({
         </div>
         <div
           className={cn(
-            "mt-auto flex h-8 shrink-0 items-center justify-between bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] px-2.5 text-[9px] font-semibold",
-            tone.cta,
+            "mt-auto flex h-8 shrink-0 items-center justify-between bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] px-2.5 text-[9px] font-semibold text-white",
           )}
           style={{ borderRadius: radius }}
         >
