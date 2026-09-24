@@ -445,12 +445,16 @@ export function WsBrandingEditor({ workspace }: Props) {
                       type="button"
                       title={bg.label}
                       aria-label={bg.label}
-                      onClick={() => update({ studioBackdropId: bg.id })}
+                      onClick={() => {
+                        update({ studioBackdropId: bg.id });
+                        chooseScreen("chat");
+                      }}
                       className={cn(
                         "relative aspect-[3/4] overflow-hidden rounded-[var(--radius-md)] border-2 transition-all",
                         active ? "border-[var(--color-brand)]" : "border-[var(--color-border)] hover:border-[var(--color-border-strong)]"
                       )}
                     >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={bg.url} alt="" className="h-full w-full object-cover" />
                       {active && (
                         <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--color-brand)]">
@@ -713,7 +717,6 @@ export function WsBrandingEditor({ workspace }: Props) {
                 options={[
                   { id: "chat", label: "Chat" },
                   { id: "sign-in", label: "Sign-in" },
-                  { id: "launcher", label: "Mobile button" },
                 ]}
                 value={screen}
                 onChange={(id) => chooseScreen(id as PreviewScreen)}

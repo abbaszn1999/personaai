@@ -463,11 +463,6 @@ export function AvatarMannequinPanel({
         style={{ background: theme === "light" ? "linear-gradient(to bottom, rgba(242,240,245,0.55), transparent)" : "linear-gradient(to bottom, rgba(0,0,0,0.42), transparent)" }}
       />
 
-      {/* ── Layer 3: Bottom vignette — keeps swatches legible ── */}
-      <div className="absolute inset-x-0 bottom-0 h-40 z-[3] pointer-events-none"
-        style={{ background: theme === "light" ? "linear-gradient(to top, rgba(242,240,245,0.75), transparent)" : "linear-gradient(to top, rgba(0,0,0,0.60), transparent)" }}
-      />
-
       {/* ── Hotspots — mapped to exact photo aspect ratio. pointer-events-none on the
           wrapper so empty space lets clicks/drags reach the photo underneath (e.g. panning);
           each hotspot dot opts back in with its own pointer-events-auto. ── */}

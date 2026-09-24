@@ -1,6 +1,8 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
+import { getSidebarCollapsed, setSidebarCollapsed } from "@/components/layout/app-sidebar";
 import { DashboardPageHeader } from "@/components/layout/dashboard-header-context";
 import { Button } from "@/components/ui/button";
 import { WsBrandingEditor } from "@/modules/workspaces/settings/ws-branding-editor";
@@ -9,6 +11,16 @@ import { useWorkspaceStore } from "@/modules/workspaces/store";
 export default function BrandingPage() {
   const ws = useWorkspaceStore((s) => s.workspace);
   const hasLoaded = useWorkspaceStore((s) => s.hasLoaded);
+
+  // The editor needs the width for the full widget preview. Leaving restores the
+  // merchant's own sidebar choice.
+  React.useEffect(() => {
+    const wasCollapsed = getSidebarCollapsed();
+    setSidebarCollapsed(true);
+    return () => {
+      if (getSidebarCollapsed()) setSidebarCollapsed(wasCollapsed);
+    };
+  }, []);
 
   if (!hasLoaded) {
     return <DashboardPageHeader title="Branding & Embed" />;

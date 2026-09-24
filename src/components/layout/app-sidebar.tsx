@@ -10,13 +10,9 @@ import {
   Palette,
   Crown,
   CreditCard,
-  LogOut,
   ChevronsLeft,
   ChevronsRight,
-  User,
   Gauge,
-  ImageIcon,
-  Clock3,
   FolderTree,
   Ruler,
   SlidersHorizontal,
@@ -24,7 +20,6 @@ import {
 import { LogoMark } from "@/components/brand/logo";
 import { SidebarNavItem } from "./sidebar/sidebar-nav-item";
 import { SidebarNavGroup } from "./sidebar/sidebar-nav-group";
-import { SidebarPreviewCta } from "./sidebar/sidebar-preview-cta";
 import { SidebarWorkspaceCard } from "./sidebar/sidebar-workspace-card";
 import {
   TooltipProvider,
@@ -32,14 +27,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu";
 import { useWorkspaceStore } from "@/modules/workspaces/store";
 import { useStoreConnectionStore } from "@/modules/store/store";
 import { useUser } from "@/modules/auth/context/user-context";
@@ -55,7 +42,11 @@ if (typeof window !== "undefined") {
   collapsedValue = window.localStorage.getItem(COLLAPSE_KEY) === "1";
 }
 
-function setSidebarCollapsed(value: boolean) {
+export function getSidebarCollapsed(): boolean {
+  return collapsedValue;
+}
+
+export function setSidebarCollapsed(value: boolean) {
   collapsedValue = value;
   try {
     window.localStorage.setItem(COLLAPSE_KEY, value ? "1" : "0");
@@ -85,7 +76,6 @@ export function AppSidebar() {
   const storeLoaded = useStoreConnectionStore((s) => s.hasLoaded);
   const loading = !workspaceLoaded || (active !== null && !storeLoaded);
   const collapsed = useSidebarCollapsed();
-  const connected = connection?.status === "connected";
 
   function toggleCollapsed() {
     setSidebarCollapsed(!collapsed);
@@ -102,10 +92,10 @@ export function AppSidebar() {
       ]
     : [];
 
-  const previewHref = active ? "/try-on" : "#";
-
   const storeSection = searchParams.get("section") ?? "connection";
   const storeActive = pathname === "/store";
+  const billingActive = pathname.startsWith("/settings/billing");
+  const usageActive = pathname === "/usage" || pathname.startsWith("/usage/");
   const storeChildren = [
     {
       label: "Connection",
@@ -203,9 +193,8 @@ export function AppSidebar() {
           ) : (
             <SidebarWorkspaceCard
               workspace={active}
+              workspaceId={active?.id ?? null}
               collapsed={collapsed}
-              storeConnected={connected}
-              storeName={connection?.storeName ?? null}
             />
           )}
         </div>
@@ -243,19 +232,20 @@ export function AppSidebar() {
                 >
                   {storeChildren}
                 </SidebarNavGroup>
-
-                <div className={cn("pt-3", collapsed ? "px-0" : "px-0.5")}>
-                  {!collapsed && (
-                    <p className="px-3 pb-2 text-[10px] font-bold text-[var(--color-sidebar-text-muted)] uppercase tracking-widest">
-                      Agent
-                    </p>
-                  )}
-                  <SidebarPreviewCta
-                    href={previewHref}
-                    active={isActive(previewHref)}
-                    collapsed={collapsed}
-                  />
-                </div>
+                <SidebarNavItem
+                  href="/settings/billing"
+                  label="Billing"
+                  icon={<CreditCard className="h-4 w-4" />}
+                  active={billingActive}
+                  collapsed={collapsed}
+                />
+                <SidebarNavItem
+                  href="/usage"
+                  label="Usage"
+                  icon={<Gauge className="h-4 w-4" />}
+                  active={usageActive}
+                  collapsed={collapsed}
+                />
               </>
             ) : (
               !collapsed && (
@@ -273,18 +263,13 @@ export function AppSidebar() {
 
         {/* ── Account footer ───────────────────────────────────────── */}
         <div className={cn("shrink-0 border-t border-[var(--color-sidebar-border)]", collapsed ? "p-2" : "p-2.5")}>
-          {active && <SidebarUsageBalance workspaceId={active.id} collapsed={collapsed} />}
           {!collapsed && (
             <p className="px-3 pb-2 text-[10px] font-bold text-[var(--color-sidebar-text-muted)] uppercase tracking-widest">
               Account
             </p>
           )}
           <div className={cn("space-y-1", !collapsed && "sidebar-glass rounded-[var(--radius-xl)] p-2")}>
-            <SidebarAccountCard
-              collapsed={collapsed}
-              storeName={connection?.storeName ?? null}
-              connected={connected}
-            />
+            <SidebarAccountCard collapsed={collapsed} active={pathname === "/settings"} />
           </div>
         </div>
       </motion.aside>
@@ -327,182 +312,7 @@ function SidebarNavSkeleton({ collapsed }: { collapsed: boolean }) {
   );
 }
 
-interface SidebarUsageSummary {
-  images: {
-    includedRemaining: number;
-    creditsBalance: number;
-  };
-  liveTryOn: {
-    includedRemainingSeconds: number;
-    purchasedSecondsBalance: number;
-  };
-}
-
-function SidebarUsageBalance({ workspaceId, collapsed }: { workspaceId: string; collapsed: boolean }) {
-  const [usage, setUsage] = React.useState<SidebarUsageSummary | null>(null);
-
-  const load = React.useCallback(async () => {
-    try {
-      const response = await fetch(
-        `/api/account/billing-summary?workspaceId=${encodeURIComponent(workspaceId)}`,
-        { cache: "no-store" }
-      );
-      if (!response.ok) return;
-      setUsage((await response.json()) as SidebarUsageSummary);
-    } catch {
-      // The persistent sidebar should remain usable if usage data is temporarily unavailable.
-    }
-  }, [workspaceId]);
-
-  React.useEffect(() => {
-    const initial = window.setTimeout(() => void load(), 0);
-    const interval = window.setInterval(() => void load(), 30_000);
-    const refresh = () => void load();
-    window.addEventListener("focus", refresh);
-    window.addEventListener("autommerce:usage-changed", refresh);
-    return () => {
-      window.clearTimeout(initial);
-      window.clearInterval(interval);
-      window.removeEventListener("focus", refresh);
-      window.removeEventListener("autommerce:usage-changed", refresh);
-    };
-  }, [load]);
-
-  const imagesRemaining = usage
-    ? usage.images.includedRemaining + usage.images.creditsBalance
-    : null;
-  const secondsRemaining = usage
-    ? usage.liveTryOn.includedRemainingSeconds + usage.liveTryOn.purchasedSecondsBalance
-    : null;
-  const minutesRemaining = secondsRemaining === null ? null : Math.ceil(secondsRemaining / 60);
-
-  if (collapsed) {
-    return (
-      <div className="mb-2 flex flex-col gap-1">
-        <SidebarUsageItem
-          collapsed
-          icon={<ImageIcon className="h-3.5 w-3.5" />}
-          value={imagesRemaining === null ? "—" : imagesRemaining.toLocaleString()}
-          tooltip={`${imagesRemaining?.toLocaleString() ?? "—"} images remaining`}
-        />
-        <SidebarUsageItem
-          collapsed
-          icon={<Clock3 className="h-3.5 w-3.5" />}
-          value={minutesRemaining === null ? "—" : `${minutesRemaining}m`}
-          tooltip={`${minutesRemaining ?? "—"} live try-on minutes remaining`}
-        />
-      </div>
-    );
-  }
-
-  return (
-    <Link
-      href="/usage"
-      className="mb-2 block rounded-[var(--radius-xl)] border border-[var(--color-sidebar-border)] bg-[var(--color-sidebar-surface)] p-2.5 transition-colors hover:bg-[var(--color-sidebar-surface-hover)]"
-    >
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-sidebar-text-muted)]">
-          Remaining usage
-        </span>
-        <Gauge className="h-3.5 w-3.5 text-[var(--color-sidebar-text-muted)]" />
-      </div>
-      <div className="grid grid-cols-2 gap-1.5">
-        <SidebarUsageItem
-          icon={<ImageIcon className="h-3.5 w-3.5" />}
-          value={imagesRemaining === null ? "—" : imagesRemaining.toLocaleString()}
-          label="Images"
-        />
-        <SidebarUsageItem
-          icon={<Clock3 className="h-3.5 w-3.5" />}
-          value={minutesRemaining === null ? "—" : `${minutesRemaining}m`}
-          label="Live"
-        />
-      </div>
-    </Link>
-  );
-}
-
-function SidebarUsageItem({
-  icon,
-  value,
-  label,
-  collapsed = false,
-  tooltip,
-}: {
-  icon: React.ReactNode;
-  value: string;
-  label?: string;
-  collapsed?: boolean;
-  tooltip?: string;
-}) {
-  const content = (
-    <span
-      className={cn(
-        "flex items-center rounded-[var(--radius-md)] bg-[rgba(255,255,255,0.055)] text-[var(--color-sidebar-text)]",
-        collapsed ? "h-9 flex-col justify-center gap-0 px-1" : "gap-1.5 px-2 py-1.5"
-      )}
-    >
-      <span className="text-[var(--color-brand)]">{icon}</span>
-      <span className={cn("font-bold leading-none", collapsed ? "text-[8px]" : "text-[11px]")}>{value}</span>
-      {!collapsed && label && (
-        <span className="text-[9px] text-[var(--color-sidebar-text-muted)]">{label}</span>
-      )}
-    </span>
-  );
-
-  if (!collapsed) return content;
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>{content}</TooltipTrigger>
-      <TooltipContent
-        side="right"
-        className="bg-[var(--color-sidebar-bg)] border-[var(--color-sidebar-border)] text-[var(--color-sidebar-text)]"
-      >
-        {tooltip}
-      </TooltipContent>
-    </Tooltip>
-  );
-}
-
-function SidebarAccountInfo() {
-  const user = useUser();
-  const name = user
-    ? [user.firstName, user.lastName].filter(Boolean).join(" ") || "My Account"
-    : "My Account";
-  return (
-    <div className="px-2.5 pb-2">
-      <p className="text-sm font-semibold text-[var(--color-sidebar-text)]">{name}</p>
-      <p className="text-xs text-[var(--color-sidebar-text-muted)]">{user?.email ?? ""}</p>
-    </div>
-  );
-}
-
-function SignOutButton() {
-  async function handleSignOut() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    window.location.href = "/sign-in";
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={handleSignOut}
-      className="flex w-full items-center gap-2 px-2 py-1.5 text-sm text-[var(--color-error)]"
-    >
-      <LogOut className="h-4 w-4" /> Sign out
-    </button>
-  );
-}
-
-function SidebarAccountCard({
-  collapsed,
-  storeName,
-  connected,
-}: {
-  collapsed: boolean;
-  storeName: string | null;
-  connected: boolean;
-}) {
+function SidebarAccountCard({ collapsed, active }: { collapsed: boolean; active: boolean }) {
   const user = useUser();
   const displayName = user
     ? [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email
@@ -510,28 +320,23 @@ function SidebarAccountCard({
   const tier = user?.subscriptionTier ?? "trial";
   const tierLabel = tier.charAt(0).toUpperCase() + tier.slice(1);
 
-  const trigger = (
-    <button
+  const card = (
+    <Link
+      href="/settings"
+      aria-current={active ? "page" : undefined}
       className={cn(
         "group flex items-center rounded-[var(--radius-lg)] w-full transition-all sidebar-glass-hover",
-        collapsed ? "justify-center p-1.5 mt-1" : "gap-3 px-2.5 py-2.5 mt-1"
+        collapsed ? "justify-center p-1.5 mt-1" : "gap-3 px-2.5 py-2.5 mt-1",
+        active && "sidebar-nav-active-glow"
       )}
     >
       <div className="relative h-9 w-9 rounded-full gradient-brand flex items-center justify-center shrink-0 shadow-[var(--color-sidebar-active-glow)] ring-2 ring-[rgba(255,255,255,0.1)]">
         {user?.profileImageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={user.profileImageUrl} alt={displayName} className="h-full w-full rounded-full object-cover" />
+          <img src={user.profileImageUrl} alt="" className="h-full w-full rounded-full object-cover" />
         ) : (
-          <span className="text-white font-bold text-sm">
-            {displayName.charAt(0).toUpperCase()}
-          </span>
+          <span className="text-white font-bold text-sm">{displayName.charAt(0).toUpperCase()}</span>
         )}
-        <span
-          className={cn(
-            "absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[var(--color-sidebar-bg)]",
-            connected ? "bg-[var(--color-success)]" : "bg-[var(--color-sidebar-text-muted)]"
-          )}
-        />
       </div>
       {!collapsed && (
         <div className="flex-1 min-w-0 text-left">
@@ -543,52 +348,23 @@ function SidebarAccountCard({
             </span>
           </div>
           <span className="text-[10px] text-[var(--color-sidebar-text-muted)] truncate block mt-0.5">
-            {user?.email ?? (connected ? (storeName ?? "Connected") : "No store linked")}
+            {user?.email ?? "Account"}
           </span>
         </div>
       )}
-    </button>
+    </Link>
   );
 
+  if (!collapsed) return card;
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        {collapsed ? (
-          <Tooltip>
-            <TooltipTrigger asChild>{trigger}</TooltipTrigger>
-            <TooltipContent
-              side="right"
-              className="bg-[var(--color-sidebar-bg)] border-[var(--color-sidebar-border)] text-[var(--color-sidebar-text)]"
-            >
-              {displayName} · {tierLabel}
-            </TooltipContent>
-          </Tooltip>
-        ) : (
-          trigger
-        )}
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        side={collapsed ? "right" : "top"}
-        align={collapsed ? "end" : "start"}
-        className="w-56 bg-[var(--color-sidebar-bg)] border-[var(--color-sidebar-border)] text-[var(--color-sidebar-text)]"
+    <Tooltip>
+      <TooltipTrigger asChild>{card}</TooltipTrigger>
+      <TooltipContent
+        side="right"
+        className="bg-[var(--color-sidebar-bg)] border-[var(--color-sidebar-border)] text-[var(--color-sidebar-text)]"
       >
-        <DropdownMenuLabel className="text-[var(--color-sidebar-text-muted)]">Signed in as</DropdownMenuLabel>
-        <SidebarAccountInfo />
-        <DropdownMenuSeparator className="bg-[var(--color-sidebar-border)]" />
-        <DropdownMenuItem asChild className="text-[var(--color-sidebar-text-muted)] data-[highlighted]:bg-[var(--color-sidebar-surface-hover)] data-[highlighted]:text-[var(--color-sidebar-text)]">
-          <Link href="/settings"><User className="h-4 w-4" /> Account</Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild className="text-[var(--color-sidebar-text-muted)] data-[highlighted]:bg-[var(--color-sidebar-surface-hover)] data-[highlighted]:text-[var(--color-sidebar-text)]">
-          <Link href="/settings/billing"><CreditCard className="h-4 w-4" /> Billing & Plan</Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild className="text-[var(--color-sidebar-text-muted)] data-[highlighted]:bg-[var(--color-sidebar-surface-hover)] data-[highlighted]:text-[var(--color-sidebar-text)]">
-          <Link href="/usage"><Gauge className="h-4 w-4" /> Usage</Link>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator className="bg-[var(--color-sidebar-border)]" />
-        <DropdownMenuItem danger asChild>
-          <SignOutButton />
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+        {displayName}
+      </TooltipContent>
+    </Tooltip>
   );
 }
