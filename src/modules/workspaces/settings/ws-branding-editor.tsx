@@ -19,7 +19,6 @@ import {
   Smartphone,
   Sparkles,
   Sun,
-  ToggleRight,
   Upload,
   X,
 } from "lucide-react";
@@ -52,8 +51,7 @@ const SECTIONS = [
   { id: "identity", label: "Identity", icon: Sparkles },
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "conversation", label: "Conversation", icon: MessageSquareText },
-  { id: "features", label: "Features", icon: ToggleRight },
-  { id: "install", label: "Install", icon: Code2 },
+  { id: "setup", label: "Setup", icon: Code2 },
 ] as const;
 
 type ReplyMode = "default" | "custom" | "off";
@@ -312,7 +310,7 @@ export function WsBrandingEditor({ workspace }: Props) {
         {/* ── Settings column ─────────────────────────────────────────── */}
         <div className="flex min-h-0 min-w-0 flex-col">
           <div className="shrink-0 pb-4">
-            <nav className="flex gap-1 overflow-x-auto rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-card)] p-1 shadow-[var(--shadow-card)]">
+            <nav className="flex gap-1 overflow-x-auto scrollbar-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-card)] p-1 shadow-[var(--shadow-card)]">
               {SECTIONS.map(({ id, label, icon: Icon }) => (
                 <button
                   key={id}
@@ -604,18 +602,15 @@ export function WsBrandingEditor({ workspace }: Props) {
             />
           </Section>
 
-          {/* Features */}
-          <Section id="features" title="Features" description="Choose what shoppers can do.">
+          {/* Setup */}
+          <Section id="setup" title="Setup" description="Choose what shoppers can do and put the agent on your store.">
             <ToggleRow
               title="Live camera try-on"
               description="Show the Live camera button in the fitting room. Turn off to keep photo try-on only."
               checked={form.liveTryOnEnabled !== false}
               onChange={(liveTryOnEnabled) => update({ liveTryOnEnabled })}
             />
-          </Section>
 
-          {/* Install */}
-          <Section id="install" title="Install" description="Put the agent on your store.">
             <ToggleRow
               title="Public embed"
               description="Turn off to stop the snippet from working immediately."
