@@ -22,7 +22,6 @@ import {
   Code2,
   FileSpreadsheet,
   Database,
-  FastForward,
 } from 'lucide-react';
 import {
   StoreFieldMapping,
@@ -149,33 +148,6 @@ export function Stage1ColumnMapping({
   const [isTable1Open, setIsTable1Open] = useState(true);
   const [isTable2Open, setIsTable2Open] = useState(true);
 
-  // Size chart selection for the sizes attribute
-  const [sizeChartSelection, setSizeChartSelection] = useState<string>(
-    sizingConfig.sizeChart || 'none'
-  );
-
-  const handleSizeChartChange = (newChart: string) => {
-    setSizeChartSelection(newChart);
-    if (onUpdateSizingConfig) {
-      onUpdateSizingConfig({
-        ...sizingConfig,
-        sizeChart: newChart,
-      });
-    }
-    if (newChart === 'none') {
-      showToast("Size chart: Don't have a size chart", 'info');
-    } else {
-      showToast(`Size chart set to "${newChart}"`, 'success');
-    }
-  };
-
-  // Sync size chart selection if sizingConfig prop changes
-  useEffect(() => {
-    if (sizingConfig.sizeChart !== undefined) {
-      setSizeChartSelection(sizingConfig.sizeChart);
-    }
-  }, [sizingConfig.sizeChart]);
-
   // Search filter across tables (retained for quick matching)
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -252,7 +224,6 @@ export function Stage1ColumnMapping({
       setRequiredFields(INITIAL_ACS_REQUIRED_FIELDS);
       setNativeAttributes(INITIAL_ACS_NATIVE_ATTRIBUTES);
       setCustomAttributes(INITIAL_ACS_CUSTOM_ATTRIBUTES);
-      setSizeChartSelection('none');
       if (onResetDefaults) {
         onResetDefaults();
       }
@@ -753,133 +724,6 @@ export function Stage1ColumnMapping({
                   </tr>
                 );
               })}
-
-              {/* Section: Size Chart Specification (Dedicated row, separated from sizes) */}
-              {(!q ||
-                'size_chart'.includes(q) ||
-                'size chart'.includes(q) ||
-                'chart'.includes(q) ||
-                sizeChartSelection.toLowerCase().includes(q)) && (
-                <>
-                  <tr className="bg-slate-50/70 border-y border-slate-200/80">
-                    <td colSpan={3} className="py-2 px-6">
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-[11px] uppercase tracking-wider text-slate-700">
-                          Catalog Size Chart Specification
-                        </span>
-                        <span className="text-[10px] text-indigo-600 font-semibold bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
-                          Fit & Sizing Model
-                        </span>
-                      </div>
-                    </td>
-                  </tr>
-                  <tr className="hover:bg-indigo-50/20 transition-colors group bg-indigo-50/10">
-                    {/* ACS Field */}
-                    <td className="py-3.5 px-6 align-top">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-bold text-sm text-indigo-950 bg-indigo-50/80 px-2 py-0.5 rounded border border-indigo-200/70 inline-block">
-                            size_chart
-                          </span>
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-200/80">
-                            Catalog Spec
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-slate-500 leading-snug">
-                          Store size chart specification applied to catalog items (or select &quot;Don&apos;t have a size chart&quot;)
-                        </p>
-                      </div>
-                    </td>
-
-                    {/* CMS Column / Size Chart Dropdown Selector */}
-                    <td className="py-3.5 px-6 align-top">
-                      <div className="space-y-1.5 max-w-xs">
-                        <div className="relative">
-                          <select
-                            id="catalog-size-chart-select"
-                            value={sizeChartSelection}
-                            onChange={(e) => handleSizeChartChange(e.target.value)}
-                            className={`w-full appearance-none pl-2.5 pr-7 py-2 text-xs font-semibold rounded-lg border shadow-2xs focus:outline-none focus:ring-2 cursor-pointer truncate ${
-                              sizeChartSelection === 'none'
-                                ? 'bg-white text-slate-700 border-slate-200 focus:ring-indigo-300 hover:border-slate-300'
-                                : 'bg-indigo-50 text-indigo-950 border-indigo-300 font-bold focus:ring-indigo-400 ring-2 ring-indigo-200/60'
-                            }`}
-                            title="Select size chart or specify if store doesn't have a size chart"
-                          >
-                            <option value="none">Don&apos;t have a size chart / Create with AI (Steps 2–5)</option>
-                            <optgroup label="Select Existing Size Chart (Skips Steps 2–5 &rarr; Direct to Step 6)">
-                              <option value="Standard Apparel (XS-3XL / Alpha)">
-                                Standard Apparel (XS-3XL / Alpha)
-                              </option>
-                              <option value="Footwear & Shoes (US / EU / UK / CM)">
-                                Footwear & Shoes (US / EU / UK / CM)
-                              </option>
-                              <option value="Pants & Trousers (Waist x Inseam)">
-                                Pants & Trousers (Waist x Inseam)
-                              </option>
-                              <option value="Women's Tops & Dresses (0-16 / 32-48)">
-                                Women&apos;s Tops & Dresses (0-16 / 32-48)
-                              </option>
-                              <option value="Men's Tailoring & Shirts (Chest / Collar)">
-                                Men&apos;s Tailoring & Shirts (Chest / Collar)
-                              </option>
-                              <option value="Kids & Toddlers (Age / Height)">
-                                Kids & Toddlers (Age / Height)
-                              </option>
-                              <option value="Custom Size Chart (Upload / Link)">
-                                Custom Size Chart (Upload / Link)
-                              </option>
-                            </optgroup>
-                          </select>
-                          <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
-                        </div>
-
-                        {sizeChartSelection === 'none' ? (
-                          <span className="text-[10px] text-slate-400 italic block leading-tight">
-                            No size chart attached · Full AI sizing pipeline (Steps 2 to 5) will run
-                          </span>
-                        ) : (
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-1.5">
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
-                                <Check className="w-2.5 h-2.5 text-indigo-700 stroke-[3]" />
-                                Attached
-                              </span>
-                              <span className="text-[10px] text-indigo-700 font-medium truncate max-w-[170px]" title={sizeChartSelection}>
-                                {sizeChartSelection}
-                              </span>
-                            </div>
-
-                            <div className="p-2 rounded-lg bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200/80 text-[11px] text-indigo-950 flex items-start gap-1.5 leading-snug">
-                              <FastForward className="w-3.5 h-3.5 text-indigo-600 shrink-0 mt-0.5" />
-                              <div>
-                                <span className="font-bold text-indigo-900">Existing Chart Active:</span> Steps 2–5 (Preview, Discovery, Research, Assignment) are skipped. You can proceed directly to <strong>Step 6: Active Overview</strong>.
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </td>
-
-                    {/* Sample */}
-                    <td className="py-3.5 px-6 align-top">
-                      <div className="space-y-1">
-                        <span
-                          className="font-mono text-xs text-slate-800 bg-slate-100/90 px-2 py-1 rounded border border-slate-200/80 inline-block max-w-xs truncate"
-                          title={sizeChartSelection !== 'none' ? sizeChartSelection : 'No size chart specified'}
-                        >
-                          {sizeChartSelection !== 'none' ? `${sizeChartSelection.split(' ')[0]} Chart Spec` : 'None'}
-                        </span>
-                        {sizeChartSelection !== 'none' && (
-                          <p className="text-[10px] text-slate-400 font-mono truncate">
-                            Active sizing matrix attached
-                          </p>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                </>
-              )}
             </tbody>
           </table>
         </div>
@@ -1100,27 +944,14 @@ export function Stage1ColumnMapping({
             <span>Reset Defaults</span>
           </button>
 
-          {sizeChartSelection !== 'none' ? (
-            <button
-              type="button"
-              onClick={onNext}
-              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-7 py-3 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:opacity-95 shadow-md shadow-indigo-500/25 active:scale-98 transition-all cursor-pointer ring-2 ring-indigo-300 ring-offset-1"
-              title="Skip steps 2–5 and jump directly to Step 6: Active Overview"
-            >
-              <FastForward className="w-4 h-4" />
-              <span>Skip to Step 6 (Active Overview)</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={onNext}
-              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-7 py-3 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-[#8B5CF6] to-[#EC4899] hover:opacity-95 shadow-md shadow-purple-500/25 active:scale-98 transition-all cursor-pointer"
-            >
-              <span>Confirm Mapping &amp; Continue (Step 2)</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={onNext}
+            className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-7 py-3 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-[#8B5CF6] to-[#EC4899] hover:opacity-95 shadow-md shadow-purple-500/25 active:scale-98 transition-all cursor-pointer"
+          >
+            <span>Confirm Mapping &amp; Continue (Step 2)</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
         </div>
       </div>
 

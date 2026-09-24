@@ -70,11 +70,9 @@ function chart(overrides: Partial<SizingChartRow> = {}): SizingChartRow {
     brandKey: "nike",
     sizingCategory: "tops",
     variantName: "Men",
-    variantGender: "mens",
-    variantFitType: null,
+    coversLeaves: [],
     audience: "mens",
     sourceTitle: "Men's Tops",
-    region: "EU",
     chartRows: [{ size: "M", chest_min: 96, chest_max: 104 }],
     confidence: 0.95,
     sourceUrl: "https://nike.example/size-guide",
@@ -133,17 +131,21 @@ describe("GET /api/store-connection/sizing/assignments", () => {
     // in hand, and doing it here means a merchant's first visit shows the obvious cases resolved rather
     // than a table of dropdowns with one option each. Persisted so the choice survives, and re-read so
     // what the merchant sees is what the table actually holds.
-    vi.mocked(listChartsForBrands).mockResolvedValue([chart()]);
+    // `categoryId` has to be a real Persona leaf key here, and the chart has to list it in
+    // `coversLeaves` — `chartsForLeaf` matches on that alone, not on audience or being the only
+    // candidate.
+    vi.mocked(listSizingPathCoverage).mockResolvedValue([pathRow({ categoryId: "men:top:t-shirt" })]);
+    vi.mocked(listChartsForBrands).mockResolvedValue([chart({ coversLeaves: ["men:top:t-shirt"] })]);
     vi.mocked(listSizingChartAssignments)
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([assignment({ source: "auto" })]);
+      .mockResolvedValueOnce([assignment({ categoryId: "men:top:t-shirt", source: "auto" })]);
 
     const res = await GET();
     const data = await res.json();
 
     expect(data.autoMatched).toBe(1);
     expect(insertAutoAssignments).toHaveBeenCalledWith([
-      expect.objectContaining({ brandKey: "nike", categoryId: "2", variantName: "Men", source: "auto" }),
+      expect.objectContaining({ brandKey: "nike", categoryId: "men:top:t-shirt", variantName: "Men", source: "auto" }),
     ]);
     expect(data.paths[0].source).toBe("auto");
     expect(data.totals.assigned).toBe(1);
@@ -152,7 +154,8 @@ describe("GET /api/store-connection/sizing/assignments", () => {
   it("reports the paths as unassigned when the auto-match write fails", async () => {
     // The honest state. Claiming the match in the response while nothing was stored would show a path
     // as governed that publishes with no chart.
-    vi.mocked(listChartsForBrands).mockResolvedValue([chart()]);
+    vi.mocked(listSizingPathCoverage).mockResolvedValue([pathRow({ categoryId: "men:top:t-shirt" })]);
+    vi.mocked(listChartsForBrands).mockResolvedValue([chart({ coversLeaves: ["men:top:t-shirt"] })]);
     vi.mocked(insertAutoAssignments).mockResolvedValue(false);
 
     const data = await (await GET()).json();

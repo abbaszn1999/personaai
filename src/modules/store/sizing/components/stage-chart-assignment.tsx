@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { cn } from "@/lib/utils/cn";
 import { SIZING_GROUP_KEYS, SIZING_GROUP_LABELS, isSizingGroup } from "@/lib/sizing/measurements";
+import { leafLabel } from "@/modules/store/mapping/persona-taxonomy";
 import { MappingSelect, type SelectOption } from "@/modules/store/components/mapping-select";
 import { useSizingStore } from "../store";
 import type { AssignableVariant, PathAssignment } from "../server-types";
@@ -408,7 +409,16 @@ function VariantPicker({
   onSelect: (path: PathAssignment, variantName: string | null) => void;
 }) {
   if (state === "no_variants") {
-    return (
+    // Two different problems with two different fixes. Charts exist but none size this audience means
+    // research succeeded and the brand simply has no menswear table here; telling the merchant to
+    // generate would send them to re-run something that already worked.
+    return path.variantsOtherAudience > 0 ? (
+      <p className="text-xs text-[var(--color-text-muted)]">
+        {path.variantsOtherAudience} chart{path.variantsOtherAudience === 1 ? "" : "s"} found for this
+        parent, but none for {path.audience ?? "this audience"} — this brand needs a{" "}
+        {path.audience ?? "matching"} table researched on Stage 4.
+      </p>
+    ) : (
       <p className="text-xs text-[var(--color-text-muted)]">
         No chart researched for this brand and parent yet — generate it on Stage 4.
       </p>
@@ -587,10 +597,25 @@ function ChartPreviewModal({
         <span className="font-mono font-semibold text-[var(--color-text-primary)]">
           {path.categoryPath.join(" › ")}
         </span>
-        . Published for <span className="font-semibold">{variant.audience}</span>
-        {variant.variantFitType ? `, ${variant.variantFitType} fit` : ""}. All measurements are of the body, in
-        centimetres.
+        . Published for <span className="font-semibold">{variant.audience}</span>. All measurements are of the
+        body, in centimetres.
       </p>
+
+      {variant.coversLeaves.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">
+            Covers:
+          </span>
+          {variant.coversLeaves.map((leaf) => (
+            <span
+              key={leaf}
+              className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-text-secondary)]"
+            >
+              {leafLabel(leaf)}
+            </span>
+          ))}
+        </div>
+      )}
 
       <div className="mt-4 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-border)]">
         <table className="w-full text-left text-xs">

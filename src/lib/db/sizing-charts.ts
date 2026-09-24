@@ -1,6 +1,7 @@
 import { db } from "@/lib/supabase/server";
-import type { ChartProvenance, ChartRegion, SizeChartRow } from "@/lib/sizing/chart-schema";
+import { parseSizeChart, type ChartProvenance, type SizeChartRow } from "@/lib/sizing/chart-schema";
 import type { Audience } from "@/lib/sizing/keys";
+import { isSizingGroup } from "@/lib/sizing/measurements";
 
 /**
  * The registry Phase 4's web search pays to fill: measurement bounds per (brand x sizing category x
@@ -20,21 +21,32 @@ export interface SizingChartRow {
   connectionId: string | null;
   brandKey: string;
   sizingCategory: string;
-  /** Doc Part 5. The chart line this is, verbatim from the brand's guide. Identity, with brand and
-   *  category. Free-form: the doc is explicit that there is no fixed universal variant list. */
+  /** Doc Part 5. The chart line this is, verbatim from the brand's guide — 'Men', 'Men Tailored
+   *  Long', 'Women Bras (Wired)'. Identity, with brand and category. Free-form: the doc is explicit
+   *  that there is no fixed universal variant list. The row's only fit/garment signal as of
+   *  migration `20260922040000`, which dropped the `variantFitType`/`variantGarmentType` columns
+   *  this used to duplicate — the naming rule ("put both in the name") means every fit or garment
+   *  word either column ever held was already sitting here too. `variantTags` in `variant-match.ts`
+   *  reads this string alone for the fit-class guard; `variantGarmentType`'s old job of deciding
+   *  which of a brand's tables a leaf belongs to had already moved onto `coversLeaves` below. */
   variantName: string;
-  /** The gender inside `variantName`, split out so Phase 5 can auto-match `Men > Blazers` to the
-   *  men's variant. Null when the guide never says. */
-  variantGender: Audience | null;
-  /** The fit line inside `variantName` — Regular, Tall, Petite. Null when the brand publishes one. */
-  variantFitType: string | null;
-  /** Read off the source guide's own page. A Phase 5 matching hint since this migration, not
-   *  identity — `variantName` already carries the gender wherever the brand states it. */
+  /** The Persona leaf keys ("women:top:blouse") this exact row is the authoritative chart for —
+   *  `sizing_charts.covers_leaves`, migration `20260922020000`. Replaces the old name/tag guess
+   *  (`LEAF_GARMENT_TAGS`/`VARIANT_GARMENT_PATTERNS`/`pickVariant`'s garment pass in
+   *  `variant-match.ts`, deleted alongside this column) as the source of truth for which of a
+   *  brand's several charts in one `sizingCategory` a leaf binds to — see `chartsForLeaf`. Empty for
+   *  a chart nothing has been assigned to yet. */
+  coversLeaves: string[];
+  /** Read off the source guide's own page — the URL, the section heading — rather than parsed from
+   *  `variantName`. A Phase 5 matching hint, not identity. The row's only gender/audience signal as
+   *  of migration `20260922030000`, which dropped the `variantGender` column this used to duplicate:
+   *  every seeded chart and everything research has written stated the same gender in its own
+   *  `variantName` that the page it sat on already said, so the second field never once disagreed
+   *  with this one. */
   audience: Audience;
   /** Provenance, not identity: the verbatim heading of the table this was transcribed from, kept so
    *  a merchant can trace a variant back to the page it came from. */
   sourceTitle: string;
-  region: ChartRegion | null;
   chartRows: SizeChartRow[];
   confidence: number | null;
   sourceUrl: string | null;
@@ -43,19 +55,30 @@ export interface SizingChartRow {
   updatedAt: string;
 }
 
+/**
+ * Re-parses `chart_rows` through `parseSizeChart` rather than trusting the jsonb as stored.
+ *
+ * This is the one place a stored alias key gets to disagree with `SIZE_ALIAS_KEYS`: a row written
+ * before `fr`/`it`/`de`/`jp` were dropped from the vocabulary still has them sitting in the column
+ * until it is re-researched or reseeded, and `parseAliases` silently drops anything outside the
+ * current key set. Without this, a removed alias key would keep matching stock forever because
+ * `rowLabels` flattens whatever is in the object, unaware the schema moved on.
+ */
 function rowToChart(row: Record<string, unknown>): SizingChartRow {
+  const sizingCategory = row.sizing_category as string;
+  const rawRows = row.chart_rows ?? [];
+  const chartRows = isSizingGroup(sizingCategory) ? parseSizeChart(rawRows, sizingCategory) : ((rawRows as SizeChartRow[]) ?? []);
+
   return {
     id: row.id as string,
     connectionId: (row.connection_id as string | null) ?? null,
     brandKey: row.brand_key as string,
-    sizingCategory: row.sizing_category as string,
+    sizingCategory,
     variantName: (row.variant_name as string | null) ?? "",
-    variantGender: (row.variant_gender as Audience | null) ?? null,
-    variantFitType: (row.variant_fit_type as string | null) ?? null,
+    coversLeaves: (row.covers_leaves as string[] | null) ?? [],
     audience: (row.audience as Audience) ?? "unisex",
     sourceTitle: (row.source_title as string | null) ?? "",
-    region: (row.region as ChartRegion | null) ?? null,
-    chartRows: (row.chart_rows as SizeChartRow[]) ?? [],
+    chartRows,
     confidence: row.confidence === null || row.confidence === undefined ? null : Number(row.confidence),
     sourceUrl: (row.source_url as string | null) ?? null,
     provenance: row.provenance as ChartProvenance,
@@ -95,11 +118,9 @@ export interface UpsertChartInput {
   brandKey: string;
   sizingCategory: string;
   variantName: string;
-  variantGender: Audience | null;
-  variantFitType: string | null;
+  coversLeaves: string[];
   audience: Audience;
   sourceTitle: string;
-  region: ChartRegion | null;
   chartRows: SizeChartRow[];
   confidence: number | null;
   sourceUrl: string | null;
@@ -145,11 +166,9 @@ export async function upsertChart(input: UpsertChartInput): Promise<boolean> {
     brand_key: input.brandKey,
     sizing_category: input.sizingCategory,
     variant_name: input.variantName,
-    variant_gender: input.variantGender,
-    variant_fit_type: input.variantFitType,
+    covers_leaves: input.coversLeaves,
     audience: input.audience,
     source_title: input.sourceTitle,
-    region: input.region,
     chart_rows: input.chartRows,
     confidence: input.confidence,
     source_url: input.sourceUrl,

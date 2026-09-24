@@ -25,6 +25,13 @@ export type SizeChartBoundKey = `${Measurement}_min` | `${Measurement}_max`;
  * A fixed key set rather than free-form, because these are what regional label systems actually
  * are, and because a closed set is something strict structured output can constrain — the reason
  * the bounds below are flat does not apply here.
+ *
+ * Only five systems, matching `SIZE_TYPES` in `size-types.ts`: `alpha`, `eu`, `uk`, `us`,
+ * `numeric`. FR/IT/DE/JP were removed — no merchant this store connects to is labelled in them,
+ * and every kept regional key already has a live merchant behind it. `numeric` is a market-neutral
+ * numeric scale (a jeans waist inch, a dress size, a plain grading) as opposed to `eu`/`us`, which
+ * are a country's own numeric scale — Tommy's men's jeans table prints both a US SIZE and a
+ * separate Denim inch size on the same row, and only the second belongs here.
  */
 export const SIZE_ALIAS_KEYS = [
   /** S / M / L / XXL, and one-size labels. */
@@ -32,10 +39,17 @@ export const SIZE_ALIAS_KEYS = [
   "eu",
   "uk",
   "us",
-  "fr",
-  "it",
-  "de",
-  "jp",
+  /** A numeric scale that is not a country's own system — a denim inch waist, a dress size, a
+   *  plain grading. Kept distinct from `eu`/`us` so the same real-world scale never has to pick
+   *  one of two homes depending on which other column happens to be on the table. */
+  "numeric",
+  /** A child's age band — `NB`, `3M`, `8-9y`. Not one of the five merchant-facing `SIZE_TYPES`
+   *  (`SIZE_TYPE_ALIAS_KEYS` has no entry pointing here): no store declares its size type as
+   *  "Age", and an EU-declared store's `92` must not be answered by a row's age label instead of
+   *  its `eu` one. Split out because it used to be dumped into `alpha` — `3M` is not S/M/L, and a
+   *  chart mixing the two meant `chartSizeFamilies` saw one scale where two real ones exist. Kids
+   *  guides publish it because a body this young has no other size axis parents recognise.  */
+  "age",
   /** Collar size sold as a label in its own right — a menswear shirt listed as `41`. */
   "neck",
   /** Waist+inseam as one token, printed `3431` or `34/31`. Two measurements in one label, which is
@@ -62,23 +76,56 @@ export function rowLabels(row: SizeChartRow): string[] {
   return [...new Set(labels.map((label) => label.trim()).filter(Boolean))];
 }
 
+/**
+ * The alias keys that name a country or region's scale, as opposed to describing the label some
+ * other way.
+ *
+ * `alpha` is excluded because S/M/L is not a claim about where a size is sold — it is the same label
+ * everywhere; `numeric` is excluded for the same reason it was split from `eu`/`us` in the first
+ * place — a denim inch or dress size is not a claim about a market either; and `neck` and
+ * `waist_inseam` are excluded because they are measurements used as labels rather than regional
+ * systems. The distinction is what makes `chartLabelSystems` answerable: "which regions can this
+ * chart speak to" has to mean the regional keys and nothing else.
+ */
+export const REGIONAL_ALIAS_KEYS = ["eu", "uk", "us"] as const satisfies readonly SizeAliasKey[];
+
+export type RegionalAliasKey = (typeof REGIONAL_ALIAS_KEYS)[number];
+
+/**
+ * Which regional scales a chart actually carries, read off its rows.
+ *
+ * This replaced a stored `region` column, and the reason is worth keeping: one chart's rows routinely
+ * carry EU, UK and US at once, so a single stored value could only ever name one of them. Tommy's
+ * shoe table was stored as `EU` while every row also held a UK and a US size, and the badge built
+ * from it told a merchant there were no US sizes in a chart full of them. A derived answer cannot
+ * disagree with the rows, because it is the rows.
+ *
+ * Declaration order rather than first-seen, so the same set of systems always reads the same way.
+ */
+export function chartLabelSystems(rows: SizeChartRow[]): RegionalAliasKey[] {
+  const present = new Set<string>();
+  for (const row of rows) {
+    for (const [key, value] of Object.entries(row.aliases ?? {})) {
+      if (value?.trim()) present.add(key);
+    }
+  }
+  return REGIONAL_ALIAS_KEYS.filter((key) => present.has(key));
+}
+
+/** The systems above as a merchant-facing string — `EU · UK · US`. Empty when a chart publishes only
+ *  alpha labels, which is a real answer rather than a gap: nothing regional was printed. */
+export function formatLabelSystems(rows: SizeChartRow[]): string {
+  return chartLabelSystems(rows)
+    .map((key) => key.toUpperCase())
+    .join(" · ");
+}
+
 /** Where a chart came from, mirrored by the `provenance` check constraint on `sizing_charts`. */
 export const CHART_PROVENANCES = ["research", "manual", "merchant"] as const;
 export type ChartProvenance = (typeof CHART_PROVENANCES)[number];
 
-/**
- * Which regional *label* set the chart's `size` values are drawn from — EU 38 vs US 8 vs UK 10 are
- * three labels for one body. Never a unit: bounds are always cm/kg (see measurements.ts).
- */
-export const CHART_REGIONS = ["EU", "UK", "US", "INTL", "JP", "CN"] as const;
-export type ChartRegion = (typeof CHART_REGIONS)[number];
-
 export function isChartProvenance(value: unknown): value is ChartProvenance {
   return typeof value === "string" && (CHART_PROVENANCES as readonly string[]).includes(value);
-}
-
-export function isChartRegion(value: unknown): value is ChartRegion {
-  return typeof value === "string" && (CHART_REGIONS as readonly string[]).includes(value);
 }
 
 /**
@@ -248,7 +295,12 @@ export function universalRowJsonSchema(measurements: readonly Measurement[] = ME
           key,
           {
             type: ["string", "null"],
-            description: `This row's ${key} label, or null if the source publishes no ${key} column.`,
+            description:
+              key === "numeric"
+                ? "A market-neutral numeric scale printed for this row that is NOT a country's own EU/US/UK size — a denim waist inch, a dress size, a plain grading. Null if the table prints no such column."
+                : key === "age"
+                  ? "A child's age band printed for this row — NB, 3M, 8-9y. Not an EU/US/UK/alpha size even when it looks like one; put age labels here, never in `alpha`. Null if the source prints no age column."
+                  : `This row's ${key} label, or null if the source publishes no ${key} column.`,
           },
         ])
       ),

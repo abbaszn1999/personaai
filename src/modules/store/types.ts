@@ -11,8 +11,6 @@ export interface StoreConnection {
   storeUrl: string;
   status: StoreConnectionStatus;
   connectedAt: string | null;
-  /** Paid-order tracking. Null until webhooks have been registered at least once. */
-  ordersAccess: "active" | "missing" | null;
 }
 
 /**

@@ -23,6 +23,7 @@ interface ModalProps {
   size?: keyof typeof SIZE_CLASSES;
   children: React.ReactNode;
   className?: string;
+  bodyClassName?: string;
 }
 
 /**
@@ -50,6 +51,7 @@ export function Modal({
   size = "lg",
   children,
   className,
+  bodyClassName,
 }: ModalProps) {
   React.useEffect(() => {
     if (!isOpen) return;
@@ -119,7 +121,9 @@ export function Modal({
          *  way, but it lets a caller drop in a pinned toolbar row above a `flex-1 min-h-0` scrolling
          *  pane (the category-scope and item-preview dialogs both need that) without fighting this
          *  wrapper's own scroll for the remaining height. */}
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-5">{children}</div>
+        <div className={cn("flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-5", bodyClassName)}>
+          {children}
+        </div>
 
         {footer && (
           <div className="flex shrink-0 items-center justify-end gap-2 border-t border-[var(--color-border)] px-5 py-4">

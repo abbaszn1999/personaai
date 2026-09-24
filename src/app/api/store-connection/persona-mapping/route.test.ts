@@ -14,10 +14,14 @@ vi.mock("@/lib/db/store-connections", () => ({
 vi.mock("@/lib/catalog/acs/catalog-reads", () => ({
   deactivateAcsCatalogForRemapping: vi.fn(),
 }));
+vi.mock("@/lib/db/sizing-runs", () => ({
+  rewindRun: vi.fn(),
+}));
 
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner, updateStoreConnection } from "@/lib/db/store-connections";
 import { deactivateAcsCatalogForRemapping } from "@/lib/catalog/acs/catalog-reads";
+import { rewindRun } from "@/lib/db/sizing-runs";
 import { DELETE, GET, PUT } from "./route";
 
 const scope = {
@@ -65,8 +69,6 @@ function row(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRow {
     cmsColumnDiscoveryScanned: 0,
     cmsColumnDiscoveryError: null,
     cmsColumnDiscoveryUpdatedAt: null,
-    ownerId: "owner-1",
-    ordersAccess: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
@@ -79,6 +81,7 @@ describe("Persona mapping endpoint", () => {
     vi.mocked(getCurrentUser).mockResolvedValue({ id: "owner-1" } as never);
     vi.mocked(getStoreConnectionByOwner).mockResolvedValue(row());
     vi.mocked(deactivateAcsCatalogForRemapping).mockResolvedValue(0);
+    vi.mocked(rewindRun).mockResolvedValue(null);
   });
 
   it("requires authentication", async () => {
@@ -113,6 +116,27 @@ describe("Persona mapping endpoint", () => {
       catalogSyncStatus: "idle",
     }));
     expect(deactivateAcsCatalogForRemapping).toHaveBeenCalledWith("11111111-1111-1111-1111-111111111111");
+    expect(rewindRun).toHaveBeenCalledWith("11111111-1111-1111-1111-111111111111", "scan");
+  });
+
+  it("rejects a mapping that stops at a category instead of an enabled leaf", async () => {
+    const request = new NextRequest("http://localhost/api/store-connection/persona-mapping", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        scope,
+        mappings: {
+          tees: { status: "mapped", departmentId: "women", categoryId: "top" },
+        },
+      }),
+    });
+
+    const response = await PUT(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(data.invalidCategoryIds).toEqual(["tees"]);
+    expect(updateStoreConnection).not.toHaveBeenCalled();
   });
 
   it("does not stamp Auto-Match completion on a manual save", async () => {

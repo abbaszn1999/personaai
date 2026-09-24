@@ -117,6 +117,23 @@ option each. They are persisted as `source = 'auto'`, and a merchant's own choic
 Stage 6 (`stage-confirmation.tsx`), SKU-level chart overrides, `final_chart`, and ACS publishing are
 untouched by this work — Phase 9's index pass is its own pipeline.
 
+## Known seeding gaps (data, not code)
+
+`audienceCompatible` and `pickVariant` already handle every leaf correctly; these 58 leaves simply
+have no chart in `sizing_charts` yet for any brand, Tommy Hilfiger included. Nothing here blocks a
+merchant — an uncovered leaf just shows "no chart found" in Stage 4/5 the same way a brand that
+publishes nothing does. Recorded so the next seeding pass has a checklist instead of a guess:
+
+| Gap | Leaves | Why it's missing |
+|---|---|---|
+| No unisex-audience chart | 24 | Tommy publishes every table split by a specific audience (mens/womens/boys/girls/kids); unisex paths currently fall through to the closest adult chart via `audienceCompatible` rather than a chart of their own. |
+| No mens `dresses` chart | 6 | Covers suits/formalwear — Tommy's own guide has no dedicated mens full-body table to transcribe from. |
+| No girls full-body / outerwear / footwear chart | 17 | Tommy's girls guide stops at tops and bottoms (see the girls-tops truncation note in `tommy-hilfiger-kids.ts`); no source table exists for these three groups. |
+| No boys full-body / footwear chart | 11 | Same shape as girls: the boys guide has no full-body or footwear table published. |
+
+Closing these requires a source table to transcribe, so it is seeding work for the next brand pass,
+not a code change.
+
 ## Where the code lives
 
 | Concern | File |

@@ -1,0 +1,17 @@
+-- Drop sizing_charts.region.
+--
+-- The column held one label system per chart, which is not how brands publish. A single table
+-- routinely prints EU, UK and US side by side, and those all land in each row's `aliases` — so the
+-- one value stored here could only ever name one of the scales the chart actually carries. Tommy
+-- Hilfiger's footwear chart was stored as `EU` while every row also held a UK and a US size, and the
+-- badge built from this column told merchants the chart had no US sizes in it.
+--
+-- The honest answer is derivable from the data we already keep: `chartLabelSystems()` in
+-- src/lib/sizing/chart-schema.ts reads the regional alias keys off `chart_rows`, so the displayed
+-- answer cannot disagree with the rows. That leaves this column with no readers and one job it did
+-- inaccurately.
+--
+-- Safe to drop rather than deprecate: the only populated rows are the hand-seeded global charts,
+-- which are regenerated from src/lib/sizing/seeds by `pnpm sizing:seed`, and no merchant-owned chart
+-- ever set it to anything a consumer branched on.
+alter table public.sizing_charts drop column if exists region;

@@ -71,6 +71,35 @@ describe("draftColumnsFor", () => {
     expect(columns.find((c) => c.measurement === "chest")?.required).toBe(true);
     expect(columns.find((c) => c.measurement === "sleeve")?.required).toBe(false);
   });
+
+  it("requires height rather than chest for a child audience", () => {
+    // Kidswear guides key their sizes on height, not chest -- Tommy's own boys and girls tables
+    // publish chest as a single pinned number per size, never a range, which is what makes it the
+    // wrong thing for the exclusion filter to compare.
+    const columns = draftColumnsFor("tops", "kids");
+
+    expect(columns.find((c) => c.measurement === "height")?.required).toBe(true);
+    expect(columns.find((c) => c.measurement === "chest")?.required).toBe(false);
+  });
+
+  it("keeps the adult template when audience is unknown", () => {
+    // The manual entry grid opens before a variant (and therefore an audience) is chosen. Omitting
+    // the argument must behave exactly as it did before audience existed here.
+    const columns = draftColumnsFor("tops");
+
+    expect(columns.find((c) => c.measurement === "chest")?.required).toBe(true);
+    expect(columns.find((c) => c.measurement === "height")?.required).toBe(false);
+  });
+
+  it("never overrides footwear's required measurement for a child audience", () => {
+    // Foot length is what every regional shoe scale relabels regardless of the wearer's age --
+    // there is no separate kids axis the way there is for apparel.
+    const adult = draftColumnsFor("footwear");
+    const kids = draftColumnsFor("footwear", "kids");
+
+    expect(adult.find((c) => c.measurement === "foot_length")?.required).toBe(true);
+    expect(kids.find((c) => c.measurement === "foot_length")?.required).toBe(true);
+  });
 });
 
 describe("parseDraft", () => {

@@ -1,3 +1,4 @@
+import type { SizeAliasKey } from "./chart-schema";
 import { normalizeBrandKey } from "./keys";
 
 /**
@@ -68,6 +69,26 @@ export const DEFAULT_SIZE_SETTINGS: SizeSettings = { default: DEFAULT_SIZE_TYPE,
 
 export function isSizeType(value: unknown): value is SizeType {
   return typeof value === "string" && (SIZE_TYPES as readonly string[]).includes(value);
+}
+
+/**
+ * The alias key a declared size type is matched against.
+ *
+ * This is the map the module comment above already promised — "matched against the EU column" —
+ * and until now nothing actually built it: `rowLabels` flattens every alias into one list, so a
+ * store declaring `EU` and one declaring `US` were compared against the exact same set of labels.
+ * `matchLabel` in `canonical.ts` is the reader; this is the one place the mapping is written down.
+ */
+export const SIZE_TYPE_ALIAS_KEYS: Record<SizeType, SizeAliasKey> = {
+  US: "us",
+  UK: "uk",
+  EU: "eu",
+  Alpha: "alpha",
+  Numeric: "numeric",
+};
+
+export function sizeTypeAliasKey(type: SizeType): SizeAliasKey {
+  return SIZE_TYPE_ALIAS_KEYS[type];
 }
 
 /**

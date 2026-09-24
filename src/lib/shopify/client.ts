@@ -65,11 +65,9 @@ export async function getShopifyAccessToken(
   domain: string,
   clientId: string,
   clientSecret: string,
-  cacheKey?: string,
-  forceRefresh = false
+  cacheKey?: string
 ): Promise<string> {
   const key = cacheKey ?? `${domain}:${clientId}`;
-  if (forceRefresh) tokenCache.delete(key);
   const cached = isCacheDisabled() ? undefined : tokenCache.get(key);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.accessToken;
@@ -105,37 +103,6 @@ export async function getShopifyAccessToken(
     tokenCache.set(key, { accessToken: data.access_token, expiresAt: Date.now() + TOKEN_TTL_MS });
   }
   return data.access_token;
-}
-
-/** Scopes currently granted to this token. Lives on `/admin/oauth`, not under a versioned API path. */
-export async function getGrantedScopes(domain: string, accessToken: string): Promise<string[]> {
-  const res = await fetch(`https://${domain}/admin/oauth/access_scopes.json`, {
-    headers: {
-      "X-Shopify-Access-Token": accessToken,
-      "Content-Type": "application/json",
-    },
-    cache: "no-store",
-  });
-
-  if (!res.ok) {
-    throw new ShopifyApiError(`Shopify access scope request failed (${res.status})`, res.status);
-  }
-
-  const data = (await res.json()) as { access_scopes?: Array<{ handle?: string }> };
-  return (data.access_scopes ?? []).flatMap((scope) => (scope.handle ? [scope.handle] : []));
-}
-
-export async function getShopifyOrderTaxesIncluded(
-  domain: string,
-  accessToken: string,
-  orderId: string
-): Promise<boolean> {
-  const data = await shopifyFetch<{ order?: { taxes_included?: boolean } }>(
-    domain,
-    accessToken,
-    `/orders/${encodeURIComponent(orderId)}.json?fields=id,taxes_included`
-  );
-  return data.order?.taxes_included === true;
 }
 
 async function shopifyFetch<T>(domain: string, accessToken: string, path: string): Promise<T> {
@@ -1396,8 +1363,6 @@ export function mapShopifyWebhookProduct(payload: unknown, domain: string): RawC
 
 const PRODUCT_WEBHOOK_TOPICS = ["products/create", "products/update", "products/delete"];
 
-export const ORDER_WEBHOOK_TOPICS = ["orders/paid", "refunds/create", "orders/cancelled"] as const;
-
 interface ShopifyWebhookRecord {
   id: number;
   topic: string;
@@ -1405,27 +1370,17 @@ interface ShopifyWebhookRecord {
 }
 
 /**
- * Subscribes the app to product changes and, when `read_orders` is granted, to paid orders and
- * refunds. Topics already pointed at this callback are skipped so reconnecting doesn't stack
- * duplicate deliveries.
+ * Subscribes the app to product changes, skipping topics already registered so reconnecting a
+ * store doesn't accumulate duplicate subscriptions (and duplicate deliveries) each time.
  *
  * Webhooks created this way are signed with the app's own client secret, which is why nothing
- * extra needs storing to verify them later. A missing order scope is reported rather than
- * failing the connection: the catalog still syncs, and GMV tracking stays off until a recheck.
+ * extra needs storing to verify them later.
  */
 export async function registerShopifyWebhooks(
   domain: string,
   accessToken: string,
   callbackUrl: string
-): Promise<{ registered: string[]; failed: string[]; ordersAccess: "active" | "missing" }> {
-  let canReadOrders = false;
-  try {
-    const scopes = await getGrantedScopes(domain, accessToken);
-    canReadOrders = scopes.includes("read_orders");
-  } catch (err) {
-    console.error("[shopify registerShopifyWebhooks] scope check failed", err);
-  }
-
+): Promise<{ registered: string[] }> {
   const existing = await shopifyFetch<{ webhooks: ShopifyWebhookRecord[] }>(
     domain,
     accessToken,
@@ -1436,11 +1391,9 @@ export async function registerShopifyWebhooks(
     (existing.webhooks ?? []).filter((hook) => hook.address === callbackUrl).map((hook) => hook.topic)
   );
 
-  const topics = canReadOrders ? [...PRODUCT_WEBHOOK_TOPICS, ...ORDER_WEBHOOK_TOPICS] : [...PRODUCT_WEBHOOK_TOPICS];
   const registered: string[] = [];
-  const failed: string[] = [];
 
-  for (const topic of topics) {
+  for (const topic of PRODUCT_WEBHOOK_TOPICS) {
     if (already.has(topic)) continue;
 
     const res = await fetch(`https://${domain}/admin/api/${API_VERSION}/webhooks.json`, {
@@ -1456,15 +1409,13 @@ export async function registerShopifyWebhooks(
     if (res.ok) {
       registered.push(topic);
     } else {
-      failed.push(topic);
-      // Non-fatal. Without product webhooks the catalog refreshes on the reconcile schedule.
-      // Without order webhooks, GMV is not tracked until the merchant rechecks access.
+      // Non-fatal. Without webhooks the catalog is refreshed by the reconcile schedule
+      // instead of instantly, which is a degradation rather than a broken connection.
       console.error(`[shopify registerShopifyWebhooks] ${topic} failed (${res.status})`);
     }
   }
 
-  const orderFailed = failed.some((topic) => (ORDER_WEBHOOK_TOPICS as readonly string[]).includes(topic));
-  return { registered, failed, ordersAccess: canReadOrders && !orderFailed ? "active" : "missing" };
+  return { registered };
 }
 
 const ADD_TO_CART_LOOKUP_TIMEOUT_MS = 12_000;

@@ -14,6 +14,7 @@ import {
   buildPathAssignments,
 } from "@/lib/sizing/assignments";
 import { isSizingGroup } from "@/lib/sizing/measurements";
+import { mappedPersonaLeaves } from "@/modules/store/mapping/persona-taxonomy";
 
 /**
  * Doc Part 7 — Stage 5's chart assignments.
@@ -75,7 +76,19 @@ export async function GET() {
       }
     }
 
-    return Response.json({ paths, totals: assignmentTotals(paths), autoMatched: auto.length });
+    return Response.json({
+      paths,
+      totals: assignmentTotals(paths),
+      autoMatched: auto.length,
+      // The merchant's own selected taxonomy structure — every enabled leaf, brand-agnostic and
+      // independent of `pathCoverage`'s live SKU counts. See `mappedPersonaLeaves`.
+      // What lets a chart's "Covers" chips show a leaf this merchant's mapping defines even when this
+      // particular brand has zero stock in it right now, instead of that leaf silently disappearing.
+      mappedLeaves: mappedPersonaLeaves(
+        connection.personaCategoryMap,
+        connection.personaTaxonomyScope
+      ),
+    });
   } catch (err) {
     console.error("[store-connection sizing/assignments GET]", err);
     return Response.json({ error: "Could not load the chart assignments" }, { status: 500 });

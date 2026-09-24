@@ -5,9 +5,10 @@ import { listChartsForBrands, upsertChart } from "@/lib/db/sizing-charts";
 import { getLatestSizingRun } from "@/lib/db/sizing-runs";
 import { buildChartResults, buildBrandResearch } from "@/lib/sizing/chart-results";
 import { parseDraft, type ChartDraftRow } from "@/lib/sizing/chart-draft";
-import { chartHasBounds, isChartRegion } from "@/lib/sizing/chart-schema";
+import { chartHasBounds } from "@/lib/sizing/chart-schema";
 import { isSizingGroup } from "@/lib/sizing/measurements";
 import { isAudience, normalizeBrandKey, UNKNOWN_BRAND_KEY } from "@/lib/sizing/keys";
+import { sanitizeCoverage } from "@/lib/sizing/variant-match";
 
 /**
  * Stage 4's whole surface: the coverage-driven chart and gap join, plus one row per global brand at
@@ -141,15 +142,17 @@ export async function POST(request: Request) {
       brandKey,
       sizingCategory,
       variantName,
-      variantGender: isAudience(body.variantGender) ? body.variantGender : null,
-      variantFitType:
-        typeof body.variantFitType === "string" && body.variantFitType.trim()
-          ? body.variantFitType.trim()
-          : null,
+      // Same rule as the research writer (`sanitizeCoverage` in `variant-match.ts`): a leaf outside
+      // this chart's own audience/sizing-category is dropped rather than stored, whether it came
+      // from a model or from a merchant's own checklist.
+      coversLeaves: sanitizeCoverage(
+        body.coversLeaves,
+        isAudience(body.audience) ? body.audience : "unisex",
+        sizingCategory
+      ),
       audience: isAudience(body.audience) ? body.audience : "unisex",
       // Provenance for a hand-filled chart is the person who filled it, so there is no page to cite.
       sourceTitle: typeof body.sourceTitle === "string" ? body.sourceTitle.trim() : "Entered by hand",
-      region: isChartRegion(body.region) ? body.region : null,
       chartRows,
       // Not a probability. A merchant reading a garment's own label is the most reliable source in
       // this pipeline, and anything below the review bar would flag their own work for review.

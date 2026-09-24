@@ -38,11 +38,9 @@ function chart(overrides: Partial<SizingChartRow> = {}): SizingChartRow {
     brandKey: "nike",
     sizingCategory: "tops",
     variantName: "Men",
-    variantGender: "mens",
-    variantFitType: null,
+    coversLeaves: [],
     audience: "mens",
     sourceTitle: "Men's Tops",
-    region: "EU",
     chartRows: [
       { size: "S", chest_min: 88, chest_max: 96 },
       { size: "M", chest_min: 96, chest_max: 104 },
@@ -58,7 +56,10 @@ function chart(overrides: Partial<SizingChartRow> = {}): SizingChartRow {
 
 describe("buildChartResults", () => {
   it("renders a charted pair with its display table and store SKU count", () => {
-    const result = buildChartResults([coverage({ skuCount: 79 })], [chart()]);
+    const result = buildChartResults(
+      [coverage({ skuCount: 79 })],
+      [chart({ coversLeaves: ["men:top:t-shirt"] })]
+    );
 
     expect(result.charts).toHaveLength(1);
     const [row] = result.charts;
@@ -66,6 +67,8 @@ describe("buildChartResults", () => {
     expect(row.sizingCategory).toBe("tops");
     expect(row.audience).toBe("mens");
     expect(row.sourceTitle).toBe("Men's Tops");
+    // Carried through unmodified so Stage 4's chip list can show it without a second lookup.
+    expect(row.coversLeaves).toEqual(["men:top:t-shirt"]);
     // The count comes from coverage, not the chart: it is how many of *this store's* items the chart
     // covers, which is the number the merchant is deciding about.
     expect(row.skuCount).toBe(79);

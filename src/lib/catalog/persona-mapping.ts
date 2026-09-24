@@ -81,13 +81,19 @@ function parseMapping(value: unknown): PersonaCategoryMapping | null {
       isAutoMatched: raw.isAutoMatched === true,
     };
   }
-  if (raw.status !== "mapped" || typeof raw.departmentId !== "string" || typeof raw.categoryId !== "string") return null;
+  if (
+    raw.status !== "mapped" ||
+    typeof raw.departmentId !== "string" ||
+    typeof raw.categoryId !== "string" ||
+    typeof raw.subCategory !== "string" ||
+    !raw.subCategory.trim()
+  ) return null;
   if (!DEPARTMENT_IDS.has(raw.departmentId as PersonaDepartmentId)) return null;
   return {
     status: "mapped",
     departmentId: raw.departmentId as PersonaDepartmentId,
     categoryId: raw.categoryId,
-    subCategory: typeof raw.subCategory === "string" && raw.subCategory.trim() ? raw.subCategory.trim() : undefined,
+    subCategory: raw.subCategory.trim(),
     personaPath: typeof raw.personaPath === "string" ? raw.personaPath : undefined,
     isAutoMatched: raw.isAutoMatched === true,
   };
@@ -133,7 +139,13 @@ function resolveOne(
   mapping: PersonaCategoryMapping | undefined,
   scope: SerializedTaxonomyScope,
 ): ResolvedPersonaPath | null {
-  if (!mapping || mapping.status !== "mapped" || !mapping.departmentId || !mapping.categoryId) return null;
+  if (
+    !mapping ||
+    mapping.status !== "mapped" ||
+    !mapping.departmentId ||
+    !mapping.categoryId ||
+    !mapping.subCategory
+  ) return null;
   const deptId = mapping.departmentId;
   if (!DEPARTMENT_IDS.has(deptId)) return null;
   if (scope.configured && !scope.enabledDeptIds.includes(deptId)) return null;
@@ -147,27 +159,25 @@ function resolveOne(
     : customCategory?.sizingGroup ?? null;
   if (!sizingGroup) return null;
 
-  if (mapping.subCategory) {
-    const leafKey = `${deptId}:${mapping.categoryId}:${mapping.subCategory}`;
-    if (scope.configured && !scope.enabledLeafKeys.includes(leafKey)) return null;
-    const standardLeaf = standardCategory &&
-      (PERSONA_SUB_CATEGORIES[deptId]?.[mapping.categoryId as PersonaCategoryId] ?? []).includes(mapping.subCategory);
-    const customLeaf = scope.customLeaves.some(
-      (item) =>
-        item.deptId === deptId &&
-        item.catId === mapping.categoryId &&
-        item.subCategory === mapping.subCategory,
-    );
-    if (!standardLeaf && !customLeaf) return null;
-  }
+  const leafKey = `${deptId}:${mapping.categoryId}:${mapping.subCategory}`;
+  if (scope.configured && !scope.enabledLeafKeys.includes(leafKey)) return null;
+  const standardLeaf = standardCategory &&
+    (PERSONA_SUB_CATEGORIES[deptId]?.[mapping.categoryId as PersonaCategoryId] ?? []).includes(mapping.subCategory);
+  const customLeaf = scope.customLeaves.some(
+    (item) =>
+      item.deptId === deptId &&
+      item.catId === mapping.categoryId &&
+      item.subCategory === mapping.subCategory,
+  );
+  if (!standardLeaf && !customLeaf) return null;
 
   const derived = standardCategory
     ? derivePersonaValues(deptId, mapping.categoryId as PersonaCategoryId)
     : derivePersonaValues(deptId, "top");
   const fullPath = formatPersonaPath(deptId, mapping.categoryId, mapping.subCategory);
   return {
-    key: `${deptId}:${mapping.categoryId}:${mapping.subCategory ?? ""}`,
-    segments: ["persona", deptId, mapping.categoryId, ...(mapping.subCategory ? [mapping.subCategory] : [])],
+    key: leafKey,
+    segments: ["persona", deptId, mapping.categoryId, mapping.subCategory],
     fullPath,
     departmentId: deptId,
     categoryId: mapping.categoryId,

@@ -1,8 +1,7 @@
 import { indexProductIfInScope } from "@/lib/catalog/index-product";
 import { markAcsProductOutOfStock } from "@/lib/catalog/acs/sync";
 import { getStoreConnectionByStoreUrl } from "@/lib/db/store-connections";
-import { applyShopifyOrderTopic } from "@/lib/attribution/apply-shopify-order";
-import { mapShopifyWebhookProduct, normalizeShopifyDomain, ORDER_WEBHOOK_TOPICS } from "@/lib/shopify/client";
+import { mapShopifyWebhookProduct, normalizeShopifyDomain } from "@/lib/shopify/client";
 import { decodeCredentials } from "@/lib/utils/crypto";
 import { verifyHmacSignature } from "@/lib/utils/internal-auth";
 
@@ -50,11 +49,6 @@ export async function POST(request: Request) {
   }
 
   try {
-    if ((ORDER_WEBHOOK_TOPICS as readonly string[]).includes(topic)) {
-      await applyShopifyOrderTopic(connection, topic, payload);
-      return Response.json({ ok: true });
-    }
-
     if (topic === "products/delete") {
       const id = (payload as { id?: number }).id;
       // Downgraded rather than removed — Google's own guidance is that deleting an ACS product

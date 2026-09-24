@@ -21,16 +21,6 @@ export function TopHeader({ activeTab, onReset }: TopHeaderProps) {
               Platform Authentication &amp; Taxonomy Detection
             </span>
           </div>
-        ) : activeTab === 'categories' ? (
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-xs font-bold uppercase tracking-wider text-purple-700 bg-purple-100/80 px-2 py-0.5 rounded-md whitespace-nowrap">
-              Categories
-            </span>
-            <span className="text-xs text-slate-400 select-none">/</span>
-            <span className="text-xs font-semibold text-slate-700 truncate">
-              Catalog Sizing Scope &amp; Leaf-Level Taxonomy
-            </span>
-          </div>
         ) : activeTab === 'mapping' ? (
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xs font-bold uppercase tracking-wider text-purple-700 bg-purple-100/80 px-2 py-0.5 rounded-md whitespace-nowrap">
@@ -49,6 +39,16 @@ export function TopHeader({ activeTab, onReset }: TopHeaderProps) {
             <span className="text-xs text-slate-400 select-none">/</span>
             <span className="text-xs font-semibold text-slate-700 truncate">
               Store Sizing &amp; Catalog Calibration
+            </span>
+          </div>
+        ) : activeTab === 'sizing_tester' ? (
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-xs font-bold uppercase tracking-wider text-purple-700 bg-purple-100/80 px-2 py-0.5 rounded-md whitespace-nowrap">
+              Sizing Tester
+            </span>
+            <span className="text-xs text-slate-400 select-none">/</span>
+            <span className="text-xs font-semibold text-slate-700 truncate">
+              Catalog Sizing &amp; Fit Testing
             </span>
           </div>
         ) : (

@@ -8,14 +8,11 @@ import {
 } from "@/lib/db/sizing-coverage";
 import { listChartsForBrands, upsertChart } from "@/lib/db/sizing-charts";
 import {
-  CHART_REGIONS,
   SIZE_ALIAS_KEYS,
   chartHasBounds,
-  isChartRegion,
   isSizeAliasKey,
   parseSizeChart,
   universalRowJsonSchema,
-  type ChartRegion,
   type CoverageRequest,
   type SizeChartRow,
 } from "./chart-schema";
@@ -31,6 +28,14 @@ import {
   type SizingGroup,
 } from "./measurements";
 import { AUDIENCES, isAudience, isSizingCategory, UNKNOWN_BRAND_KEY, type Audience } from "./keys";
+import { audienceForPersonaPath, sanitizeCoverage } from "./variant-match";
+import {
+  ALL_PERSONA_LEAF_KEYS,
+  leafKeysFor,
+  PERSONA_CATEGORIES,
+  PERSONA_DEPARTMENTS,
+  personaSizingGroup,
+} from "@/modules/store/mapping/persona-taxonomy";
 
 /**
  * Doc Tab 4 — Size Chart Research. Runs only against brands Phase 3 classified `global`, one web
@@ -425,11 +430,9 @@ async function researchOneBrand(
       brandKey,
       sizingCategory: chart.group,
       variantName,
-      variantGender: chart.table.variantGender,
-      variantFitType: chart.table.variantFitType,
+      coversLeaves: chart.table.coversLeaves,
       audience: chart.table.audience,
       sourceTitle: chartTitleFor(chart.table),
-      region: chart.table.region,
       chartRows: chart.rows,
       confidence: chart.confidence,
       sourceUrl: chart.table.sourceUrl,
@@ -520,9 +523,6 @@ const FINDER_INSTRUCTIONS = [
   "  shows the shop owner two entries where the brand publishes one.",
   "- Where a brand separates by sub-brand or fit line as well as gender, put both in the name —",
   "  'Tommy Jeans Men', 'Tailored Men Slim' — so the two stay distinguishable.",
-  "- `variant_gender`: just the gender part of that name, or null if the guide never says.",
-  "- `variant_fit_type`: just the fit part — 'Regular', 'Tall', 'Petite', 'Slim'. Null if the brand",
-  "  publishes only one fit for this group.",
   "- `garment_group`: which of these the table sizes. Go by what the group covers, not by what its",
   "  name sounds like — 'dresses' is the whole upper-and-lower-body group, so a men's SUITS or",
   "  OVERALLS table belongs there:",
@@ -562,15 +562,6 @@ const TABLE_SCHEMA = {
         "'Women Petite', 'Tommy Jeans Men', 'Unisex'. Short and distinguishing, not the heading. " +
         "Unique among this brand's tables for the same garment_group.",
     },
-    variant_gender: {
-      type: ["string", "null"],
-      enum: [...AUDIENCES, null],
-      description: "The gender part of variant_name alone. Null when the guide does not say.",
-    },
-    variant_fit_type: {
-      type: ["string", "null"],
-      description: "The fit part of variant_name alone — Regular, Tall, Petite, Slim. Null if none.",
-    },
     garment_group: {
       type: "string",
       enum: [...SIZING_GROUP_KEYS, "other"],
@@ -585,11 +576,6 @@ const TABLE_SCHEMA = {
       description: "Whether the numbers describe the wearer's body or the garment laid flat.",
     },
     unit: { type: "string", enum: ["cm", "inch"], description: "The unit printed on the source page." },
-    region: {
-      type: ["string", "null"],
-      enum: [...CHART_REGIONS, null],
-      description: "Which regional label set the size values are drawn from.",
-    },
     source_url: { type: "string", description: "Exact URL this table was read from." },
     columns: { type: "array", items: { type: "string" }, description: "Header row, verbatim and in order." },
     rows: {
@@ -614,12 +600,9 @@ const TABLE_SCHEMA = {
     "section",
     "audience",
     "variant_name",
-    "variant_gender",
-    "variant_fit_type",
     "garment_group",
     "measurement_kind",
     "unit",
-    "region",
     "source_url",
     "columns",
     "rows",
@@ -650,13 +633,14 @@ export interface ExtractedTable {
   /** Doc Part 5. Which of the brand's chart lines this table is, within its garment group. Empty
    *  when the model gave nothing usable; `variantNameFor` supplies a fallback before storage. */
   variantName: string;
-  variantGender: Audience | null;
-  variantFitType: string | null;
+  /** Which Persona leaves this table is the chart for. Always `[]` on the old two-call path — the
+   *  finder is never shown the leaf vocabulary — and populated from the model's own `covers_leaves`
+   *  on the one-call path via `parseSingleRequestChart`. */
+  coversLeaves: string[];
   /** `other` survives this far so it can be rejected with a reason rather than silently dropped. */
   garmentGroup: SizingGroup | "other";
   measurementKind: "body" | "garment";
   unit: "cm" | "inch";
-  region: ChartRegion | null;
   sourceUrl: string;
   columns: string[];
   rows: string[][];
@@ -691,7 +675,6 @@ export function chartTitleFor(table: ExtractedTable): string {
  */
 export function variantNameFor(table: ExtractedTable): string {
   if (table.variantName) return table.variantName;
-  if (table.variantGender) return AUDIENCE_VARIANT_LABELS[table.variantGender];
   return AUDIENCE_VARIANT_LABELS[table.audience];
 }
 
@@ -818,15 +801,12 @@ function parseExtractedTable(value: unknown): ExtractedTable | null {
     section: typeof record.section === "string" && record.section.trim() ? record.section.trim() : null,
     audience: isAudience(record.audience) ? record.audience : "unisex",
     variantName: typeof record.variant_name === "string" ? record.variant_name.trim() : "",
-    variantGender: isAudience(record.variant_gender) ? record.variant_gender : null,
-    variantFitType:
-      typeof record.variant_fit_type === "string" && record.variant_fit_type.trim()
-        ? record.variant_fit_type.trim()
-        : null,
+    // The two-call finder is never shown the leaf vocabulary, so it never states coverage — see the
+    // field's docstring on `ExtractedTable`.
+    coversLeaves: [],
     garmentGroup: isSizingGroup(group) ? group : "other",
     measurementKind: record.measurement_kind === "garment" ? "garment" : "body",
     unit: record.unit === "inch" ? "inch" : "cm",
-    region: isChartRegion(record.region) ? record.region : null,
     sourceUrl,
     columns,
     rows,
@@ -921,8 +901,14 @@ function normalizerInstructions(observed: string[]): string {
     "LABELS",
     "- `size` is the row's primary label — the one a shopper sees on the garment.",
     "- `aliases` carries every OTHER label the same row is printed under. A collar column goes in",
-    "  `neck`, a waist/inseam pair like '34/31' or '3431' goes in `waist_inseam` as printed, regional",
-    "  numbers go in their own key. Null for any system the table does not publish.",
+    "  `neck`; a waist/inseam pair like '34/31' or '3431' goes in `waist_inseam` as printed; a",
+    "  country's own numbering goes in that country's key — `eu`, `uk` or `us` — one column each.",
+    "- `numeric` is only for a numeric scale that is NOT a country's own EU/US/UK size — a denim",
+    "  waist inch, a dress size, a plain grading printed alongside (not instead of) a regional",
+    "  column. If a table's only numeric column is that region's own sizing, it belongs in `eu`,",
+    "  `uk` or `us`, never in `numeric`. Null for any system the table does not publish.",
+    "- A child's age band ('NB', '3M', '8-9y') goes in `age`, never in `alpha`: '3M' is not an S/M/L",
+    "  label, and a chart mixing the two makes one age scale look like two real scales at match time.",
     observed.length > 0
       ? `- This merchant writes their stock sizes as: ${observed.join(", ")}. Where a table offers several label columns, make \`size\` the column matching those, so the two can be matched later.`
       : "- Where a table offers several label columns, prefer the alpha column (S/M/L), then the numeric column for the table's own region.",
@@ -972,6 +958,29 @@ export interface NormalizedChart {
 // ─── Single-request brand research ────────────────────────────────────────────
 
 /**
+ * Every Persona leaf, grouped by the audience + sizing group vocabulary the model already emits per
+ * chart (`audience`, `garment_group`), so it can filter this list against a table's own two fields
+ * rather than having to translate department ids.
+ *
+ * This is the closed vocabulary `covers_leaves` is asked to pick from. Built once at module load
+ * from `PERSONA_SUB_CATEGORIES` rather than hand-written, so it can never drift from the taxonomy the
+ * rest of the app resolves leaves against.
+ */
+function leafVocabularyBlock(): string {
+  const lines: string[] = [];
+  for (const dept of PERSONA_DEPARTMENTS) {
+    const audience = audienceForPersonaPath(dept.id);
+    for (const cat of PERSONA_CATEGORIES) {
+      const leaves = leafKeysFor(dept.id, cat.id);
+      if (leaves.length === 0) continue;
+      const group = personaSizingGroup(cat.id);
+      lines.push(`  ${audience} + ${group}: ${leaves.join(", ")}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+/**
  * The compact response shape used by the one and only model request for a brand.
  *
  * Bounds are emitted as a short list rather than the stored flat row shape. Strict structured
@@ -1007,10 +1016,13 @@ const SINGLE_REQUEST_SCHEMA = {
             type: "string",
             description: "Short merchant-facing chart-line name such as Men, Women Petite, or Kids.",
           },
-          variant_gender: { type: ["string", "null"], enum: [...AUDIENCES, null] },
-          variant_fit_type: { type: ["string", "null"] },
+          covers_leaves: {
+            type: "array",
+            description:
+              "Which Persona leaves this exact table is the chart for — see COVERAGE in the instructions.",
+            items: { type: "string", enum: [...ALL_PERSONA_LEAF_KEYS] },
+          },
           garment_group: { type: "string", enum: [...SIZING_GROUP_KEYS] },
-          region: { type: ["string", "null"], enum: [...CHART_REGIONS, null] },
           source_url: { type: "string", description: "Exact URL from which this chart was read." },
           confidence: { type: "number", description: "0-1 confidence in this chart's extraction." },
           rows: {
@@ -1059,10 +1071,8 @@ const SINGLE_REQUEST_SCHEMA = {
           "section",
           "audience",
           "variant_name",
-          "variant_gender",
-          "variant_fit_type",
+          "covers_leaves",
           "garment_group",
-          "region",
           "source_url",
           "confidence",
           "rows",
@@ -1096,11 +1106,52 @@ const SINGLE_REQUEST_INSTRUCTIONS = [
   "  table applies to several supported groups, return one chart per applicable garment group.",
   "- Never merge distinct source tables. Variant names must be short, merchant-readable and unique",
   "  within a garment group: Men, Women, Men Tall, Women Petite, Tommy Jeans Men, and so on.",
+  "- Where the brand's own heading states a fit class — Regular, Tall, Petite, Slim, Big & Tall,",
+  "  Plus, Curve, Maternity, Short, Husky — or a garment-type word — Denim, Tailored, Wired — put it",
+  "  in `variant_name` itself: 'Men Tailored Long', 'Women Bras (Wired)'. There is nowhere else for",
+  "  either to go, and the LEAF COVERAGE rules below read a fit class straight off this name.",
+  "",
+  "LEAF COVERAGE — covers_leaves",
+  "- Persona (the merchant's catalog taxonomy) is fixed and closed. Every leaf below is written as",
+  "  `department:category:leaf` and grouped by the audience + garment_group vocabulary you already",
+  "  use, so you can read a chart's own audience and garment_group and find its matching group here:",
+  leafVocabularyBlock(),
+  "- `covers_leaves` says which of the leaves in THIS chart's own audience+garment_group row this",
+  "  exact table is the correct chart for — never a leaf from a different row. Most charts claim",
+  "  several leaves; a chart specialized for one narrow leaf (a bra table, a denim table) claims only",
+  "  that one.",
+  "- If a brand publishes only one ordinary table for an audience+garment_group, that table claims",
+  "  every leaf in that row — there is nothing to split.",
+  "- If a brand publishes several tables for the same audience+garment_group (a base line plus a",
+  "  denim line, a shirts line, a swim line), split the row's leaves between them: give each leaf to",
+  "  the ONE table that is actually the right chart for it, and leave it off every other table for",
+  "  that same audience+garment_group. A leaf whose specialization the brand never published (no",
+  "  denim table exists) goes to whichever table has no specialization of its own — the base line —",
+  "  rather than being left off every table.",
+  "- Never put an ordinary leaf on a table whose own variant_name states a fit class (Big & Tall,",
+  "  Long, Petite, Tall, Slim, Plus, Curve, Maternity, Short, Husky). Which fit a shopper needs is a",
+  "  fact about their body, not their garment, so a fit-class table's covers_leaves is empty — a",
+  "  merchant picks it explicitly, it is never auto-matched.",
+  "- If two of the brand's own tables for the same audience+garment_group genuinely both answer to",
+  "  one leaf and only the merchant's own catalog could say which (most often an infant table and a",
+  "  bigger-kid table both plausibly sizing a 'kids' department leaf with no age signal), put that",
+  "  leaf on BOTH tables rather than guessing one — this tells the merchant to choose instead of",
+  "  silently sizing the wrong age band.",
+  "- Every leaf in the vocabulary above belongs to exactly one audience+garment_group row. Never put",
+  "  a leaf under a table whose own garment_group doesn't match that row, even if the table's heading",
+  "  happens to use the same English word — a one-piece swimsuit chart claims the `full-body`",
+  "  swimsuit leaf, never the unrelated `top` bodysuit leaf, no matter what its heading says.",
   "",
   "FINAL ROW NORMALIZATION",
   "- Output one row per SIZE, even when the source prints sizes across columns.",
   "- `size` is the primary label printed on the garment. Put every other published label for that",
   "  same row into aliases; never invent an alias.",
+  "- Each alias names one system: `eu`/`uk`/`us` for that country's own sizing, `alpha` for S/M/L,",
+  "  `neck` for a collar size, `waist_inseam` for a waist/inseam pair like 34/31. Use `numeric` only",
+  "  for a numeric scale that is NOT a country's own EU/US/UK size — a denim waist inch or a dress",
+  "  size printed alongside a regional column. A table's only regional numeric column still goes in",
+  "  `eu`, `uk` or `us`, never in `numeric`. Use `age` for a child's age band ('NB', '3M', '8-9y') —",
+  "  it is not `alpha` even though it can look like a short label.",
   "- Measurements describe the wearer's BODY. Convert inches to centimetres using 1in = 2.54cm;",
   "  convert pounds to kilograms using 1lb = 0.453592kg. Preserve sensible decimal precision.",
   "- A source range gives min and max. A single published body value sets both to that value. For",
@@ -1182,22 +1233,20 @@ function parseSingleRequestChart(value: unknown): NormalizedChart | null {
   const sourceUrl = typeof record.source_url === "string" ? record.source_url.trim() : "";
   if (!isSizingGroup(group) || !title || !sourceUrl || !Array.isArray(record.rows)) return null;
 
+  const audience = isAudience(record.audience) ? record.audience : "unisex";
   const rows = record.rows.flatMap((row) => parseCompactRow(row, group) ?? []);
   return {
     table: {
       title,
       section: typeof record.section === "string" && record.section.trim() ? record.section.trim() : null,
-      audience: isAudience(record.audience) ? record.audience : "unisex",
+      audience,
       variantName: typeof record.variant_name === "string" ? record.variant_name.trim() : "",
-      variantGender: isAudience(record.variant_gender) ? record.variant_gender : null,
-      variantFitType:
-        typeof record.variant_fit_type === "string" && record.variant_fit_type.trim()
-          ? record.variant_fit_type.trim()
-          : null,
+      coversLeaves: sanitizeCoverage(record.covers_leaves, audience, group, title),
+      // (sanitizeCoverage lives in variant-match.ts, shared with the manual chart API route so both
+      // writers of covers_leaves enforce the same audience/group rule.)
       garmentGroup: group,
       measurementKind: "body",
       unit: "cm",
-      region: isChartRegion(record.region) ? record.region : null,
       sourceUrl,
       // The one-call response is already normalized. These raw-transcription fields stay empty and
       // are never consulted after this point; retaining them keeps one metadata type for storage,
@@ -1364,7 +1413,6 @@ async function normalizeBatch(
     variant_name: table.variantName,
     garment_group: table.garmentGroup,
     unit: table.unit,
-    region: table.region,
     columns: table.columns,
     rows: table.rows,
   }));

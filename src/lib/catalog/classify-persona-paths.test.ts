@@ -48,6 +48,22 @@ describe("parsePersonaAutoMatch", () => {
     expect(verdicts[0].confidence).toBe(1);
   });
 
+  it("rejects a category-level target even if a caller accidentally offers one", () => {
+    const categoryTarget: PersonaMatchTarget = {
+      key: "women:top",
+      departmentId: "women",
+      categoryId: "top",
+      label: "Women > Top",
+    };
+    const [verdict] = parsePersonaAutoMatch(JSON.stringify({
+      verdicts: [
+        { id: "tees", action: "mapped", target_key: "women:top", reason: "Mixed tops", confidence: 0.9 },
+      ],
+    }), candidates, [categoryTarget]);
+
+    expect(verdict.mapping).toBeNull();
+  });
+
   it("names the rejected key in the reason so a dropped mapping is not silent", () => {
     const [verdict] = parsePersonaAutoMatch(JSON.stringify({
       verdicts: [

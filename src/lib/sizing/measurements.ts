@@ -1,3 +1,5 @@
+import type { Audience } from "./keys";
+
 /**
  * The universal body-measurement vocabulary every size chart in the system is expressed in,
  * regardless of which brand published it or which region's label set it uses.
@@ -23,9 +25,21 @@ export const MEASUREMENTS = {
    *  bodies with the same chest routinely need different jacket shoulders, which is the one
    *  measurement a chest-only chart cannot compensate for. */
   shoulder: { unit: "cm", label: "Shoulder" },
-  /** Centre back neck to wrist, the length menswear shirts are sold in alongside a collar size.
-   *  Genuinely a length rather than a girth, so a chart publishing one value per size here is
-   *  correct rather than defective — see `GIRTH_MEASUREMENTS` below. */
+  /**
+   * Arm length. Genuinely a length rather than a girth, so a chart publishing one value per size here
+   * is correct rather than defective — see `GIRTH_MEASUREMENTS` below.
+   *
+   * The most dangerous name in this file, because two different measurements are both called "sleeve
+   * length" in the wild and they differ by roughly 20cm. ISO 8559-2 lists *arm length* (5.7.8, shoulder
+   * point to wrist) and *back neck point to wrist length* (5.4.17) as **separate** secondary dimensions
+   * for shirts — proof the standard considers them distinct. Tailoring and dress shirts publish the
+   * centre-back one; almost everything else publishes the from-shoulder one, and neither states which.
+   *
+   * One key for both is deliberate: charts publish one or the other, never both, so a second key would
+   * be empty on every chart while forcing every reader to check two. What it costs is that the value is
+   * only comparable within a chart. Read the source's own measuring instruction before trusting a
+   * cross-brand comparison, and never convert between the two by adding a constant.
+   */
   sleeve: { unit: "cm", label: "Sleeve length" },
   /** Around the widest part of the upper leg. The measurement that separates a slim from a regular
    *  cut at the same waist, which is why trouser guides publish it separately. */
@@ -120,6 +134,15 @@ export function isBodyMeasurement(measurement: Measurement): boolean {
  * exclusion filter compares. `optional` is everything a brand's guide might also publish: stored,
  * displayed, and handed to Persona as context, never used to exclude. That split is why garment
  * lengths can live here at all — see `GARMENT_MEASUREMENTS`.
+ *
+ * `childRequired` overrides `required` for a child audience (boys/girls/kids). Kidswear runs on a
+ * different axis: Tommy's own infant, boys and girls tables all key their sizes on `height` — the
+ * scale itself is height in cm, `92` means a 92cm child — and publish chest/waist as a single pinned
+ * number per size rather than a range (`sourcePublishesPointValues`). Requiring `chest` there the
+ * way an adult tops chart does would make the exclusion filter compare against the one measurement
+ * every child of that size is pinned to instead of the one the brand actually discriminates sizes
+ * on. `height` was already listed in every apparel group's `optional` set, so no chart's coverage
+ * changes — only which of its measurements the filter treats as load-bearing for that audience.
  */
 export const SIZING_GROUPS = {
   /** `neck`, `shoulder` and `sleeve` are optional rather than dropped because menswear guides
@@ -128,28 +151,34 @@ export const SIZING_GROUPS = {
   tops: {
     required: ["chest"],
     optional: ["waist", "body_length", "neck", "shoulder", "sleeve", "height"],
+    childRequired: ["height"],
   },
   /** Its own parent rather than folded into `tops`: brands publish outerwear separately because
    *  it's cut to layer over a top, so the same body chest maps to a different label. */
   outerwear: {
     required: ["chest"],
     optional: ["waist", "sleeve", "body_length", "neck", "shoulder", "height"],
+    childRequired: ["height"],
   },
   bottoms: {
     required: ["waist"],
     optional: ["hip", "inseam", "thigh", "height"],
+    childRequired: ["height"],
   },
   dresses: {
     required: ["chest"],
     optional: ["waist", "hip", "dress_length", "height"],
+    childRequired: ["height"],
   },
+  /** No `childRequired`: foot length is what every regional shoe scale relabels regardless of the
+   *  wearer's age, so footwear has one discriminator for every audience. */
   footwear: {
     required: ["foot_length"],
     optional: [],
   },
 } as const satisfies Record<
   string,
-  { required: readonly Measurement[]; optional: readonly Measurement[] }
+  { required: readonly Measurement[]; optional: readonly Measurement[]; childRequired?: readonly Measurement[] }
 >;
 
 export type SizingGroup = keyof typeof SIZING_GROUPS;
@@ -198,20 +227,45 @@ export function measurementsFor(group: SizingGroup): readonly Measurement[] {
   return [...SIZING_GROUPS[group].required, ...SIZING_GROUPS[group].optional];
 }
 
-/** The measurements a chart in this parent is worthless without. A chart carrying no bounds for
- *  any of these is rejected rather than stored, and the exclusion filter compares only these. */
-export function requiredMeasurementsFor(group: SizingGroup): readonly Measurement[] {
-  return SIZING_GROUPS[group].required;
+function isChildAudience(audience: Audience): boolean {
+  return audience === "boys" || audience === "girls" || audience === "kids";
+}
+
+/**
+ * The measurements the exclusion filter compares for this parent and audience, and the ones a
+ * chart's Req column marks as needed on every row.
+ *
+ * Not "a chart carrying none of these is rejected rather than stored" — `chartHasBounds` accepts a
+ * chart with bounds for *any* measurement in `measurementsFor(group)`, required or optional, so a
+ * table missing its required measurement is still persisted. This is the filter's contract, not
+ * the store's.
+ *
+ * `audience` is optional and defaults to the adult set: most callers display a single chart whose
+ * own `audience` field they already have, but a few (the manual chart entry grid, opened before a
+ * variant name or audience is chosen) genuinely do not know it yet, and adult is what every one of
+ * them defaulted to before this had an audience parameter at all.
+ */
+export function requiredMeasurementsFor(group: SizingGroup, audience?: Audience): readonly Measurement[] {
+  const config: { required: readonly Measurement[]; childRequired?: readonly Measurement[] } = SIZING_GROUPS[group];
+  if (audience && isChildAudience(audience) && config.childRequired) return config.childRequired;
+  return config.required;
 }
 
 /**
  * There used to be a `sizingGroupFor(category, subcategory)` here, mapping a product's canonical
  * taxonomy onto its chart. Nothing calls it any more and nothing should: which parent a product is
- * sized on comes from `category_parent_map`, the answer the merchant gave for the category path the
- * product sits in, resolved by `resolveParentCategory` in `@/lib/catalog/category-parents`.
+ * sized on comes from `persona_category_map`, the answer the merchant gave in the Categories tab for
+ * the category path the product sits in. `resolvePersonaPaths` reads that map and `personaSizingGroup`
+ * turns the Persona category into one of the five parents below — `full-body` becomes `dresses`.
  *
  * The distinction is not cosmetic. Inference had to have an opinion about every product in every
  * catalog, and the two ways it was wrong — no match, so the product silently left sizing, and a
  * wrong match, so it was silently sized against someone else's chart — were both invisible to the
  * merchant and to us. Asking once per path is a few minutes of their time and has neither failure.
+ *
+ * Note what the group does *not* carry: the leaf. `women:bottom:jean` and `women:bottom:trouser` both
+ * resolve to `bottoms` here, and the leaf survives only on the path-coverage/assignment key, which is
+ * what lets Stage 5 bind them to different chart variants. An earlier version of this comment pointed
+ * at `category_parent_map` and `resolveParentCategory`; that column was dropped in
+ * 20260915143000_drop_legacy_category_setup.sql and the resolver is no longer on the scan path.
  */

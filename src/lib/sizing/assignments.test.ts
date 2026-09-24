@@ -55,11 +55,9 @@ function chartRow(overrides: Partial<SizingChartRow> = {}): SizingChartRow {
     brandKey: "tommy_hilfiger",
     sizingCategory: "tops",
     variantName: "Men Regular",
-    variantGender: "mens",
-    variantFitType: "regular",
+    coversLeaves: [],
     audience: "mens",
     sourceTitle: "Men's Tops",
-    region: "EU",
     chartRows: [{ size: "M", chest_min: 96, chest_max: 104 }],
     confidence: 0.95,
     sourceUrl: "https://tommy.example/size-guide",
@@ -115,7 +113,7 @@ describe("buildPathAssignments", () => {
 
   it("offers every variant the brand published for the parent", () => {
     const [row] = build({
-      charts: [chartRow({ id: "c1" }), chartRow({ id: "c2", variantName: "Women Regular", audience: "womens", variantGender: "womens" })],
+      charts: [chartRow({ id: "c1" }), chartRow({ id: "c2", variantName: "Women Regular", audience: "womens" })],
     });
 
     expect(row.variants.map((variant) => variant.variantName)).toEqual(["Men Regular", "Women Regular"]);
@@ -202,50 +200,99 @@ describe("indexAssignableVariants", () => {
 });
 
 describe("autoMatchAssignments", () => {
-  it("takes the only variant a brand published for the parent", () => {
-    const paths = build({ charts: [chartRow()] });
+  it("takes the chart that lists this exact leaf", () => {
+    const paths = build({
+      pathCoverage: [pathRow({ categoryId: "men:top:t-shirt" })],
+      charts: [chartRow({ coversLeaves: ["men:top:t-shirt"] })],
+    });
     const matched = autoMatchAssignments(paths);
 
     expect(matched).toHaveLength(1);
     expect(matched[0].variantName).toBe("Men Regular");
   });
 
-  it("reads an unmistakable audience off the merchant's own breadcrumb", () => {
+  it("matches the chart that lists this leaf, not merely a same-audience sibling", () => {
+    // Both are womenswear, both otherwise plausible for the path — `chartsForLeaf` decides on
+    // `covers_leaves` alone, not on audience compatibility a second time.
     const paths = build({
-      pathCoverage: [pathRow({ categoryPath: ["Women", "Tops"] })],
+      pathCoverage: [pathRow({ categoryId: "women:top:t-shirt" })],
       charts: [
-        chartRow({ id: "c1", variantName: "Men", variantGender: "mens", audience: "mens" }),
-        chartRow({ id: "c2", variantName: "Women", variantGender: "womens", audience: "womens" }),
+        chartRow({
+          id: "c1",
+          variantName: "Women Blazers",
+          audience: "womens",
+          coversLeaves: ["women:outerwear:blazer"],
+        }),
+        chartRow({
+          id: "c2",
+          variantName: "Women Tops",
+          audience: "womens",
+          coversLeaves: ["women:top:t-shirt"],
+        }),
       ],
     });
 
     const matched = autoMatchAssignments(paths);
     expect(matched).toHaveLength(1);
-    expect(matched[0].variantName).toBe("Women");
+    expect(matched[0].variantName).toBe("Women Tops");
   });
 
-  it("refuses to choose between two fits of the same audience", () => {
-    // The case the restraint is for. Regular and Petite are both men's tops; picking either sizes the
-    // path's shoppers against a body the merchant never confirmed.
+  /**
+   * `Regular` names the *absence* of a fit class, so it is a safe default when both siblings claim
+   * the same leaf. `Tall` names a shopper's body, which no path can state, so it is never chosen for
+   * them — it stays in the dropdown for a merchant who knows their stock. Chart authors should never
+   * put a leaf on a fit-class table's `covers_leaves` in the first place; this is the belt-and-braces
+   * guard for the day one does anyway.
+   */
+  it("takes the base table over a fit-class sibling rather than refusing both", () => {
     const paths = build({
+      pathCoverage: [pathRow({ categoryId: "men:top:t-shirt" })],
       charts: [
-        chartRow({ id: "c1", variantName: "Men Regular", variantFitType: "regular" }),
-        chartRow({ id: "c2", variantName: "Men Tall", variantFitType: "tall" }),
+        chartRow({ id: "c1", variantName: "Men Regular", coversLeaves: ["men:top:t-shirt"] }),
+        chartRow({ id: "c2", variantName: "Men Tall", coversLeaves: ["men:top:t-shirt"] }),
+      ],
+    });
+
+    const matched = autoMatchAssignments(paths);
+    expect(matched).toHaveLength(1);
+    expect(matched[0].variantName).toBe("Men Regular");
+  });
+
+  it("still refuses when neither sibling claiming the leaf is the base", () => {
+    // Nothing distinguishes these for a path: both describe a body the merchant never confirmed, and
+    // there is no unqualified table to fall back to.
+    const paths = build({
+      pathCoverage: [pathRow({ categoryId: "men:top:t-shirt" })],
+      charts: [
+        chartRow({ id: "c1", variantName: "Men Tall", coversLeaves: ["men:top:t-shirt"] }),
+        chartRow({ id: "c2", variantName: "Men Big & Tall", coversLeaves: ["men:top:t-shirt"] }),
       ],
     });
 
     expect(autoMatchAssignments(paths)).toEqual([]);
   });
 
-  it("leaves an audience-less breadcrumb alone rather than treating unisex as an answer", () => {
-    // `audienceFor` returns `unisex` both for a genuinely unisex path and for one it could not read at
-    // all, so matching on it would bind every unlabelled path to whichever table happened to be filed
-    // as unisex.
+  it("never auto-matches a category-level path with no leaf chosen", () => {
+    // `categoryId` here is a bare merchant category id, not a Persona leaf key — there is no leaf for
+    // any chart to have claimed, and guessing a "base" table for it is exactly what `covers_leaves`
+    // replaced. Even an otherwise-perfect single candidate cannot be reached this way.
     const paths = build({
-      pathCoverage: [pathRow({ categoryPath: ["Sale", "Clearance"] })],
+      pathCoverage: [pathRow({ categoryId: "2", categoryPath: ["Sale", "Clearance"] })],
+      charts: [chartRow({ coversLeaves: ["men:top:t-shirt"] })],
+    });
+
+    expect(autoMatchAssignments(paths)).toEqual([]);
+  });
+
+  it("refuses when two charts both legitimately claim the same leaf", () => {
+    // The age-disjoint kids case this is modelled on: an Infant table and a Boys & Girls table can
+    // both claim one kids-unisex footwear leaf, deliberately, because only the merchant knows the age
+    // band this stock is sized for.
+    const paths = build({
+      pathCoverage: [pathRow({ categoryId: "men:top:t-shirt" })],
       charts: [
-        chartRow({ id: "c1", variantName: "Unisex", variantGender: null, audience: "unisex" }),
-        chartRow({ id: "c2", variantName: "Women", variantGender: "womens", audience: "womens" }),
+        chartRow({ id: "c1", variantName: "Adult", coversLeaves: ["men:top:t-shirt"] }),
+        chartRow({ id: "c2", variantName: "Youth", coversLeaves: ["men:top:t-shirt"] }),
       ],
     });
 
@@ -255,10 +302,18 @@ describe("autoMatchAssignments", () => {
   it("never revisits a path that already has a decision", () => {
     // Including an explicit no-chart. A later research pass discovering a variant must not overturn a
     // choice the merchant already made.
-    const assigned = build({ charts: [chartRow()], assignments: [assignmentRow()] });
+    const assigned = build({
+      pathCoverage: [pathRow({ categoryId: "men:top:t-shirt" })],
+      charts: [chartRow({ coversLeaves: ["men:top:t-shirt"] })],
+      assignments: [assignmentRow({ categoryId: "men:top:t-shirt" })],
+    });
     expect(autoMatchAssignments(assigned)).toEqual([]);
 
-    const skipped = build({ charts: [chartRow()], assignments: [assignmentRow({ variantName: null })] });
+    const skipped = build({
+      pathCoverage: [pathRow({ categoryId: "men:top:t-shirt" })],
+      charts: [chartRow({ coversLeaves: ["men:top:t-shirt"] })],
+      assignments: [assignmentRow({ categoryId: "men:top:t-shirt", variantName: null })],
+    });
     expect(autoMatchAssignments(skipped)).toEqual([]);
   });
 

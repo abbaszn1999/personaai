@@ -177,7 +177,9 @@ export interface ResearchedChart {
    *  identity — it says which page the variant was transcribed from. */
   sourceTitle: string;
   skuCount: number;
-  region: string;
+  /** Regional scales this chart carries, pre-joined for display — `EU · UK · US`. Derived from the
+   *  rows server-side; empty when the source published alpha labels only. */
+  labelSystems: string;
   /** 0-100, to match the demo display scale. Stored 0-1. */
   confidence: number;
   lastUpdated: string;
@@ -191,6 +193,9 @@ export interface ResearchedChart {
    *  without re-parsing formatted strings. */
   chartRows: SizeChartRow[];
   quality: ChartQualityFlag[];
+  /** The Persona leaf keys this exact chart claims — see `coversLeaves` on the server-side
+   *  `ResearchedChartResult` in `chart-results.ts`. */
+  coversLeaves: string[];
   /** Whether a merchant should check this chart before it drives recommendations. Decided on the
    *  server so there is one confidence bar in the system rather than one per component. */
   needsReview: boolean;
@@ -284,8 +289,9 @@ export interface AssignableVariant {
   chartId: string;
   variantName: string;
   audience: ChartAudience;
-  variantGender: ChartAudience | null;
-  variantFitType: string | null;
+  /** The Persona leaf keys this exact chart claims — see `coversLeaves` on the server-side
+   *  `AssignableVariant` in `assignments.ts`. */
+  coversLeaves: string[];
   /** 0-100. */
   confidence: number;
   sourceTitle: string;
@@ -319,7 +325,15 @@ export interface PathAssignment {
   variantName: string | null;
   decided: boolean;
   source: "merchant" | "auto" | null;
+  /** Only the variants that may size this path's audience — an adult path is never offered a child's
+   *  table. A stored choice is always included, even if the guard would now exclude it. */
   variants: AssignableVariant[];
+  /** Read off the path's Persona department. Null for pre-Universal-Mapping rows, which state no
+   *  audience and so are offered everything. */
+  audience: ChartAudience | null;
+  /** Variants the audience guard removed. Non-zero with an empty `variants` means the brand has charts
+   *  for this parent but none for this audience — a Stage 4 coverage gap, not a missing research run. */
+  variantsOtherAudience: number;
   /** The stored name matches no current chart: research renamed or dropped the table the merchant
    *  chose. Shown rather than cleared, since their decision is still the best evidence of intent. */
   missingVariant: boolean;
@@ -340,6 +354,9 @@ export interface SizingAssignmentsResponse {
   totals: AssignmentTotals;
   /** How many paths this read resolved by itself — sole variants and unambiguous audience matches. */
   autoMatched: number;
+  /** Every leaf enabled in this merchant's taxonomy scope — brand-agnostic and independent of
+   *  `paths`' live SKU counts. See `mappedPersonaLeaves`. */
+  mappedLeaves: string[];
 }
 
 export const EMPTY_ASSIGNMENT_TOTALS: AssignmentTotals = {
