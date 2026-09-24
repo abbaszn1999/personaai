@@ -294,6 +294,22 @@ export async function listRecentSales(ownerId: string, limit = 20): Promise<Rece
   });
 }
 
+/** Every sale and refund recorded in [fromIso, untilIso), oldest first. */
+export async function listLedgerEntriesInRange(ownerId: string, fromIso: string, untilIso: string): Promise<LedgerEntry[]> {
+  const rows = await fetchPages((from, to) =>
+    db
+      .from("gmv_ledger")
+      .select("*")
+      .eq("owner_id", ownerId)
+      .gte("occurred_at", fromIso)
+      .lt("occurred_at", untilIso)
+      .order("occurred_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, to)
+  );
+  return rows.map(mapEntry);
+}
+
 export async function latestInvoicedCommission(ownerId: string): Promise<number | null> {
   const { data, error } = await db
     .from("gmv_commission_charges")

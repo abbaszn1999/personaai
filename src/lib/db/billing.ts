@@ -106,6 +106,20 @@ export async function getOrCreateBillingAccount(userId: string): Promise<Billing
   return mapBillingAccount(existing);
 }
 
+/** Read-only lookup; never creates a billing account. */
+export async function getStripeCustomerIdForUser(userId: string): Promise<string | null> {
+  const { data, error } = await db
+    .from("billing_accounts")
+    .select("stripe_customer_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) {
+    console.error("[db/billing getStripeCustomerIdForUser]", error);
+    return null;
+  }
+  return ((data as { stripe_customer_id: string | null } | null)?.stripe_customer_id as string | null) ?? null;
+}
+
 export async function setStripeCustomerId(userId: string, stripeCustomerId: string): Promise<boolean> {
   const { error } = await db
     .from("billing_accounts")
