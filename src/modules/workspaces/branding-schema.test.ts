@@ -43,6 +43,11 @@ describe("sanitizeBrandingPatch", () => {
     expect(sanitizeBrandingPatch({ logoUrl: "data:image/png;base64,AAAA" }).logoUrl).toBe("data:image/png;base64,AAAA");
   });
 
+  it("keeps a known studio backdrop and drops anything else", () => {
+    expect(sanitizeBrandingPatch({ studioBackdropId: "backdrop-3" })).toEqual({ studioBackdropId: "backdrop-3" });
+    expect(sanitizeBrandingPatch({ studioBackdropId: "https://evil.test/bg.png" })).toEqual({});
+  });
+
   it("keeps liveTryOnEnabled only when boolean", () => {
     expect(sanitizeBrandingPatch({ liveTryOnEnabled: "no" })).toEqual({});
     expect(sanitizeBrandingPatch({ liveTryOnEnabled: false })).toEqual({ liveTryOnEnabled: false });

@@ -8,6 +8,8 @@ export interface WearableBranding {
   logoUrl: string | null;
   /** When false, the Image/Live camera switch is hidden. Default on. */
   liveTryOnEnabled: boolean;
+  /** Built-in studio plate id chosen by the merchant. */
+  studioBackdropId: string;
   statusText: string;
   inputPlaceholder: string;
   /** Resolved chips; empty means the merchant turned them off. */
@@ -25,6 +27,7 @@ const DEFAULT_BRANDING: WearableBranding = {
   agentName: "Style Assistant",
   logoUrl: null,
   liveTryOnEnabled: true,
+  studioBackdropId: "backdrop-1",
   statusText: "Online — personalised for your profile",
   inputPlaceholder: "Ask about clothes, style, sizing…",
   quickReplies: WEARABLE_QUICK_REPLIES,
@@ -37,6 +40,7 @@ export function resolveWearableBranding(branding?: WearableBrandingInput): Weara
     agentName: branding?.agentName || DEFAULT_BRANDING.agentName,
     logoUrl: branding?.logoUrl ?? DEFAULT_BRANDING.logoUrl,
     liveTryOnEnabled: branding?.liveTryOnEnabled !== false,
+    studioBackdropId: branding?.studioBackdropId || DEFAULT_BRANDING.studioBackdropId,
     statusText: branding?.statusText?.trim() || DEFAULT_BRANDING.statusText,
     inputPlaceholder: branding?.inputPlaceholder?.trim() || DEFAULT_BRANDING.inputPlaceholder,
     quickReplies: Array.isArray(branding?.quickReplies)

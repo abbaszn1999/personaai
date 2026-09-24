@@ -9,10 +9,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Image as ImageIcon,
-  ImageUp,
   Loader2,
   Maximize2,
-  Palette,
   Pencil,
   ShoppingBag,
   X,
@@ -39,7 +37,6 @@ import { AvatarWearScanOverlay } from "./avatar-wear-scan-overlay";
 import { GarmentHotspot, type ActiveLookItem } from "./garment-hotspot";
 import { SizeGuideModal } from "./size-guide-modal";
 import { cn } from "@/lib/utils/cn";
-import { useClickOutside } from "@/lib/hooks/use-click-outside";
 import { useWearableTheme } from "../theme-context";
 import { useWearableBranding } from "../branding-context";
 import { MOBILE_SURFACE, NO_IOS_ZOOM_TEXT, SAFE_BOTTOM, SHEET_H } from "../mobile-surface";
@@ -88,13 +85,6 @@ interface AvatarMannequinPanelProps {
  *  competes with the page's primary gesture and feels like the widget hijacked scrolling. */
 const TOOLBAR_ACTIONS = [
   { id: "fullscreen", icon: Maximize2, label: "Fullscreen" },
-] as const;
-
-/** Image ⇄ Live mode switcher shown in the left toolbar (replaces the old
- *  disabled "3D — coming soon" slot; 3D will land in that same spot later). */
-const MODE_TOGGLE_ACTIONS = [
-  { id: "photo", icon: ImageIcon, label: "Image" },
-  { id: "live", icon: Camera, label: "Live" },
 ] as const;
 
 /** Right edge of the info column, so other absolute elements (nav chevrons etc.) can
@@ -189,10 +179,6 @@ export function AvatarMannequinPanel({
   onSaveMeasurements,
   onAddToCart,
   onBulkAddToCart,
-  onChangeBackdrop,
-  onUploadBackdrop,
-  isUploadingBackdrop,
-  backdropUploadError,
   mobile = false,
   onRequestSpace,
   embed,
@@ -200,7 +186,9 @@ export function AvatarMannequinPanel({
 }: AvatarMannequinPanelProps) {
   const handleBulkAddToCart = onBulkAddToCart ?? onAddToCart;
   const theme = useWearableTheme();
-  const { liveTryOnEnabled } = useWearableBranding();
+  const { liveTryOnEnabled, studioBackdropId } = useWearableBranding();
+  const studioBackdropUrl =
+    STUDIO_BACKDROPS.find((bg) => bg.id === studioBackdropId)?.url ?? STUDIO_BACKDROPS[0].url;
   const panelBg = PANEL_BG_BY_THEME[theme];
   const tone = PANEL_TONE[theme];
   const [activeSwatchIndex, setActiveSwatchIndex] = React.useState(0);
@@ -208,13 +196,8 @@ export function AvatarMannequinPanel({
   const [isSizeGuideOpen, setIsSizeGuideOpen] = React.useState(false);
   const [isFullscreen, setIsFullscreen] = React.useState(false);
   const [justAddedAll, setJustAddedAll] = React.useState(false);
-  const [isBgPickerOpen, setIsBgPickerOpen] = React.useState(false);
   const [viewMode, setViewMode] = React.useState<"photo" | "live">("photo");
   const realtime = useRealtimeTryOn({ embed, workspaceId });
-  const bgPickerRef = React.useRef<HTMLDivElement>(null);
-  const backdropFileInputRef = React.useRef<HTMLInputElement>(null);
-
-  useClickOutside(bgPickerRef, React.useCallback(() => setIsBgPickerOpen(false), []), isBgPickerOpen);
 
   const fullscreenCloseRef = React.useRef<HTMLButtonElement>(null);
   React.useEffect(() => {
@@ -263,8 +246,6 @@ export function AvatarMannequinPanel({
   // they need their paired fixed backdrop plate layered underneath. Mock/default/custom
   // images are already complete baked photos, so they render as a single flat layer.
   const hasFixedBackdrop = Boolean(profile.backdropUrl) && imgSrc !== DEFAULT_MANNEQUIN_IMAGE;
-  const isCustomBackdropActive =
-    Boolean(profile.backdropUrl) && !STUDIO_BACKDROPS.some((bg) => bg.url === profile.backdropUrl);
 
   const cartItemIds = React.useMemo(() => new Set(cartItems.map((p) => p.id)), [cartItems]);
   const pendingCartIds = React.useMemo(() => new Set(pendingCartItemIds), [pendingCartItemIds]);
@@ -377,7 +358,7 @@ export function AvatarMannequinPanel({
     return (
       <MobileAvatarStrip
         imgSrc={imgSrc}
-        backdropUrl={hasFixedBackdrop ? profile.backdropUrl : null}
+        backdropUrl={hasFixedBackdrop ? studioBackdropUrl : null}
         onImageError={handleImageError}
         fit={fit}
         profile={profile}
@@ -449,7 +430,7 @@ export function AvatarMannequinPanel({
           style={{ aspectRatio: "3 / 4" }}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={profile.backdropUrl!} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover select-none" />
+          <img src={studioBackdropUrl} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover select-none" />
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={imgSrc}
@@ -505,133 +486,44 @@ export function AvatarMannequinPanel({
       )}
 
       {/* ── Left toolbar ── */}
-      <div ref={bgPickerRef} className="absolute left-5 top-1/2 -translate-y-1/2 z-[20] flex flex-col items-center gap-3">
+      <div className="absolute left-5 top-1/2 -translate-y-1/2 z-[20] flex flex-col items-center gap-3">
         <div
           className={cn("relative flex flex-col items-center gap-1.5 px-1.5 py-2 rounded-[var(--radius-xl)] border backdrop-blur-2xl", tone.rail)}
         >
           {viewMode === "photo" && (
             <>
-              {/* Background picker */}
-              <button
-                type="button"
-                title="Change background"
-                aria-label="Change background"
-                onClick={() => setIsBgPickerOpen((v) => !v)}
-                className={cn(
-                  "h-9 w-9 rounded-[var(--radius-md)] flex items-center justify-center transition-all",
-                  isBgPickerOpen ? tone.railActive : tone.railIdle
-                )}
-              >
-                <Palette className="h-[17px] w-[17px]" strokeWidth={1.6} />
-              </button>
-
-              <div className={cn("h-px w-5", tone.divider)} />
-
-              {/* Fullscreen */}
-              {TOOLBAR_ACTIONS.map((mode) => {
-                return (
-                  <button
-                    key={mode.id}
-                    type="button"
-                    title={mode.label}
-                    aria-label={mode.label}
-                    onClick={() => handleToolbarAction(mode.id)}
-                    className={cn("relative h-9 w-9 rounded-[var(--radius-md)] flex items-center justify-center transition-all active:scale-90", tone.railIdle)}
-                  >
-                    <mode.icon className="h-[17px] w-[17px]" strokeWidth={1.6} />
-                  </button>
-                );
-              })}
-
+              {TOOLBAR_ACTIONS.map((mode) => (
+                <button
+                  key={mode.id}
+                  type="button"
+                  title={mode.label}
+                  aria-label={mode.label}
+                  onClick={() => handleToolbarAction(mode.id)}
+                  className={cn("relative h-9 w-9 rounded-[var(--radius-md)] flex items-center justify-center transition-all active:scale-90", tone.railIdle)}
+                >
+                  <mode.icon className="h-[17px] w-[17px]" strokeWidth={1.6} />
+                </button>
+              ))}
               {liveTryOnEnabled && <div className={cn("h-px w-5", tone.divider)} />}
             </>
           )}
 
-          {liveTryOnEnabled &&
-            MODE_TOGGLE_ACTIONS.map((mode) => (
+          {liveTryOnEnabled && (
             <button
-              key={mode.id}
               type="button"
-              title={mode.label}
-              aria-label={mode.label}
-              onClick={() => changeViewMode(mode.id)}
-              className={cn(
-                "h-9 w-9 rounded-[var(--radius-md)] flex items-center justify-center transition-all",
-                viewMode === mode.id ? tone.railActive : tone.railIdle
+              title={viewMode === "live" ? "Back to photo" : "Live camera"}
+              aria-label={viewMode === "live" ? "Back to photo" : "Live camera"}
+              onClick={() => changeViewMode(viewMode === "live" ? "photo" : "live")}
+              className={cn("h-9 w-9 rounded-[var(--radius-md)] flex items-center justify-center transition-all active:scale-90", tone.railIdle)}
+            >
+              {viewMode === "live" ? (
+                <ImageIcon className="h-[17px] w-[17px]" strokeWidth={1.6} />
+              ) : (
+                <Camera className="h-[17px] w-[17px]" strokeWidth={1.6} />
               )}
-            >
-              <mode.icon className="h-[17px] w-[17px]" strokeWidth={1.6} />
             </button>
-          ))}
-
+          )}
         </div>
-
-        {/* Background picker popover */}
-        {viewMode === "photo" && isBgPickerOpen && (
-          <div className={cn("absolute left-full top-0 ml-3 z-[30] w-52 rounded-[var(--radius-xl)] border backdrop-blur-2xl p-2.5", tone.popover)}>
-            <p className={cn("px-1 pb-2 text-[9px] font-bold uppercase tracking-[0.16em]", tone.label)}>Studio Backdrop</p>
-            <div className="grid grid-cols-2 gap-1.5 mb-2">
-              {STUDIO_BACKDROPS.map((bg) => {
-                const isActive = profile.backdropUrl === bg.url;
-                return (
-                  <button
-                    key={bg.id}
-                    type="button"
-                    title={bg.label}
-                    onClick={() => { onChangeBackdrop(bg.url); setIsBgPickerOpen(false); }}
-                    className={cn(
-                      "relative aspect-[3/4] rounded-[var(--radius-md)] overflow-hidden border-2 transition-all",
-                      isActive ? "border-[var(--color-brand)]" : tone.tile
-                    )}
-                  >
-                    <Image src={bg.url} alt={bg.label} fill className="object-cover" unoptimized />
-                    {isActive && (
-                      <span className="absolute top-1 right-1 h-4 w-4 rounded-full bg-[var(--color-brand)] flex items-center justify-center">
-                        <Check className="h-2.5 w-2.5 text-[var(--color-brand-contrast)]" />
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-
-            {isCustomBackdropActive && (
-              <div className={cn("flex items-center gap-2 mb-2 rounded-[var(--radius-md)] px-2 py-1.5", tone.soft)}>
-                <span className="relative h-6 w-6 shrink-0 rounded-md overflow-hidden border border-[var(--color-brand)]">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={profile.backdropUrl!} alt="Custom background" className="h-full w-full object-cover" />
-                </span>
-                <span className="text-[11px] font-medium flex-1 truncate">Custom background</span>
-                <Check className="h-3 w-3 text-[var(--color-brand)] shrink-0" />
-              </div>
-            )}
-
-            <input
-              ref={backdropFileInputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) onUploadBackdrop(file);
-                e.target.value = "";
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => backdropFileInputRef.current?.click()}
-              disabled={isUploadingBackdrop}
-              className={cn("w-full flex items-center justify-center gap-1.5 rounded-[var(--radius-md)] border px-2 py-2 text-[11px] font-medium transition-colors disabled:opacity-50", tone.secondary)}
-            >
-              {isUploadingBackdrop ? <Loader2 className="h-3 w-3 animate-spin" /> : <ImageUp className="h-3 w-3" />}
-              {isUploadingBackdrop ? "Uploading…" : "Upload your own"}
-            </button>
-            {backdropUploadError && (
-              <p className="mt-1.5 px-1 text-[10px] text-red-400 leading-snug">{backdropUploadError}</p>
-            )}
-            <p className={cn("mt-1.5 px-1 text-[9px] leading-snug", tone.note)}>Uploaded backgrounds are temporary and may be cleared on server restart.</p>
-          </div>
-        )}
       </div>
 
       {/* ── Right info column ── */}
@@ -871,7 +763,7 @@ export function AvatarMannequinPanel({
               onClick={(e) => e.stopPropagation()}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={profile.backdropUrl!} alt="" className="absolute inset-0 h-full w-full object-cover" />
+              <img src={studioBackdropUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={imgSrc} alt="Standing avatar in studio — fullscreen" className="absolute inset-0 h-full w-full object-cover" />
             </div>
@@ -1105,23 +997,15 @@ function MobileAvatarStrip({
         className="absolute left-3 z-[16] flex -translate-y-1/2 flex-col items-center gap-1 rounded-full border border-white/[0.12] bg-black/50 p-1 shadow-[0_8px_28px_rgba(0,0,0,0.5)] backdrop-blur-2xl"
         style={{ top: `calc((100% - ${SHEET_H}) / 2)` }}
       >
-        {(["photo", "live"] as const).map((mode) => (
-          <button
-            key={mode}
-            type="button"
-            title={mode === "photo" ? "Image" : "Live"}
-            aria-label={mode === "photo" ? "Image view" : "Live camera view"}
-            onClick={() => onViewModeChange(mode)}
-            className={cn(
-              "flex h-10 w-10 items-center justify-center rounded-full transition-all",
-              viewMode === mode
-                ? "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-[var(--color-brand-contrast)]"
-                : "text-white/55 hover:text-white/90 hover:bg-white/[0.08]"
-            )}
-          >
-            {mode === "live" ? <Camera className="h-4 w-4" /> : <ImageIcon className="h-4 w-4" />}
-          </button>
-        ))}
+        <button
+          type="button"
+          title={viewMode === "live" ? "Back to photo" : "Live camera"}
+          aria-label={viewMode === "live" ? "Back to photo" : "Live camera"}
+          onClick={() => onViewModeChange(viewMode === "live" ? "photo" : "live")}
+          className="flex h-10 w-10 items-center justify-center rounded-full text-white/80 transition-all hover:bg-white/[0.08] hover:text-white"
+        >
+          {viewMode === "live" ? <ImageIcon className="h-4 w-4" /> : <Camera className="h-4 w-4" />}
+        </button>
       </div>
       )}
 

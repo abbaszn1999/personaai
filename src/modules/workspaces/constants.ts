@@ -12,6 +12,7 @@ export function defaultBranding(): WorkspaceBranding {
     displayMode: "fullpage",
     theme: "dark",
     liveTryOnEnabled: true,
+    studioBackdropId: "backdrop-1",
     statusText: "Online — personalised for your profile",
     inputPlaceholder: "Ask about clothes, style, sizing…",
     quickReplies: null,

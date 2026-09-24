@@ -36,6 +36,7 @@ import {
   normalizeQuickReplies,
 } from "@/modules/workspaces/branding-schema";
 import { useWorkspaceStore } from "@/modules/workspaces/store";
+import { STUDIO_BACKDROPS } from "@/modules/wearable-agent/constants";
 import { WEARABLE_QUICK_REPLIES } from "@/modules/wearable-agent/mocks/responses";
 import { CatalogReadyGate } from "@/modules/store/components/catalog-ready-gate";
 import { cn } from "@/lib/utils/cn";
@@ -428,6 +429,37 @@ export function WsBrandingEditor({ workspace }: Props) {
                     onSelect={() => update({ theme })}
                   />
                 ))}
+              </div>
+            </Field>
+
+            <Field
+              label="Studio backdrop"
+              hint="The fixed background behind every shopper's avatar. Shoppers can't change it."
+            >
+              <div className="grid grid-cols-4 gap-2">
+                {STUDIO_BACKDROPS.map((bg) => {
+                  const active = (form.studioBackdropId || "backdrop-1") === bg.id;
+                  return (
+                    <button
+                      key={bg.id}
+                      type="button"
+                      title={bg.label}
+                      aria-label={bg.label}
+                      onClick={() => update({ studioBackdropId: bg.id })}
+                      className={cn(
+                        "relative aspect-[3/4] overflow-hidden rounded-[var(--radius-md)] border-2 transition-all",
+                        active ? "border-[var(--color-brand)]" : "border-[var(--color-border)] hover:border-[var(--color-border-strong)]"
+                      )}
+                    >
+                      <img src={bg.url} alt="" className="h-full w-full object-cover" />
+                      {active && (
+                        <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--color-brand)]">
+                          <Check className="h-2.5 w-2.5 text-[var(--color-brand-contrast)]" />
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             </Field>
 

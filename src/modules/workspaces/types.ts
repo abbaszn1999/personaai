@@ -20,6 +20,8 @@ export interface WorkspaceBranding {
   /** When false, shoppers never see the Image/Live camera switch — photo try-on stays
    *  available. Defaults to true so existing stores keep the control. */
   liveTryOnEnabled: boolean;
+  /** Studio plate behind the shopper's avatar. One of the built-in backdrop ids. */
+  studioBackdropId: string;
   /** Line under the agent name in the chat header. */
   statusText: string;
   /** Placeholder inside the chat input. */

@@ -27,6 +27,7 @@ export function sanitizeBorderRadius(value: unknown): string | undefined {
   if (px < RADIUS_MIN || px > RADIUS_MAX) return undefined;
   return `${px}px`;
 }
+const STUDIO_BACKDROP_IDS = new Set(["backdrop-1", "backdrop-2", "backdrop-3", "backdrop-4"]);
 const THEMES = new Set<WorkspaceTheme>(["dark", "light"]);
 const DISPLAY_MODES = new Set<WorkspaceDisplayMode>(["floating", "fullpage"]);
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
@@ -91,6 +92,9 @@ export function sanitizeBrandingPatch(input: unknown): Partial<WorkspaceBranding
   if (typeof raw.liveTryOnEnabled === "boolean") {
     out.liveTryOnEnabled = raw.liveTryOnEnabled;
   }
+  if (typeof raw.studioBackdropId === "string" && STUDIO_BACKDROP_IDS.has(raw.studioBackdropId)) {
+    out.studioBackdropId = raw.studioBackdropId;
+  }
   if (raw.logoUrl === null) {
     out.logoUrl = null;
   } else if (
@@ -117,6 +121,7 @@ export function toWearableBranding(
     logoUrl: branding.logoUrl,
     borderRadius: branding.borderRadius,
     liveTryOnEnabled: branding.liveTryOnEnabled,
+    studioBackdropId: branding.studioBackdropId,
     statusText: branding.statusText,
     inputPlaceholder: branding.inputPlaceholder,
     quickReplies: branding.quickReplies,
