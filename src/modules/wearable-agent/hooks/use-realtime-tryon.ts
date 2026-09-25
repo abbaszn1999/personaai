@@ -308,7 +308,7 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
 
         const { createDecartClient, models } = await runtimePromise;
 
-        const model = models.realtime("lucy-vton-3");
+        const model = models.realtime("lucy-vton-latest");
         const cameraStream = await navigator.mediaDevices.getUserMedia({
           audio: false,
           video: {
