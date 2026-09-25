@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
+import { adminSessionOptions, type AdminSessionData } from "@/modules/auth/lib/admin-session-options";
 import { sessionOptions, type SessionData } from "@/modules/auth/lib/session";
 
 const PUBLIC_PATHS = [
@@ -35,6 +36,23 @@ export async function proxy(req: NextRequest) {
     pathname.includes(".")
   ) {
     return NextResponse.next();
+  }
+
+  if (pathname.startsWith("/admin") || pathname.startsWith("/api/admin")) {
+    const open =
+      pathname === "/admin/sign-in" ||
+      pathname.startsWith("/api/admin/auth");
+    if (open) return NextResponse.next();
+
+    const adminRes = NextResponse.next();
+    const adminSession = await getIronSession<AdminSessionData>(req, adminRes, adminSessionOptions);
+    if (!adminSession.email) {
+      if (pathname.startsWith("/api/")) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      return NextResponse.redirect(new URL("/admin/sign-in", req.url));
+    }
+    return adminRes;
   }
 
   if (isPublicPath(pathname)) {

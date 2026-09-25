@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { getUserById } from "@/lib/db/users";
 import { consumeImageGeneration } from "@/lib/db/image-generations";
 import { canGenerateImage, getAccountBillingContext } from "@/lib/billing/account";
+import { tryOnCostNanos } from "@/lib/billing/pricing";
 import { generateTryOnImage, mergeOutfitGarments, PersonaAgentError } from "@/lib/agents/persona-agent";
 import { PrunaApiError } from "@/lib/ai/pruna";
 import { resolveEmbedRequest } from "@/lib/embed/resolve";
@@ -45,7 +46,7 @@ export async function POST(req: NextRequest) {
       slot: "other" as const,
       imageUrl: url,
     }));
-    if (!canGenerateImage(billing, mergeOutfitGarments([], added).length)) {
+    if (!canGenerateImage(billing, tryOnCostNanos(mergeOutfitGarments([], added).length))) {
       return embedJson({ error: "This store has exhausted its monthly image allowance and purchased credits" }, { status: 402 });
     }
 
@@ -61,10 +62,10 @@ export async function POST(req: NextRequest) {
       "try_on",
       billing.cycleStartIso,
       billing.tier.monthlyGarmentUnits,
-      garmentCount,
+      tryOnCostNanos(garmentCount),
       { sessionId: sessionId || null, source: "store" }
     );
-    if (!consumed) {
+    if (consumed === null) {
       return embedJson({ error: "This store has exhausted its monthly image allowance and purchased credits" }, { status: 402 });
     }
     const refreshedUser = await getUserById(workspace.ownerId);

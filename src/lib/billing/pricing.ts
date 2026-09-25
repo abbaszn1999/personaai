@@ -36,6 +36,28 @@ export const GARMENT_PACK_CENTS = 80;
 /** One garment or avatar unit, in nano-dollars. $0.008, from the pack price. */
 export const GARMENT_UNIT_NANOS = (GARMENT_PACK_CENTS * 10_000_000) / GARMENT_PACK_UNITS;
 
+/** Real Pruna render cost, in nano-dollars, from Pruna's published API pricing:
+ *  `p-image-edit` (avatar) is $0.010 per output image; `p-image-try-on` is $0.015 for the
+ *  first garment then $0.008 for each additional garment — confirmed by Pruna support with
+ *  turbo on. Both are charged in $0.008 units via a per-account nano carry (see
+ *  `consume_image_generation`), so no fractional cost is ever lost or over-collected. */
+export const AVATAR_IMAGE_NANOS = 10_000_000;
+export const TRY_ON_FIRST_GARMENT_NANOS = 15_000_000;
+export const TRY_ON_EXTRA_GARMENT_NANOS = 8_000_000;
+
+/** Nano-dollar cost of generating `imageCount` avatar variations. */
+export function avatarCostNanos(imageCount: number): number {
+  const count = Number.isFinite(imageCount) ? Math.max(0, Math.floor(imageCount)) : 0;
+  return count * AVATAR_IMAGE_NANOS;
+}
+
+/** Nano-dollar cost of one try-on render fitting `garmentCount` garments in a single call. */
+export function tryOnCostNanos(garmentCount: number): number {
+  const count = Number.isFinite(garmentCount) ? Math.max(0, Math.floor(garmentCount)) : 0;
+  if (count <= 0) return 0;
+  return TRY_ON_FIRST_GARMENT_NANOS + (count - 1) * TRY_ON_EXTRA_GARMENT_NANOS;
+}
+
 /** One billed live second, in nano-dollars. $1.20 per minute. */
 export const LIVE_SECOND_NANOS = (LIVE_MINUTE_CENTS * 10_000_000) / 60;
 

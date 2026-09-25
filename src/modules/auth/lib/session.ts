@@ -22,6 +22,8 @@ export interface SessionData {
   hasCompletedOnboarding?: boolean;
   /** User profile cached in cookie — layout reads this instead of hitting DB */
   profile?: SessionProfile;
+  /** Set only while the tool owner is signed in as this merchant. */
+  impersonatedBy?: string;
 }
 
 export const sessionOptions: SessionOptions = {

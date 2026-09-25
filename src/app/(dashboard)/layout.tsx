@@ -1,4 +1,4 @@
-import { getCurrentUser } from "@/modules/auth/lib/get-user";
+import { getCurrentUser, getSession } from "@/modules/auth/lib/get-user";
 import { UserProvider } from "@/modules/auth/context/user-context";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { WorkspacesBootstrap } from "@/modules/workspaces/providers/workspaces-bootstrap";
@@ -9,12 +9,15 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const user = await getCurrentUser();
+  const [user, session] = await Promise.all([getCurrentUser(), getSession()]);
+  const impersonation = session.impersonatedBy
+    ? { adminEmail: session.impersonatedBy, merchantEmail: session.profile?.email ?? user?.email ?? "" }
+    : null;
   return (
     <UserProvider user={user}>
       <WorkspacesBootstrap />
       <StoreConnectionBootstrap />
-      <DashboardShell>{children}</DashboardShell>
+      <DashboardShell impersonation={impersonation}>{children}</DashboardShell>
     </UserProvider>
   );
 }

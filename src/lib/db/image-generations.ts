@@ -1,4 +1,4 @@
-import type { UsageSurface } from "@/lib/billing/pricing";
+import { GARMENT_UNIT_NANOS, type UsageSurface } from "@/lib/billing/pricing";
 import { graceFloor } from "@/lib/billing/wallets";
 import { maybeAlertWalletUsage } from "@/lib/billing/usage-alerts";
 import { db } from "@/lib/supabase/server";
@@ -11,24 +11,26 @@ export interface ImageUsageAttribution {
 }
 
 /**
- * Atomically consumes the monthly included allowance first, then purchased credits for the
- * remainder, and logs the generation. `units` is 1 for an avatar image and the garment count
- * for a try-on. Returns false only when the balance cannot cover the remainder.
+ * Atomically folds one render's real Pruna cost (`costNanos`) into the account's nano carry,
+ * settles whole $0.008 units — included allowance first, then purchased credits — and logs the
+ * generation. Returns the remaining purchased credit balance, or null when the balance cannot
+ * cover the charge (nothing is consumed in that case).
  */
 export async function consumeImageGeneration(
   userId: string,
   kind: ImageGenerationKind,
   cycleStartIso: string,
   includedAllowance: number,
-  units = 1,
+  costNanos: number,
   attribution?: ImageUsageAttribution
-): Promise<boolean> {
+): Promise<number | null> {
   const { data, error } = await db.rpc("consume_image_generation", {
     p_user_id: userId,
     p_kind: kind,
     p_cycle_start: cycleStartIso,
     p_included_allowance: includedAllowance,
-    p_units: units,
+    p_cost_nanos: costNanos,
+    p_unit_nanos: GARMENT_UNIT_NANOS,
     p_balance_floor: graceFloor(includedAllowance),
     p_session_id: attribution?.sessionId ?? null,
     p_source: attribution?.source ?? null,
@@ -36,10 +38,10 @@ export async function consumeImageGeneration(
 
   if (error) {
     console.error("[db/image-generations consumeImageGeneration]", error);
-    return false;
+    return null;
   }
 
-  if (data === true) {
+  if (typeof data === "number") {
     const used = await getImageUnitsUsed(userId, cycleStartIso);
     await maybeAlertWalletUsage({
       userId,
@@ -48,9 +50,10 @@ export async function consumeImageGeneration(
       allowance: includedAllowance,
       cycleStartIso,
     });
+    return data;
   }
 
-  return data === true;
+  return null;
 }
 
 /**
