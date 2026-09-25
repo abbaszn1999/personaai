@@ -1,5 +1,6 @@
 import { getCurrentAdmin } from "@/modules/auth/lib/admin-session";
 import { grantWallet, writeAuditLog } from "@/lib/db/admin";
+import { hasLiveSubscription } from "@/lib/db/billing";
 
 const WALLETS = new Set(["garments", "live", "sessions"]);
 
@@ -11,6 +12,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const amount = Math.floor(Number(body.amount));
   if (!body.wallet || !WALLETS.has(body.wallet) || !Number.isFinite(amount) || amount <= 0 || amount > 1_000_000) {
     return Response.json({ error: "Amount must be between 1 and 1,000,000" }, { status: 400 });
+  }
+
+  if (!(await hasLiveSubscription(id, "main"))) {
+    return Response.json({ error: "Balance grants require a Main subscription" }, { status: 409 });
   }
 
   const wallet = body.wallet as "garments" | "live" | "sessions";

@@ -8,7 +8,7 @@ export const TOOL_META: Record<
   search: { label: "Catalog search", color: "#3b82f6", quantity: "searches", unit: "session units" },
   try_on: { label: "Garment try-on", color: "#f76d01", quantity: "renders", unit: "garment units" },
   avatar: { label: "Avatar", color: "#14b8a6", quantity: "images", unit: "garment units" },
-  live: { label: "Live try-on", color: "#e11d48", quantity: "sessions", unit: "minutes" },
+  live: { label: "Live try-on", color: "#e11d48", quantity: "sessions", unit: "seconds" },
 };
 
 export const RANGE_OPTIONS = [

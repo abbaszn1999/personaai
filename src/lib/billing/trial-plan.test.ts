@@ -104,6 +104,7 @@ describe("trial webhook decisions", () => {
 
   it("carries only from a Trial that was paid", () => {
     expect(trialWasPaid("active")).toBe(true);
+    expect(trialWasPaid("trialing", true)).toBe(false);
     expect(trialWasPaid("incomplete")).toBe(false);
     expect(trialWasPaid("past_due")).toBe(false);
   });

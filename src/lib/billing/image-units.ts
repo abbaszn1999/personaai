@@ -15,7 +15,7 @@ export function allocateImageUnits(input: {
   includedAllowance: number;
   units: number;
   credits: number;
-  /** Lowest balance this charge may leave. Defaults to zero; grace passes a negative floor. */
+  /** Lowest balance this charge may leave. Defaults to zero. */
   balanceFloor?: number;
 }): ImageUnitCharge | null {
   if (!Number.isInteger(input.units) || input.units < 1) return null;

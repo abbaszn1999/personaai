@@ -12,7 +12,6 @@ import {
   SESSION_PACK_CENTS,
   SESSION_PACK_UNITS,
   SUGGESTED_TOP_UP_DAYS,
-  WALLET_GRACE_FRACTION,
 } from "./pricing";
 
 export interface PurchaseQuote {
@@ -74,13 +73,7 @@ export function quoteLiveMinutes(minutes: number): PurchaseQuote | null {
   };
 }
 
-/** Lowest balance a wallet may reach: 5% of the included allowance, below zero. */
-export function graceFloor(includedAllowance: number): number {
-  const allowance = Number.isFinite(includedAllowance) ? Math.max(0, Math.floor(includedAllowance)) : 0;
-  return -Math.floor(allowance * WALLET_GRACE_FRACTION);
-}
-
-/** Units still spendable before the grace floor, counting unused include and the balance. */
+/** Units still spendable, counting unused include and the purchased balance. Usage stops at zero. */
 export function walletHeadroom(input: {
   used: number;
   included: number;
@@ -90,7 +83,7 @@ export function walletHeadroom(input: {
   const used = Math.max(0, Math.floor(input.used));
   const balance = Math.floor(input.balance);
   const includedRemaining = Math.max(included - used, 0);
-  return Math.max(includedRemaining + balance - graceFloor(included), 0);
+  return Math.max(includedRemaining + balance, 0);
 }
 
 /**

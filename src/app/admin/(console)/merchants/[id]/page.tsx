@@ -13,10 +13,11 @@ export default async function MerchantDetailPage({ params }: { params: Promise<{
   const merchant = await getMerchantDetail(id);
   if (!merchant) notFound();
 
+  const hasPlan = Boolean(merchant.subscription) && merchant.entitled;
   const wallets = [
-    { label: "Sessions", included: remaining(merchant.tier.monthlySessionUnits, merchant.sessionsUsed), purchased: merchant.sessionUnits },
-    { label: "Live minutes", included: Math.round(remaining(merchant.tier.monthlyLiveTryOnSeconds, merchant.liveUsedSeconds) / 60), purchased: Math.round(merchant.liveSeconds / 60) },
-    { label: "Garments", included: remaining(merchant.tier.monthlyGarmentUnits, merchant.imagesUsed), purchased: merchant.credits },
+    { label: "Sessions", included: hasPlan ? remaining(merchant.tier.monthlySessionUnits, merchant.sessionsUsed) : 0, purchased: merchant.sessionUnits },
+    { label: "Live minutes", included: hasPlan ? Math.round(remaining(merchant.tier.monthlyLiveTryOnSeconds, merchant.liveUsedSeconds) / 60) : 0, purchased: Math.round(merchant.liveSeconds / 60) },
+    { label: "Garments", included: hasPlan ? remaining(merchant.tier.monthlyGarmentUnits, merchant.imagesUsed) : 0, purchased: merchant.credits },
   ];
 
   return (
@@ -36,7 +37,11 @@ export default async function MerchantDetailPage({ params }: { params: Promise<{
         </section>
         <section className="card-base p-5">
           <h2 className="text-sm font-semibold">Subscription</h2>
-          <p className="mt-2 text-sm text-[var(--color-text-secondary)]">{merchant.tier.name} · {merchant.tier.priceLabel}{merchant.tier.priceSub}</p>
+          {merchant.subscription ? (
+            <p className="mt-2 text-sm text-[var(--color-text-secondary)]">{merchant.tier.name} · {merchant.tier.priceLabel}{merchant.tier.priceSub}</p>
+          ) : (
+            <p className="mt-2 text-sm text-[var(--color-text-secondary)]">No plan</p>
+          )}
           <p className="text-sm text-[var(--color-text-secondary)]">{merchant.subscription?.status ?? "No Stripe subscription"}</p>
           {merchant.subscription?.currentPeriodEnd && (
             <p className="text-xs text-[var(--color-text-muted)]">Period ends {merchant.subscription.currentPeriodEnd.slice(0, 10)}{merchant.subscription.cancelAtPeriodEnd ? " · cancels then" : ""}</p>
@@ -62,7 +67,16 @@ export default async function MerchantDetailPage({ params }: { params: Promise<{
         </div>
       </section>
 
-      <MerchantActions userId={merchant.id} email={merchant.email} hasSubscription={Boolean(merchant.subscription)} />
+      <MerchantActions
+        userId={merchant.id}
+        email={merchant.email}
+        tierId={
+          merchant.subscription &&
+          ["active", "trialing", "past_due", "incomplete"].includes(merchant.subscription.status)
+            ? merchant.subscription.tierId
+            : null
+        }
+      />
 
       <div className="grid gap-3 lg:grid-cols-3">
         <EventList title="Recent chat" rows={merchant.chats.map((row) => ({ id: String(row.id), text: `${row.role}: ${row.topic ?? "message"}`, at: String(row.created_at) }))} />

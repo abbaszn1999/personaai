@@ -65,9 +65,6 @@ export type UsageSurface = "store" | "preview";
 export const GARMENT_MIN_PACKS = 50;
 export const GARMENT_MAX_PACKS = 5_000;
 
-/** Each wallet may run this far past zero, as a fraction of that plan's included allowance. */
-export const WALLET_GRACE_FRACTION = 0.05;
-
 /** Unused included units roll into the purchased balance only up to twice the monthly include. */
 export const ROLLOVER_CAP_MULTIPLIER = 2;
 

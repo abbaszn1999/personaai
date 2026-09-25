@@ -1,5 +1,4 @@
 import type { UsageSurface } from "@/lib/billing/pricing";
-import { graceFloor } from "@/lib/billing/wallets";
 import { maybeAlertWalletUsage } from "@/lib/billing/usage-alerts";
 import { db } from "@/lib/supabase/server";
 
@@ -29,7 +28,7 @@ export async function consumeLiveTryOnSeconds(input: RecordRealtimeTryOnEventInp
     p_included_allowance: input.includedAllowanceSeconds,
     p_idempotency_key: input.idempotencyKey,
     p_billable: input.billable,
-    p_balance_floor: graceFloor(input.includedAllowanceSeconds),
+    p_balance_floor: 0,
     p_source: input.source ?? null,
   });
 

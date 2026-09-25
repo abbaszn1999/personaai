@@ -1,5 +1,4 @@
 import { GARMENT_UNIT_NANOS, type UsageSurface } from "@/lib/billing/pricing";
-import { graceFloor } from "@/lib/billing/wallets";
 import { maybeAlertWalletUsage } from "@/lib/billing/usage-alerts";
 import { db } from "@/lib/supabase/server";
 
@@ -31,7 +30,7 @@ export async function consumeImageGeneration(
     p_included_allowance: includedAllowance,
     p_cost_nanos: costNanos,
     p_unit_nanos: GARMENT_UNIT_NANOS,
-    p_balance_floor: graceFloor(includedAllowance),
+    p_balance_floor: 0,
     p_session_id: attribution?.sessionId ?? null,
     p_source: attribution?.source ?? null,
   });

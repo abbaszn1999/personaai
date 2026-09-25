@@ -11,7 +11,6 @@ import { getSessionUnitsUsedForOwner } from "@/lib/db/session-usage";
 import { getUserById, type UserRow } from "@/lib/db/users";
 import { applyBillingRollover } from "@/lib/db/billing-rollover";
 import {
-  graceFloor,
   overageBlocksCharge,
   overageCentsFromMicro,
   overageMicroCents,
@@ -128,7 +127,6 @@ export function canGenerateImage(context: AccountBillingContext, costNanos = AVA
     includedAllowance: allowance,
     units,
     credits: context.user.credits,
-    balanceFloor: graceFloor(allowance),
   });
   if (!context.entitled || !charge) return false;
   return capAllowsOverage(context, charge.fromCredits > 0);
@@ -161,7 +159,7 @@ export function canStartSessionTurn(context: AccountBillingContext): boolean {
   return capAllowsOverage(context, includedRemaining <= 0);
 }
 
-export { overageCentsFromMicro, graceFloor };
+export { overageCentsFromMicro };
 
 export function canUsePaidPlatform(context: AccountBillingContext): boolean {
   return context.entitled;
