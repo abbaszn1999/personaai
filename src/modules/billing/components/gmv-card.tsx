@@ -88,11 +88,6 @@ export function GmvCard() {
     <SettingsCard
       title="Persona GMV"
       description="Paid orders attributed to Persona. The 3% commission is added to the Main plan's renewal invoice."
-      footer={
-        <a href="https://www.exchangerate-api.com" target="_blank" rel="noopener noreferrer" className="underline">
-          Rates by ExchangeRate-API
-        </a>
-      }
     >
       {error && <p className="text-sm text-[var(--color-error)]">{error}</p>}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

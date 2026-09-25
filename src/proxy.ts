@@ -4,6 +4,7 @@ import { adminSessionOptions, type AdminSessionData } from "@/modules/auth/lib/a
 import { sessionOptions, type SessionData } from "@/modules/auth/lib/session";
 
 const PUBLIC_PATHS = [
+  "/lamp",
   "/sign-in",
   "/sign-up",
   "/forgot-password",
@@ -25,6 +26,33 @@ const PUBLIC_PATHS = [
 
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname.startsWith(p));
+}
+
+// First URL segment of every real page. Anything else is a bad link and should
+// render the 404 lamp instead of bouncing to sign-in.
+const APP_ROOTS = new Set([
+  "sign-in",
+  "sign-up",
+  "forgot-password",
+  "onboarding",
+  "try-on",
+  "branding",
+  "preview",
+  "setup",
+  "usage",
+  "analytics",
+  "settings",
+  "store",
+  "admin",
+  "embed",
+  "api",
+  "lamp",
+]);
+
+function isUnknownPage(pathname: string): boolean {
+  if (pathname === "/") return false;
+  const root = pathname.split("/").filter(Boolean)[0];
+  return Boolean(root) && !APP_ROOTS.has(root);
 }
 
 export async function proxy(req: NextRequest) {
@@ -55,7 +83,7 @@ export async function proxy(req: NextRequest) {
     return adminRes;
   }
 
-  if (isPublicPath(pathname)) {
+  if (isPublicPath(pathname) || isUnknownPage(pathname)) {
     return NextResponse.next();
   }
 
