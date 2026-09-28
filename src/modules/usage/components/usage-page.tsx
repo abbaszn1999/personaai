@@ -17,6 +17,10 @@ import { ToolBreakdownTable } from "./tool-breakdown-table";
 
 export function UsagePage() {
   const workspace = useWorkspaceStore((state) => state.workspace);
+  const hasLoaded = useWorkspaceStore((state) => state.hasLoaded);
+  if (!hasLoaded) {
+    return <DashboardPageHeader title="Usage" description="Spend, shoppers, and cost by tool" />;
+  }
   if (!workspace) {
     return (
       <>

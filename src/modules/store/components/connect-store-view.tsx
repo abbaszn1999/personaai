@@ -36,6 +36,7 @@ export function ConnectStoreView({ store, onConnect, onContinueToCategories }: C
           syncedAt={store.syncedAt}
           onDisconnect={store.disconnect}
           onSync={store.syncNow}
+          onEnableOrderTracking={store.enableOrderTracking}
           onContinueToCategories={onContinueToCategories}
         />
       ) : (

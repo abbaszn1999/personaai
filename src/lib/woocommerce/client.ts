@@ -940,6 +940,7 @@ export function mapWooWebhookProduct(payload: unknown): RawCatalogProduct | null
 }
 
 const WOO_WEBHOOK_TOPICS = ["product.created", "product.updated", "product.deleted"];
+const WOO_ORDER_WEBHOOK_TOPICS = ["order.created", "order.updated", "order.deleted"];
 
 interface WooWebhookRecord {
   id: number;
@@ -961,7 +962,7 @@ export async function registerWooWebhooks(
   appPassword: string,
   callbackUrl: string,
   secret: string
-): Promise<{ registered: string[] }> {
+): Promise<{ registered: string[]; failed: string[]; ordersAccess: "active" | "missing" }> {
   const existing = await wooFetch<WooWebhookRecord[]>(
     siteUrl,
     username,
@@ -974,8 +975,9 @@ export async function registerWooWebhooks(
   );
 
   const registered: string[] = [];
+  const failed: string[] = [];
 
-  for (const topic of WOO_WEBHOOK_TOPICS) {
+  for (const topic of [...WOO_WEBHOOK_TOPICS, ...WOO_ORDER_WEBHOOK_TOPICS]) {
     if (already.has(topic)) continue;
 
     const res = await fetch(`${siteUrl}${API_BASE}/webhooks`, {
@@ -997,12 +999,45 @@ export async function registerWooWebhooks(
     if (res.ok) {
       registered.push(topic);
     } else {
+      failed.push(topic);
       // Non-fatal — the reconcile schedule still catches the change, just not instantly.
       console.error(`[woocommerce registerWooWebhooks] ${topic} failed (${res.status})`);
     }
   }
 
-  return { registered };
+  const ordersAccess = WOO_ORDER_WEBHOOK_TOPICS.every((topic) => already.has(topic) || registered.includes(topic))
+    ? "active"
+    : "missing";
+  return { registered, failed, ordersAccess };
+}
+
+export interface WooOrderRefundLine {
+  product_id?: number;
+  variation_id?: number;
+  total?: string | number;
+  meta_data?: Array<{ key?: string; value?: unknown }>;
+}
+
+export interface WooOrderRefund {
+  id: number;
+  date_created?: string;
+  date_created_gmt?: string;
+  line_items?: WooOrderRefundLine[];
+}
+
+export async function getWooOrderRefunds(
+  siteUrl: string,
+  username: string,
+  appPassword: string,
+  orderId: string
+): Promise<WooOrderRefund[]> {
+  const { data } = await wooFetch<WooOrderRefund[]>(
+    siteUrl,
+    username,
+    appPassword,
+    `/orders/${encodeURIComponent(orderId)}/refunds`
+  );
+  return data ?? [];
 }
 
 // ─── Real add-to-cart item resolution ─────────────────────────────────────────

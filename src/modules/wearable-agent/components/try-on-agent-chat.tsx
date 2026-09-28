@@ -8,7 +8,6 @@ import { PinnedAnchorBar, PinnedBundleBar, WearableChatMessage, WearableScanning
 import { AvatarMannequinPanel } from "./avatar-mannequin-panel";
 import { ProfileSwitcher } from "./profile-switcher";
 import { useEmbedShopperSession } from "../hooks/embed-shopper-session";
-import { WEARABLE_QUICK_REPLIES } from "../mocks/responses";
 import { useBottomSheet } from "../hooks/use-bottom-sheet";
 import { MOBILE_SURFACE, NO_IOS_ZOOM_TEXT, SAFE_BOTTOM, SHEET_H } from "../mobile-surface";
 import { AgentOrb } from "@/components/ui/agent-orb";
@@ -287,7 +286,7 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
             <div className="flex items-center gap-1.5 mt-0.5">
               <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-success)] animate-pulse-dot" />
               <span className="text-xs text-[var(--color-text-muted)] whitespace-nowrap">
-                Online — personalised for your profile
+                {branding.statusText}
               </span>
             </div>
           </div>
@@ -330,9 +329,9 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
       </div>
 
       {/* Quick replies */}
-      {canShowQuickReplies && (
+      {canShowQuickReplies && branding.quickReplies.length > 0 && (
         <div className={cn("flex flex-wrap gap-2 shrink-0", compact ? "px-3 pb-2" : "px-5 pb-2")}>
-          {WEARABLE_QUICK_REPLIES.map((qr) => (
+          {branding.quickReplies.map((qr) => (
             <button
               key={qr.label}
               type="button"
@@ -365,8 +364,8 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
       {/* Input */}
       <div className={cn("border-t border-[var(--color-border)] flex gap-2 shrink-0", compact ? "px-3 py-3" : "px-5 py-4")}>
         <input
-          className="flex-1 h-10 px-4 text-sm bg-[var(--color-surface-base)] border border-[var(--color-border)] rounded-[var(--radius-full)] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-brand)] transition-colors"
-          placeholder="Ask about clothes, style, sizing…"
+          className="flex-1 h-10 px-4 text-sm bg-[var(--color-surface-base)] border border-[var(--color-border)] rounded-[var(--radius-xl)] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-brand)] transition-colors"
+          placeholder={branding.inputPlaceholder}
           value={agent.input}
           onChange={(e) => agent.setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && agent.sendMessage()}
@@ -377,7 +376,7 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
           onClick={() => agent.sendMessage()}
           disabled={!agent.input.trim() || agent.isTyping || agent.isGenerating || agent.isScanning}
           className={cn(
-            "h-10 w-10 rounded-full gradient-brand text-white flex items-center justify-center shrink-0 transition-all",
+            "h-10 w-10 rounded-full gradient-brand text-[var(--color-brand-contrast)] flex items-center justify-center shrink-0 transition-all",
             "disabled:opacity-40 disabled:cursor-not-allowed hover:shadow-[var(--shadow-glow)]"
           )}
         >
@@ -504,7 +503,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
       <div
         className={cn(
           "absolute inset-x-0 bottom-0 z-[30] flex flex-col backdrop-blur-2xl",
-          showSheetChrome ? cn("rounded-t-[22px] border-t", styles.sheet) : "border-t border-transparent bg-transparent",
+          showSheetChrome ? cn("rounded-t-[var(--radius-2xl)] border-t", styles.sheet) : "border-t border-transparent bg-transparent",
           !sheet.isDragging &&
             "transition-[height,background-color,border-color] duration-300 ease-out motion-reduce:transition-none"
         )}
@@ -593,7 +592,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
                 </span>
                 <span className={cn("flex items-center gap-1 text-[11px]", styles.headerMeta)}>
                   <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-success)] animate-pulse-dot" />
-                  Chat with us
+                  {branding.launcherLabel}
                 </span>
               </span>
             </button>
@@ -641,9 +640,9 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
             </div>
 
             {/* Quick replies */}
-            {canShowQuickReplies && (
+            {canShowQuickReplies && branding.quickReplies.length > 0 && (
               <div className="flex flex-wrap gap-2 shrink-0 px-3 pb-2">
-                {WEARABLE_QUICK_REPLIES.map((qr) => (
+                {branding.quickReplies.map((qr) => (
                   <button
                     key={qr.label}
                     type="button"
@@ -689,7 +688,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
                   NO_IOS_ZOOM_TEXT,
                   styles.input
                 )}
-                placeholder="Ask about style, sizing…"
+                placeholder={branding.inputPlaceholder}
                 value={agent.input}
                 onChange={(e) => agent.setInput(e.target.value)}
                 onFocus={() => sheet.setSnap("full")}
@@ -702,7 +701,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
                 onClick={() => agent.sendMessage()}
                 disabled={!agent.input.trim() || agent.isTyping || agent.isGenerating || agent.isScanning}
                 className={cn(
-                  "h-11 w-11 rounded-full gradient-brand text-white flex items-center justify-center shrink-0 transition-all",
+                  "h-11 w-11 rounded-full gradient-brand text-[var(--color-brand-contrast)] flex items-center justify-center shrink-0 transition-all",
                   "disabled:opacity-40 disabled:cursor-not-allowed"
                 )}
               >

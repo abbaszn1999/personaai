@@ -33,7 +33,7 @@ function SpendCapForm({ summary }: { summary: BillingSummary }) {
     <SettingsCard
       title="Spend limit & alerts"
       description="One limit for extra spend across sessions, live minutes, and garments. Leave it empty for no limit."
-      footer={`Extra spend this cycle: ${usd(summary.overageCents)}. Each wallet can run 5% past its included amount before new usage stops.`}
+      footer={`Extra spend this cycle: ${usd(summary.overageCents)}. Each wallet stops as soon as its included amount and purchased balance run out.`}
       action={
         <Button
           size="sm"

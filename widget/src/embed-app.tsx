@@ -1,6 +1,7 @@
 import * as React from "react";
 import { TryOnLayout } from "@/modules/wearable-agent/components/try-on-layout";
 import type { WorkspaceBranding } from "@/modules/workspaces/types";
+import { toWearableBranding } from "@/modules/workspaces/branding-schema";
 import { cn } from "@/lib/utils/cn";
 import { fontFamilyCssValue, loadGoogleFont } from "@/lib/fonts/google-fonts";
 import { resolveBrandCssVars } from "@/lib/branding/resolve-brand-vars";
@@ -109,13 +110,7 @@ export function EmbedApp({ origin, embedToken, onDisplayModeChange }: EmbedAppPr
         viewportMode={viewportMode}
         embed={{ apiBase: `${origin}/api/embed`, embedToken, enableRealCart: true }}
         theme={state.branding.theme}
-        branding={{
-          agentName: state.branding.agentName,
-          welcomeMessage: state.branding.welcomeMessage,
-          logoUrl: state.branding.logoUrl,
-          borderRadius: state.branding.borderRadius,
-          liveTryOnEnabled: state.branding.liveTryOnEnabled,
-        }}
+        branding={toWearableBranding(state.branding)}
         onFillViewportChange={setFillViewport}
       />
     </div>

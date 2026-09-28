@@ -98,6 +98,8 @@ interface StoreConnectionState {
   connect: (input: ConnectInput) => Promise<boolean>;
   disconnect: () => Promise<boolean>;
   syncNow: () => Promise<void>;
+  /** Registers order webhooks and stores whether Persona can count this store's sales. */
+  enableOrderTracking: () => Promise<{ ordersAccess: "active" | "missing" | null; error: string | null }>;
   reindex: () => Promise<void>;
   refreshCatalogSync: () => Promise<void>;
   /** Stage 2: pin one product to a parent, or pass `null` to drop the correction and let it inherit
@@ -349,6 +351,25 @@ export const useStoreConnectionStore = create<StoreConnectionState>((set, get) =
     } catch {
       set({ isDisconnecting: false, syncError: "Network error — please try again" });
       return false;
+    }
+  },
+
+  enableOrderTracking: async () => {
+    const current = get().connection;
+    if (!current) return { ordersAccess: null, error: "No store is connected" };
+    try {
+      const res = await fetch("/api/store-connection/order-access", { method: "POST" });
+      const data = (await res.json().catch(() => ({}))) as { ordersAccess?: "active" | "missing"; error?: string };
+      if (!res.ok || (data.ordersAccess !== "active" && data.ordersAccess !== "missing")) {
+        return { ordersAccess: current.ordersAccess ?? null, error: data.error ?? "Could not turn on order tracking" };
+      }
+      set({ connection: { ...get().connection!, ordersAccess: data.ordersAccess } });
+      return {
+        ordersAccess: data.ordersAccess,
+        error: data.ordersAccess === "active" ? null : "The store did not allow order webhooks, so sales still cannot be counted.",
+      };
+    } catch {
+      return { ordersAccess: current.ordersAccess ?? null, error: "Network error — please try again" };
     }
   },
 

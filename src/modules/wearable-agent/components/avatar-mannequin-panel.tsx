@@ -9,10 +9,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Image as ImageIcon,
-  ImageUp,
   Loader2,
   Maximize2,
-  Palette,
   Pencil,
   ShoppingBag,
   X,
@@ -39,7 +37,6 @@ import { AvatarWearScanOverlay } from "./avatar-wear-scan-overlay";
 import { GarmentHotspot, type ActiveLookItem } from "./garment-hotspot";
 import { SizeGuideModal } from "./size-guide-modal";
 import { cn } from "@/lib/utils/cn";
-import { useClickOutside } from "@/lib/hooks/use-click-outside";
 import { useWearableTheme } from "../theme-context";
 import { useWearableBranding } from "../branding-context";
 import { MOBILE_SURFACE, NO_IOS_ZOOM_TEXT, SAFE_BOTTOM, SHEET_H } from "../mobile-surface";
@@ -90,13 +87,6 @@ const TOOLBAR_ACTIONS = [
   { id: "fullscreen", icon: Maximize2, label: "Fullscreen" },
 ] as const;
 
-/** Image ⇄ Live mode switcher shown in the left toolbar (replaces the old
- *  disabled "3D — coming soon" slot; 3D will land in that same spot later). */
-const MODE_TOGGLE_ACTIONS = [
-  { id: "photo", icon: null, label: "Image" },
-  { id: "live", icon: Camera, label: "Live" },
-] as const;
-
 /** Right edge of the info column, so other absolute elements (nav chevrons etc.) can
  *  clear it. The glass cards themselves use `right-4 w-[240px]`. */
 const INFO_COLUMN_SPACE = 260;
@@ -105,17 +95,67 @@ const INFO_COLUMN_SPACE = 260;
  *  the active wearable theme so the frame matches the chat panel next to it. */
 const PANEL_BG_BY_THEME = { dark: "#0d0b14", light: "#f2f0f5" } as const;
 
+/** Floating controls over the photo: glass that reads on both a dark and a light studio. */
+const PANEL_TONE = {
+  dark: {
+    rail: "border-white/[0.12] bg-black/50 shadow-[0_8px_28px_rgba(0,0,0,0.5)]",
+    railIdle: "text-white/50 hover:text-white/90 hover:bg-white/[0.08]",
+    railActive: "text-white bg-white/[0.14] ring-1 ring-[var(--color-brand)]",
+    divider: "bg-white/[0.1]",
+    popover: "border-white/[0.1] bg-[rgba(12,10,18,0.96)] shadow-[0_16px_48px_rgba(0,0,0,0.6)]",
+    label: "text-white/35",
+    tile: "border-white/15 hover:border-white/40",
+    soft: "bg-white/[0.08] text-white/80",
+    secondary: "border-white/[0.12] text-white/70 hover:text-white hover:bg-white/[0.06]",
+    note: "text-white/25",
+    nav: "bg-black/45 border-white/15 text-white hover:bg-black/60",
+  },
+  light: {
+    rail: "border-black/[0.08] bg-white/90 shadow-[0_8px_28px_rgba(23,18,29,0.12)]",
+    railIdle: "text-[#17121d]/55 hover:text-[#17121d] hover:bg-black/[0.05]",
+    railActive: "text-[#17121d] bg-black/[0.06] ring-1 ring-[var(--color-brand)]",
+    divider: "bg-black/[0.08]",
+    popover: "border-black/[0.08] bg-[rgba(255,255,255,0.97)] shadow-[0_16px_48px_rgba(23,18,29,0.16)]",
+    label: "text-[#17121d]/45",
+    tile: "border-black/10 hover:border-black/30",
+    soft: "bg-black/[0.04] text-[#17121d]/80",
+    secondary: "border-black/[0.1] text-[#17121d]/70 hover:text-[#17121d] hover:bg-black/[0.04]",
+    note: "text-[#17121d]/40",
+    nav: "bg-white/90 border-black/10 text-[#17121d] hover:bg-white shadow-[0_4px_16px_rgba(23,18,29,0.12)]",
+  },
+} as const;
+
 /** Matches the reference card style: dark near-opaque background, very subtle border,
  *  enough backdrop blur so the card reads as a premium glass surface. */
+const INFO_CARD_TONE = {
+  dark: {
+    "--ic-fg": "#ffffff",
+    "--ic-strong": "rgba(255,255,255,0.85)",
+    "--ic-muted": "rgba(255,255,255,0.45)",
+    "--ic-faint": "rgba(255,255,255,0.35)",
+    "--ic-line": "rgba(255,255,255,0.08)",
+  },
+  light: {
+    "--ic-fg": "#17121d",
+    "--ic-strong": "rgba(23,18,29,0.85)",
+    "--ic-muted": "rgba(23,18,29,0.55)",
+    "--ic-faint": "rgba(23,18,29,0.42)",
+    "--ic-line": "rgba(23,18,29,0.09)",
+  },
+} as const;
+
 function InfoCard({ children, className }: { children: React.ReactNode; className?: string }) {
+  const theme = useWearableTheme();
   return (
     <div
       className={cn(
-        "rounded-[18px] border border-white/[0.07]",
-        "bg-[rgba(13,11,20,0.82)] backdrop-blur-2xl",
-        "shadow-[0_12px_40px_rgba(0,0,0,0.55)]",
+        "rounded-[var(--radius-xl)] border backdrop-blur-2xl",
+        theme === "light"
+          ? "border-black/[0.06] bg-[rgba(255,255,255,0.88)] shadow-[0_12px_40px_rgba(23,18,29,0.12)]"
+          : "border-white/[0.07] bg-[rgba(13,11,20,0.82)] shadow-[0_12px_40px_rgba(0,0,0,0.55)]",
         className
       )}
+      style={INFO_CARD_TONE[theme] as React.CSSProperties}
     >
       {children}
     </div>
@@ -139,10 +179,6 @@ export function AvatarMannequinPanel({
   onSaveMeasurements,
   onAddToCart,
   onBulkAddToCart,
-  onChangeBackdrop,
-  onUploadBackdrop,
-  isUploadingBackdrop,
-  backdropUploadError,
   mobile = false,
   onRequestSpace,
   embed,
@@ -150,20 +186,18 @@ export function AvatarMannequinPanel({
 }: AvatarMannequinPanelProps) {
   const handleBulkAddToCart = onBulkAddToCart ?? onAddToCart;
   const theme = useWearableTheme();
-  const { liveTryOnEnabled } = useWearableBranding();
+  const { liveTryOnEnabled, studioBackdropId } = useWearableBranding();
+  const studioBackdropUrl =
+    STUDIO_BACKDROPS.find((bg) => bg.id === studioBackdropId)?.url ?? STUDIO_BACKDROPS[0].url;
   const panelBg = PANEL_BG_BY_THEME[theme];
+  const tone = PANEL_TONE[theme];
   const [activeSwatchIndex, setActiveSwatchIndex] = React.useState(0);
   const [isEditOpen, setIsEditOpen] = React.useState(false);
   const [isSizeGuideOpen, setIsSizeGuideOpen] = React.useState(false);
   const [isFullscreen, setIsFullscreen] = React.useState(false);
   const [justAddedAll, setJustAddedAll] = React.useState(false);
-  const [isBgPickerOpen, setIsBgPickerOpen] = React.useState(false);
   const [viewMode, setViewMode] = React.useState<"photo" | "live">("photo");
   const realtime = useRealtimeTryOn({ embed, workspaceId });
-  const bgPickerRef = React.useRef<HTMLDivElement>(null);
-  const backdropFileInputRef = React.useRef<HTMLInputElement>(null);
-
-  useClickOutside(bgPickerRef, React.useCallback(() => setIsBgPickerOpen(false), []), isBgPickerOpen);
 
   const fullscreenCloseRef = React.useRef<HTMLButtonElement>(null);
   React.useEffect(() => {
@@ -212,8 +246,6 @@ export function AvatarMannequinPanel({
   // they need their paired fixed backdrop plate layered underneath. Mock/default/custom
   // images are already complete baked photos, so they render as a single flat layer.
   const hasFixedBackdrop = Boolean(profile.backdropUrl) && imgSrc !== DEFAULT_MANNEQUIN_IMAGE;
-  const isCustomBackdropActive =
-    Boolean(profile.backdropUrl) && !STUDIO_BACKDROPS.some((bg) => bg.url === profile.backdropUrl);
 
   const cartItemIds = React.useMemo(() => new Set(cartItems.map((p) => p.id)), [cartItems]);
   const pendingCartIds = React.useMemo(() => new Set(pendingCartItemIds), [pendingCartItemIds]);
@@ -326,7 +358,7 @@ export function AvatarMannequinPanel({
     return (
       <MobileAvatarStrip
         imgSrc={imgSrc}
-        backdropUrl={hasFixedBackdrop ? profile.backdropUrl : null}
+        backdropUrl={hasFixedBackdrop ? studioBackdropUrl : null}
         onImageError={handleImageError}
         fit={fit}
         profile={profile}
@@ -364,9 +396,10 @@ export function AvatarMannequinPanel({
   return (
     <div
       className={cn(
-        "relative w-full h-full min-h-0 rounded-[22px] overflow-hidden",
-        "border border-white/[0.06] shadow-[0_32px_80px_rgba(0,0,0,0.7)]",
-        "bg-[#0d0b14] transition-colors duration-700"
+        "relative w-full h-full min-h-0 rounded-[var(--radius-2xl)] overflow-hidden border transition-colors duration-700",
+        theme === "light"
+          ? "border-black/[0.06] shadow-[0_32px_80px_rgba(23,18,29,0.14)]"
+          : "border-white/[0.06] shadow-[0_32px_80px_rgba(0,0,0,0.7)]"
       )}
       style={{ background: panelBg }}
     >
@@ -397,7 +430,7 @@ export function AvatarMannequinPanel({
           style={{ aspectRatio: "3 / 4" }}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={profile.backdropUrl!} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover select-none" />
+          <img src={studioBackdropUrl} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover select-none" />
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={imgSrc}
@@ -427,12 +460,7 @@ export function AvatarMannequinPanel({
 
       {/* ── Layer 2: Top vignette — keeps Save/Share legible ── */}
       <div className="absolute inset-x-0 top-0 h-24 z-[3] pointer-events-none"
-        style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.42), transparent)" }}
-      />
-
-      {/* ── Layer 3: Bottom vignette — keeps swatches legible ── */}
-      <div className="absolute inset-x-0 bottom-0 h-40 z-[3] pointer-events-none"
-        style={{ background: "linear-gradient(to top, rgba(0,0,0,0.60), transparent)" }}
+        style={{ background: theme === "light" ? "linear-gradient(to bottom, rgba(242,240,245,0.55), transparent)" : "linear-gradient(to bottom, rgba(0,0,0,0.42), transparent)" }}
       />
 
       {/* ── Hotspots — mapped to exact photo aspect ratio. pointer-events-none on the
@@ -453,139 +481,44 @@ export function AvatarMannequinPanel({
       )}
 
       {/* ── Left toolbar ── */}
-      <div ref={bgPickerRef} className="absolute left-5 top-1/2 -translate-y-1/2 z-[20] flex flex-col items-center gap-3">
+      <div className="absolute left-5 top-1/2 -translate-y-1/2 z-[20] flex flex-col items-center gap-3">
         <div
-          className="relative flex flex-col items-center gap-1.5 px-1.5 py-2 rounded-[20px] border border-white/[0.12] bg-black/50 backdrop-blur-2xl shadow-[0_8px_28px_rgba(0,0,0,0.5)]"
+          className={cn("relative flex flex-col items-center gap-1.5 px-1.5 py-2 rounded-[var(--radius-xl)] border backdrop-blur-2xl", tone.rail)}
         >
           {viewMode === "photo" && (
             <>
-              {/* Background picker */}
-              <button
-                type="button"
-                title="Change background"
-                aria-label="Change background"
-                onClick={() => setIsBgPickerOpen((v) => !v)}
-                className={cn(
-                  "h-9 w-9 rounded-full flex items-center justify-center transition-all",
-                  isBgPickerOpen ? "text-[var(--color-brand)] bg-white/[0.1]" : "text-white/50 hover:text-white/90 hover:bg-white/[0.08]"
-                )}
-              >
-                <Palette className="h-[17px] w-[17px]" strokeWidth={1.6} />
-              </button>
-
-              <div className="h-px w-5 bg-white/[0.1]" />
-
-              {/* Fullscreen */}
-              {TOOLBAR_ACTIONS.map((mode) => {
-                return (
-                  <button
-                    key={mode.id}
-                    type="button"
-                    title={mode.label}
-                    aria-label={mode.label}
-                    onClick={() => handleToolbarAction(mode.id)}
-                    className="relative h-9 w-9 rounded-full flex items-center justify-center transition-all text-white/50 hover:text-white/90 hover:bg-white/[0.08] active:scale-90"
-                  >
-                    <mode.icon className="h-[17px] w-[17px]" strokeWidth={1.6} />
-                  </button>
-                );
-              })}
-
-              {liveTryOnEnabled && <div className="h-px w-5 bg-white/[0.1]" />}
+              {TOOLBAR_ACTIONS.map((mode) => (
+                <button
+                  key={mode.id}
+                  type="button"
+                  title={mode.label}
+                  aria-label={mode.label}
+                  onClick={() => handleToolbarAction(mode.id)}
+                  className={cn("relative h-9 w-9 rounded-[var(--radius-md)] flex items-center justify-center transition-all active:scale-90", tone.railIdle)}
+                >
+                  <mode.icon className="h-[17px] w-[17px]" strokeWidth={1.6} />
+                </button>
+              ))}
+              {liveTryOnEnabled && <div className={cn("h-px w-5", tone.divider)} />}
             </>
           )}
 
-          {liveTryOnEnabled &&
-            MODE_TOGGLE_ACTIONS.map((mode) => (
+          {liveTryOnEnabled && (
             <button
-              key={mode.id}
               type="button"
-              title={mode.label}
-              aria-label={mode.label}
-              onClick={() => changeViewMode(mode.id)}
-              className={cn(
-                "h-9 w-9 rounded-full flex items-center justify-center transition-all",
-                viewMode === mode.id
-                  ? "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-[var(--color-brand-contrast)] shadow-sm"
-                  : "text-white/50 hover:text-white/90 hover:bg-white/[0.08]"
-              )}
+              title={viewMode === "live" ? "Back to photo" : "Live camera"}
+              aria-label={viewMode === "live" ? "Back to photo" : "Live camera"}
+              onClick={() => changeViewMode(viewMode === "live" ? "photo" : "live")}
+              className={cn("h-9 w-9 rounded-[var(--radius-md)] flex items-center justify-center transition-all active:scale-90", tone.railIdle)}
             >
-              {mode.icon ? (
-                <mode.icon className="h-[17px] w-[17px]" strokeWidth={1.6} />
-              ) : (
+              {viewMode === "live" ? (
                 <ImageIcon className="h-[17px] w-[17px]" strokeWidth={1.6} />
+              ) : (
+                <Camera className="h-[17px] w-[17px]" strokeWidth={1.6} />
               )}
             </button>
-          ))}
-
+          )}
         </div>
-
-        {/* Background picker popover */}
-        {viewMode === "photo" && isBgPickerOpen && (
-          <div className="absolute left-full top-0 ml-3 z-[30] w-52 rounded-2xl border border-white/[0.1] bg-[rgba(12,10,18,0.96)] backdrop-blur-2xl p-2.5 shadow-[0_16px_48px_rgba(0,0,0,0.6)]">
-            <p className="px-1 pb-2 text-[9px] font-bold uppercase tracking-[0.16em] text-white/35">Studio Backdrop</p>
-            <div className="grid grid-cols-2 gap-1.5 mb-2">
-              {STUDIO_BACKDROPS.map((bg) => {
-                const isActive = profile.backdropUrl === bg.url;
-                return (
-                  <button
-                    key={bg.id}
-                    type="button"
-                    title={bg.label}
-                    onClick={() => { onChangeBackdrop(bg.url); setIsBgPickerOpen(false); }}
-                    className={cn(
-                      "relative aspect-[3/4] rounded-lg overflow-hidden border-2 transition-all",
-                      isActive ? "border-[var(--color-brand)]" : "border-white/15 hover:border-white/40"
-                    )}
-                  >
-                    <Image src={bg.url} alt={bg.label} fill className="object-cover" unoptimized />
-                    {isActive && (
-                      <span className="absolute top-1 right-1 h-4 w-4 rounded-full bg-[var(--color-brand)] flex items-center justify-center">
-                        <Check className="h-2.5 w-2.5 text-white" />
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-
-            {isCustomBackdropActive && (
-              <div className="flex items-center gap-2 mb-2 rounded-lg bg-white/[0.08] px-2 py-1.5">
-                <span className="relative h-6 w-6 shrink-0 rounded-md overflow-hidden border border-[var(--color-brand)]">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={profile.backdropUrl!} alt="Custom background" className="h-full w-full object-cover" />
-                </span>
-                <span className="text-[11px] font-medium text-white/80 flex-1 truncate">Custom background</span>
-                <Check className="h-3 w-3 text-[var(--color-brand)] shrink-0" />
-              </div>
-            )}
-
-            <input
-              ref={backdropFileInputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) onUploadBackdrop(file);
-                e.target.value = "";
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => backdropFileInputRef.current?.click()}
-              disabled={isUploadingBackdrop}
-              className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-white/[0.12] px-2 py-2 text-[11px] font-medium text-white/70 hover:text-white hover:bg-white/[0.06] transition-colors disabled:opacity-50"
-            >
-              {isUploadingBackdrop ? <Loader2 className="h-3 w-3 animate-spin" /> : <ImageUp className="h-3 w-3" />}
-              {isUploadingBackdrop ? "Uploading…" : "Upload your own"}
-            </button>
-            {backdropUploadError && (
-              <p className="mt-1.5 px-1 text-[10px] text-red-400 leading-snug">{backdropUploadError}</p>
-            )}
-            <p className="mt-1.5 px-1 text-[9px] text-white/25 leading-snug">Uploaded backgrounds are temporary and may be cleared on server restart.</p>
-          </div>
-        )}
       </div>
 
       {/* ── Right info column ── */}
@@ -604,14 +537,14 @@ export function AvatarMannequinPanel({
 
         {/* Fit Analysis card */}
         <InfoCard className="p-4">
-          <p className="text-[13px] font-semibold text-white mb-3">Fit Analysis</p>
+          <p className="text-[13px] font-semibold text-[var(--ic-fg)] mb-3">Fit Analysis</p>
 
           {/* Circular gauge — centered */}
           <div className="flex flex-col items-center gap-1 mb-4">
-            <p className="text-[10px] text-white/40 font-medium">Fit Score</p>
+            <p className="text-[10px] text-[var(--ic-faint)] font-medium">Fit Score</p>
             <div className="relative h-[88px] w-[88px] my-1">
               <svg className="h-[88px] w-[88px] -rotate-90" viewBox="0 0 88 88">
-                <circle cx="44" cy="44" r="36" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="6" />
+                <circle cx="44" cy="44" r="36" fill="none" stroke="var(--ic-line)" strokeWidth="6" />
                 <circle
                   cx="44" cy="44" r="36" fill="none"
                   stroke="url(#fitGaugeGrad)" strokeWidth="6"
@@ -626,10 +559,10 @@ export function AvatarMannequinPanel({
                 </defs>
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-[22px] font-bold text-white leading-none">{fit.fitScore}%</span>
+                <span className="text-[22px] font-bold text-[var(--ic-fg)] leading-none">{fit.fitScore}%</span>
               </div>
             </div>
-            <p className="text-[12px] font-semibold text-white/80">{fit.fitLabel}</p>
+            <p className="text-[12px] font-semibold text-[var(--ic-strong)]">{fit.fitLabel}</p>
           </div>
 
           {/* Metric bars */}
@@ -637,10 +570,10 @@ export function AvatarMannequinPanel({
             {fit.metrics.map((m) => (
               <div key={m.label}>
                 <div className="flex justify-between text-[11px] mb-1">
-                  <span className="text-white/45">{m.label}</span>
-                  <span className="text-white/85 font-semibold">{m.value}%</span>
+                  <span className="text-[var(--ic-muted)]">{m.label}</span>
+                  <span className="text-[var(--ic-strong)] font-semibold">{m.value}%</span>
                 </div>
-                <div className="h-[3px] rounded-full bg-white/[0.08] overflow-hidden">
+                <div className="h-[3px] rounded-full bg-[var(--ic-line)] overflow-hidden">
                   <div className="h-full rounded-full bg-[var(--color-brand)]" style={{ width: `${m.value}%` }} />
                 </div>
               </div>
@@ -651,7 +584,7 @@ export function AvatarMannequinPanel({
         {/* Model Stats + Size Recommendation card */}
         <InfoCard className="p-4">
           <div className="flex items-center justify-between mb-3">
-            <p className="text-[13px] font-semibold text-white">Model Stats</p>
+            <p className="text-[13px] font-semibold text-[var(--ic-fg)]">Model Stats</p>
             <button
               type="button"
               onClick={() => setIsEditOpen(true)}
@@ -669,22 +602,22 @@ export function AvatarMannequinPanel({
               { label: "Shoe Size", value: formatShoeSizeEu(profile.shoeSizeEu) },
             ].map(({ label, value }) => (
               <div key={label} className="flex items-center justify-between">
-                <span className="text-[12px] text-white/45">{label}</span>
-                <span className="text-[12px] text-white font-semibold">{value}</span>
+                <span className="text-[12px] text-[var(--ic-muted)]">{label}</span>
+                <span className="text-[12px] text-[var(--ic-fg)] font-semibold">{value}</span>
               </div>
             ))}
           </div>
 
-          <div className="my-3.5 h-px bg-white/[0.07]" />
+          <div className="my-3.5 h-px bg-[var(--ic-line)]" />
 
-          <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-white/35 mb-3">Size Recommendation</p>
+          <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-[var(--ic-faint)] mb-3">Size Recommendation</p>
           {sizeRows.length > 0 ? (
             <>
               <div className="space-y-2">
                 {sizeRows.map((row) => (
                   <div key={row.id} className="flex items-center justify-between">
-                    <span className="text-[12px] text-white/45">{row.label}</span>
-                    <span className="text-[12px] text-white/90 font-semibold">{row.size}</span>
+                    <span className="text-[12px] text-[var(--ic-muted)]">{row.label}</span>
+                    <span className="text-[12px] text-[var(--ic-fg)] font-semibold">{row.size}</span>
                   </div>
                 ))}
               </div>
@@ -697,7 +630,7 @@ export function AvatarMannequinPanel({
               </button>
             </>
           ) : (
-            <p className="text-[12px] text-white/40">Add items to see size recommendations.</p>
+            <p className="text-[12px] text-[var(--ic-faint)]">Add items to see size recommendations.</p>
           )}
         </InfoCard>
 
@@ -708,10 +641,11 @@ export function AvatarMannequinPanel({
           onClick={handleAddAllToCart}
           disabled={anyPendingInCart}
           className={cn(
-            "w-full h-[54px] rounded-[16px] font-semibold text-[13px] flex items-center justify-between px-5 transition-all",
-            "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-white",
-            "shadow-[var(--shadow-glow)] hover:brightness-110 active:scale-[0.98] disabled:opacity-70"
+            "w-full h-[54px] rounded-[var(--radius-lg)] font-semibold text-[13px] flex items-center justify-between px-5 transition-all",
+            "text-white",
+            "shadow-[var(--shadow-glow)] hover:brightness-110 active:scale-[0.98] disabled:cursor-wait"
           )}
+          style={{ background: "linear-gradient(to right, var(--color-brand-from), var(--color-brand-to))" }}
         >
           <span className="flex items-center gap-2">
             {anyPendingInCart ? (
@@ -755,13 +689,13 @@ export function AvatarMannequinPanel({
         <>
           {hasPrev && (
             <button type="button" onClick={onPrev}
-              className="absolute left-16 top-1/2 -translate-y-1/2 z-[20] h-9 w-9 rounded-full bg-black/45 border border-white/15 text-white flex items-center justify-center backdrop-blur-md hover:bg-black/60 transition-colors">
+              className={cn("absolute left-5 top-[22%] z-[20] h-9 w-9 rounded-full border flex items-center justify-center backdrop-blur-md transition-colors", tone.nav)}>
               <ChevronLeft className="h-4 w-4" />
             </button>
           )}
           {hasNext && (
             <button type="button" onClick={onNext}
-              className="absolute right-[270px] top-1/2 -translate-y-1/2 z-[20] h-9 w-9 rounded-full bg-black/45 border border-white/15 text-white flex items-center justify-center backdrop-blur-md hover:bg-black/60 transition-colors">
+              className={cn("absolute right-[270px] top-[22%] z-[20] h-9 w-9 rounded-full border flex items-center justify-center backdrop-blur-md transition-colors", tone.nav)}>
               <ChevronRight className="h-4 w-4" />
             </button>
           )}
@@ -777,7 +711,7 @@ export function AvatarMannequinPanel({
             type="button"
             onClick={sw.onClick}
             className={cn(
-              "relative h-[52px] w-[52px] rounded-[12px] overflow-hidden border-2 transition-all duration-200",
+              "relative h-[52px] w-[52px] rounded-[var(--radius-md)] overflow-hidden border-2 transition-all duration-200",
               sw.active
                 ? "border-[var(--color-brand)] shadow-[var(--shadow-glow)]"
                 : "border-white/25 opacity-70 hover:opacity-100 hover:border-white/50"
@@ -812,16 +746,19 @@ export function AvatarMannequinPanel({
           role="dialog"
           aria-modal="true"
           aria-label="Fullscreen avatar preview"
-          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 backdrop-blur-md p-6"
+          className={cn(
+            "fixed inset-0 z-[200] flex items-center justify-center backdrop-blur-md p-6",
+            theme === "light" ? "bg-[rgba(242,240,245,0.94)]" : "bg-black/90"
+          )}
           onClick={() => setIsFullscreen(false)}
         >
           {hasFixedBackdrop ? (
             <div
-              className="relative h-[85vh] max-h-full max-w-[90vw] aspect-[3/4] rounded-2xl shadow-[0_24px_80px_rgba(0,0,0,0.6)] overflow-hidden"
+              className="relative h-[85vh] max-h-full max-w-[90vw] aspect-[3/4] rounded-[var(--radius-2xl)] shadow-[0_24px_80px_rgba(0,0,0,0.35)] overflow-hidden"
               onClick={(e) => e.stopPropagation()}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={profile.backdropUrl!} alt="" className="absolute inset-0 h-full w-full object-cover" />
+              <img src={studioBackdropUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={imgSrc} alt="Standing avatar in studio — fullscreen" className="absolute inset-0 h-full w-full object-cover" />
             </div>
@@ -830,7 +767,7 @@ export function AvatarMannequinPanel({
             <img
               src={imgSrc}
               alt="Standing avatar in studio — fullscreen"
-              className="max-h-full max-w-full object-contain rounded-2xl shadow-[0_24px_80px_rgba(0,0,0,0.6)]"
+              className="max-h-full max-w-full object-contain rounded-[var(--radius-2xl)] shadow-[0_24px_80px_rgba(0,0,0,0.35)]"
               onClick={(e) => e.stopPropagation()}
             />
           )}
@@ -840,7 +777,7 @@ export function AvatarMannequinPanel({
             onClick={() => setIsFullscreen(false)}
             title="Close (Esc)"
             aria-label="Close fullscreen preview"
-            className="absolute top-5 right-5 h-11 w-11 rounded-full bg-white/10 border border-white/20 text-white flex items-center justify-center backdrop-blur-md hover:bg-white/20 transition-colors"
+            className={cn("absolute top-5 right-5 h-11 w-11 rounded-full border flex items-center justify-center backdrop-blur-md transition-colors", tone.nav)}
           >
             <X className="h-4 w-4" />
           </button>
@@ -1055,23 +992,15 @@ function MobileAvatarStrip({
         className="absolute left-3 z-[16] flex -translate-y-1/2 flex-col items-center gap-1 rounded-full border border-white/[0.12] bg-black/50 p-1 shadow-[0_8px_28px_rgba(0,0,0,0.5)] backdrop-blur-2xl"
         style={{ top: `calc((100% - ${SHEET_H}) / 2)` }}
       >
-        {(["photo", "live"] as const).map((mode) => (
-          <button
-            key={mode}
-            type="button"
-            title={mode === "photo" ? "Image" : "Live"}
-            aria-label={mode === "photo" ? "Image view" : "Live camera view"}
-            onClick={() => onViewModeChange(mode)}
-            className={cn(
-              "flex h-10 w-10 items-center justify-center rounded-full transition-all",
-              viewMode === mode
-                ? "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-[var(--color-brand-contrast)]"
-                : "text-white/55 hover:text-white/90 hover:bg-white/[0.08]"
-            )}
-          >
-            {mode === "live" ? <Camera className="h-4 w-4" /> : <ImageIcon className="h-4 w-4" />}
-          </button>
-        ))}
+        <button
+          type="button"
+          title={viewMode === "live" ? "Back to photo" : "Live camera"}
+          aria-label={viewMode === "live" ? "Back to photo" : "Live camera"}
+          onClick={() => onViewModeChange(viewMode === "live" ? "photo" : "live")}
+          className="flex h-10 w-10 items-center justify-center rounded-full text-white/80 transition-all hover:bg-white/[0.08] hover:text-white"
+        >
+          {viewMode === "live" ? <ImageIcon className="h-4 w-4" /> : <Camera className="h-4 w-4" />}
+        </button>
       </div>
       )}
 
@@ -1093,7 +1022,7 @@ function MobileAvatarStrip({
                 aria-label={isGenerated ? `Look ${idx + 1}` : undefined}
                 onClick={() => isGenerated ? onSelectImage(idx) : undefined}
                 className={cn(
-                  "h-11 w-11 shrink-0 rounded-[10px] overflow-hidden border-2 transition-all",
+                  "h-11 w-11 shrink-0 rounded-[var(--radius-md)] overflow-hidden border-2 transition-all",
                   (isGenerated ? currentImageIndex : activeSwatchIndex) === idx
                     ? "border-[var(--color-brand)] scale-105" : "border-white/20 opacity-70"
                 )}
@@ -1110,10 +1039,11 @@ function MobileAvatarStrip({
           return (
             <button type="button" onClick={handleAddAllToCart} disabled={anyPending}
               className={cn(
-                "h-11 shrink-0 flex items-center gap-1.5 rounded-[12px] px-3.5 text-[12px] font-semibold transition-all",
-                "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-white shadow-[var(--shadow-glow)]",
+                "h-11 shrink-0 flex items-center gap-1.5 rounded-[var(--radius-md)] px-3.5 text-[12px] font-semibold transition-all",
+                "text-white shadow-[var(--shadow-glow)]",
                 "hover:brightness-110 active:scale-[0.97] disabled:opacity-70"
               )}
+              style={{ background: "linear-gradient(to right, var(--color-brand-from), var(--color-brand-to))" }}
             >
               {anyPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : justAddedAll ? <Check className="h-3.5 w-3.5" /> : <ShoppingBag className="h-3.5 w-3.5" />}
               {anyPending ? "Adding…" : justAddedAll ? "Added" : `Cart · ${formatPrice(cartTotal, currency)}`}
@@ -1179,11 +1109,11 @@ function MobileAvatarStrip({
           </div>
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => setPanel("edit")}
-              className={cn("flex-1 h-11 rounded-[12px] border text-[13px] font-medium transition-colors", styles.panelSecondaryButton)}>
+              className={cn("flex-1 h-11 rounded-[var(--radius-md)] border text-[13px] font-medium transition-colors", styles.panelSecondaryButton)}>
               Edit Stats
             </button>
             <button type="button" onClick={() => setPanel("size-guide")}
-              className={cn("flex-1 h-11 rounded-[12px] border text-[13px] font-medium transition-colors", styles.panelSecondaryButton)}>
+              className={cn("flex-1 h-11 rounded-[var(--radius-md)] border text-[13px] font-medium transition-colors", styles.panelSecondaryButton)}>
               Size Guide
             </button>
           </div>
@@ -1210,7 +1140,7 @@ function MobileAvatarStrip({
                     value={editDraft[key] ?? ""}
                     onChange={(e) => setEditDraft((d) => ({ ...d, [key]: e.target.value ? Number(e.target.value) : null }))}
                     className={cn(
-                      "w-full h-11 pl-3 pr-9 rounded-[10px] border transition-colors focus:outline-none focus:border-[var(--color-brand)]",
+                      "w-full h-11 pl-3 pr-9 rounded-[var(--radius-md)] border transition-colors focus:outline-none focus:border-[var(--color-brand)]",
                       NO_IOS_ZOOM_TEXT,
                       styles.panelField
                     )}
@@ -1222,14 +1152,14 @@ function MobileAvatarStrip({
           </div>
           <div className="flex gap-2">
             <button type="button" onClick={() => setPanel("details")}
-              className={cn("flex-1 h-11 rounded-[12px] border text-[13px] transition-colors", styles.panelSecondaryButton)}>
+              className={cn("flex-1 h-11 rounded-[var(--radius-md)] border text-[13px] transition-colors", styles.panelSecondaryButton)}>
               Cancel
             </button>
             <button
               type="button"
               onClick={handleSaveEdit}
               className={cn(
-                "flex-1 h-11 rounded-[12px] text-[13px] font-semibold text-white flex items-center justify-center gap-1.5",
+                "flex-1 h-11 rounded-[var(--radius-md)] text-[13px] font-semibold text-white flex items-center justify-center gap-1.5",
                 "gradient-violet bg-[var(--color-violet-from)]"
               )}
             >
@@ -1263,10 +1193,10 @@ function MobileAvatarStrip({
                       </div>
                       <button type="button" onClick={() => onAddToCart(item.product)} disabled={inCart || isPending}
                         className={cn(
-                          "h-10 shrink-0 px-3 rounded-[10px] text-[12px] font-semibold flex items-center gap-1 transition-all",
+                          "h-10 shrink-0 px-3 rounded-[var(--radius-md)] text-[12px] font-semibold flex items-center gap-1 transition-all",
                           inCart
                             ? cn("border", styles.panelSecondaryButton)
-                            : "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-white"
+                            : "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-[var(--color-brand-contrast)]"
                         )}>
                         {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : inCart ? <Check className="h-3.5 w-3.5" /> : <ShoppingBag className="h-3.5 w-3.5" />}
                         {isPending ? "Adding…" : inCart ? "Added" : "Add"}
@@ -1275,9 +1205,9 @@ function MobileAvatarStrip({
                     <div className="flex items-center gap-1.5">
                       {scale.map((size) => (
                         <div key={size} className={cn(
-                          "flex-1 h-9 rounded-[10px] flex items-center justify-center text-[12px] font-bold",
+                          "flex-1 h-9 rounded-[var(--radius-md)] flex items-center justify-center text-[12px] font-bold",
                           size === item.size
-                            ? "bg-[var(--color-brand)] text-white"
+                            ? "bg-[var(--color-brand)] text-[var(--color-brand-contrast)]"
                             : cn("border", styles.sizeChipIdle)
                         )}>{size}</div>
                       ))}

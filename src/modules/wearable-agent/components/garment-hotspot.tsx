@@ -7,6 +7,7 @@ import type { Product } from "@/modules/commerce/types";
 import { formatPrice } from "@/modules/commerce/constants";
 import { cn } from "@/lib/utils/cn";
 import { useClickOutside } from "@/lib/hooks/use-click-outside";
+import { useWearableTheme } from "../theme-context";
 
 export interface ActiveLookItem {
   product: Product;
@@ -29,6 +30,7 @@ const GAP = 10;
 const EDGE_PADDING = 10;
 
 export function GarmentHotspot({ item, inCart, isPending = false, onAddToCart }: GarmentHotspotProps) {
+  const light = useWearableTheme() === "light";
   const [isOpen, setIsOpen] = React.useState(false);
   const [placement, setPlacement] = React.useState({ left: GAP, top: 0, width: CARD_WIDTH });
   const rootRef = React.useRef<HTMLDivElement>(null);
@@ -141,19 +143,20 @@ export function GarmentHotspot({ item, inCart, isPending = false, onAddToCart }:
           onBlur={scheduleClose}
           style={{ width: placement.width, left: placement.left, top: placement.top }}
           className={cn(
-            "absolute rounded-xl border border-white/15",
-            "bg-[rgba(10,8,14,0.96)] backdrop-blur-2xl shadow-[0_16px_40px_rgba(0,0,0,0.6)]",
-            "p-3 z-[30] animate-fade-in"
+            "absolute rounded-[var(--radius-xl)] border backdrop-blur-2xl p-3 z-[30] animate-fade-in",
+            light
+              ? "border-black/[0.08] bg-[rgba(255,255,255,0.97)] shadow-[0_16px_40px_rgba(23,18,29,0.16)]"
+              : "border-white/15 bg-[rgba(10,8,14,0.96)] shadow-[0_16px_40px_rgba(0,0,0,0.6)]"
           )}
         >
           <div className="flex gap-2.5">
-            <div className="relative h-12 w-12 rounded-lg overflow-hidden shrink-0 border border-white/10">
+            <div className={cn("relative h-12 w-12 rounded-[var(--radius-md)] overflow-hidden shrink-0 border", light ? "border-black/[0.08]" : "border-white/10")}>
               <Image src={item.product.imageUrl} alt={item.product.name} fill sizes="48px" className="object-cover" unoptimized />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-[12px] font-semibold text-white leading-snug line-clamp-2">{item.product.name}</p>
+              <p className={cn("text-[12px] font-semibold leading-snug line-clamp-2", light ? "text-[#17121d]" : "text-white")}>{item.product.name}</p>
               <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                <span className="text-[12px] font-bold text-white">
+                <span className={cn("text-[12px] font-bold", light ? "text-[#17121d]" : "text-white")}>
                   {formatPrice(item.product.price, item.product.currency)}
                 </span>
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[var(--color-brand)]/20 text-[var(--color-brand)] whitespace-nowrap">
@@ -168,10 +171,12 @@ export function GarmentHotspot({ item, inCart, isPending = false, onAddToCart }:
             onClick={() => { onAddToCart(item.product); setIsOpen(false); }}
             disabled={inCart || isPending}
             className={cn(
-              "mt-2.5 w-full h-11 rounded-lg text-[12px] font-semibold flex items-center justify-center gap-1.5 transition-all",
+              "mt-2.5 w-full h-11 rounded-[var(--radius-md)] text-[12px] font-semibold flex items-center justify-center gap-1.5 transition-all",
               inCart
-                ? "bg-white/10 text-white/60 cursor-default"
-                : "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-white hover:brightness-110 active:scale-[0.97]"
+                ? light
+                  ? "bg-black/[0.05] text-[#17121d]/60 cursor-default"
+                  : "bg-white/10 text-white/60 cursor-default"
+                : "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-[var(--color-brand-contrast)] hover:brightness-110 active:scale-[0.97]"
             )}
           >
             {isPending ? (

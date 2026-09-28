@@ -116,7 +116,7 @@ export function SizeGuideModal({ lookLabel, items, cartItemIds, onAddToCart, onC
                         "min-h-9 self-start px-3 rounded-lg text-[11px] font-semibold flex items-center gap-1.5 shrink-0 transition-all",
                         inCart
                           ? styles.addedButton
-                          : "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-white hover:brightness-105"
+                          : "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-[var(--color-brand-contrast)] hover:brightness-105"
                       )}
                     >
                       {inCart ? <Check className="h-3 w-3" /> : <ShoppingBag className="h-3 w-3" />}

@@ -98,6 +98,8 @@ export async function createStripeCheckout(input: CreateCheckoutInput): Promise<
     });
     if (block) throw new Error(block);
     await closeEarlierSubscriptionCheckouts(input.user.id);
+  } else if (!(await hasLiveSubscription(input.user.id, "main"))) {
+    throw new Error("Extra balance is available on the Main plan. Upgrade to Main to buy more.");
   }
 
   const customerId = await getOrCreateStripeCustomer(input.user);

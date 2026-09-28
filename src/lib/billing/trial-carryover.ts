@@ -5,8 +5,9 @@ export function trialCarryoverAmount(allowance: number, used: number): number {
   return remaining > 0 ? remaining : 0;
 }
 
-/** Only a Trial that was actually paid for has units to move. */
-export function trialWasPaid(status: string): boolean {
+/** Only a Trial that was actually paid for has units to move. An admin-comped Trial never does. */
+export function trialWasPaid(status: string, comped = false): boolean {
+  if (comped) return false;
   return status === "active" || status === "trialing";
 }
 

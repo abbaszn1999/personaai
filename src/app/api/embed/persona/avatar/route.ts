@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { getUserById } from "@/lib/db/users";
 import { consumeImageGeneration } from "@/lib/db/image-generations";
 import { canGenerateImage, getAccountBillingContext } from "@/lib/billing/account";
+import { AVATAR_IMAGE_NANOS } from "@/lib/billing/pricing";
 import {
   generateAvatarVariationsStream,
   DEFAULT_AVATAR_VARIATION_COUNT,
@@ -107,7 +108,6 @@ export async function POST(req: NextRequest) {
       req.signal.addEventListener("abort", onAbort, { once: true });
 
       let creditsRemaining = billing.user.credits;
-      let includedRemainingInStream = includedRemaining;
       let successCount = 0;
 
       try {
@@ -124,12 +124,11 @@ export async function POST(req: NextRequest) {
               "avatar",
               billing.cycleStartIso,
               billing.tier.monthlyGarmentUnits,
-              1,
+              AVATAR_IMAGE_NANOS,
               { sessionId: sessionId || null, source: "store" }
             );
-            if (consumed) {
-              if (includedRemainingInStream > 0) includedRemainingInStream -= 1;
-              else creditsRemaining = Math.max(creditsRemaining - 1, 0);
+            if (consumed !== null) {
+              creditsRemaining = consumed;
               successCount += 1;
               safeEnqueue(encoder.encode(sseLine({ type: "variation", variation: event.variation, creditsRemaining })));
             }

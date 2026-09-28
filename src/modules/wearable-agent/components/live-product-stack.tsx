@@ -61,7 +61,7 @@ export function LiveProductStack({
               onClick={() => onSelect(product)}
               style={{ scrollSnapAlign: "center" }}
               className={cn(
-                "relative shrink-0 overflow-hidden rounded-[16px] transition-all duration-300 ease-out",
+                "relative shrink-0 overflow-hidden rounded-[var(--radius-xl)] transition-all duration-300 ease-out",
                 isActive
                   ? "z-20 h-[92px] w-[76px] -translate-y-2 border-2 border-white shadow-[0_12px_28px_rgba(0,0,0,0.5)]"
                   : "z-10 h-[76px] w-[64px] border border-white/15 opacity-70 brightness-[0.7]",
@@ -89,7 +89,7 @@ export function LiveProductStack({
             "ml-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition-all",
             inCart
               ? "bg-white/15 text-white/70"
-              : "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-white",
+              : "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-[var(--color-brand-contrast)]",
             "disabled:cursor-default"
           )}
           aria-label={inCart ? "Added to cart" : "Add to cart"}

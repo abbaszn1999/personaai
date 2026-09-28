@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  graceFloor,
   overageBlocksCharge,
   overageCentsFromMicro,
   overageMicroCents,
@@ -44,13 +43,12 @@ describe("at-cost quotes", () => {
   });
 });
 
-describe("grace and spend cap", () => {
-  it("sets the floor at 5% of the included allowance below zero", () => {
-    expect(graceFloor(100_000)).toBe(-5_000);
-    expect(graceFloor(12_500)).toBe(-625);
-    expect(graceFloor(3_000)).toBe(-150);
-    expect(walletHeadroom({ used: 100_000, included: 100_000, balance: -4_999 })).toBe(1);
-    expect(walletHeadroom({ used: 100_000, included: 100_000, balance: -5_000 })).toBe(0);
+describe("wallet headroom and spend cap", () => {
+  it("stops at zero with no grace below the balance", () => {
+    expect(walletHeadroom({ used: 100_000, included: 100_000, balance: 1 })).toBe(1);
+    expect(walletHeadroom({ used: 100_000, included: 100_000, balance: 0 })).toBe(0);
+    expect(walletHeadroom({ used: 99_000, included: 100_000, balance: 0 })).toBe(1_000);
+    expect(walletHeadroom({ used: 100_000, included: 100_000, balance: -10 })).toBe(0);
   });
 
   it("prices overage at cost and blocks only charges that would add more once the cap is hit", () => {

@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { consumeImageGeneration } from "@/lib/db/image-generations";
 import { getUserById } from "@/lib/db/users";
 import { canGenerateImage, getAccountBillingContext } from "@/lib/billing/account";
+import { tryOnCostNanos } from "@/lib/billing/pricing";
 import { generateTryOnImage, mergeOutfitGarments, PersonaAgentError } from "@/lib/agents/persona-agent";
 import { PrunaApiError } from "@/lib/ai/pruna";
 
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest) {
     // every image is passed through as part of the outfit to render. The billed count is the
     // length after the 11-garment cap, which is what Pruna receives.
     const added = garmentImageUrls.map((url: string) => ({ name: "garment", slot: "other" as const, imageUrl: url }));
-    if (!canGenerateImage(billing, mergeOutfitGarments([], added).length)) {
+    if (!canGenerateImage(billing, tryOnCostNanos(mergeOutfitGarments([], added).length))) {
       return Response.json({ error: "Your monthly image allowance and purchased credits are exhausted" }, { status: 402 });
     }
 
@@ -47,10 +48,10 @@ export async function POST(req: NextRequest) {
       "try_on",
       billing.cycleStartIso,
       billing.tier.monthlyGarmentUnits,
-      garmentCount,
+      tryOnCostNanos(garmentCount),
       { sessionId: user.id, source: "preview" }
     );
-    if (!consumed) {
+    if (consumed === null) {
       return Response.json({ error: "Your monthly image allowance and purchased credits are exhausted" }, { status: 402 });
     }
     const refreshedUser = await getUserById(user.id);

@@ -5,22 +5,18 @@ import {
   getStripeServerConfig,
   STRIPE_CATALOG,
 } from "@/lib/stripe/config";
-import { getPlanTier } from "@/modules/billing/constants";
 import {
   shouldBillRemainingOnDelete,
   shouldStopTrialRenewal,
-  trialPeriodOpen,
-  trialWasPaid,
 } from "@/lib/billing/trial-carryover";
+import { settleTrialOnUpgrade } from "@/lib/billing/settle-trial";
 import {
-  applyTrialCarryover,
   claimStripeEvent,
   finishStripeEvent,
   fulfillBillingOrder,
   getBillingAccountByCustomerId,
   getBillingOrderById,
   getBillingOrderByPaymentIntent,
-  getLiveTrialSubscription,
   refundBillingOrder,
   updateBillingOrder,
   upsertBillingSubscription,
@@ -113,39 +109,6 @@ async function stopTrialRenewal(subscriptionId: string): Promise<void> {
     return;
   }
   await getStripe().subscriptions.update(subscriptionId, { cancel_at_period_end: true });
-}
-
-/** Moves unused Trial units into the wallets, then ends Trial without refunding the $450. */
-async function settleTrialOnUpgrade(userId: string): Promise<void> {
-  const trial = await getLiveTrialSubscription(userId);
-  if (!trial) return;
-
-  let current: Stripe.Subscription | null = null;
-  try {
-    current = await getStripe().subscriptions.retrieve(trial.stripeSubscriptionId);
-  } catch (error) {
-    if (!isMissing(error)) throw error;
-  }
-  const status = current?.status ?? trial.status;
-
-  if (trialWasPaid(status) && trialPeriodOpen(trial.currentPeriodEnd)) {
-    if (!trial.currentPeriodStart) throw new Error("Trial subscription has no billing period start");
-    const allowance = getPlanTier("trial");
-    await applyTrialCarryover({
-      userId,
-      trialSubscriptionId: trial.stripeSubscriptionId,
-      periodStartIso: trial.currentPeriodStart,
-      sessionAllowance: allowance.monthlySessionUnits,
-      liveAllowanceSeconds: allowance.monthlyLiveTryOnSeconds,
-      garmentAllowance: allowance.monthlyGarmentUnits,
-    });
-  }
-
-  if (!current || current.status === "canceled" || current.status === "incomplete_expired") return;
-  await getStripe().subscriptions.cancel(trial.stripeSubscriptionId, {
-    prorate: false,
-    invoice_now: false,
-  });
 }
 
 async function processCheckoutSession(session: Stripe.Checkout.Session, event: Stripe.Event): Promise<void> {

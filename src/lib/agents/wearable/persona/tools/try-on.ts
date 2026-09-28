@@ -9,6 +9,7 @@ import { recordDetailPageViewEvent } from "@/lib/catalog/acs/user-events";
 import { consumeImageGeneration } from "@/lib/db/image-generations";
 import { getUserById } from "@/lib/db/users";
 import { canGenerateImage, getAccountBillingContext } from "@/lib/billing/account";
+import { tryOnCostNanos } from "@/lib/billing/pricing";
 import { mergeGarmentIntoOutfit } from "@/lib/recommendations";
 import type { Product } from "@/modules/commerce/types";
 import { resolveGarmentSlot } from "@/modules/wearable-agent/utils/fit-metrics";
@@ -77,7 +78,7 @@ export async function handleTryOn(
 
   const outfit = mergeOutfitGarments(kept.map(toGarmentRef), added.map(toGarmentRef));
   const billing = await getAccountBillingContext(context.userId);
-  if (!billing || !canGenerateImage(billing, outfit.length)) {
+  if (!billing || !canGenerateImage(billing, tryOnCostNanos(outfit.length))) {
     return {
       resultForModel: JSON.stringify({ error: "The shopper doesn't have enough image credits for this outfit — one credit per garment. Let them know they'll need more credits to generate a preview." }),
       events: [],
@@ -96,13 +97,13 @@ export async function handleTryOn(
       "try_on",
       billing.cycleStartIso,
       billing.tier.monthlyGarmentUnits,
-      garmentCount,
+      tryOnCostNanos(garmentCount),
       {
         sessionId: context.visitorId,
         source: context.usageSource ?? (context.visitorId === context.userId ? "preview" : "store"),
       }
     );
-    if (!consumed) throw new PersonaAgentError("The account's image allowance is exhausted.");
+    if (consumed === null) throw new PersonaAgentError("The account's image allowance is exhausted.");
     runtime.creditsRemaining = (await getUserById(context.userId))?.credits ?? runtime.creditsRemaining;
 
     const recommendedSizes = recommendSizesForProducts(context.profile, items);

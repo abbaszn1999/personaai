@@ -3,6 +3,7 @@ import { generateAvatarVariations, PersonaAgentError } from "@/lib/agents/person
 import { consumeImageGeneration } from "@/lib/db/image-generations";
 import { getUserById } from "@/lib/db/users";
 import { canGenerateImage, getAccountBillingContext } from "@/lib/billing/account";
+import { AVATAR_IMAGE_NANOS } from "@/lib/billing/pricing";
 import type { ToolRuntimeState, WearableAgentEvent, WearableChatContext } from "../types";
 
 const MEASUREMENT_KEYS = ["heightCm", "weightKg", "chestCm", "waistCm", "shoeSizeEu"] as const;
@@ -76,13 +77,13 @@ export async function handleUpdateMeasurements(
       "avatar",
       billing.cycleStartIso,
       billing.tier.monthlyGarmentUnits,
-      1,
+      AVATAR_IMAGE_NANOS,
       {
         sessionId: context.visitorId,
         source: context.usageSource ?? (context.visitorId === context.userId ? "preview" : "store"),
       }
     );
-    if (!consumed) throw new PersonaAgentError("The account's image allowance is exhausted.");
+    if (consumed === null) throw new PersonaAgentError("The account's image allowance is exhausted.");
     runtime.creditsRemaining = (await getUserById(context.userId))?.credits ?? runtime.creditsRemaining;
 
     return {

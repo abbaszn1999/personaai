@@ -11,6 +11,7 @@ export interface StoreConnection {
   storeUrl: string;
   status: StoreConnectionStatus;
   connectedAt: string | null;
+  ordersAccess?: "active" | "missing" | null;
 }
 
 /**

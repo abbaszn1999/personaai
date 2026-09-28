@@ -126,22 +126,28 @@ export async function listPrivateChartsForBrands(
 
 /** Canonical brand targets already proven by a shared researched chart. */
 export async function listSharedChartBrandKeys(): Promise<string[]> {
-  const { data, error } = await db
-    .from("sizing_charts")
-    .select("brand_key");
+  const keys = new Set<string>();
+  const pageSize = 1000;
 
-  if (error) {
-    console.error("[db/sizing-charts listSharedChartBrandKeys]", error);
-    return [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await db
+      .from("sizing_charts")
+      .select("brand_key")
+      .range(from, from + pageSize - 1);
+
+    if (error) {
+      console.error("[db/sizing-charts listSharedChartBrandKeys]", error);
+      return [];
+    }
+
+    const batch = (data ?? []) as Array<{ brand_key: string }>;
+    for (const row of batch) {
+      if (row.brand_key) keys.add(row.brand_key);
+    }
+    if (batch.length < pageSize) break;
   }
 
-  return [
-    ...new Set(
-      ((data as Array<Record<string, unknown>>) ?? [])
-        .map((row) => row.brand_key as string)
-        .filter(Boolean),
-    ),
-  ].sort();
+  return [...keys].sort();
 }
 
 interface ChartWrite {

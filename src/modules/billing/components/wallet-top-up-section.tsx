@@ -41,6 +41,21 @@ export function WalletTopUpSection() {
   const minuteQuote = quoteLiveMinutes(minuteQty);
   const garmentQuote = quoteGarmentUnits(garmentQty);
   const busy = pendingAction !== null;
+  const onMain = summary?.tierId === "main";
+
+  if (summary && !onMain) {
+    return (
+      <SettingsCard
+        id="add-balance"
+        title="Add balance"
+        description="Extra balance is available on the Main plan."
+      >
+        <p className="text-sm text-[var(--color-text-secondary)]">
+          Session units, live minutes, and garment units can be purchased after you upgrade to Main.
+        </p>
+      </SettingsCard>
+    );
+  }
 
   return (
     <SettingsCard

@@ -4,13 +4,13 @@ import {
   type BillingEntitlementStatus,
 } from "./entitlement";
 import { allocateImageUnits } from "./image-units";
+import { AVATAR_IMAGE_NANOS, GARMENT_UNIT_NANOS } from "./pricing";
 import { getImageUnitsUsed } from "@/lib/db/image-generations";
 import { getLiveTryOnSecondsUsedForOwner } from "@/lib/db/realtime-tryon-events";
 import { getSessionUnitsUsedForOwner } from "@/lib/db/session-usage";
 import { getUserById, type UserRow } from "@/lib/db/users";
 import { applyBillingRollover } from "@/lib/db/billing-rollover";
 import {
-  graceFloor,
   overageBlocksCharge,
   overageCentsFromMicro,
   overageMicroCents,
@@ -116,14 +116,17 @@ function capAllowsOverage(context: AccountBillingContext, addsOverage: boolean):
   });
 }
 
-export function canGenerateImage(context: AccountBillingContext, units = 1): boolean {
+/** Best-effort pre-check before calling Pruna. `costNanos` is the render's real cost; the DB is
+ *  authoritative and applies the exact split with the account's nano carry. Units are rounded up
+ *  here so the guard never green-lights a charge the balance cannot cover. */
+export function canGenerateImage(context: AccountBillingContext, costNanos = AVATAR_IMAGE_NANOS): boolean {
   const allowance = context.tier.monthlyGarmentUnits;
+  const units = Math.max(1, Math.ceil(costNanos / GARMENT_UNIT_NANOS));
   const charge = allocateImageUnits({
     usedThisCycle: context.imagesUsedThisCycle,
     includedAllowance: allowance,
     units,
     credits: context.user.credits,
-    balanceFloor: graceFloor(allowance),
   });
   if (!context.entitled || !charge) return false;
   return capAllowsOverage(context, charge.fromCredits > 0);
@@ -156,7 +159,7 @@ export function canStartSessionTurn(context: AccountBillingContext): boolean {
   return capAllowsOverage(context, includedRemaining <= 0);
 }
 
-export { overageCentsFromMicro, graceFloor };
+export { overageCentsFromMicro };
 
 export function canUsePaidPlatform(context: AccountBillingContext): boolean {
   return context.entitled;

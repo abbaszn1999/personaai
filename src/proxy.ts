@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
+import { adminSessionOptions, type AdminSessionData } from "@/modules/auth/lib/admin-session-options";
 import { sessionOptions, type SessionData } from "@/modules/auth/lib/session";
 
 const PUBLIC_PATHS = [
+  "/lamp",
   "/sign-in",
   "/sign-up",
   "/forgot-password",
@@ -26,6 +28,33 @@ function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname.startsWith(p));
 }
 
+// First URL segment of every real page. Anything else is a bad link and should
+// render the 404 lamp instead of bouncing to sign-in.
+const APP_ROOTS = new Set([
+  "sign-in",
+  "sign-up",
+  "forgot-password",
+  "onboarding",
+  "try-on",
+  "branding",
+  "preview",
+  "setup",
+  "usage",
+  "analytics",
+  "settings",
+  "store",
+  "admin",
+  "embed",
+  "api",
+  "lamp",
+]);
+
+function isUnknownPage(pathname: string): boolean {
+  if (pathname === "/") return false;
+  const root = pathname.split("/").filter(Boolean)[0];
+  return Boolean(root) && !APP_ROOTS.has(root);
+}
+
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
@@ -37,7 +66,24 @@ export async function proxy(req: NextRequest) {
     return NextResponse.next();
   }
 
-  if (isPublicPath(pathname)) {
+  if (pathname.startsWith("/admin") || pathname.startsWith("/api/admin")) {
+    const open =
+      pathname === "/admin/sign-in" ||
+      pathname.startsWith("/api/admin/auth");
+    if (open) return NextResponse.next();
+
+    const adminRes = NextResponse.next();
+    const adminSession = await getIronSession<AdminSessionData>(req, adminRes, adminSessionOptions);
+    if (!adminSession.email) {
+      if (pathname.startsWith("/api/")) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      return NextResponse.redirect(new URL("/admin/sign-in", req.url));
+    }
+    return adminRes;
+  }
+
+  if (isPublicPath(pathname) || isUnknownPage(pathname)) {
     return NextResponse.next();
   }
 

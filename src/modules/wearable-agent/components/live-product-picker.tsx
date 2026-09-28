@@ -28,7 +28,7 @@ export function LiveProductPicker({
     <div
       className={cn(
         "border border-[var(--color-border)] bg-[var(--color-surface-card)] shadow-[var(--shadow-card)] backdrop-blur-2xl",
-        mobile ? "rounded-t-[20px] p-3" : "rounded-[18px] p-4"
+        mobile ? "rounded-t-[var(--radius-2xl)] p-3" : "rounded-[var(--radius-xl)] p-4"
       )}
     >
       <div className="mb-3 flex items-center gap-2">

@@ -1,6 +1,6 @@
 import { createDecartClient } from "@decartai/sdk";
 
-export const DECART_REALTIME_MODEL = "lucy-vton-3" as const;
+export const DECART_REALTIME_MODEL = "lucy-vton-latest" as const;
 export const REALTIME_TRYON_SESSION_CAP_SECONDS = 90;
 
 export class DecartApiError extends Error {

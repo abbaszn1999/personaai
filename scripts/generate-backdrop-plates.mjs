@@ -44,7 +44,7 @@ async function main() {
 
   for (let i = 0; i < SOURCE_PHOTOS.length; i++) {
     const sourceFile = SOURCE_PHOTOS[i];
-    const outputFile = path.join(OUTPUT_DIR, `backdrop-${i + 1}.png`);
+    const outputFile = path.join(OUTPUT_DIR, `backdrop-${i + 1}.webp`);
     console.log(`[${i + 1}/${SOURCE_PHOTOS.length}] Generating backdrop from ${sourceFile}...`);
 
     const sourceBuffer = await readFile(path.join(PUBLIC_DIR, "avatars", sourceFile));
@@ -81,8 +81,8 @@ async function main() {
     }
 
     const rawBuffer = Buffer.from(imagePart.inlineData.data, "base64");
-    const pngBuffer = await sharp(rawBuffer).png().toBuffer();
-    await writeFile(outputFile, pngBuffer);
+    const webpBuffer = await sharp(rawBuffer).webp({ quality: 82 }).toBuffer();
+    await writeFile(outputFile, webpBuffer);
     console.log(`  -> saved ${path.relative(PUBLIC_DIR, outputFile)}`);
   }
 

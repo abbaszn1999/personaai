@@ -1,22 +1,9 @@
 import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { updateWorkspace, deleteWorkspace, type UpdateWorkspaceInput } from "@/lib/db/workspaces";
-import type { WorkspaceBranding } from "@/modules/workspaces/types";
+import { sanitizeBrandingPatch } from "@/modules/workspaces/branding-schema";
 
 interface RouteParams { params: Promise<{ id: string }> }
-
-const BRANDING_KEYS: (keyof WorkspaceBranding)[] = [
-  "agentName",
-  "welcomeMessage",
-  "logoUrl",
-  "primaryColor",
-  "fontFamily",
-  "borderRadius",
-  "position",
-  "displayMode",
-  "theme",
-  "liveTryOnEnabled",
-];
 
 export async function PATCH(req: NextRequest, { params }: RouteParams) {
   try {
@@ -38,18 +25,8 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (typeof body.embedEnabled === "boolean") {
       patch.embedEnabled = body.embedEnabled;
     }
-    if (body.branding && typeof body.branding === "object") {
-      const branding: Partial<WorkspaceBranding> = {};
-      for (const key of BRANDING_KEYS) {
-        if (body.branding[key] === undefined) continue;
-        if (key === "liveTryOnEnabled") {
-          if (typeof body.branding[key] === "boolean") branding.liveTryOnEnabled = body.branding[key];
-          continue;
-        }
-        (branding as Record<string, unknown>)[key] = body.branding[key];
-      }
-      if (Object.keys(branding).length > 0) patch.branding = branding;
-    }
+    const branding = sanitizeBrandingPatch(body.branding);
+    if (Object.keys(branding).length > 0) patch.branding = branding;
 
     if (Object.keys(patch).length === 0) {
       return Response.json({ error: "No valid fields to update" }, { status: 400 });

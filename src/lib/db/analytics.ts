@@ -4,11 +4,62 @@ import { getImageGenerationCount } from "./image-generations";
 import { getTryOnEventsInRange } from "./try-on-events";
 import { getChatEventsInRange } from "./chat-events";
 import { getRealtimeTryOnEventsInRange } from "./realtime-tryon-events";
+import { getStoreConnectionByOwner } from "./store-connections";
+import { listLedgerEntriesInRange } from "./gmv";
+import { getStripeCustomerIdForUser } from "./billing";
+import { sumCustomerSpendUsdCents } from "@/lib/stripe/customer-spend";
 import { LIVE_SESSION_PRODUCT_ID } from "@/lib/billing/live-session";
+import {
+  orderConversionRate,
+  pointChange,
+  returnOnSpend,
+  summarizePersonaSales,
+  utcDayKey,
+  type PersonaSalesSummary,
+  type SalesLedgerRow,
+  type SalesMatchMethod,
+} from "@/lib/analytics/persona-sales";
 
 export type AnalyticsRange = "7d" | "30d" | "90d";
 
+export type OrderTrackingStatus = "active" | "missing" | "unknown" | "not_connected";
+
+export interface PersonaSalesPayload {
+  orderTracking: OrderTrackingStatus;
+  /** All amounts are USD cents, converted at the order's daily rate and net of refunds. */
+  netUsdCents: number;
+  grossUsdCents: number;
+  refundsUsdCents: number;
+  refundRate: number;
+  orders: number;
+  avgOrderUsdCents: number;
+  /** Attributed orders per 100 widget sessions. */
+  conversionRate: number;
+  billableNetUsdCents: number;
+  commissionUsdCents: number;
+  unbilledNetUsdCents: number;
+  /** What the account paid Persona in the window. Null when it can't be read. */
+  spendUsdCents: number | null;
+  /** Net sales per dollar paid to Persona. Null when nothing was paid. */
+  roi: number | null;
+  byMethod: Record<SalesMatchMethod, { netUsdCents: number; orders: number }>;
+  topProducts: Array<{ key: string; name: string; orders: number; netUsdCents: number }>;
+  previous: { netUsdCents: number; orders: number; conversionRate: number; avgOrderUsdCents: number };
+}
+
 const RANGE_DAYS: Record<AnalyticsRange, number> = { "7d": 7, "30d": 30, "90d": 90 };
+
+export const ANALYTICS_RANGES = Object.keys(RANGE_DAYS) as AnalyticsRange[];
+
+export function parseAnalyticsRange(value: string | null): AnalyticsRange {
+  return ANALYTICS_RANGES.includes(value as AnalyticsRange) ? (value as AnalyticsRange) : "30d";
+}
+
+/** The rolling window a range covers, ending now. */
+export function analyticsWindow(range: AnalyticsRange, now = new Date()): { sinceIso: string; untilIso: string } {
+  const since = new Date(now.getTime() - RANGE_DAYS[range] * 24 * 60 * 60 * 1000);
+  return { sinceIso: since.toISOString(), untilIso: now.toISOString() };
+}
 
 export interface WorkspaceAnalyticsPayload {
   kpis: {
@@ -21,10 +72,12 @@ export interface WorkspaceAnalyticsPayload {
     avgCartItemValue: number;
     trends: { sessions: number; cartItemsAdded: number; cartValueAdded: number; addToCartRate: number };
   };
-  activityByDay: Array<{ date: string; sessions: number; cartValue: number }>;
-  /** Always exactly 2 steps: sessions opened → sessions that added something to cart. No
-   *  "Product Views" or "Purchase" step — neither has a real data source (see plan). */
+  /** salesUsd is attributed net sales in USD; cartValue stays in the store currency. */
+  activityByDay: Array<{ date: string; sessions: number; cartValue: number; salesUsd: number }>;
+  /** Sessions opened, engaged (try-on, live preview or assistant), added to cart, and ordered
+   *  through an attributed sale. Each step counts sessions, so steps are comparable. */
   funnel: Array<{ label: string; value: number }>;
+  sales: PersonaSalesPayload;
   topProducts: Array<{ productId: string; name: string; addCount: number; addValue: number }>;
   shopperStats: { newSessions: number; returningSessions: number; avgSessionDurationSeconds: number };
   imagesGenerated: number;
@@ -64,8 +117,46 @@ function pctChange(current: number, previous: number): number {
   return Math.round(((current - previous) / previous) * 1000) / 10;
 }
 
-function dayKey(iso: string): string {
-  return iso.slice(0, 10);
+const dayKey = utcDayKey;
+
+function toSalesRows(entries: Awaited<ReturnType<typeof listLedgerEntriesInRange>>): SalesLedgerRow[] {
+  return entries.map((entry) => ({
+    orderId: `${entry.platform}:${entry.orderId}`,
+    productName: entry.productName,
+    platformItemId: entry.platformItemId,
+    kind: entry.kind,
+    amountUsdCents: entry.amountUsdCents,
+    matchMethod: entry.matchMethod,
+    billable: entry.billable,
+    sessionId: entry.sessionId,
+    occurredAt: entry.occurredAt,
+  }));
+}
+
+async function loadSales(ownerId: string, sinceIso: string, untilIso: string): Promise<PersonaSalesSummary> {
+  try {
+    return summarizePersonaSales(toSalesRows(await listLedgerEntriesInRange(ownerId, sinceIso, untilIso)));
+  } catch (error) {
+    console.error("[db/analytics loadSales]", error);
+    return summarizePersonaSales([]);
+  }
+}
+
+async function loadSpend(ownerId: string, sinceIso: string, untilIso: string): Promise<number | null> {
+  try {
+    const customerId = await getStripeCustomerIdForUser(ownerId);
+    if (!customerId) return 0;
+    return await sumCustomerSpendUsdCents(customerId, sinceIso, untilIso);
+  } catch (error) {
+    console.error("[db/analytics loadSpend]", error);
+    return null;
+  }
+}
+
+async function loadOrderTracking(ownerId: string): Promise<OrderTrackingStatus> {
+  const connection = await getStoreConnectionByOwner(ownerId);
+  if (!connection) return "not_connected";
+  return connection.ordersAccess ?? "unknown";
 }
 
 function round2(n: number): number {
@@ -143,8 +234,8 @@ async function computeWindow(workspaceId: string, sinceIso: string, untilIso: st
  * Aggregates everything the analytics dashboard needs for one workspace, strictly from data
  * Persona itself caused: shopper heartbeats (`live_sessions`), logged cart-add
  * outcomes (`cart_events`), and avatar/try-on image generations (`image_generations`, keyed by
- * the workspace owner's account). Never touches WooCommerce order/revenue data — see the plan
- * this implements for why that's deliberately out of scope.
+ * the workspace owner's account). Sales come only from `gmv_ledger`, which holds order lines
+ * already attributed to a widget session; unattributed store revenue is never read.
  */
 export async function getWorkspaceAnalytics(
   workspaceId: string,
@@ -153,25 +244,45 @@ export async function getWorkspaceAnalytics(
 ): Promise<WorkspaceAnalyticsPayload> {
   const days = RANGE_DAYS[range];
   const now = new Date();
-  const since = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
-  const prevSince = new Date(since.getTime() - days * 24 * 60 * 60 * 1000);
-  const sinceIso = since.toISOString();
-  const untilIso = now.toISOString();
+  const { sinceIso, untilIso } = analyticsWindow(range, now);
+  const prevSince = new Date(Date.parse(sinceIso) - days * 24 * 60 * 60 * 1000);
 
-  const [current, previous, imagesGenerated, tryOnEvents, realtimeTryOnEvents, chatEvents] = await Promise.all([
+  const prevSinceIso = prevSince.toISOString();
+  const [
+    current,
+    previous,
+    imagesGenerated,
+    tryOnEvents,
+    realtimeTryOnEvents,
+    chatEvents,
+    sales,
+    previousSales,
+    spendUsdCents,
+    orderTracking,
+  ] = await Promise.all([
     computeWindow(workspaceId, sinceIso, untilIso),
-    computeWindow(workspaceId, prevSince.toISOString(), sinceIso),
+    computeWindow(workspaceId, prevSinceIso, sinceIso),
     getImageGenerationCount(ownerId, sinceIso),
     getTryOnEventsInRange(workspaceId, sinceIso, untilIso),
     getRealtimeTryOnEventsInRange(workspaceId, sinceIso, untilIso),
     getChatEventsInRange(workspaceId, sinceIso, untilIso),
+    loadSales(ownerId, sinceIso, untilIso),
+    loadSales(ownerId, prevSinceIso, sinceIso),
+    loadSpend(ownerId, sinceIso, untilIso),
+    loadOrderTracking(ownerId),
   ]);
 
-  const dayBuckets = new Map<string, { sessions: number; cartValue: number }>();
+  const dayBuckets = new Map<string, { sessions: number; cartValue: number; salesUsdCents: number }>();
   for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(now);
-    d.setDate(d.getDate() - i);
-    dayBuckets.set(dayKey(d.toISOString()), { sessions: 0, cartValue: 0 });
+    dayBuckets.set(dayKey(new Date(now.getTime() - i * 24 * 60 * 60 * 1000).toISOString()), {
+      sessions: 0,
+      cartValue: 0,
+      salesUsdCents: 0,
+    });
+  }
+  for (const [key, cents] of sales.byDay) {
+    const bucket = dayBuckets.get(key);
+    if (bucket) bucket.salesUsdCents += cents;
   }
   for (const s of current.sessionRows) {
     if (s.startedAt < sinceIso) continue; // only "new opens" land in the per-day bucket
@@ -184,10 +295,20 @@ export async function getWorkspaceAnalytics(
   }
 
   const activityByDay = Array.from(dayBuckets.entries()).map(([key, v]) => ({
-    date: new Date(`${key}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+    date: new Date(`${key}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }),
     sessions: v.sessions,
     cartValue: round2(v.cartValue),
+    salesUsd: round2(v.salesUsdCents / 100),
   }));
+
+  const sessionIdsInRange = new Set(current.sessionRows.map((row) => row.sessionId));
+  const engagedSessions = new Set<string>();
+  for (const event of [...tryOnEvents, ...realtimeTryOnEvents, ...chatEvents]) {
+    if (sessionIdsInRange.has(event.sessionId)) engagedSessions.add(event.sessionId);
+  }
+  for (const event of current.successfulEvents) {
+    if (sessionIdsInRange.has(event.sessionId)) engagedSessions.add(event.sessionId);
+  }
 
   const productMap = new Map<string, { name: string; addCount: number; addValue: number }>();
   for (const e of current.successfulEvents) {
@@ -295,14 +416,42 @@ export async function getWorkspaceAnalytics(
         sessions: pctChange(current.sessions, previous.sessions),
         cartItemsAdded: pctChange(current.cartItemsAdded, previous.cartItemsAdded),
         cartValueAdded: pctChange(current.cartValueAdded, previous.cartValueAdded),
-        addToCartRate: pctChange(current.addToCartRate, previous.addToCartRate),
+        addToCartRate: pointChange(current.addToCartRate, previous.addToCartRate),
       },
     },
     activityByDay,
     funnel: [
-      { label: "Widget Opens", value: current.sessions },
-      { label: "Added to Cart", value: current.sessionsWithAdds },
+      { label: "Opened the widget", value: current.sessions },
+      { label: "Engaged", value: engagedSessions.size },
+      { label: "Added to cart", value: current.sessionsWithAdds },
+      {
+        label: "Placed an order",
+        value: Array.from(sales.orderSessionIds).filter((id) => sessionIdsInRange.has(id)).length,
+      },
     ],
+    sales: {
+      orderTracking,
+      netUsdCents: sales.netUsdCents,
+      grossUsdCents: sales.grossUsdCents,
+      refundsUsdCents: sales.refundsUsdCents,
+      refundRate: sales.refundRate,
+      orders: sales.orders,
+      avgOrderUsdCents: sales.avgOrderUsdCents,
+      conversionRate: orderConversionRate(sales.orders, current.sessions),
+      billableNetUsdCents: sales.billableNetUsdCents,
+      commissionUsdCents: sales.commissionUsdCents,
+      unbilledNetUsdCents: sales.unbilledNetUsdCents,
+      spendUsdCents,
+      roi: returnOnSpend(sales.netUsdCents, spendUsdCents),
+      byMethod: sales.byMethod,
+      topProducts: sales.topProducts,
+      previous: {
+        netUsdCents: previousSales.netUsdCents,
+        orders: previousSales.orders,
+        conversionRate: orderConversionRate(previousSales.orders, previous.sessions),
+        avgOrderUsdCents: previousSales.avgOrderUsdCents,
+      },
+    },
     topProducts,
     shopperStats: {
       newSessions: current.newSessions,
