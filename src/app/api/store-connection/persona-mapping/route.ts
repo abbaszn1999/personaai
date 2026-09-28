@@ -16,6 +16,8 @@ import {
 } from "@/modules/store/mapping/persona-taxonomy";
 import { deactivateAcsCatalogForRemapping } from "@/lib/catalog/acs/catalog-reads";
 import { rewindRun } from "@/lib/db/sizing-runs";
+import { getSizingProductPrimaryLeafCounts } from "@/lib/db/sizing-product-records";
+import { listSizingCoverage } from "@/lib/db/sizing-coverage";
 
 function invalidLeafMappingIds(
   value: unknown,
@@ -40,12 +42,32 @@ function invalidLeafMappingIds(
   });
 }
 
-function responseFor(connection: NonNullable<Awaited<ReturnType<typeof getStoreConnectionByOwner>>>) {
+async function responseFor(connection: NonNullable<Awaited<ReturnType<typeof getStoreConnectionByOwner>>>) {
+  const [counts, coverage] = await Promise.all([
+    getSizingProductPrimaryLeafCounts(connection.id),
+    listSizingCoverage(connection.id),
+  ]);
+  const stageTwoTotal = coverage.reduce((total, row) => total + row.skuCount, 0);
+  const mappingUpdatedAt = connection.personaMappingUpdatedAt
+    ? Date.parse(connection.personaMappingUpdatedAt)
+    : null;
+  const scannedAt = counts?.scannedAt ? Date.parse(counts.scannedAt) : null;
+  const countsMatchCurrentMapping =
+    counts !== null &&
+    counts.total > 0 &&
+    counts.total === stageTwoTotal &&
+    counts.assigned === counts.total &&
+    scannedAt !== null &&
+    (mappingUpdatedAt === null || scannedAt >= mappingUpdatedAt);
+
   return {
     taxonomyVersion: connection.personaTaxonomyVersion,
     scope: connection.personaTaxonomyScope,
     mappingUpdatedAt: connection.personaMappingUpdatedAt,
     autoMatchCompletedAt: connection.personaAutoMatchCompletedAt,
+    scanCounts: countsMatchCurrentMapping
+      ? { total: counts.total, byLeaf: counts.byLeaf }
+      : null,
     categories: connection.categories.map((category) => {
       const mapping = connection.personaCategoryMap[category.id];
       const mapped =
@@ -95,7 +117,7 @@ export async function GET() {
   const connection = await getStoreConnectionByOwner(user.id);
   if (!connection) return Response.json({ error: "Store connection not found" }, { status: 404 });
 
-  return Response.json(responseFor(connection));
+  return Response.json(await responseFor(connection));
 }
 
 export async function PUT(req: NextRequest) {
@@ -163,7 +185,7 @@ export async function PUT(req: NextRequest) {
     // remained in Stage 4 after their mapping was corrected.
     rewindRun(updated.id, "scan"),
   ]);
-  return Response.json(responseFor(updated));
+  return Response.json(await responseFor(updated));
 }
 
 export async function DELETE() {
@@ -191,5 +213,5 @@ export async function DELETE() {
     deactivateAcsCatalogForRemapping(updated.id),
     rewindRun(updated.id, "scan"),
   ]);
-  return Response.json(responseFor(updated));
+  return Response.json(await responseFor(updated));
 }

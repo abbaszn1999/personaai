@@ -3,26 +3,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getCurrentUser: vi.fn(),
   getStoreConnectionByOwner: vi.fn(),
-  updateStoreConnection: vi.fn(),
+  updateSizingBrandMapping: vi.fn(),
   listSizingCoverage: vi.fn(),
   listSharedChartBrandKeys: vi.fn(),
-  getLatestSizingRun: vi.fn(),
-  rewindRun: vi.fn(),
-  createSizingRun: vi.fn(),
 }));
 
 vi.mock("@/modules/auth/lib/get-user", () => ({ getCurrentUser: mocks.getCurrentUser }));
 vi.mock("@/lib/db/store-connections", () => ({
   getStoreConnectionByOwner: mocks.getStoreConnectionByOwner,
-  updateStoreConnection: mocks.updateStoreConnection,
+  updateSizingBrandMapping: mocks.updateSizingBrandMapping,
 }));
 vi.mock("@/lib/db/sizing-coverage", () => ({ listSizingCoverage: mocks.listSizingCoverage }));
 vi.mock("@/lib/db/sizing-charts", () => ({ listSharedChartBrandKeys: mocks.listSharedChartBrandKeys }));
-vi.mock("@/lib/db/sizing-runs", () => ({
-  getLatestSizingRun: mocks.getLatestSizingRun,
-  rewindRun: mocks.rewindRun,
-  createSizingRun: mocks.createSizingRun,
-}));
 
 const { GET, PUT } = await import("./route");
 
@@ -56,24 +48,15 @@ const coverage = [
   },
 ];
 
-const researchRun = {
-  id: "run-1",
-  stage: "research",
-  status: "blocked",
-};
-
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getCurrentUser.mockResolvedValue({ id: "user-1" });
   mocks.getStoreConnectionByOwner.mockResolvedValue(connection);
   mocks.listSizingCoverage.mockResolvedValue(coverage);
   mocks.listSharedChartBrandKeys.mockResolvedValue([]);
-  mocks.getLatestSizingRun.mockResolvedValue(researchRun);
-  mocks.rewindRun.mockResolvedValue({ ...researchRun, stage: "scan", status: "pending" });
-  mocks.createSizingRun.mockResolvedValue(null);
-  mocks.updateStoreConnection.mockImplementation(async (_ownerId, patch) => ({
+  mocks.updateSizingBrandMapping.mockImplementation(async (_ownerId, mapping) => ({
     ...connection,
-    sizingBrandMapping: patch.sizingBrandMapping,
+    sizingBrandMapping: mapping,
   }));
 });
 
@@ -99,7 +82,7 @@ describe("brand mapping API", () => {
     ]);
   });
 
-  it("saves the complete document and rewinds the catalog scan", async () => {
+  it("saves only the mapping document without starting or rewinding a scan", async () => {
     const response = await PUT(
       new Request("http://localhost/api/store-connection/sizing/brand-mapping", {
         method: "PUT",
@@ -117,19 +100,17 @@ describe("brand mapping API", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(mocks.updateStoreConnection).toHaveBeenCalledWith(
+    expect(mocks.updateSizingBrandMapping).toHaveBeenCalledWith(
       "user-1",
       expect.objectContaining({
-        sizingBrandMapping: expect.objectContaining({
           confirmedAt: expect.any(String),
           aliases: {
             tom_tailor: expect.objectContaining({ canonicalKey: "tom_tailor" }),
             tom_tailor_men: expect.objectContaining({ canonicalKey: "tom_tailor" }),
           },
-        }),
       }),
     );
-    expect(mocks.rewindRun).toHaveBeenCalledWith("connection-1", "scan");
+    expect(mocks.updateSizingBrandMapping).toHaveBeenCalledTimes(1);
   });
 
   it("rejects an incomplete mapping", async () => {
@@ -149,6 +130,6 @@ describe("brand mapping API", () => {
       }),
     );
     expect(response.status).toBe(400);
-    expect(mocks.updateStoreConnection).not.toHaveBeenCalled();
+    expect(mocks.updateSizingBrandMapping).not.toHaveBeenCalled();
   });
 });

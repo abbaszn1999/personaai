@@ -51,9 +51,10 @@ export interface CoverageRow {
   skuCount: number;
   storeCategoryPaths: string[][];
   sampleSkus: CoverageSample[];
-  /** Keyed by the merchant's own raw size string, e.g. `"S,M,L"`. `canonical` stays null until the
-   *  Phase 6 mapping call resolves it. */
-  rawFormats: Record<string, { count: number; canonical: string[] | null }>;
+  /** Keyed by the merchant's own raw size string, e.g. `"S,M,L"`. Canonical sizes are deliberately
+   *  derived at product grain after a leaf has selected one exact chart; this brand+parent aggregate
+   *  can cover several leaves and therefore several different chart variants. */
+  rawFormats: Record<string, { count: number }>;
   /**
    * How many products in this row looked like each audience, e.g. `{ mens: 412, unisex: 6 }`.
    *
@@ -341,7 +342,7 @@ export function toRawFormat(sizes: readonly string[]): string | null {
 function toRawFormats(formats: Map<string, number>): CoverageRow["rawFormats"] {
   const out: CoverageRow["rawFormats"] = {};
   for (const [raw, count] of [...formats.entries()].sort((a, b) => b[1] - a[1])) {
-    out[raw] = { count, canonical: null };
+    out[raw] = { count };
   }
   return out;
 }

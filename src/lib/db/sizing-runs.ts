@@ -14,8 +14,7 @@ export const SIZING_RUN_STAGES = [
   "classify",
   "research",
   "gap_fill",
-  /** Stage 5's own stage, so a refresh returns to Chart Assignment rather than to the research
-   *  screen the merchant already finished with. */
+  /** Internal bridge from Stage 4 review into deterministic chart resolution. */
   "assign",
   "resolve",
   "publish",
@@ -266,6 +265,29 @@ export async function listActionableSizingRuns(
     pending: rows.filter((run) => run.status === "pending"),
     stalled: rows.filter((run) => run.status === "running" && run.updatedAt < stalledBefore),
   };
+}
+
+/**
+ * Active publish runs are also read by catalog settlement.
+ *
+ * Normally the catalog is still `indexing` when its queue empties. This separate lookup closes the
+ * narrow recovery window where the catalog status was already written as `ready` but the process
+ * stopped before the sizing run received its matching completion write.
+ */
+export async function listActivePublishingSizingRuns(): Promise<SizingRunRow[]> {
+  const { data, error } = await db
+    .from("sizing_runs")
+    .select("*")
+    .eq("stage", "publish")
+    .in("status", ["pending", "running"])
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    console.error("[db/sizing-runs listActivePublishingSizingRuns]", error);
+    return [];
+  }
+
+  return ((data as Array<Record<string, unknown>>) ?? []).map(rowToRun);
 }
 
 /**

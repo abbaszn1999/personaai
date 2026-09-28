@@ -86,6 +86,12 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out;
 }
 
+/** Product ids come from merchant platforms. Shopify GIDs contain `:` and `/`, so they must be
+ * encoded as one REST path segment rather than being interpreted as part of the resource path. */
+function productPath(config: ReturnType<typeof getAcsConfig>, productId: string): string {
+  return `${branchPath(config)}/products/${encodeURIComponent(productId)}`;
+}
+
 /**
  * Bulk-imports products in `IMPORT_BATCH_SIZE` chunks. Always `INCREMENTAL` — this app never
  * calls `FULL` reconciliation against the shared catalog, since a `FULL` batch diffs and deletes
@@ -165,7 +171,7 @@ export type AcsProductPatch = Partial<AcsProduct> & Pick<AcsProduct, "id">;
  *  replace the whole product (rare — most callers want a mask). */
 export async function patchProduct(product: AcsProductPatch, updateMask?: string[]): Promise<void> {
   const config = getAcsConfig();
-  const name = `${branchPath(config)}/products/${product.id}`;
+  const name = productPath(config, product.id);
   const query = updateMask?.length ? `?updateMask=${encodeURIComponent(updateMask.join(","))}` : "";
   await acsFetch(`${name}${query}`, { method: "PATCH", body: JSON.stringify(product) });
 }
@@ -193,7 +199,7 @@ export async function markOutOfStock(acsProductId: string): Promise<void> {
 export async function deleteProduct(acsProductId: string): Promise<boolean> {
   const config = getAcsConfig();
   try {
-    await acsFetch(`${branchPath(config)}/products/${acsProductId}`, { method: "DELETE" });
+    await acsFetch(productPath(config, acsProductId), { method: "DELETE" });
     return true;
   } catch (err) {
     if (err instanceof AcsApiError && err.status === 404) return false;
@@ -219,7 +225,7 @@ export async function listProducts(pageToken?: string): Promise<AcsListProductsR
 export async function getProduct(acsProductId: string): Promise<AcsProduct | null> {
   const config = getAcsConfig();
   try {
-    return await acsFetch<AcsProduct>(`${branchPath(config)}/products/${acsProductId}`, { method: "GET" });
+    return await acsFetch<AcsProduct>(productPath(config, acsProductId), { method: "GET" });
   } catch (err) {
     if (err instanceof AcsApiError && err.status === 404) return null;
     throw err;

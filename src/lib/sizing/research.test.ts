@@ -15,7 +15,10 @@ vi.mock("@/lib/ai/openai", () => ({
 // This test only exercises the pure grouping function, so those modules are stubbed rather than
 // pulling Supabase config into a unit test that never touches the database.
 vi.mock("@/lib/db/sizing-coverage", () => ({ listSizingCoverage: vi.fn() }));
-vi.mock("@/lib/db/sizing-charts", () => ({ listChartsForBrands: vi.fn(), upsertChart: vi.fn() }));
+vi.mock("@/lib/db/sizing-charts", () => ({
+  listSharedChartsForBrands: vi.fn(),
+  upsertSharedChart: vi.fn(),
+}));
 
 const {
   groupGlobalBrandsNeeded,
@@ -68,7 +71,7 @@ describe("groupGlobalBrandsNeeded", () => {
   });
 
   it("carries the store's own raw size strings so 4b can pick the matching label column", () => {
-    const coverage = [row({ sizingCategory: "tops", rawFormats: { "S,M,L": { count: 4, canonical: null } } })];
+    const coverage = [row({ sizingCategory: "tops", rawFormats: { "S,M,L": { count: 4 } } })];
 
     const grouped = groupGlobalBrandsNeeded(coverage);
 
@@ -236,7 +239,7 @@ describe("screenTables", () => {
  * Doc Part 5's variant naming, and the guard that keeps two variants from becoming one.
  *
  * `sizing_charts` is uniquely indexed on `(brand_key, sizing_category, variant_name)` and
- * `upsertChart` deletes that key before inserting, so two charts sharing a name is not a cosmetic
+ * `upsertSharedChart` deletes that key before inserting, so two charts sharing a name is not a cosmetic
  * problem — the second silently destroys the first, with no error on any path. The model is
  * instructed not to do it; these tests are what make that not matter.
  */

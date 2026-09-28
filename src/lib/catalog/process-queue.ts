@@ -16,15 +16,28 @@ import {
   type StoreConnectionRow,
 } from "@/lib/db/store-connections";
 import { resolveCategoryPaths, resolveGarmentCategory } from "./index-product";
+import { loadSizingResolutionContext } from "@/lib/sizing/product-chart";
+import { sizingForRawProduct } from "./sizing-for-product";
+import {
+  getActiveSizingRun,
+  listActivePublishingSizingRuns,
+  updateSizingRun,
+} from "@/lib/db/sizing-runs";
 
-/** Messages claimed per batch. There is no per-item model call left to bound (see the module
- *  doc comment below), so this is sized for round-trip overhead rather than concurrency — a
- *  bigger batch means fewer queue reads and import calls per product indexed. */
-const BATCH_SIZE = 200;
+/**
+ * Parent products claimed per batch.
+ *
+ * One parent can fan out to many ACS VARIANT documents. Keeping this bounded prevents a single
+ * queue claim from turning into dozens of sequential 100-document ACS import operations.
+ */
+const BATCH_SIZE = 20;
 
-/** How long a claimed message stays invisible. Comfortably above the worst-case time to look up
- *  a batch's existing `source_category_ids` and import it, now that neither step is an LLM call. */
-const VISIBILITY_SECONDS = 120;
+/**
+ * Three ACS import polling windows for the current store's largest 20-parent batch, plus overhead.
+ * The previous 120-second lease could expire while variant documents were still importing, letting
+ * an overlapping worker claim and import the same parents again.
+ */
+const VISIBILITY_SECONDS = 300;
 
 /** In-flight `source_category_ids` lookups per batch (see `fetchExistingAcsSourceCategoryIds`).
  *  These are plain ACS reads, not paid model calls, so this is sized for round-trip parallelism
@@ -106,12 +119,30 @@ export async function drainCatalogQueue(): Promise<DrainResult> {
  * claimed-but-unacknowledged messages too, so zero means no work is left anywhere, for anyone.
  */
 export async function settleFinishedRuns(): Promise<number> {
-  const running = await listConnectionsBySyncStatus("indexing");
+  const [running, publishingRuns] = await Promise.all([
+    listConnectionsBySyncStatus("indexing"),
+    listActivePublishingSizingRuns(),
+  ]);
+  const publishingByConnection = new Map(publishingRuns.map((run) => [run.connectionId, run]));
+  const connectionsById = new Map(running.map((connection) => [connection.id, connection]));
+
+  // Recovery path: a process can stop after writing the catalog's `ready` state but before writing
+  // the sizing run's completion. Do not scan every ready connection on every idle tick — only fetch
+  // connections that currently have an active publish run and were not already found as indexing.
+  await Promise.all(
+    publishingRuns.map(async (run) => {
+      if (connectionsById.has(run.connectionId)) return;
+      const connection = await getStoreConnectionById(run.connectionId);
+      if (connection?.catalogSyncStatus === "ready") connectionsById.set(connection.id, connection);
+    }),
+  );
 
   // `startCatalogBackfill` claims `indexing` before it walks and records the total only once the
   // walk has enqueued everything, so a zero total means work is still to come and an empty queue
   // says nothing about it yet.
-  const finishable = running.filter((connection) => connection.catalogSyncTotal > 0);
+  const finishable = [...connectionsById.values()].filter(
+    (connection) => connection.catalogSyncTotal > 0,
+  );
   if (finishable.length === 0) return 0;
 
   if ((await getCatalogQueueDepth()) > 0) return 0;
@@ -125,7 +156,27 @@ export async function settleFinishedRuns(): Promise<number> {
     // rather than a small one.
     const status = connection.catalogSyncProgress > 0 ? "ready" : "error";
 
-    if (await updateCatalogSyncState(connection.id, { status })) settled += 1;
+    const statusWritten =
+      connection.catalogSyncStatus === status ||
+      await updateCatalogSyncState(connection.id, { status });
+    if (statusWritten) settled += 1;
+    const sizingRun = statusWritten ? publishingByConnection.get(connection.id) : null;
+    if (sizingRun?.stage === "publish") {
+      await updateSizingRun(sizingRun.id, status === "ready"
+        ? {
+            status: "complete",
+            phaseDone: connection.catalogSyncProgress,
+            phaseTotal: connection.catalogSyncTotal,
+            publishedAt: new Date().toISOString(),
+            error: null,
+          }
+        : {
+            status: "failed",
+            phaseDone: connection.catalogSyncProgress,
+            phaseTotal: connection.catalogSyncTotal,
+            error: "The sizing-aware catalog publish indexed no products.",
+          });
+    }
 
     const summary =
       `[catalog process-queue] settled ${connection.id} as ${status}: ` +
@@ -205,10 +256,14 @@ async function processConnectionBatch(connectionId: string, batch: QueuedMessage
     return batch.map(() => "orphaned");
   }
 
+  const sizingContext = connection.sizingBrandMapping && connection.storeSizeSettings
+    ? await loadSizingResolutionContext(connection)
+    : null;
   const prepared = batch.map((message) => {
     const sourceCategoryIds = message.body.sourceCategoryIds ?? [];
+    const rawWithMembership = { ...message.body.product, sourceCategoryIds };
     const categoryPaths = resolveCategoryPaths(
-      { ...message.body.product, sourceCategoryIds },
+      rawWithMembership,
       connection
     );
     if (categoryPaths.length === 0) return { message, input: null };
@@ -223,6 +278,7 @@ async function processConnectionBatch(connectionId: string, batch: QueuedMessage
       // The backfill is the path that actually populates the index, so omitting this would make a
       // merchant's Stage 1 reassignment purely cosmetic — correct in the preview, absent from search.
       fieldMapping: connection.acsFieldMapping,
+      sizing: sizingContext ? sizingForRawProduct(rawWithMembership, connection, sizingContext) : null,
     };
 
     return { message, input };
@@ -292,12 +348,17 @@ async function reportProgress(connection: StoreConnectionRow, indexedDelta: numb
   if (connection.catalogSyncTotal <= 0 || indexedDelta === 0) return;
 
   const progress = Math.min(connection.catalogSyncProgress + indexedDelta, connection.catalogSyncTotal);
-  const status =
-    progress >= connection.catalogSyncTotal
-      ? "ready"
-      : connection.catalogSyncStatus === "error"
-        ? "error"
-        : "indexing";
+  // Reaching the numeric total is not the terminal condition: overlapping claims can double-count,
+  // and the queue may still contain work for this or another connection. Only settleFinishedRuns,
+  // after observing an empty queue, is allowed to publish `ready`.
+  const status = connection.catalogSyncStatus === "error" ? "error" : "indexing";
 
   await updateCatalogSyncState(connection.id, { progress, status });
+  const sizingRun = await getActiveSizingRun(connection.id);
+  if (sizingRun?.stage === "publish") {
+    await updateSizingRun(sizingRun.id, {
+      phaseDone: progress,
+      phaseTotal: connection.catalogSyncTotal,
+    });
+  }
 }

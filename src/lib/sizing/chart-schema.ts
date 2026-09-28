@@ -1,4 +1,5 @@
 import type { ResearchStatus } from "@/lib/db/sizing-coverage";
+import type { Audience } from "./keys";
 import { MEASUREMENT_KEYS, MEASUREMENTS, measurementsFor, type Measurement, type SizingGroup } from "./measurements";
 
 /**
@@ -67,7 +68,23 @@ export function isSizeAliasKey(value: unknown): value is SizeAliasKey {
   return typeof value === "string" && (SIZE_ALIAS_KEYS as readonly string[]).includes(value);
 }
 
-export type SizeChartRow = { size: string; aliases?: SizeAliases } & Partial<Record<SizeChartBoundKey, number>>;
+const BASE_ALIAS_KEYS = ["alpha", "eu", "uk", "us", "numeric"] as const satisfies readonly SizeAliasKey[];
+
+/** The only parallel label systems that make sense for this chart key. */
+export function allowedAliasKeys(group: SizingGroup, audience: Audience): readonly SizeAliasKey[] {
+  const aliases: SizeAliasKey[] = [...BASE_ALIAS_KEYS];
+  if (audience === "boys" || audience === "girls" || audience === "kids") aliases.push("age");
+  if (group === "tops") aliases.push("neck");
+  if (group === "bottoms") aliases.push("waist_inseam");
+  return aliases;
+}
+
+export type SizeChartRow = {
+  size: string;
+  aliases?: SizeAliases;
+  /** The official source publishes body-measurement reference points, not intervals. */
+  source_point_values?: true;
+} & Partial<Record<SizeChartBoundKey, number>>;
 
 /** Every label this row answers to, `size` first, deduplicated. What Phase 6 matches a merchant's
  *  raw stock strings against before it considers spending an LLM call on the leftovers. */
@@ -154,12 +171,6 @@ export function boundsFor(row: SizeChartRow, measurement: Measurement): Measurem
  * never excludes. Phase 8's Size Filter margins are passed in as `slack` rather than baked into the
  * chart, per the doc's rule that margins affect the exclusion filter and never `final_chart`.
  */
-export function boundsContain(bounds: MeasurementBounds, value: number, slack = 0): boolean {
-  if (bounds.min !== null && value < bounds.min - slack) return false;
-  if (bounds.max !== null && value > bounds.max + slack) return false;
-  return true;
-}
-
 /** Upper sanity bound per unit, used only to reject a chart that came back in the wrong unit
  *  (a 38-inch chest arriving as `38`, or a weight chart in lb). A human body measurement in cm
  *  never exceeds ~260, and no garment chart legitimately carries a 500cm bound. */
@@ -179,7 +190,11 @@ function plausibleBound(measurement: Measurement, value: unknown): number | unde
  * drops that bound, not the chart. Returns `null` only when the row has no usable size label,
  * since a bound with nothing to label it can never be matched to stock.
  */
-export function parseSizeChartRow(value: unknown, group: SizingGroup): SizeChartRow | null {
+export function parseSizeChartRow(
+  value: unknown,
+  group: SizingGroup,
+  audience: Audience = "unisex",
+): SizeChartRow | null {
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
 
@@ -188,10 +203,11 @@ export function parseSizeChartRow(value: unknown, group: SizingGroup): SizeChart
 
   const row: SizeChartRow = { size };
 
-  const aliases = parseAliases(record.aliases, size);
+  const aliases = parseAliases(record.aliases, size, group, audience);
   if (aliases) row.aliases = aliases;
+  if (record.source_point_values === true) row.source_point_values = true;
 
-  for (const measurement of measurementsFor(group)) {
+  for (const measurement of measurementsFor(group, audience)) {
     const min = plausibleBound(measurement, record[`${measurement}_min`]);
     const max = plausibleBound(measurement, record[`${measurement}_max`]);
 
@@ -212,12 +228,18 @@ export function parseSizeChartRow(value: unknown, group: SizingGroup): SizeChart
  * the primary one comes back in both places, and storing it twice would make `rowLabels` and the
  * modal's alias columns both repeat it.
  */
-function parseAliases(value: unknown, size: string): SizeAliases | undefined {
+function parseAliases(
+  value: unknown,
+  size: string,
+  group: SizingGroup,
+  audience: Audience,
+): SizeAliases | undefined {
   if (!value || typeof value !== "object") return undefined;
 
+  const allowed = new Set<SizeAliasKey>(allowedAliasKeys(group, audience));
   const aliases: SizeAliases = {};
   for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
-    if (!isSizeAliasKey(key) || typeof raw !== "string") continue;
+    if (!isSizeAliasKey(key) || !allowed.has(key) || typeof raw !== "string") continue;
     const label = raw.trim();
     if (!label || label === size) continue;
     aliases[key] = label;
@@ -231,12 +253,16 @@ function parseAliases(value: unknown, size: string): SizeAliases | undefined {
  * page listing "M" twice would otherwise produce two rows that resolve to different bounds
  * depending on iteration order).
  */
-export function parseSizeChart(value: unknown, group: SizingGroup): SizeChartRow[] {
+export function parseSizeChart(
+  value: unknown,
+  group: SizingGroup,
+  audience: Audience = "unisex",
+): SizeChartRow[] {
   if (!Array.isArray(value)) return [];
 
   const bySize = new Map<string, SizeChartRow>();
   for (const entry of value) {
-    const row = parseSizeChartRow(entry, group);
+    const row = parseSizeChartRow(entry, group, audience);
     if (row && !bySize.has(row.size)) bySize.set(row.size, row);
   }
   return [...bySize.values()];
@@ -244,12 +270,16 @@ export function parseSizeChart(value: unknown, group: SizingGroup): SizeChartRow
 
 /** True when a row carries at least one usable bound — a chart of bare labels has nothing to fit
  *  against and should route to the gap queue rather than be published as covered. */
-export function rowHasBounds(row: SizeChartRow, group: SizingGroup): boolean {
-  return measurementsFor(group).some((measurement) => boundsFor(row, measurement) !== null);
+export function rowHasBounds(row: SizeChartRow, group: SizingGroup, audience: Audience = "unisex"): boolean {
+  return measurementsFor(group, audience).some((measurement) => boundsFor(row, measurement) !== null);
 }
 
-export function chartHasBounds(rows: SizeChartRow[], group: SizingGroup): boolean {
-  return rows.some((row) => rowHasBounds(row, group));
+export function chartHasBounds(
+  rows: SizeChartRow[],
+  group: SizingGroup,
+  audience: Audience = "unisex",
+): boolean {
+  return rows.some((row) => rowHasBounds(row, group, audience));
 }
 
 // ─── JSON Schema for structured model output ──────────────────────────────────
@@ -280,7 +310,10 @@ export interface JsonSchemaObject {
  * that is also the honest encoding of an open-ended row: the chart's own "120+" is a real lower
  * bound with a null upper one, not a missing measurement.
  */
-export function universalRowJsonSchema(measurements: readonly Measurement[] = MEASUREMENT_KEYS): JsonSchemaObject {
+export function universalRowJsonSchema(
+  measurements: readonly Measurement[] = MEASUREMENT_KEYS,
+  aliasKeys: readonly SizeAliasKey[] = SIZE_ALIAS_KEYS,
+): JsonSchemaObject {
   const properties: Record<string, unknown> = {
     size: {
       type: "string",
@@ -291,7 +324,7 @@ export function universalRowJsonSchema(measurements: readonly Measurement[] = ME
       type: "object",
       description: "Every other label system this same row is printed under in the source.",
       properties: Object.fromEntries(
-        SIZE_ALIAS_KEYS.map((key) => [
+        aliasKeys.map((key) => [
           key,
           {
             type: ["string", "null"],
@@ -304,7 +337,7 @@ export function universalRowJsonSchema(measurements: readonly Measurement[] = ME
           },
         ])
       ),
-      required: [...SIZE_ALIAS_KEYS],
+      required: [...aliasKeys],
       additionalProperties: false,
     },
   };

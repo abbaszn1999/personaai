@@ -53,7 +53,7 @@ describe("acs/attributes-config", () => {
     expect(retrievableResults.map((r) => r.key)).toEqual(PREDEFINED_RETRIEVABLE_KEYS);
   });
 
-  it("registers ids as indexable but never searchable, so a query can't match a connection uuid", async () => {
+  it("registers pipeline attributes with their declared type but never searchable", async () => {
     const bodies: unknown[] = [];
     vi.stubGlobal(
       "fetch",
@@ -69,12 +69,40 @@ describe("acs/attributes-config", () => {
     for (const body of bodies) {
       expect(body).toMatchObject({
         catalogAttribute: {
-          type: "TEXTUAL",
-          indexableOption: "INDEXABLE_ENABLED",
           searchableOption: "SEARCHABLE_DISABLED",
         },
       });
     }
+    expect(bodies).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        catalogAttribute: expect.objectContaining({
+          key: "attributes.fit_chest_min",
+          type: "NUMERICAL",
+          indexableOption: "INDEXABLE_ENABLED",
+          retrievableOption: "RETRIEVABLE_DISABLED",
+        }),
+      }),
+      expect.objectContaining({
+        catalogAttribute: expect.objectContaining({
+          key: "attributes.fit_rows",
+          type: "TEXTUAL",
+          indexableOption: "INDEXABLE_DISABLED",
+          retrievableOption: "RETRIEVABLE_ENABLED",
+        }),
+      }),
+      expect.objectContaining({
+        catalogAttribute: expect.objectContaining({
+          key: "attributes.fit_size_labels",
+          retrievableOption: "RETRIEVABLE_ENABLED",
+        }),
+      }),
+      expect.objectContaining({
+        catalogAttribute: expect.objectContaining({
+          key: "attributes.sizing_chart_key",
+          retrievableOption: "RETRIEVABLE_DISABLED",
+        }),
+      }),
+    ]));
   });
 
   it("only sends the retrievableOption field mask when fixing a predefined attribute's retrievability", async () => {

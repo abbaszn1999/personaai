@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import type { SizingCoverageRow } from "@/lib/db/sizing-coverage";
-import type { SizingRunRow } from "@/lib/db/sizing-runs";
 import { brandSourceFingerprint, type StoreBrandMapping } from "./brand-mapping";
 import { buildBrandMappingState } from "./brand-mapping-state";
 
@@ -22,27 +21,6 @@ function coverage(overrides: Partial<SizingCoverageRow> = {}): SizingCoverageRow
     researchNote: null,
     updatedAt: "2026-09-23T20:00:00.000Z",
     ...overrides,
-  };
-}
-
-function run(stage: SizingRunRow["stage"], status: SizingRunRow["status"]): SizingRunRow {
-  return {
-    id: "run-1",
-    connectionId: "connection-1",
-    kind: "setup",
-    stage,
-    status,
-    productsScanned: 10,
-    phase: null,
-    phaseDone: null,
-    phaseTotal: null,
-    researchBrandKeys: [],
-    researchCurrentBrandKey: null,
-    researchForce: false,
-    error: null,
-    publishedAt: null,
-    createdAt: "2026-09-23T20:00:00.000Z",
-    updatedAt: "2026-09-23T20:00:00.000Z",
   };
 }
 
@@ -73,23 +51,19 @@ const mapping: StoreBrandMapping = {
 };
 
 describe("buildBrandMappingState", () => {
-  it("keeps Phase 4 blocked while a confirmed mapping is being rescanned", () => {
+  it("becomes ready immediately after the complete mapping is confirmed", () => {
     const state = buildBrandMappingState({
-      coverage: [coverage()],
+      coverage: [
+        coverage(),
+        coverage({
+          id: "coverage-2",
+          brandKey: "tom_tailor_men",
+          brandName: "Tom Tailor Men",
+          skuCount: 4,
+        }),
+      ],
       mapping,
       sharedBrandKeys: ["tom_tailor"],
-      run: run("scan", "running"),
-    });
-    expect(state.status).toBe("rescanning");
-    expect(state.ready).toBe(false);
-  });
-
-  it("becomes ready after canonical coverage reaches parked research", () => {
-    const state = buildBrandMappingState({
-      coverage: [coverage()],
-      mapping,
-      sharedBrandKeys: ["tom_tailor"],
-      run: run("research", "blocked"),
     });
     expect(state.status).toBe("ready");
     expect(state.brands.map((brand) => brand.rawKey)).toEqual(["tom_tailor", "tom_tailor_men"]);
@@ -108,7 +82,6 @@ describe("buildBrandMappingState", () => {
       ],
       mapping,
       sharedBrandKeys: ["tom_tailor"],
-      run: run("research", "blocked"),
     });
     expect(state.status).toBe("needs_mapping");
     expect(state.brands.some((brand) => brand.rawKey === "tom_tailor_women")).toBe(true);

@@ -52,10 +52,13 @@ function extractAttributes(product: AcsProduct): Record<string, string[]> {
   if (product.ageGroups && product.ageGroups.length > 0) bag.age_group = product.ageGroups;
 
   for (const [key, value] of Object.entries(product.attributes ?? {})) {
-    if (!key.startsWith(CUSTOM_OPTION_ATTRIBUTE_PREFIX)) continue;
-    const label = key.slice(CUSTOM_OPTION_ATTRIBUTE_PREFIX.length);
-    if (!label || !value.text || value.text.length === 0) continue;
-    bag[label] = value.text;
+    const isOption = key.startsWith(CUSTOM_OPTION_ATTRIBUTE_PREFIX);
+    const isSizing = key.startsWith("fit_") || key === "sizing_chart_key";
+    if (!isOption && !isSizing) continue;
+    const label = isOption ? key.slice(CUSTOM_OPTION_ATTRIBUTE_PREFIX.length) : key;
+    if (!label) continue;
+    if (value.text && value.text.length > 0) bag[label] = value.text;
+    else if (value.numbers && value.numbers.length > 0) bag[label] = value.numbers.map(String);
   }
 
   return bag;

@@ -61,7 +61,7 @@ import { CatalogScopeModal, getDefaultScopeState, type TaxonomyScopeState } from
 interface CategoryMappingViewProps {
   connection: StoreConnection;
   /** Advances to Setup's Stage 1 (Field Mapping) — the step that follows Mapping in the
-   *  Connection → Mapping → Setup → Size Filter → Style Guide order. Omitted entirely when the
+   *  Connection → Mapping → Setup → Sizing Tester → Style Guide order. Omitted entirely when the
    *  host page has nowhere to send it (there is none today, but keeps this component testable
    *  standalone). */
   onContinueToSetup?: () => void;
@@ -69,6 +69,7 @@ interface CategoryMappingViewProps {
 
 type FilterStatus = "all" | "unmapped" | "mapped" | "excluded";
 type SortOption = "unmapped_first" | "products_desc" | "name_asc";
+type MappingScanCounts = { total: number; byLeaf: Record<string, number> };
 
 export function CategoryMappingView({ connection, onContinueToSetup }: CategoryMappingViewProps) {
   const refreshConnection = useStoreConnectionStore((state) => state.load);
@@ -78,6 +79,7 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
   const [isLoadingMapping, setIsLoadingMapping] = React.useState(true);
   const [isSavingMapping, setIsSavingMapping] = React.useState(false);
   const [isAutoMatching, setIsAutoMatching] = React.useState(false);
+  const [scanCounts, setScanCounts] = React.useState<MappingScanCounts | null>(null);
   /** Non-null once Auto-Match has successfully run and saved for this mapping configuration.
    *  Auto-Match is a one-shot action — clearing the mapping is the only way to reset this. */
   const [autoMatchCompletedAt, setAutoMatchCompletedAt] = React.useState<string | null>(null);
@@ -137,6 +139,7 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
         const savedScope = data.scope as SerializedTaxonomyScope | undefined;
         setCategories(loadedCategories);
         setInitialCategoriesJson(JSON.stringify(loadedCategories));
+        setScanCounts((data.scanCounts as MappingScanCounts | null) ?? null);
         setAutoMatchCompletedAt((data.autoMatchCompletedAt as string | null) ?? null);
         if (savedScope?.configured) {
           setScopeState({
@@ -537,6 +540,7 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
     const saved = (data.categories ?? nextCategories) as StoreCategoryItem[];
     setCategories(saved);
     setInitialCategoriesJson(JSON.stringify(saved));
+    setScanCounts((data.scanCounts as MappingScanCounts | null) ?? null);
     setAutoMatchCompletedAt((data.autoMatchCompletedAt as string | null) ?? null);
     await refreshConnection();
     return true;
@@ -597,6 +601,7 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
       };
 
       setCategories(reset);
+      setScanCounts(null);
       setInitialCategoriesJson(JSON.stringify(reset));
       setScopeState(emptyScope);
       setIsScopeConfigured(false);
@@ -644,6 +649,13 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
   }
 
   function getLeafSkuCount(deptId: string, catId: string, sub?: string): number {
+    if (scanCounts) {
+      const prefix = `${deptId}:${catId}${sub ? `:${sub}` : ":"}`;
+      return Object.entries(scanCounts.byLeaf).reduce(
+        (total, [leaf, count]) => total + (sub ? (leaf === prefix ? count : 0) : (leaf.startsWith(prefix) ? count : 0)),
+        0,
+      );
+    }
     const assigned = categories.filter((c) => {
       if (sub) return c.departmentId === deptId && c.categoryId === catId && c.subCategory === sub && c.status === "mapped";
       return c.departmentId === deptId && c.categoryId === catId && !c.subCategory && c.status === "mapped";
@@ -1058,7 +1070,7 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
                       <div className="flex shrink-0 flex-col items-end gap-1.5">
                         <div className="flex items-center gap-1.5">
                           <span className="whitespace-nowrap rounded border border-[var(--color-border)] bg-[var(--color-surface-base)] px-1.5 py-0.5 font-mono text-[10px] font-bold text-[var(--color-text-secondary)]">
-                            {cat.productCount} SKUs
+                            {cat.productCount} products
                           </span>
                           {isMapped ? (
                             <span className="inline-flex items-center gap-1 rounded bg-[var(--color-success)] px-1.5 py-0.5 text-[10px] font-bold text-white">
@@ -1318,14 +1330,18 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
                     });
                     const activeDeptCustomLeaves = scopeState.customLeaves.filter((cl) => cl.deptId === dept.id);
                     const totalDeptActiveLeaves = activeDeptStandardLeaves.length + activeDeptCustomLeaves.length;
-                    // Read off the mapped store categories themselves rather than summed over the enabled
-                    // sub-leaves. Summing leaves silently dropped every mapping bound to a category node
-                    // instead of one of its leaves — `Women > Footwear` rather than `Footwear > Sandals` —
-                    // so a department reported a fraction of the stock the scan then actually walked.
-                    const deptTotalSkus = categories.reduce(
-                      (acc, c) => (c.status === "mapped" && c.departmentId === dept.id ? acc + c.productCount : acc),
-                      0
-                    );
+                    // Once Stage 2 has scanned this exact mapping, use its deduplicated product snapshot.
+                    // Each product contributes to one primary Persona leaf, so department totals add back
+                    // to the same "All items" number even when Shopify collections overlap.
+                    const deptTotalSkus = scanCounts
+                      ? Object.entries(scanCounts.byLeaf).reduce(
+                          (total, [leaf, count]) => total + (leaf.startsWith(`${dept.id}:`) ? count : 0),
+                          0,
+                        )
+                      : categories.reduce(
+                          (acc, c) => (c.status === "mapped" && c.departmentId === dept.id ? acc + c.productCount : acc),
+                          0,
+                        );
 
                     return (
                       <div key={dept.id}>
@@ -1345,7 +1361,7 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
                               {totalDeptActiveLeaves} paths
                             </span>
                             <span className="rounded border border-[var(--color-border)] bg-[var(--color-surface-sticky)] px-2 py-0.5 font-mono text-xs font-medium text-[var(--color-text-muted)]">
-                              {deptTotalSkus.toLocaleString()} mapped SKUs
+                              {deptTotalSkus.toLocaleString()} mapped products
                             </span>
                           </div>
                         </div>
@@ -1415,7 +1431,7 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
                                     <div className="flex shrink-0 items-center gap-2.5">
                                       {showCategoryLevel && (
                                         <span className="font-mono text-[11px] text-[var(--color-text-muted)]">
-                                          {categoryLevelSkus.toLocaleString()} mapped SKUs
+                                          {categoryLevelSkus.toLocaleString()} mapped products
                                         </span>
                                       )}
                                       <span className="text-[11px] font-medium text-[var(--color-text-muted)]">
@@ -1442,7 +1458,7 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
                                                 <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-[var(--color-success)] group-hover:text-[var(--color-brand)]" />
                                                 <span className="shrink-0 text-[10px] font-extrabold uppercase tracking-wider text-[var(--color-success)]">Store PLP:</span>
                                                 <span className="truncate text-xs font-bold text-[var(--color-text-primary)]" title={mc.name}>&ldquo;{mc.name}&rdquo;</span>
-                                                <span className="shrink-0 rounded bg-[var(--color-success-light)] px-1.5 py-0.2 font-mono text-[10px] text-[var(--color-success)]">{mc.productCount.toLocaleString()} SKUs</span>
+                                                <span className="shrink-0 rounded bg-[var(--color-success-light)] px-1.5 py-0.2 font-mono text-[10px] text-[var(--color-success)]">{mc.productCount.toLocaleString()} products</span>
                                               </div>
                                               <button
                                                 type="button"
@@ -1506,7 +1522,7 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
                                                   )}
                                                 </div>
                                               </div>
-                                              <span className="shrink-0 font-mono text-[11px] text-[var(--color-text-muted)]">{skuCount.toLocaleString()} mapped SKUs</span>
+                                              <span className="shrink-0 font-mono text-[11px] text-[var(--color-text-muted)]">{skuCount.toLocaleString()} mapped products</span>
                                             </div>
 
                                             <div className="truncate pl-4.5 font-mono text-[10px] text-[var(--color-text-muted)]">
@@ -1535,7 +1551,7 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
                                                       <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-[var(--color-success)] group-hover:text-[var(--color-brand)]" />
                                                       <span className="shrink-0 text-[10px] font-extrabold uppercase tracking-wider text-[var(--color-success)]">Store PLP:</span>
                                                       <span className="truncate text-xs font-bold text-[var(--color-text-primary)]" title={mc.name}>&ldquo;{mc.name}&rdquo;</span>
-                                                      <span className="shrink-0 rounded bg-[var(--color-success-light)] px-1.5 py-0.2 font-mono text-[10px] text-[var(--color-success)]">{mc.productCount} SKUs</span>
+                                                      <span className="shrink-0 rounded bg-[var(--color-success-light)] px-1.5 py-0.2 font-mono text-[10px] text-[var(--color-success)]">{mc.productCount} products</span>
                                                     </div>
                                                     <button
                                                       type="button"
@@ -1628,7 +1644,7 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
                                                     <div className="flex min-w-0 items-center gap-1.5">
                                                       <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-[var(--color-success)]" />
                                                       <span className="truncate text-xs font-bold text-[var(--color-text-primary)]">&ldquo;{mc.name}&rdquo;</span>
-                                                      <span className="shrink-0 rounded bg-[var(--color-success-light)] px-1.5 py-0.2 font-mono text-[10px] text-[var(--color-success)]">{mc.productCount} SKUs</span>
+                                                      <span className="shrink-0 rounded bg-[var(--color-success-light)] px-1.5 py-0.2 font-mono text-[10px] text-[var(--color-success)]">{mc.productCount} products</span>
                                                     </div>
                                                     <button type="button" onClick={(e) => { e.stopPropagation(); handleUnmapSingleCategory(mc.id, mc.name, e); }} className="shrink-0 p-1 text-[var(--color-text-muted)] hover:text-[var(--color-error)]">
                                                       <X className="h-3.5 w-3.5" />

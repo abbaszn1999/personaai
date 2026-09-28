@@ -4,6 +4,7 @@ import type { SizingChartRow } from "@/lib/db/sizing-charts";
 import type { SizingCoverageRow } from "@/lib/db/sizing-coverage";
 import type { SizingRunRow } from "@/lib/db/sizing-runs";
 import type { StoreConnectionRow } from "@/lib/db/store-connections";
+import { brandSourceFingerprint } from "@/lib/sizing/brand-mapping";
 
 vi.mock("@/modules/auth/lib/get-user", () => ({ getCurrentUser: vi.fn() }));
 vi.mock("@/lib/db/store-connections", () => ({ getStoreConnectionByOwner: vi.fn() }));
@@ -11,7 +12,7 @@ vi.mock("@/lib/db/sizing-coverage", () => ({
   listSizingCoverage: vi.fn(),
   resetResearchOutcomes: vi.fn(),
 }));
-vi.mock("@/lib/db/sizing-charts", () => ({ listChartsForBrands: vi.fn() }));
+vi.mock("@/lib/db/sizing-charts", () => ({ listSharedChartsForBrands: vi.fn() }));
 vi.mock("@/lib/db/sizing-runs", () => ({
   getActiveSizingRun: vi.fn(),
   queueScopedResearch: vi.fn(),
@@ -20,7 +21,7 @@ vi.mock("@/lib/db/sizing-runs", () => ({
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
 import { listSizingCoverage, resetResearchOutcomes } from "@/lib/db/sizing-coverage";
-import { listChartsForBrands } from "@/lib/db/sizing-charts";
+import { listSharedChartsForBrands } from "@/lib/db/sizing-charts";
 import { getActiveSizingRun, queueScopedResearch } from "@/lib/db/sizing-runs";
 
 /**
@@ -102,14 +103,38 @@ function post(body: unknown): Request {
   });
 }
 
+function connectionFor(rawKeys: string[]): StoreConnectionRow {
+  return {
+    id: "conn-1",
+    sizingBrandMapping: {
+      version: 1,
+      confirmedAt: "2026-09-24T00:00:00.000Z",
+      sourceFingerprint: brandSourceFingerprint(rawKeys),
+      observed: {},
+      aliases: Object.fromEntries(
+        rawKeys.map((key) => [
+          key,
+          {
+            canonicalKey: key,
+            canonicalName: key.charAt(0).toUpperCase() + key.slice(1),
+            labels: [key],
+            skuCount: 0,
+            sizingCategories: ["tops"],
+          },
+        ]),
+      ),
+    },
+  } as StoreConnectionRow;
+}
+
 describe("POST /api/store-connection/sizing/research", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getCurrentUser).mockResolvedValue({ id: "user-1" } as never);
-    vi.mocked(getStoreConnectionByOwner).mockResolvedValue({ id: "conn-1" } as StoreConnectionRow);
+    vi.mocked(getStoreConnectionByOwner).mockResolvedValue(connectionFor(["nike"]));
     vi.mocked(getActiveSizingRun).mockResolvedValue(run());
     vi.mocked(listSizingCoverage).mockResolvedValue([coverage()]);
-    vi.mocked(listChartsForBrands).mockResolvedValue([]);
+    vi.mocked(listSharedChartsForBrands).mockResolvedValue([]);
     vi.mocked(resetResearchOutcomes).mockResolvedValue(true);
     vi.mocked(queueScopedResearch).mockResolvedValue(run({ status: "pending" }));
   });
@@ -130,6 +155,7 @@ describe("POST /api/store-connection/sizing/research", () => {
       coverage({ id: "a", brandKey: "nike", brandName: "Nike" }),
       coverage({ id: "b", brandKey: "adidas", brandName: "Adidas" }),
     ]);
+    vi.mocked(getStoreConnectionByOwner).mockResolvedValue(connectionFor(["nike", "adidas"]));
 
     await POST(post({}));
 
@@ -166,7 +192,8 @@ describe("POST /api/store-connection/sizing/research", () => {
       coverage({ id: "a", brandKey: "nike", brandName: "Nike", researchStatus: "found" }),
       coverage({ id: "b", brandKey: "adidas", brandName: "Adidas" }),
     ]);
-    vi.mocked(listChartsForBrands).mockResolvedValue([chart()]);
+    vi.mocked(getStoreConnectionByOwner).mockResolvedValue(connectionFor(["nike", "adidas"]));
+    vi.mocked(listSharedChartsForBrands).mockResolvedValue([chart()]);
 
     await POST(post({}));
 
@@ -175,7 +202,7 @@ describe("POST /api/store-connection/sizing/research", () => {
 
   it("says so plainly when there is nothing outstanding", async () => {
     vi.mocked(listSizingCoverage).mockResolvedValue([coverage({ researchStatus: "found" })]);
-    vi.mocked(listChartsForBrands).mockResolvedValue([chart()]);
+    vi.mocked(listSharedChartsForBrands).mockResolvedValue([chart()]);
 
     const res = await POST(post({}));
 

@@ -1,5 +1,8 @@
-import { TOMMY_HILFIGER_SEED } from "./tommy-hilfiger";
-import { TOMMY_HILFIGER_KIDS_SEED } from "./tommy-hilfiger-kids";
+import { TOMMY_HILFIGER_SEED } from "./global-brands/tommy-hilfiger";
+import { TOMMY_HILFIGER_KIDS_SEED } from "./global-brands/tommy-hilfiger-kids";
+import { PENTI_SEED } from "./global-brands/penti";
+import { TOM_TAILOR_SEED } from "./global-brands/tom-tailor";
+import { XINT_SEED } from "./global-brands/xint";
 import type { SeedChart } from "./types";
 
 /**
@@ -11,9 +14,10 @@ import type { SeedChart } from "./types";
  */
 export const CHART_SEEDS: Record<string, SeedChart[]> = {
   tommy_hilfiger: [...TOMMY_HILFIGER_SEED, ...TOMMY_HILFIGER_KIDS_SEED],
+  penti: PENTI_SEED,
+  tom_tailor: TOM_TAILOR_SEED,
+  xint: XINT_SEED,
 };
-
-export const SEEDED_BRAND_KEYS = Object.keys(CHART_SEEDS);
 
 export function allSeedCharts(): SeedChart[] {
   return Object.values(CHART_SEEDS).flat();

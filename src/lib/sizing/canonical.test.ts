@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SizeChartRow } from "./chart-schema";
-import { canonicalSizesForRawFormat, matchLabel, matchRawFormat } from "./canonical";
+import { matchLabel, matchRawFormat } from "./canonical";
 
 const SHOE_ROWS: SizeChartRow[] = [
   { size: "39", aliases: { eu: "39", uk: "6", us: "6.5" }, foot_length_min: 24.5, foot_length_max: 25 },
@@ -73,12 +73,3 @@ describe("matchRawFormat", () => {
   });
 });
 
-describe("canonicalSizesForRawFormat", () => {
-  it("returns the chart's own primary size labels when every label resolves", () => {
-    expect(canonicalSizesForRawFormat("6.5,7", SHOE_ROWS, "US")).toEqual(["39", "40"]);
-  });
-
-  it("returns null rather than a partial list when any label fails to resolve", () => {
-    expect(canonicalSizesForRawFormat("6.5,99", SHOE_ROWS, "US")).toBeNull();
-  });
-});

@@ -1,7 +1,11 @@
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
 import { listSizingCoverage, setResearchOutcomes } from "@/lib/db/sizing-coverage";
-import { listChartsForBrands, upsertChart } from "@/lib/db/sizing-charts";
+import {
+  listPrivateChartsForBrands,
+  listSharedChartsForBrands,
+  upsertPrivateChart,
+} from "@/lib/db/sizing-charts";
 import { getLatestSizingRun } from "@/lib/db/sizing-runs";
 import { buildChartResults, buildBrandResearch } from "@/lib/sizing/chart-results";
 import { parseDraft, type ChartDraftRow } from "@/lib/sizing/chart-draft";
@@ -9,6 +13,14 @@ import { chartHasBounds } from "@/lib/sizing/chart-schema";
 import { isSizingGroup } from "@/lib/sizing/measurements";
 import { isAudience, normalizeBrandKey, UNKNOWN_BRAND_KEY } from "@/lib/sizing/keys";
 import { sanitizeCoverage } from "@/lib/sizing/variant-match";
+import { canonicalizeCoverageForCharts } from "@/lib/sizing/brand-mapping-view";
+import { listSizingPathCoverage } from "@/lib/db/sizing-path-coverage";
+import { mappedPersonaLeaves } from "@/modules/store/mapping/persona-taxonomy";
+import {
+  brandMappingIsCurrent,
+  parseStoreBrandMapping,
+  resolveMappedBrandKey,
+} from "@/lib/sizing/brand-mapping";
 
 /**
  * Stage 4's whole surface: the coverage-driven chart and gap join, plus one row per global brand at
@@ -31,25 +43,69 @@ export async function GET() {
       return Response.json({ error: "Store connection not found" }, { status: 404 });
     }
 
-    const [coverage, run] = await Promise.all([
+    const [coverage, run, pathCoverage] = await Promise.all([
       listSizingCoverage(connection.id),
       getLatestSizingRun(connection.id),
+      listSizingPathCoverage(connection.id),
     ]);
+    const brandMapping = parseStoreBrandMapping(connection.sizingBrandMapping);
+    const globalKeys = coverage.filter((row) => row.brandType === "global").map((row) => row.brandKey);
+    if (!brandMappingIsCurrent(globalKeys, brandMapping)) {
+      return Response.json(
+        { error: "Confirm the canonical brand mapping before viewing chart research." },
+        { status: 409 },
+      );
+    }
+    const canonical = canonicalizeCoverageForCharts(coverage, brandMapping);
 
-    // Read for every brand in coverage, not only the global ones: a merchant's hand-filled chart for
-    // a private label is a chart, and omitting it would leave the gap it closed on the screen.
-    const brandKeys = [...new Set(coverage.map((row) => row.brandKey))];
-    const charts = await listChartsForBrands(connection.id, brandKeys);
+    const globalBrandKeys = [
+      ...new Set(canonical.rows.filter((row) => row.brandType === "global").map((row) => row.brandKey)),
+    ];
+    const privateBrandKeys = [
+      ...new Set(
+        canonical.rows
+          .filter((row) => row.brandType === "private" || row.brandType === "none")
+          .map((row) => row.brandKey),
+      ),
+    ];
+    const [sharedCharts, privateCharts] = await Promise.all([
+      listSharedChartsForBrands(globalBrandKeys),
+      listPrivateChartsForBrands(connection.id, privateBrandKeys),
+    ]);
+    const charts = [...sharedCharts, ...privateCharts];
 
-    const results = buildChartResults(coverage, charts);
-    const brands = buildBrandResearch(coverage, charts, {
+    const results = buildChartResults(canonical.rows, charts);
+    const brands = buildBrandResearch(canonical.rows, charts, {
       // Only while research is the live stage. A scope left on a run that has moved past research is
       // spent, and reading it would show brands as Queued forever.
       scopedBrandKeys: run?.stage === "research" ? run.researchBrandKeys : [],
       currentBrandKey: run?.stage === "research" ? run.researchCurrentBrandKey : null,
-    });
+    }).map((brand) => ({
+      ...brand,
+      memberBrands: canonical.membersByCanonicalKey.get(brand.brandKey) ?? [
+        { brandKey: brand.brandKey, brandName: brand.brandName, skuCount: brand.skuCount },
+      ],
+    }));
 
-    return Response.json({ ...results, brands });
+    const types = new Map(coverage.map((row) => [row.brandKey, row.brandType]));
+    const leafCounts = new Map<string, number>();
+    for (const path of pathCoverage) {
+      const brandKey = types.get(path.brandKey) === "global"
+        ? resolveMappedBrandKey(path.brandKey, path.brandName, brandMapping).brandKey
+        : path.brandKey;
+      const key = `${brandKey}\u0000${path.categoryId}`;
+      leafCounts.set(key, (leafCounts.get(key) ?? 0) + path.skuCount);
+    }
+
+    return Response.json({
+      ...results,
+      brands,
+      mappedLeaves: mappedPersonaLeaves(connection.personaCategoryMap, connection.personaTaxonomyScope),
+      leafCounts: [...leafCounts].map(([key, skuCount]) => {
+        const [brandKey, leafKey] = key.split("\u0000");
+        return { brandKey, leafKey, skuCount };
+      }),
+    });
   } catch (err) {
     console.error("[store-connection sizing/charts GET]", err);
     return Response.json({ error: "Could not load the researched charts" }, { status: 500 });
@@ -59,19 +115,9 @@ export async function GET() {
 /**
  * Doc Part 4 — the merchant's own size chart, for stock no research could reach.
  *
- * The first merchant write to `sizing_charts`: until now `upsertChart` was only ever called by the
- * research pass. Two things follow from that, and both are enforced here rather than trusted to the
- * caller.
- *
- * **It is always connection-scoped.** `connection_id` is this store's, never null. A null
- * `connection_id` is the shared cross-merchant registry that research writes, and letting a hand-
- * typed chart land there would publish one store's numbers to every other store carrying the brand.
- *
- * **It never overwrites a researched chart.** Doc Part 6 has charts editable, and the answer to
- * editing a shared row is to mint a merchant-owned variant beside it rather than to change it —
- * which the scoped index gives us for free, since `(connection_id, brand_key, sizing_category,
- * variant_name)` is a different key from the global one. `chart-results.ts` then prefers this
- * store's row over the shared one, so the merchant sees their own numbers where they made them.
+ * Private-label and unbranded charts are always written to `sizing_charts_private`. Global brands
+ * are rejected here: their verified shared charts are written only by research/seeding to
+ * `sizing_charts`, so a merchant-entered chart can never be assigned to global-brand products.
  */
 export async function POST(request: Request) {
   try {
@@ -94,7 +140,24 @@ export async function POST(request: Request) {
 
     const variantName = typeof body.variantName === "string" ? body.variantName.trim() : "";
     if (!variantName) {
-      return Response.json({ error: "A chart variant needs a name." }, { status: 400 });
+      return Response.json({ error: "The chart needs a name." }, { status: 400 });
+    }
+
+    if (!isAudience(body.audience)) {
+      return Response.json({ error: "Choose who this chart is for." }, { status: 400 });
+    }
+    const chartAudience = body.audience;
+    const coversLeaves = sanitizeCoverage(
+      body.coversLeaves,
+      chartAudience,
+      sizingCategory,
+      variantName,
+    );
+    if (coversLeaves.length === 0) {
+      return Response.json(
+        { error: "Choose at least one mapped sub-category for this chart." },
+        { status: 400 },
+      );
     }
 
     const rows = Array.isArray(body.rows) ? (body.rows as ChartDraftRow[]) : null;
@@ -104,7 +167,7 @@ export async function POST(request: Request) {
 
     // The same parser and the same plausibility rules the editor ran against, re-run server-side.
     // The client already reports these, but the client is not what makes them true.
-    const { rows: chartRows, problems } = parseDraft(rows, sizingCategory);
+    const { rows: chartRows, problems } = parseDraft(rows, sizingCategory, chartAudience);
     if (problems.length > 0) {
       return Response.json({ error: "This chart is not complete.", problems }, { status: 400 });
     }
@@ -112,7 +175,7 @@ export async function POST(request: Request) {
     // Belt and braces over `parseDraft`, which already requires the parent's main field: a chart
     // with no bound at all cannot match a shopper, so it is the one output worth nothing rather
     // than worth reviewing. Research applies the identical gate before writing.
-    if (!chartHasBounds(chartRows, sizingCategory)) {
+    if (!chartHasBounds(chartRows, sizingCategory, chartAudience)) {
       return Response.json({ error: "This chart has no usable measurements." }, { status: 400 });
     }
 
@@ -121,23 +184,33 @@ export async function POST(request: Request) {
     // filed under a brand this store does not carry, where nothing would ever read it.
     const brandKeyInput = typeof body.brandKey === "string" ? body.brandKey.trim() : "";
     const coverage = await listSizingCoverage(connection.id);
+    const brandMapping = parseStoreBrandMapping(connection.sizingBrandMapping);
     const known = coverage.find(
-      (row) => row.brandKey === brandKeyInput && row.sizingCategory === sizingCategory
+      (row) =>
+        resolveMappedBrandKey(row.brandKey, row.brandName, brandMapping).brandKey ===
+          brandKeyInput && row.sizingCategory === sizingCategory
     );
 
-    // The unbranded queue is legitimate and has no coverage brand to match: doc Tab 3 routes those
-    // rows to manual fill grouped by category precisely because there is no brand name on them.
     const unbranded = brandKeyInput === UNKNOWN_BRAND_KEY;
-    if (!known && !unbranded) {
+    if (!known) {
       return Response.json(
         { error: "This store does not carry that brand in that category." },
         { status: 409 }
       );
     }
+    if (
+      (unbranded && known.brandType !== "none") ||
+      (!unbranded && known.brandType !== "private")
+    ) {
+      return Response.json(
+        { error: "Manual charts are only available for private-label and unbranded products." },
+        { status: 409 },
+      );
+    }
 
     const brandKey = unbranded ? UNKNOWN_BRAND_KEY : normalizeBrandKey(brandKeyInput);
 
-    const wrote = await upsertChart({
+    const wrote = await upsertPrivateChart({
       connectionId: connection.id,
       brandKey,
       sizingCategory,
@@ -145,12 +218,8 @@ export async function POST(request: Request) {
       // Same rule as the research writer (`sanitizeCoverage` in `variant-match.ts`): a leaf outside
       // this chart's own audience/sizing-category is dropped rather than stored, whether it came
       // from a model or from a merchant's own checklist.
-      coversLeaves: sanitizeCoverage(
-        body.coversLeaves,
-        isAudience(body.audience) ? body.audience : "unisex",
-        sizingCategory
-      ),
-      audience: isAudience(body.audience) ? body.audience : "unisex",
+      coversLeaves,
+      audience: chartAudience,
       // Provenance for a hand-filled chart is the person who filled it, so there is no page to cite.
       sourceTitle: typeof body.sourceTitle === "string" ? body.sourceTitle.trim() : "Entered by hand",
       chartRows,
@@ -169,7 +238,13 @@ export async function POST(request: Request) {
     // concluded — `not_found`, most often — and Stage 4 would list the row as an outstanding gap
     // directly beside the chart that just filled it.
     if (known) {
-      await setResearchOutcomes(connection.id, brandKey, [sizingCategory], "found", "Filled in by hand.");
+      await setResearchOutcomes(
+        connection.id,
+        known.brandKey,
+        [sizingCategory],
+        "found",
+        "Filled in by hand.",
+      );
     }
 
     return Response.json({ ok: true, sizes: chartRows.length });

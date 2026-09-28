@@ -118,9 +118,9 @@ function ArchitectureCallout() {
         Authenticating your store unlocks its category taxonomy. In{" "}
         <strong className="text-[var(--color-text-primary)]">Categories</strong>, you scope which
         leaf categories your agent actually sells from. Every downstream workflow in{" "}
-        <strong className="text-[var(--color-text-primary)]">Setup</strong> (stages 1–6),{" "}
+        <strong className="text-[var(--color-text-primary)]">Setup</strong> (stages 1–5),{" "}
         <strong className="text-[var(--color-text-primary)]">Sync</strong>, and{" "}
-        <strong className="text-[var(--color-text-primary)]">Size Filter</strong> only ever
+        <strong className="text-[var(--color-text-primary)]">Sizing Tester</strong> only ever
         touches products inside that scope — so you never pay to index or size gift cards,
         accessories, or anything outside your catalog.
       </p>

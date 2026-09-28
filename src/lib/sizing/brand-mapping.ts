@@ -141,17 +141,34 @@ export function mergeObservedBrandLabels(
   return { ...mapping, observed };
 }
 
-/** Resolves one store label before any coverage/path/product key is written. */
+/**
+ * Resolves a raw store brand for Phase 4 and later chart routing only.
+ *
+ * Scan, classification, product snapshots and coverage deliberately never call this function.
+ */
 export function resolveMappedBrand(
   rawBrand: string | null | undefined,
   mapping: StoreBrandMapping,
 ): { brandKey: string; brandName: string | null } {
   const rawKey = normalizeBrandKey(rawBrand);
   if (rawKey === UNKNOWN_BRAND_KEY) return { brandKey: UNKNOWN_BRAND_KEY, brandName: null };
-  const alias = mapping.aliases[rawKey];
+  const alias = mapping.confirmedAt ? mapping.aliases[rawKey] : undefined;
   return alias
     ? { brandKey: alias.canonicalKey, brandName: alias.canonicalName }
     : { brandKey: rawKey, brandName: rawBrand?.trim() || rawKey };
+}
+
+export function resolveMappedBrandKey(
+  rawKey: string,
+  rawName: string | null | undefined,
+  mapping: StoreBrandMapping,
+): { brandKey: string; brandName: string | null } {
+  const normalized = normalizeBrandKey(rawKey);
+  if (normalized === UNKNOWN_BRAND_KEY) return { brandKey: UNKNOWN_BRAND_KEY, brandName: null };
+  const alias = mapping.confirmedAt ? mapping.aliases[normalized] : undefined;
+  return alias
+    ? { brandKey: alias.canonicalKey, brandName: alias.canonicalName }
+    : { brandKey: normalized, brandName: rawName?.trim() || normalized };
 }
 
 function compact(value: string): string {
@@ -236,6 +253,18 @@ export function brandSourceFingerprint(rawKeys: readonly string[]): string {
     hash = Math.imul(hash, 0x01000193);
   }
   return `v1-${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+export function brandMappingIsCurrent(
+  rawGlobalKeys: readonly string[],
+  mapping: StoreBrandMapping,
+): boolean {
+  const keys = [...new Set(rawGlobalKeys.map(normalizeBrandKey).filter(Boolean))];
+  return (
+    mapping.confirmedAt !== null &&
+    mapping.sourceFingerprint === brandSourceFingerprint(keys) &&
+    keys.every((key) => mapping.aliases[key] !== undefined)
+  );
 }
 
 export function mappingFromGroups(

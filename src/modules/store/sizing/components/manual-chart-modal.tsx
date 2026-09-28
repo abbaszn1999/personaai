@@ -14,24 +14,30 @@ import {
   type DraftProblem,
 } from "@/lib/sizing/chart-draft";
 import { SIZE_TYPE_LABELS } from "@/lib/sizing/size-types";
-import { isSizingGroup, SIZING_GROUP_LABELS, type Measurement, type SizingGroup } from "@/lib/sizing/measurements";
-import { audienceCompatible, audienceForPersonaPath } from "@/lib/sizing/variant-match";
+import { isSizingGroup, SIZING_GROUP_LABELS, type Measurement } from "@/lib/sizing/measurements";
 import {
-  leafKeysFor,
+  audienceCompatible,
+  audienceForPersonaPath,
+} from "@/lib/sizing/variant-match";
+import {
+  manualChartAudiences,
+} from "@/lib/sizing/manual-chart-coverage";
+import {
   leafLabel,
   PERSONA_DEPARTMENTS,
-  type PersonaCategoryId,
+  personaSizingGroup,
 } from "@/modules/store/mapping/persona-taxonomy";
 import { useStoreConnectionStore } from "@/modules/store/store";
 import { useSizingStore } from "../store";
+import type { ChartAudience } from "../server-types";
 
-/** Inverse of `personaSizingGroup` — the leaf checklist walks categories, not sizing groups. */
-const GROUP_TO_CATEGORY_ID: Record<SizingGroup, PersonaCategoryId> = {
-  tops: "top",
-  bottoms: "bottom",
-  dresses: "full-body",
-  outerwear: "outerwear",
-  footwear: "footwear",
+const AUDIENCE_LABELS: Record<ChartAudience, string> = {
+  mens: "Men",
+  womens: "Women",
+  boys: "Boys",
+  girls: "Girls",
+  kids: "Kids / unisex",
+  unisex: "Adult unisex",
 };
 
 /**
@@ -58,30 +64,48 @@ function ManualChartForm() {
   const target = useSizingStore((s) => s.manualChartTarget)!;
   const close = useSizingStore((s) => s.closeManualChart);
   const saveChart = useSizingStore((s) => s.saveManualChart);
+  const mappedLeaves = useSizingStore((s) => s.mappedLeaves);
+  const charts = useSizingStore((s) => s.charts);
   const storeSizeType = useStoreConnectionStore((s) => s.storeSizeSettings.default);
 
   const group = isSizingGroup(target.sizingCategory) ? target.sizingCategory : "tops";
-  const columns = React.useMemo(() => draftColumnsFor(group, target.audience), [group, target.audience]);
-  const catId = GROUP_TO_CATEGORY_ID[group];
-
-  // Departments this chart's audience may cover, grouped for the checklist below. Only rendered
-  // when the target carries a known audience: a fresh gap has none (doc note on `ManualChartTarget`),
-  // and offering a checklist with no audience to filter it by would let a merchant tick a boys leaf
-  // onto a chart later read as adult — the same cross-audience mistake `audienceCompatible` exists to
-  // block everywhere else.
-  const leafGroups = React.useMemo(() => {
-    if (!target.audience) return [];
-    return PERSONA_DEPARTMENTS.filter((dept) => {
-      const deptAudience = audienceForPersonaPath(dept.id);
-      return deptAudience !== null && audienceCompatible(deptAudience, target.audience!);
-    }).map((dept) => ({ dept, leaves: leafKeysFor(dept.id, catId) }));
-  }, [target.audience, catId]);
-
-  function toggleLeaf(leafKey: string) {
-    setCoveredLeaves((current) =>
-      current.includes(leafKey) ? current.filter((leaf) => leaf !== leafKey) : [...current, leafKey]
-    );
-  }
+  const availableLeaves = React.useMemo(
+    () =>
+      [...new Set([
+        ...(target.coversLeaves ?? []),
+        ...mappedLeaves.filter((leaf) => personaSizingGroup(leaf.split(":")[1] ?? "") === target.sizingCategory),
+      ])].sort((a, b) => leafLabel(a).localeCompare(leafLabel(b))),
+    [mappedLeaves, target.coversLeaves, target.sizingCategory],
+  );
+  const audienceOptions = React.useMemo(() => manualChartAudiences(availableLeaves), [availableLeaves]);
+  const [selectedAudience, setAudience] = React.useState<ChartAudience | null>(
+    target.audience ?? null,
+  );
+  const audience =
+    selectedAudience ?? (audienceOptions.length === 1 ? audienceOptions[0] : null);
+  const columns = React.useMemo(
+    () => draftColumnsFor(group, audience ?? undefined),
+    [group, audience],
+  );
+  const priorCoveredLeaves = React.useMemo(
+    () =>
+      target.seedRows && !target.editing
+        ? []
+        : [
+            ...new Set(
+              charts
+                .filter(
+                  (chart) =>
+                    chart.id !== target.id &&
+                    chart.brandKey === target.brandKey &&
+                    chart.sizingCategory === target.sizingCategory,
+                )
+                .flatMap((chart) => chart.coversLeaves),
+            ),
+          ],
+    [charts, target.brandKey, target.editing, target.id, target.seedRows, target.sizingCategory],
+  );
+  const [savedLeaves, setSavedLeaves] = React.useState<string[]>(priorCoveredLeaves);
 
   const [rows, setRows] = React.useState<ChartDraftRow[]>(
     () => target.seedRows ?? emptyDraftRows(group)
@@ -94,12 +118,48 @@ function ManualChartForm() {
   // Problems are only shown once a save has been attempted. Flagging every blank cell the moment
   // the grid opens turns an empty template into a wall of errors before anyone has typed anything.
   const [submitted, setSubmitted] = React.useState(false);
+  const selectableLeaves = React.useMemo(
+    () =>
+      availableLeaves.filter((leaf) => {
+        if (savedLeaves.includes(leaf)) return false;
+        const leafAudience = audienceForPersonaPath(leaf);
+        return audience !== null && leafAudience !== null && audienceCompatible(leafAudience, audience);
+      }),
+    [audience, availableLeaves, savedLeaves],
+  );
+  const leafGroups = React.useMemo(
+    () =>
+      PERSONA_DEPARTMENTS.map((dept) => ({
+        dept,
+        leaves: selectableLeaves.filter((leaf) => leaf.startsWith(`${dept.id}:`)),
+      })).filter(({ leaves }) => leaves.length > 0),
+    [selectableLeaves],
+  );
+  const remainingAfterCurrent = availableLeaves.filter(
+    (leaf) => !savedLeaves.includes(leaf) && !coveredLeaves.includes(leaf),
+  );
 
   const { rows: parsedRows, problems } = React.useMemo(
-    () => parseDraft(rows, group, target.audience),
-    [rows, group, target.audience]
+    () => parseDraft(rows, group, audience ?? undefined),
+    [rows, group, audience],
   );
   const shown = submitted ? problems : [];
+
+  function chooseAudience(nextAudience: ChartAudience) {
+    setAudience(nextAudience);
+    setCoveredLeaves((current) =>
+      current.filter((leaf) => {
+        const leafAudience = audienceForPersonaPath(leaf);
+        return leafAudience !== null && audienceCompatible(leafAudience, nextAudience);
+      }),
+    );
+  }
+
+  function toggleLeaf(leafKey: string) {
+    setCoveredLeaves((current) =>
+      current.includes(leafKey) ? current.filter((leaf) => leaf !== leafKey) : [...current, leafKey],
+    );
+  }
 
   function updateCell(rowIndex: number, measurement: Measurement, value: string) {
     setRows((current) =>
@@ -115,15 +175,57 @@ function ManualChartForm() {
     );
   }
 
-  async function handleSave() {
+  async function handleSave(addAnother = false) {
     setSubmitted(true);
     setServerError(null);
+    if (!audience) {
+      setServerError("Choose who this chart is for.");
+      return;
+    }
+    if (availableLeaves.length > 0 && coveredLeaves.length === 0) {
+      setServerError("Choose at least one mapped sub-category for this chart.");
+      return;
+    }
     if (problems.length > 0 || !variantName.trim()) return;
 
     setSaving(true);
-    const error = await saveChart({ rows, variantName: variantName.trim(), coversLeaves: coveredLeaves });
+    const error = await saveChart({
+      rows,
+      variantName: variantName.trim(),
+      coversLeaves: coveredLeaves,
+      audience,
+      keepOpen: addAnother,
+    });
     setSaving(false);
-    if (error) setServerError(error);
+    if (error) {
+      setServerError(error);
+      return;
+    }
+    if (addAnother) {
+      const nowSaved = [...new Set([...savedLeaves, ...coveredLeaves])];
+      const remaining = availableLeaves.filter((leaf) => !nowSaved.includes(leaf));
+      const remainingAudiences = [
+        ...new Set(
+          remaining
+            .map((leaf) => audienceForPersonaPath(leaf))
+            .filter((value): value is ChartAudience => value !== null),
+        ),
+      ];
+      setSavedLeaves(nowSaved);
+      setCoveredLeaves([]);
+      setVariantName("");
+      setRows(emptyDraftRows(group));
+      setSubmitted(false);
+      setServerError(null);
+      if (
+        !remaining.some((leaf) => {
+          const leafAudience = audienceForPersonaPath(leaf);
+          return leafAudience !== null && audienceCompatible(leafAudience, audience);
+        })
+      ) {
+        setAudience(remainingAudiences.length === 1 ? remainingAudiences[0] : null);
+      }
+    }
   }
 
   // The JSON view shows what will actually be stored, not a re-rendering of the boxes above. That is
@@ -136,6 +238,7 @@ function ManualChartForm() {
       variant_name: variantName.trim() || null,
       size_type: storeSizeType,
       provenance: "manual",
+      audience,
       covers_leaves: coveredLeaves,
       rows: parsedRows,
     },
@@ -156,9 +259,27 @@ function ManualChartForm() {
           <Button variant="secondary" size="sm" onClick={close} disabled={saving}>
             Cancel
           </Button>
-          <Button size="sm" onClick={() => void handleSave()} disabled={saving}>
+          {!target.editing && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void handleSave(true)}
+              disabled={saving || coveredLeaves.length === 0 || remainingAfterCurrent.length === 0}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Save &amp; add another
+            </Button>
+          )}
+          <Button
+            size="sm"
+            onClick={() => void handleSave()}
+            disabled={
+              saving ||
+              (!target.editing && availableLeaves.length > 0 && remainingAfterCurrent.length > 0)
+            }
+          >
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-            Save chart
+            {target.editing ? "Save changes" : "Save chart"}
           </Button>
         </>
       }
@@ -176,38 +297,107 @@ function ManualChartForm() {
         </div>
       </div>
 
+      {audienceOptions.length > 0 && (
+        <div className="mt-4">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+            Chart audience
+          </span>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {audienceOptions.map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => chooseAudience(option)}
+                className={cn(
+                  "rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors",
+                  audience === option
+                    ? "border-[var(--color-brand)] bg-[var(--color-brand-light)] text-[var(--color-brand-strong)]"
+                    : "border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]",
+                )}
+              >
+                {AUDIENCE_LABELS[option]}
+              </button>
+            ))}
+          </div>
+          {audienceOptions.length > 1 && !audience && (
+            <p className="mt-1 text-[11px] text-[var(--color-warning)]">
+              These products span more than one audience. Choose one chart audience first.
+            </p>
+          )}
+        </div>
+      )}
+
       <label className="mt-4 block">
         <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
-          Chart variant
+          Chart name
         </span>
         <input
           value={variantName}
           onChange={(event) => setVariantName(event.target.value)}
-          placeholder="Men"
+          disabled={target.editing}
+          placeholder="Regular chart"
           className={cn(
             "mt-1 w-full max-w-xs rounded-[var(--radius-md)] border bg-[var(--color-surface-base)] px-2.5 py-1.5 text-sm font-semibold text-[var(--color-text-primary)] focus:outline-none",
+            target.editing && "cursor-not-allowed opacity-70",
             submitted && !variantName.trim()
               ? "border-[var(--color-error)]"
               : "border-[var(--color-border)] focus:border-[var(--color-brand)]"
           )}
         />
         <span className="mt-1 block text-[11px] text-[var(--color-text-muted)]">
-          What this chart line is called — <strong>Men</strong>, <strong>Women Petite</strong>. You can add
-          another variant for the same brand and category later.
+          A label that distinguishes this table from another table, such as <strong>Regular</strong>{" "}
+          or <strong>Petite</strong>. This name does not assign products; only the selected
+          sub-category coverage below does.
         </span>
       </label>
 
-      {leafGroups.length > 0 && (
+      {availableLeaves.length > 0 && (
         <div className="mt-4">
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
-            Covers these sub-categories
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+              Covers these sub-categories
+            </span>
+            {leafGroups.length > 0 && (
+              <div className="ml-auto flex gap-1">
+                <button
+                  type="button"
+                  onClick={() => setCoveredLeaves(selectableLeaves)}
+                  className="text-[11px] font-semibold text-[var(--color-brand)]"
+                >
+                  Select all shown
+                </button>
+                <span className="text-[var(--color-border)]">·</span>
+                <button
+                  type="button"
+                  onClick={() => setCoveredLeaves([])}
+                  className="text-[11px] font-semibold text-[var(--color-text-muted)]"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
+          </div>
           <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
-            Which mapped categories should auto-match to this exact chart. Leave a sub-category
-            unchecked if another chart already covers it, or if nothing should auto-pick this one for
-            it.
+            Choose only the mapped leaves that this exact table fits. Unchecked leaves need another
+            chart; they are not automatically included just because they share the same parent.
           </p>
+          {savedLeaves.length > 0 && (
+            <p className="mt-1 text-[11px] font-semibold text-[var(--color-success)]">
+              {savedLeaves.length} sub-categor{savedLeaves.length === 1 ? "y has" : "ies have"} already
+              been covered in this session.
+            </p>
+          )}
           <div className="mt-2 flex flex-col gap-2.5 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-base)] p-3">
+            {!audience && (
+              <p className="text-xs text-[var(--color-text-muted)]">
+                Choose an audience to see its mapped sub-categories.
+              </p>
+            )}
+            {audience && leafGroups.length === 0 && (
+              <p className="text-xs text-[var(--color-text-muted)]">
+                All mapped sub-categories for this audience have been covered.
+              </p>
+            )}
             {leafGroups.map(({ dept, leaves }) => (
               <div key={dept.id} className="flex flex-wrap items-start gap-1.5">
                 <span className="mr-1 mt-0.5 w-20 shrink-0 text-[11px] font-semibold text-[var(--color-text-primary)]">

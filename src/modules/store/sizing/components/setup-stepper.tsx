@@ -17,11 +17,7 @@ const STEPS: StepMeta[] = [
   { stage: 2, title: "Item Preview", shortLabel: "Preview" },
   { stage: 3, title: "Brand Discovery", shortLabel: "Brands", aiPowered: true },
   { stage: 4, title: "Size Chart Research", shortLabel: "Charts", aiPowered: true },
-  // Gap Filling was stage 5 until doc Part 4 made it a modal on Stage 4 — a step every merchant
-  // walked through even with nothing to fill, one screen away from the results that defined it. Doc
-  // Part 7's Chart Assignment took the slot.
-  { stage: 5, title: "Chart Assignment", shortLabel: "Assign" },
-  { stage: 6, title: "Active Overview", shortLabel: "Active" },
+  { stage: 5, title: "Active Overview", shortLabel: "Active" },
 ];
 
 interface SetupStepperProps {
@@ -31,7 +27,7 @@ interface SetupStepperProps {
 }
 
 /**
- * The six-stage pipeline's top bar, ported from the demo's wide horizontal `Stepper.tsx` — full
+ * The five-stage pipeline's top bar, ported from the demo's wide horizontal `Stepper.tsx` — full
  * width, numbered circles, an "AI" callout on the two agent-run stages, and arrow dividers — and
  * recolored to Persona's brand gradient instead of the demo's fixed purple/pink.
  */

@@ -56,8 +56,7 @@ export interface ResearchedChartResult {
   chartRows: SizeChartRow[];
   quality: ChartQualityFlag[];
   /** The Persona leaf keys this exact chart claims — `sizing_charts.covers_leaves`. Shown so a
-   *  merchant reviewing Stage 4 can see which sub-categories a chart is the authoritative answer
-   *  for, the same fact Stage 5's auto-match reads via `chartsForLeaf`. */
+   *  merchant reviewing Stage 4 sees the same assignment truth Stage 5 resolves directly. */
   coversLeaves: string[];
   /**
    * Whether a merchant should look at this chart before it drives recommendations.
@@ -303,13 +302,18 @@ export function buildChartResults(coverage: SizingCoverageRow[], charts: SizingC
     chartedSkus += row.skuCount;
 
     for (const chart of charts) {
-      const { headers, rows } = chartTable(chart.chartRows, group);
-      const quality = assessChart({ rows: chart.chartRows, group, sourceUrl: chart.sourceUrl });
+      const { headers, rows } = chartTable(chart.chartRows, group, chart.audience);
+      const quality = assessChart({
+        rows: chart.chartRows,
+        group,
+        audience: chart.audience,
+        sourceUrl: chart.sourceUrl,
+      });
       const confidence = Math.round((chart.confidence ?? 0) * 100);
 
       results.push({
         id: chart.id,
-        brand: row.brandName ?? row.brandKey,
+        brand: row.brandKey === UNKNOWN_BRAND_KEY ? "No brand" : (row.brandName ?? row.brandKey),
         brandKey: row.brandKey,
         sizingCategory: row.sizingCategory,
         variantName: chart.variantName,

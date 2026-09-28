@@ -1,4 +1,6 @@
-import { getStoreConnectionById } from "@/lib/db/store-connections";
+import { getStoreConnectionById, updateCatalogSyncState } from "@/lib/db/store-connections";
+import { listSizingProductRecordsPage } from "@/lib/db/sizing-product-records";
+import { startCatalogBackfill } from "@/lib/catalog/enqueue-sync";
 import {
   claimSizingRun,
   failSizingRun,
@@ -9,6 +11,7 @@ import {
 import { runBrandClassification } from "./classify";
 import { runChartResearch } from "./research";
 import { runSizingScan } from "./scan";
+import { loadSizingResolutionContext, resolveProductChart } from "./product-chart";
 
 /**
  * Drives size-intelligence runs from the background, shared by the in-process worker and the
@@ -228,6 +231,71 @@ async function advanceRun(run: SizingRunRow): Promise<SizingPassResult> {
           phaseDone: null,
           phaseTotal: null,
         });
+        return { ...base, outcome: "advanced" };
+      }
+
+      case "assign":
+      case "resolve": {
+        const context = await loadSizingResolutionContext(connection);
+        if (!context.brandMappingCurrent) {
+          throw new Error("The canonical brand mapping changed. Confirm it again before publishing.");
+        }
+
+        let offset = 0;
+        let total = 0;
+        let matched = 0;
+        do {
+          const page = await listSizingProductRecordsPage(connection.id, {
+            limit: 1_000,
+            offset,
+          });
+          total = page.total;
+          for (const product of page.records) {
+            if (resolveProductChart(product, context).status === "matched") matched += 1;
+          }
+          offset += page.records.length;
+          await updateSizingRun(run.id, {
+            stage: "resolve",
+            phaseDone: offset,
+            phaseTotal: total,
+          });
+          if (page.records.length === 0) break;
+        } while (offset < total);
+
+        console.log(`[sizing jobs] resolved ${matched} of ${total} product(s) for ${connection.id}`);
+        await updateSizingRun(run.id, {
+          stage: "publish",
+          status: "pending",
+          phase: null,
+          phaseDone: 0,
+          phaseTotal: total,
+          error: null,
+        });
+        return { ...base, outcome: "advanced" };
+      }
+
+      case "publish": {
+        const result = await startCatalogBackfill(connection);
+        if (result.enqueued === 0) {
+          await updateCatalogSyncState(connection.id, { status: "ready", progress: 0, total: 0 });
+          await updateSizingRun(run.id, {
+            status: "complete",
+            publishedAt: new Date().toISOString(),
+            phaseDone: 0,
+            phaseTotal: 0,
+            error: null,
+          });
+        } else {
+          // The catalog queue owns completion from here. Keeping the run `running` prevents a second
+          // publish while `settleFinishedRuns` waits for the queue to empty.
+          await updateSizingRun(run.id, {
+            stage: "publish",
+            status: "running",
+            phaseDone: 0,
+            phaseTotal: result.enqueued,
+            error: null,
+          });
+        }
         return { ...base, outcome: "advanced" };
       }
 

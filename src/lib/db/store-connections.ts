@@ -16,6 +16,7 @@ import {
 import { mappedSourceCategoryIds, parsePersonaCategoryMap, parsePersonaScope } from "@/lib/catalog/persona-mapping";
 import { parseSizeSettings, type SizeSettings } from "@/lib/sizing/size-types";
 import { parseSizingSource, type SizingSource } from "@/lib/sizing/sizing-source";
+import { parseStoreBrandMapping, type StoreBrandMapping } from "@/lib/sizing/brand-mapping";
 
 /**
  * Where the catalog is in its enrichment/embedding lifecycle. Retrieval falls back to the
@@ -62,6 +63,8 @@ export interface StoreConnectionRow {
   /** Where the charts a shopper is sized against come from — the pipeline's own output, or per-product
    *  charts the merchant already keeps and bound in Stage 1. */
   sizingSource: SizingSource;
+  /** Phase 4-only routing aliases. Raw catalog and coverage brand keys remain unchanged. */
+  sizingBrandMapping: StoreBrandMapping;
   /** When the merchant skipped setup stages 2-5 because their own charts made them redundant; null if
    *  they never did. Cleared when the size chart binding goes away, since the work is needed again. */
   sizingStagesSkippedAt: string | null;
@@ -125,6 +128,7 @@ function rowToConnection(row: Record<string, unknown>): StoreConnectionRow {
     personaAutoMatchCompletedAt: (row.persona_auto_match_completed_at as string | null) ?? null,
     storeSizeSettings: parseSizeSettings(row.store_size_settings),
     sizingSource: parseSizingSource(row.sizing_source),
+    sizingBrandMapping: parseStoreBrandMapping(row.sizing_brand_mapping),
     sizingStagesSkippedAt: (row.sizing_stages_skipped_at as string | null) ?? null,
     productCount: (row.product_count as number) ?? 0,
     syncedAt: (row.synced_at as string | null) ?? null,
@@ -258,6 +262,7 @@ export interface UpdateStoreConnectionInput {
   personaAutoMatchCompletedAt?: string | null;
   storeSizeSettings?: SizeSettings;
   sizingSource?: SizingSource;
+  sizingBrandMapping?: StoreBrandMapping;
   sizingStagesSkippedAt?: string | null;
   productCount?: number;
   syncedAt?: string | null;
@@ -285,6 +290,7 @@ export async function updateStoreConnection(
     dbPatch.persona_auto_match_completed_at = patch.personaAutoMatchCompletedAt;
   if (patch.storeSizeSettings !== undefined) dbPatch.store_size_settings = patch.storeSizeSettings;
   if (patch.sizingSource !== undefined) dbPatch.sizing_source = patch.sizingSource;
+  if (patch.sizingBrandMapping !== undefined) dbPatch.sizing_brand_mapping = patch.sizingBrandMapping;
   if (patch.sizingStagesSkippedAt !== undefined) dbPatch.sizing_stages_skipped_at = patch.sizingStagesSkippedAt;
   if (patch.productCount !== undefined) dbPatch.product_count = patch.productCount;
   if (patch.syncedAt !== undefined) dbPatch.synced_at = patch.syncedAt;
@@ -306,6 +312,31 @@ export async function updateStoreConnection(
 
   if (error || !data) {
     console.error("[db/store-connections updateStoreConnection]", error);
+    return null;
+  }
+
+  return rowToConnection(data);
+}
+
+/**
+ * Phase 4 brand mapping's deliberately narrow write path.
+ *
+ * Do not route this through `updateStoreConnection`: that helper also stamps `updated_at`, while the
+ * mapping contract is that saving aliases changes exactly one database column.
+ */
+export async function updateSizingBrandMapping(
+  ownerId: string,
+  mapping: StoreBrandMapping,
+): Promise<StoreConnectionRow | null> {
+  const { data, error } = await db
+    .from("store_connections")
+    .update({ sizing_brand_mapping: mapping })
+    .eq("owner_id", ownerId)
+    .select("*")
+    .single();
+
+  if (error || !data) {
+    console.error("[db/store-connections updateSizingBrandMapping]", error);
     return null;
   }
 

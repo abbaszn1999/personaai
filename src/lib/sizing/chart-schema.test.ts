@@ -65,6 +65,58 @@ describe("chartLabelSystems", () => {
     expect(parsed?.aliases).toEqual({ eu: "38" });
   });
 
+  it("preserves the marker when an official guide publishes reference points", () => {
+    expect(
+      parseSizeChartRow(
+        { size: "M", chest_min: 101, chest_max: 101, source_point_values: true },
+        "tops"
+      )?.source_point_values
+    ).toBe(true);
+  });
+
+  it("keeps only the fixed measurements and aliases for the chart key", () => {
+    const adultTop = parseSizeChartRow(
+      {
+        size: "M",
+        aliases: { age: "8-9y", neck: "39", waist_inseam: "3431" },
+        chest_min: 96,
+        waist_min: 82,
+        height_min: 176,
+        sleeve_min: 64,
+      },
+      "tops",
+      "mens",
+    );
+    expect(adultTop).toEqual({
+      size: "M",
+      aliases: { neck: "39" },
+      chest_min: 96,
+      waist_min: 82,
+    });
+
+    const kidsBottom = parseSizeChartRow(
+      {
+        size: "8",
+        aliases: { age: "8-9y", neck: "31", waist_inseam: "2430" },
+        waist_min: 60,
+        hip_min: 70,
+        inseam_min: 61,
+        height_min: 128,
+        chest_min: 66,
+      },
+      "bottoms",
+      "kids",
+    );
+    expect(kidsBottom).toEqual({
+      size: "8",
+      aliases: { age: "8-9y", waist_inseam: "2430" },
+      waist_min: 60,
+      hip_min: 70,
+      inseam_min: 61,
+      height_min: 128,
+    });
+  });
+
   it("ignores blank and missing alias values so a half-filled key is not advertised", () => {
     const rows: SizeChartRow[] = [
       { size: "39", aliases: { eu: "39", uk: "   ", us: "" } },

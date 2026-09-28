@@ -49,7 +49,7 @@ export interface ChartDraftRow {
  */
 export function draftColumnsFor(group: SizingGroup, audience?: Audience): ChartDraftColumn[] {
   const required = new Set<Measurement>(requiredMeasurementsFor(group, audience));
-  return measurementsFor(group).map((measurement) => ({
+  return measurementsFor(group, audience).map((measurement) => ({
     measurement,
     label: MEASUREMENTS[measurement].label,
     required: required.has(measurement),
@@ -213,7 +213,7 @@ export function parseDraft(rows: ChartDraftRow[], group: SizingGroup, audience?:
       if (bound.max !== null) record[`${measurement}_max`] = bound.max;
     }
 
-    const chartRow = parseSizeChartRow(record, group);
+    const chartRow = parseSizeChartRow(record, group, audience);
     if (!chartRow) {
       problems.push({ rowIndex, message: `Nothing in the "${size}" row could be read.` });
       return;

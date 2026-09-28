@@ -9,14 +9,10 @@ import { replaceSizingCoverage } from "@/lib/db/sizing-coverage";
 import { replaceSizingNullRecords } from "@/lib/db/sizing-null-records";
 import { replaceSizingProductRecords } from "@/lib/db/sizing-product-records";
 import { replaceSizingPathCoverage } from "@/lib/db/sizing-path-coverage";
-import {
-  deleteSizingChartAssignments,
-  listSizingChartAssignments,
-} from "@/lib/db/sizing-chart-assignments";
 import { updateSizingRun, type SizingRunRow } from "@/lib/db/sizing-runs";
 import { isSizingGroup, type SizingGroup } from "./measurements";
-import { CoverageAggregator, type AggregateStats } from "./aggregate";
-import { PathCoverageAggregator, pathKey } from "./path-coverage";
+import { CoverageAggregator, toRawFormat, type AggregateStats } from "./aggregate";
+import { PathCoverageAggregator } from "./path-coverage";
 import { normalizeBrandKey } from "./keys";
 
 /**
@@ -220,6 +216,8 @@ export async function runSizingScan(connection: StoreConnectionRow, run: SizingR
             title: row.title,
             brandKey: normalizeBrandKey(row.brandField),
             sizingCategory: row.sizingGroup,
+            primaryPersonaLeafKey: row.sizingCategoryId,
+            rawSizeFormat: toRawFormat(row.sizes),
           }]
         : []
     )
@@ -246,12 +244,6 @@ export async function runSizingScan(connection: StoreConnectionRow, run: SizingR
     throw new Error("Scan finished but its category-path coverage could not be saved.");
   }
 
-  // Assignments are a merchant decision and survive a rescan, but only where the path still exists.
-  // Pruned rather than left: a path the store stopped carrying is invisible on the assignment screen
-  // (which joins from coverage) while still sitting in the table, and a merchant who re-adds the
-  // category later would silently inherit a choice they no longer remember making.
-  await pruneOrphanedAssignments(connection.id, pathRows);
-
   if (stats.nullRecordsTruncated) {
     console.warn(
       `[sizing scan] ${connection.id}: ${stats.unbranded} unbranded product(s) found, more than the ` +
@@ -271,20 +263,3 @@ export async function runSizingScan(connection: StoreConnectionRow, run: SizingR
   return { stats, rows: rows.length, pages, pathRows: pathRows.length };
 }
 
-async function pruneOrphanedAssignments(
-  connectionId: string,
-  pathRows: readonly { brandKey: string; categoryId: string; sizingCategory: string }[]
-): Promise<void> {
-  const assignments = await listSizingChartAssignments(connectionId);
-  if (assignments.length === 0) return;
-
-  const live = new Set(pathRows.map((row) => pathKey(row.brandKey, row.categoryId, row.sizingCategory)));
-  const orphaned = assignments
-    .filter((row) => !live.has(pathKey(row.brandKey, row.categoryId, row.sizingCategory)))
-    .map((row) => row.id);
-
-  if (orphaned.length > 0) {
-    await deleteSizingChartAssignments(connectionId, orphaned);
-    console.log(`[sizing scan] ${connectionId}: dropped ${orphaned.length} assignment(s) for paths the store no longer carries`);
-  }
-}

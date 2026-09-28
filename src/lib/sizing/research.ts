@@ -2,13 +2,13 @@ import { createChatCompletion, getPlatformOpenAiKey, type ChatCompletionMessage 
 import type { StoreConnectionRow } from "@/lib/db/store-connections";
 import {
   listSizingCoverage,
-  setBrandType,
   setResearchOutcomes,
   type SizingCoverageRow,
 } from "@/lib/db/sizing-coverage";
-import { listChartsForBrands, upsertChart } from "@/lib/db/sizing-charts";
+import { listSharedChartsForBrands, upsertSharedChart } from "@/lib/db/sizing-charts";
 import {
   SIZE_ALIAS_KEYS,
+  allowedAliasKeys,
   chartHasBounds,
   isSizeAliasKey,
   parseSizeChart,
@@ -36,6 +36,7 @@ import {
   PERSONA_DEPARTMENTS,
   personaSizingGroup,
 } from "@/modules/store/mapping/persona-taxonomy";
+import { canonicalizeCoverageForCharts } from "./brand-mapping-view";
 
 /**
  * Doc Tab 4 — Size Chart Research. Runs only against brands Phase 3 classified `global`, one web
@@ -147,11 +148,12 @@ export async function runChartResearch(
   const requested = new Set(options.brandKeys);
 
   const coverage = await listSizingCoverage(connection.id);
+  const canonical = canonicalizeCoverageForCharts(coverage, connection.sizingBrandMapping);
   // Intersected with what the store actually carries as `global`, so a stale scope — a brand a
   // rescan dropped, or reclassified private since the request — cannot spend a search on a brand
   // this connection has no coverage for.
   const needed = new Map(
-    [...groupGlobalBrandsNeeded(coverage)].filter(([brandKey]) => requested.has(brandKey))
+    [...groupGlobalBrandsNeeded(canonical.rows)].filter(([brandKey]) => requested.has(brandKey))
   );
   const market = marketHintFor(connection.storeUrl);
 
@@ -173,7 +175,7 @@ export async function runChartResearch(
   // Skipped entirely on a forced pass. Regenerate exists precisely because the stored chart is the
   // problem, and consulting it would make the button skip the brand it was pressed for.
   if (!options.force) {
-    const existing = await listChartsForBrands(connection.id, [...needed.keys()]);
+    const existing = await listSharedChartsForBrands([...needed.keys()]);
     for (const chart of existing) {
       if ((chart.confidence ?? 0) < CHART_CONFIDENCE_THRESHOLD) continue;
       if (!covered.has(chart.brandKey)) covered.set(chart.brandKey, new Set());
@@ -211,9 +213,9 @@ export async function runChartResearch(
     // chart and a freshly researched one are both "found", and leaving the reused ones `pending`
     // would show a chart sitting next to "not researched yet". Restricted to rows still `pending`
     // so a note this run already wrote is not overwritten with the reuse wording on the next tick.
-    await setResearchOutcomes(
+    await setCanonicalResearchOutcomes(
       connection.id,
-      brandKey,
+      canonical.rawKeysByCanonicalKey.get(brandKey) ?? [brandKey],
       reused.filter((req) => req.researchStatus === "pending").map((req) => req.sizingCategory),
       "found",
       "Reused from the shared registry — no new search was needed."
@@ -241,7 +243,16 @@ export async function runChartResearch(
     );
     const before = result.written;
     try {
-      await researchOneBrand(connection.id, brandKey, brandName, searchName, remaining, market, result);
+      await researchOneBrand(
+        connection.id,
+        brandKey,
+        canonical.rawKeysByCanonicalKey.get(brandKey) ?? [brandKey],
+        brandName,
+        searchName,
+        remaining,
+        market,
+        result,
+      );
       console.log(
         `[sizing research] (${index}/${needed.size}) ${brandName}: wrote ${result.written - before} chart(s)`
       );
@@ -250,9 +261,9 @@ export async function runChartResearch(
       // and wrote — the next pass over the same connection only re-pays for what is still missing.
       console.error(`[sizing research] (${index}/${needed.size}) ${brandName}: failed`, err);
       result.failed += 1;
-      await setResearchOutcomes(
+      await setCanonicalResearchOutcomes(
         connection.id,
-        brandKey,
+        canonical.rawKeysByCanonicalKey.get(brandKey) ?? [brandKey],
         remaining.map((req) => req.sizingCategory),
         "failed",
         err instanceof Error ? err.message : "The research call failed."
@@ -342,31 +353,24 @@ export function marketHintFor(storeUrl: string | null | undefined): string {
  * hats" from "the call errored", and those want a retry, a hand-filled template and a retry
  * respectively — so the distinction has to be persisted while it is still known.
  */
-/**
- * Records that a brand classified `global` publishes no guide after all.
- *
- * This is the pipeline's only self-correction, and the reason it belongs here is that research is the
- * only step with evidence: classification asks a model to recall from a name alone, while this step
- * actually goes and looks. Before this, a wrong `global` was permanent — the row was marked
- * `not_found` and left `global`, which meant it sat in Stage 4's "no guide found" list rather than the
- * manual-fill queue where a house label belongs, and it was re-searched on every pass. Worse, a
- * re-scan resets `research_status` while deliberately carrying `brand_type` across, so the guess
- * survived and the evidence did not.
- *
- * Demoting to `private` puts it where the merchant can resolve it, stops it costing another search
- * (`groupGlobalBrandsNeeded` only queues `global`), and — because `brand_type` is the column that
- * persists — makes the correction the thing that survives the next scan.
- *
- * The canonical name is cleared with it. Whatever company the classifier thought this was, the search
- * for that name came back empty, so keeping it would just aim the next search at the same nothing.
- */
-async function demoteToPrivate(connectionId: string, brandKey: string): Promise<void> {
-  await setBrandType(connectionId, brandKey, "private", null);
+async function setCanonicalResearchOutcomes(
+  connectionId: string,
+  rawBrandKeys: readonly string[],
+  sizingCategories: readonly string[],
+  status: Parameters<typeof setResearchOutcomes>[3],
+  note: string | null,
+): Promise<void> {
+  await Promise.all(
+    rawBrandKeys.map((rawKey) =>
+      setResearchOutcomes(connectionId, rawKey, [...sizingCategories], status, note),
+    ),
+  );
 }
 
 async function researchOneBrand(
   connectionId: string,
   brandKey: string,
+  rawBrandKeys: readonly string[],
   brandName: string,
   searchName: string,
   requests: CoverageRequest[],
@@ -383,25 +387,21 @@ async function researchOneBrand(
   const researched = await researchBrandCharts(searchName, market, observedLabels(requests));
   if (!researched.found) {
     result.notFound += 1;
-    result.demoted += 1;
-    await Promise.all([
-      setResearchOutcomes(
-        connectionId,
-        brandKey,
-        allCategories,
-        "not_found",
-        `No size guide for "${searchName}" could be found on the web, so this is being treated as a private label.`
-      ),
-      demoteToPrivate(connectionId, brandKey),
-    ]);
+    await setCanonicalResearchOutcomes(
+      connectionId,
+      rawBrandKeys,
+      allCategories,
+      "not_found",
+      `No size guide for "${searchName}" could be found on the web.`,
+    );
     return;
   }
 
   if (researched.charts.length === 0) {
     result.categoriesNotCovered += allCategories.length;
-    await setResearchOutcomes(
+    await setCanonicalResearchOutcomes(
       connectionId,
-      brandKey,
+      rawBrandKeys,
       allCategories,
       "not_covered",
       "An official size guide was found, but it contained no usable body-measurement chart for the supported garment groups."
@@ -420,13 +420,12 @@ async function researchOneBrand(
     // Everything else is stored with its defects flagged — a chart with a suspicious column is
     // still most of a chart, and `assessChart` says so on the review screen where a merchant can
     // act on it. Silently dropping those would show a gap where the real problem is a bad column.
-    if (!chartHasBounds(chart.rows, chart.group)) {
+    if (!chartHasBounds(chart.rows, chart.group, chart.table.audience)) {
       console.warn(`[sizing research] ${brandName}: "${chart.table.title}" has no usable measurements`);
       continue;
     }
 
-    const wrote = await upsertChart({
-      connectionId: null, // Global brands are always the shared, cross-merchant registry.
+    const wrote = await upsertSharedChart({
       brandKey,
       sizingCategory: chart.group,
       variantName,
@@ -454,10 +453,10 @@ async function researchOneBrand(
   result.categoriesNotCovered += notCovered.length;
 
   await Promise.all([
-    setResearchOutcomes(connectionId, brandKey, covered, "found", null),
-    setResearchOutcomes(
+    setCanonicalResearchOutcomes(connectionId, rawBrandKeys, covered, "found", null),
+    setCanonicalResearchOutcomes(
       connectionId,
-      brandKey,
+      rawBrandKeys,
       notCovered,
       writeFailures > 0 ? "failed" : "not_covered",
       writeFailures > 0
@@ -697,7 +696,7 @@ export interface ChartVariant {
  * Gives every one of a brand's charts a name unique within its garment group.
  *
  * Necessary because `variant_name` is now identity: `sizing_charts` is uniquely indexed on
- * `(brand_key, sizing_category, variant_name)`, and `upsertChart` deletes that key before inserting.
+ * `(brand_key, sizing_category, variant_name)`, and `upsertSharedChart` deletes that key before inserting.
  * Two tables the model names `Men` under `tops` would therefore not produce two charts — the second
  * would delete the first, and a brand's second fit line would vanish with no error anywhere. The
  * model is told not to do this, but "the model was told" is not a uniqueness guarantee.
@@ -918,7 +917,7 @@ function normalizerInstructions(observed: string[]): string {
   ].join("\n");
 }
 
-function normalizerSchema(group: SizingGroup): Record<string, unknown> {
+function normalizerSchema(group: SizingGroup, audience: Audience): Record<string, unknown> {
   return {
     type: "object",
     properties: {
@@ -932,7 +931,10 @@ function normalizerSchema(group: SizingGroup): Record<string, unknown> {
             confidence: { type: "number", description: "0-1 confidence in this table's conversion." },
             rows: {
               type: "array",
-              items: universalRowJsonSchema(measurementsFor(group)),
+              items: universalRowJsonSchema(
+                measurementsFor(group, audience),
+                allowedAliasKeys(group, audience),
+              ),
               description: "One entry per size.",
             },
           },
@@ -1234,7 +1236,7 @@ function parseSingleRequestChart(value: unknown): NormalizedChart | null {
   if (!isSizingGroup(group) || !title || !sourceUrl || !Array.isArray(record.rows)) return null;
 
   const audience = isAudience(record.audience) ? record.audience : "unisex";
-  const rows = record.rows.flatMap((row) => parseCompactRow(row, group) ?? []);
+  const rows = record.rows.flatMap((row) => parseCompactRow(row, group, audience) ?? []);
   return {
     table: {
       title,
@@ -1261,7 +1263,11 @@ function parseSingleRequestChart(value: unknown): NormalizedChart | null {
   };
 }
 
-function parseCompactRow(value: unknown, group: SizingGroup): SizeChartRow | null {
+function parseCompactRow(
+  value: unknown,
+  group: SizingGroup,
+  audience: Audience,
+): SizeChartRow | null {
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
   const flat: Record<string, unknown> = { size: record.size };
@@ -1277,7 +1283,7 @@ function parseCompactRow(value: unknown, group: SizingGroup): SizeChartRow | nul
     flat.aliases = aliases;
   }
 
-  const allowed = new Set<Measurement>(measurementsFor(group));
+  const allowed = new Set<Measurement>(measurementsFor(group, audience));
   if (Array.isArray(record.measurements)) {
     for (const item of record.measurements) {
       if (!item || typeof item !== "object") continue;
@@ -1288,7 +1294,7 @@ function parseCompactRow(value: unknown, group: SizingGroup): SizeChartRow | nul
     }
   }
 
-  return parseSizeChart([flat], group)[0] ?? null;
+  return parseSizeChart([flat], group, audience)[0] ?? null;
 }
 
 /**
@@ -1311,37 +1317,42 @@ const NORMALIZER_CONCURRENCY = 4;
 
 interface NormalizerBatch {
   group: SizingGroup;
+  audience: Audience;
   tables: ExtractedTable[];
 }
 
 /**
  * Splits a brand's tables into batches that fit one call each.
  *
- * Batched by garment group first, and not only to keep batches small: the schema each call sends is
- * narrowed to `measurementsFor(group)`, so a footwear batch never has to write out `null` for chest
- * and waist on every row. Mixing groups would force the full vocabulary on all of them and roughly
- * double the output that made the single call fail in the first place.
+ * Batched by garment group and audience first. The schema each call sends is narrowed to that
+ * exact chart key, so adult tables cannot emit age/height and kids tables cannot emit columns that
+ * are outside the fixed kids template.
  *
  * A table is never split across batches — a half-transcribed chart is worse than a missing one — so
  * a single table larger than the ceiling still goes out whole, in a batch of its own.
  */
 export function batchTables(tables: ExtractedTable[]): NormalizerBatch[] {
-  const byGroup = new Map<SizingGroup, ExtractedTable[]>();
+  const byKey = new Map<string, { group: SizingGroup; audience: Audience; tables: ExtractedTable[] }>();
   for (const table of tables) {
     if (table.garmentGroup === "other") continue;
-    const list = byGroup.get(table.garmentGroup) ?? [];
-    list.push(table);
-    byGroup.set(table.garmentGroup, list);
+    const key = `${table.garmentGroup}:${table.audience}`;
+    const entry = byKey.get(key) ?? {
+      group: table.garmentGroup,
+      audience: table.audience,
+      tables: [],
+    };
+    entry.tables.push(table);
+    byKey.set(key, entry);
   }
 
   const batches: NormalizerBatch[] = [];
-  for (const [group, groupTables] of byGroup) {
+  for (const { group, audience, tables: groupTables } of byKey.values()) {
     let current: ExtractedTable[] = [];
     let rows = 0;
 
     for (const table of groupTables) {
       if (current.length > 0 && rows + table.rows.length > MAX_ROWS_PER_NORMALIZER_CALL) {
-        batches.push({ group, tables: current });
+        batches.push({ group, audience, tables: current });
         current = [];
         rows = 0;
       }
@@ -1349,7 +1360,7 @@ export function batchTables(tables: ExtractedTable[]): NormalizerBatch[] {
       rows += table.rows.length;
     }
 
-    if (current.length > 0) batches.push({ group, tables: current });
+    if (current.length > 0) batches.push({ group, audience, tables: current });
   }
 
   return batches;
@@ -1424,7 +1435,10 @@ async function normalizeBatch(
 
   const { content } = await createChatCompletion(getPlatformOpenAiKey(), messages, {
     model: RESEARCH_MODEL,
-    jsonSchema: { name: "brand_chart_rows", schema: normalizerSchema(batch.group) },
+    jsonSchema: {
+      name: "brand_chart_rows",
+      schema: normalizerSchema(batch.group, batch.audience),
+    },
     timeoutMs: CALL_TIMEOUT_MS,
   });
 
@@ -1454,7 +1468,7 @@ async function normalizeBatch(
       table,
       group: table.garmentGroup,
       confidence: typeof record.confidence === "number" ? record.confidence : 0,
-      rows: parseSizeChart(record.rows, table.garmentGroup),
+      rows: parseSizeChart(record.rows, table.garmentGroup, table.audience),
     });
   }
 

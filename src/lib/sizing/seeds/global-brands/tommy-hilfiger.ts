@@ -1,4 +1,4 @@
-import { exact, rowsFromColumns, type SeedChart } from "./types";
+import { exact, rowsFromColumns, type SeedChart } from "../types";
 
 /**
  * Tommy Hilfiger, transcribed from the brand's own size guides.
@@ -30,11 +30,7 @@ import { exact, rowsFromColumns, type SeedChart } from "./types";
  * that way (it has no leaf of its own to claim), so rather than seed dead data a merchant could pick
  * anyway, we leave it out entirely; see `variant-match.ts`'s fit-tag filtering for the systemic guard.
  *
- * `ARMS` is the trap. Tommy prints that heading for two different measurements: 84-97cm on the
- * casual tops table, which is centre-back-neck-to-wrist and therefore our `sleeve`, and 61-70cm on
- * the tailored table, which is shoulder-to-wrist and *also* `sleeve` but on a different origin. Both
- * are recorded as `sleeve` because that is what the shopper can measure, and the difference is
- * carried by the variant rather than by inventing a second key.
+ * Source columns outside the fixed category measurement table are intentionally omitted.
  */
 
 const MEN_URL = "https://en-om.tommy.com/mens-size-guide";
@@ -72,24 +68,6 @@ const MEN_CASUAL = {
       [99, 104],
       [105, 110],
       [111, 116],
-    ],
-    sleeve: [
-      [84, 85],
-      [86, 87],
-      [88, 89],
-      [90, 91],
-      [92, 93],
-      [94, 95],
-      [96, 97],
-    ],
-    neck: [
-      [37, 38],
-      [38, 39],
-      [40, 41],
-      [42, 43],
-      [44, 45],
-      [45, 46],
-      [46, 47],
     ],
   },
 } as const;
@@ -138,17 +116,6 @@ const MEN_TAILORED = {
       [111, 115],
       [116, 120],
     ],
-    sleeve: [
-      [61, 62],
-      [63, 64],
-      [64, 65],
-      [65, 66],
-      [66, 67],
-      [67, 68],
-      [68, 69],
-      [69, 70],
-    ],
-    inseam: exact([83, 84, 85, 86, 87, 88, 89, 90]),
   },
 } as const;
 
@@ -176,7 +143,6 @@ const MEN: SeedChart[] = [
     sourceTitle: "TOPS, OUTERWEAR, CASUAL SHIRTS",
     sourceUrl: MEN_URL,
     chartRows: rowsFromColumns(MEN_CASUAL),
-    notes: ["The source's ARMS column is centre-back-neck-to-wrist, recorded as `sleeve`."],
   },
   {
     brandKey: BRAND,
@@ -192,7 +158,15 @@ const MEN: SeedChart[] = [
     audience: "mens",
     sourceTitle: "TOPS, OUTERWEAR, CASUAL SHIRTS",
     sourceUrl: MEN_URL,
-    chartRows: rowsFromColumns(MEN_CASUAL),
+    chartRows: rowsFromColumns({
+      ...MEN_CASUAL,
+      aliases: {
+        alpha: MEN_CASUAL.aliases.alpha,
+        uk: MEN_CASUAL.aliases.uk,
+        us: MEN_CASUAL.aliases.us,
+        eu: MEN_CASUAL.aliases.eu,
+      },
+    }),
     notes: ["Same published table as the `tops` variant — the heading covers both groups."],
   },
   {
@@ -240,15 +214,6 @@ const MEN: SeedChart[] = [
           [109, 113],
           [114, 118],
         ],
-        thigh: [
-          [51, 52],
-          [52, 54],
-          [54, 56],
-          [56, 58],
-          [58, 60],
-          [60, 62],
-          [62, 64],
-        ],
       },
     }),
     notes: [
@@ -266,7 +231,10 @@ const MEN: SeedChart[] = [
     audience: "mens",
     sourceTitle: "SUITS,COATS,BUSINESS SHIRTS",
     sourceUrl: MEN_URL,
-    chartRows: rowsFromColumns(MEN_TAILORED),
+    chartRows: rowsFromColumns({
+      ...MEN_TAILORED,
+      bounds: { chest: MEN_TAILORED.bounds.chest, waist: MEN_TAILORED.bounds.waist },
+    }),
     notes: TAILORED_NOTES,
   },
   {
@@ -277,7 +245,10 @@ const MEN: SeedChart[] = [
     audience: "mens",
     sourceTitle: "SUITS,COATS,BUSINESS SHIRTS",
     sourceUrl: MEN_URL,
-    chartRows: rowsFromColumns(MEN_TAILORED),
+    chartRows: rowsFromColumns({
+      ...MEN_TAILORED,
+      bounds: { chest: MEN_TAILORED.bounds.chest, waist: MEN_TAILORED.bounds.waist },
+    }),
     notes: TAILORED_NOTES,
   },
   {
@@ -285,7 +256,7 @@ const MEN: SeedChart[] = [
     sizingCategory: "dresses",
     variantName: "Men Tailored",
     // The taxonomy's `suit` leaf is the whole two/three-piece outfit, not a jacket or a pair of
-    // trousers separately, and Tommy sizes a suit on exactly this chest/waist/hip/sleeve grid — the
+    // trousers separately, and Tommy sizes a suit on this chest/waist/hip grid — the
     // same table already claimed above for the jacket alone. No separate "SUITS" full-body table
     // exists on the source; this is that same real table, filed a second time under the group its
     // own product (a suit) actually belongs to.
@@ -380,16 +351,6 @@ const MEN: SeedChart[] = [
           [110, 115],
           [116, 121],
           [122, 127],
-        ],
-        hip: [
-          [93, 97],
-          [98, 103],
-          [104, 109],
-          [110, 115],
-          [116, 121],
-          [122, 127],
-          [128, 133],
-          [134, 139],
         ],
       },
     }),
@@ -645,21 +606,6 @@ const WOMEN_HIP = [
   [136, 141],
 ] as const;
 
-const WOMEN_SLEEVE = [
-  [77.8, 78.3],
-  [78.3, 78.8],
-  [78.8, 79.3],
-  [79.3, 79.8],
-  [79.8, 80.3],
-  [80.3, 80.8],
-  [80.8, 81.3],
-  [81.3, 81.8],
-  [81.8, 82.2],
-  [82.2, 82.8],
-  [82.8, 83.2],
-  [83.5, 84.5],
-] as const;
-
 /** The nine-size XXS-3XL block the swim, lounge and sleepwear tables use — a different label system
  *  from the main line above, with US/UK/EU printed as spans rather than single sizes. */
 const WOMEN_SWIM_ALIASES = {
@@ -730,7 +676,7 @@ const WOMEN: SeedChart[] = [
     chartRows: rowsFromColumns({
       sizes: WOMEN_SIZES,
       aliases: WOMEN_ALIASES,
-      bounds: { chest: WOMEN_CHEST, waist: WOMEN_WAIST, hip: WOMEN_HIP, sleeve: WOMEN_SLEEVE },
+      bounds: { chest: WOMEN_CHEST, waist: WOMEN_WAIST },
     }),
   },
   {
@@ -761,7 +707,7 @@ const WOMEN: SeedChart[] = [
     chartRows: rowsFromColumns({
       sizes: WOMEN_SIZES,
       aliases: WOMEN_ALIASES,
-      bounds: { chest: WOMEN_CHEST, waist: WOMEN_WAIST, sleeve: WOMEN_SLEEVE },
+      bounds: { chest: WOMEN_CHEST, waist: WOMEN_WAIST },
     }),
     notes: ["The source prints no HIPS row for this table, so none is recorded."],
   },
@@ -776,7 +722,7 @@ const WOMEN: SeedChart[] = [
     chartRows: rowsFromColumns({
       sizes: WOMEN_SIZES,
       aliases: WOMEN_ALIASES,
-      bounds: { chest: WOMEN_CHEST, waist: WOMEN_WAIST, sleeve: WOMEN_SLEEVE },
+      bounds: { chest: WOMEN_CHEST, waist: WOMEN_WAIST },
     }),
     notes: [
       "Bounds are identical to the `Women` tops variant on this page. Kept as its own variant anyway: the brand publishes it as a separate table, and Stage 5 needs the shirt path to be assignable independently in case the brand ever diverges them.",
@@ -929,12 +875,10 @@ const WOMEN: SeedChart[] = [
         chest: WOMEN_SWIM_CHEST,
         waist: WOMEN_SWIM_WAIST,
         hip: WOMEN_SWIM_HIP,
-        dress_length: exact([38, 39, 40, 41, 42, 43, 40.25, 41.25, 42.25]),
       },
     }),
     notes: [
       "Typo corrected: the source's HIPS row reads 105-111 for 1XL, which is narrower than the L above it and breaks an otherwise monotonic sequence. The brand's own beach-bottoms and pyjama tables both print 116-121 at 1XL on the identical label block, so 116-121 is used. This is the one number on this page not taken verbatim.",
-      "`dress_length` is a garment measurement, so it is stored and displayed but never used to exclude a product — see GARMENT_MEASUREMENTS.",
     ],
   },
   {
@@ -1090,41 +1034,10 @@ const WOMEN: SeedChart[] = [
           [115.5, 117.5],
           [120.5, 122.5],
         ],
-        underbust: [
-          [68, 72],
-          [68, 72],
-          [68, 72],
-          [68, 72],
-          [68, 72],
-          [68, 72],
-          [73, 77],
-          [73, 77],
-          [73, 77],
-          [73, 77],
-          [73, 77],
-          [73, 77],
-          [78, 82],
-          [78, 82],
-          [78, 82],
-          [78, 82],
-          [78, 82],
-          [78, 82],
-          [83, 87],
-          [83, 87],
-          [83, 87],
-          [83, 87],
-          [83, 87],
-          [88, 92],
-          [88, 92],
-          [88, 92],
-          [88, 92],
-          [93, 97],
-          [98, 102],
-        ],
       },
     }),
     notes: [
-      "The only table in this seed that uses `underbust` — the source's UNDERBAND row. Chest alone cannot express a bra size, which is exactly why that measurement exists.",
+      "The source's UNDERBAND row is omitted by the fixed tops measurement contract; the published chest ranges are retained.",
       "Chest ranges deliberately overlap between bands (70F is 93.5-95.5 while 80C is 94.5-96.5): a bra is chosen on band *and* cup, so the pair is the key and neither measurement resolves it alone.",
       "Filed under `tops` because that is the group a bikini top or bra path maps to. It carries no chest-only fallback, so a merchant selling bras should assign this variant explicitly rather than inherit the general tops chart.",
     ],

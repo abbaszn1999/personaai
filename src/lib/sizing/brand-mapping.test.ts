@@ -72,6 +72,25 @@ describe("store brand mapping", () => {
     });
   });
 
+  it("does not apply unconfirmed suggestions to chart routing", () => {
+    const mapping = parseStoreBrandMapping({
+      version: 1,
+      confirmedAt: null,
+      aliases: {
+        "Tom Tailor Men": {
+          canonicalKey: "Tom Tailor",
+          canonicalName: "Tom Tailor",
+          labels: ["Tom Tailor Men"],
+        },
+      },
+    });
+
+    expect(resolveMappedBrand("Tom Tailor Men", mapping)).toEqual({
+      brandKey: "tom_tailor_men",
+      brandName: "Tom Tailor Men",
+    });
+  });
+
   it("requires every discovered global brand exactly once when confirming", () => {
     const current = parseStoreBrandMapping(null);
     expect(() =>

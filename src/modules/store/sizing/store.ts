@@ -10,7 +10,6 @@ import type {
 } from "./types";
 import { LAST_STAGE } from "./types";
 import {
-  EMPTY_ASSIGNMENT_TOTALS,
   EMPTY_CHARTS_RESPONSE,
   EMPTY_COVERAGE_SUMMARY,
   EMPTY_IDENTIFICATION,
@@ -18,16 +17,16 @@ import {
   isScanIncomplete,
   isRunWorking,
   stageForRun,
-  type AssignmentTotals,
   type BrandIdentification,
+  type BrandMappingResponse,
+  type BrandMappingStatus,
   type BrandResearchRow,
+  type CanonicalBrandGroup,
   type ChartAudience,
   type ChartGap,
   type CoverageSummary,
-  type PathAssignment,
   type ResearchedChart,
   type RoutingPlan,
-  type SizingAssignmentsResponse,
   type SizingChartsResponse,
   type SizingRun,
   type ServerBrandType,
@@ -68,6 +67,8 @@ export interface ManualChartTarget {
    *  merchant editing a copy starts from the same coverage rather than an empty one. Absent (not
    *  empty) for a fresh gap, which has no source chart to copy coverage from. */
   coversLeaves?: string[];
+  /** True when replacing an existing private chart rather than filling a new gap or making a copy. */
+  editing?: boolean;
 }
 
 /** Either a real researched chart or one of the mock-fed sync views' charts. Both carry the display
@@ -123,8 +124,18 @@ interface SizingUiState {
   runError: string | null;
   /** Set while a start request is in flight, so the button can't be double-fired. */
   startingRun: boolean;
+  brandMappingStatus: BrandMappingStatus;
+  brandMapping: BrandMappingResponse | null;
+  brandMappingLoading: boolean;
+  brandMappingSaving: boolean;
+  brandMappingError: string | null;
+  brandMappingEditing: boolean;
 
   loadRun: () => Promise<void>;
+  loadBrandMapping: (options?: { force?: boolean }) => Promise<void>;
+  saveBrandMapping: (groups: CanonicalBrandGroup[]) => Promise<boolean>;
+  openBrandMappingEditor: () => void;
+  closeBrandMappingEditor: () => void;
   startRun: () => Promise<void>;
   /** Unblocks the run's current stage server-side, then resumes polling so the new stage's progress
    *  is visible immediately instead of waiting a full poll interval. */
@@ -144,6 +155,7 @@ interface SizingUiState {
   /** The unbranded rows, grouped by category instead of brand. */
   chartGapsNoBrand: ChartGap[];
   chartTotals: SizingChartsResponse["totals"];
+  chartLeafCounts: SizingChartsResponse["leafCounts"];
   /** False until a research pass has recorded an outcome — what separates "no gaps" from "not run". */
   chartsResearched: boolean;
   chartsLoading: boolean;
@@ -167,9 +179,8 @@ interface SizingUiState {
   manualChartTarget: ManualChartTarget | null;
   /** Opens the editor on a gap from the Not Found or No Brand tab. */
   openManualChart: (gap: ChartGap) => void;
-  /** Doc Part 6's answer to editing a shared chart: fork it into a merchant-owned variant rather
-   *  than overwrite a row every other store reads. Researched charts stay read-only. */
-  forkChart: (chart: ResearchedChart) => void;
+  /** Reopens a saved private/no-brand chart with its current rows and coverage. */
+  editManualChart: (chart: ResearchedChart) => void;
   closeManualChart: () => void;
   /** Returns an error message, or null on success. Reloads Stage 4 so the filled gap moves out of
    *  the gap tab and into the chart list without a manual refresh. */
@@ -177,28 +188,15 @@ interface SizingUiState {
     rows: ChartDraftRow[];
     variantName: string;
     coversLeaves: string[];
+    audience?: ChartAudience;
+    keepOpen?: boolean;
   }) => Promise<string | null>;
 
-  // ─── Stage 5: chart assignment (doc Part 7) ────────────────────────────────
-  /** Every merchant category path the scan found, with its bound variant and its options. */
-  assignmentPaths: PathAssignment[];
   /** Every leaf enabled in this merchant's taxonomy scope, brand-agnostic and independent of
-   *  `assignmentPaths`' live SKU counts — see `mappedPersonaLeaves`. What lets a
+   *  live SKU counts. What lets a
    *  chart's "Covers" show a leaf this merchant's taxonomy defines even at zero current stock, rather
    *  than a leaf silently vanishing the moment nothing happens to be in it this scan. */
   mappedLeaves: string[];
-  assignmentTotals: AssignmentTotals;
-  /** How many paths the last read resolved by itself. Reported once so the merchant knows the table
-   *  arrived partly filled rather than wondering who chose those. */
-  assignmentAutoMatched: number;
-  assignmentsLoading: boolean;
-  assignmentsError: string | null;
-  assignmentsLoaded: boolean;
-  loadAssignments: (options?: { force?: boolean }) => Promise<void>;
-  /** Binds one path to a variant, or to nothing when `variantName` is null. */
-  setPathVariant: (pathId: string, variantName: string | null) => Promise<void>;
-  /** The path whose save is in flight, so only its own row shows as busy. */
-  assignmentSaving: string | null;
 
   /** The page of the live catalog currently shown in stage 2. Held here rather than in the component
    *  so switching stages doesn't re-page the merchant's store every time, and so the fetch follows
@@ -280,33 +278,6 @@ function clampStage(value: number): StageNumber {
   return Math.min(LAST_STAGE, Math.max(1, value)) as StageNumber;
 }
 
-/**
- * Stage 5's header counts, recomputed from the rows in hand.
- *
- * A local copy of the server's `assignmentTotals` rather than a shared import, because the shared one
- * is typed against the server's row shape and this file deliberately holds only the wire mirror. The
- * alternative — re-reading the whole assignments response after every dropdown change, which carries
- * every variant's measurement table — would make changing one row the most expensive thing on the
- * screen.
- */
-function totalsFor(paths: readonly PathAssignment[]): AssignmentTotals {
-  const totals: AssignmentTotals = { ...EMPTY_ASSIGNMENT_TOTALS, paths: paths.length };
-
-  for (const path of paths) {
-    if (path.variantName !== null && !path.missingVariant) {
-      totals.assigned += 1;
-      totals.assignedSkus += path.skuCount;
-    } else if (path.decided && path.variantName === null) {
-      totals.skipped += 1;
-    } else {
-      totals.unresolved += 1;
-      totals.unresolvedSkus += path.skuCount;
-    }
-  }
-
-  return totals;
-}
-
 /** Live poll timer. Module-level rather than in state: it is not rendered, and putting a timer id in
  *  a store means every tick's `set` re-renders every subscriber for no visible reason. */
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -347,6 +318,12 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
   runLoading: false,
   runError: null,
   startingRun: false,
+  brandMappingStatus: "needs_mapping",
+  brandMapping: null,
+  brandMappingLoading: false,
+  brandMappingSaving: false,
+  brandMappingError: null,
+  brandMappingEditing: false,
 
   loadRun: async () => {
     // Only the first read shows a spinner. A poll that flipped this would make the whole stage
@@ -442,6 +419,72 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
     }
   },
 
+  loadBrandMapping: async (options) => {
+    if (!options?.force && (get().brandMappingLoading || get().brandMapping !== null)) return;
+    set({ brandMappingLoading: true, brandMappingError: null });
+    try {
+      const res = await fetch("/api/store-connection/sizing/brand-mapping");
+      const data = (await res.json()) as BrandMappingResponse & { error?: string };
+      if (!res.ok) {
+        set({
+          brandMappingLoading: false,
+          brandMappingError: data.error ?? "Could not load canonical brand mapping",
+        });
+        return;
+      }
+      set({
+        brandMapping: data,
+        brandMappingStatus: data.status,
+        brandMappingLoading: false,
+        brandMappingError: null,
+      });
+    } catch {
+      set({ brandMappingLoading: false, brandMappingError: "Could not reach the server" });
+    }
+  },
+
+  saveBrandMapping: async (groups) => {
+    if (get().brandMappingSaving) return false;
+    set({ brandMappingSaving: true, brandMappingError: null });
+    try {
+      const res = await fetch("/api/store-connection/sizing/brand-mapping", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groups }),
+      });
+      const data = (await res.json()) as BrandMappingResponse & { error?: string };
+      if (!res.ok) {
+        set({
+          brandMappingSaving: false,
+          brandMappingError: data.error ?? "Could not save canonical brand mapping",
+        });
+        return false;
+      }
+      set({
+        brandMapping: data,
+        brandMappingStatus: data.status,
+        brandMappingSaving: false,
+        brandMappingEditing: false,
+        brandMappingError: null,
+        chartBrands: [],
+        charts: [],
+        chartGapsNotFound: [],
+        chartGapsNoBrand: [],
+        chartTotals: EMPTY_CHARTS_RESPONSE.totals,
+        chartLeafCounts: [],
+        chartsResearched: false,
+        chartsLoaded: false,
+      });
+      return true;
+    } catch {
+      set({ brandMappingSaving: false, brandMappingError: "Could not reach the server" });
+      return false;
+    }
+  },
+
+  openBrandMappingEditor: () => set({ brandMappingEditing: true, brandMappingError: null }),
+  closeBrandMappingEditor: () => set({ brandMappingEditing: false, brandMappingError: null }),
+
   continueRun: async () => {
     try {
       await fetch("/api/store-connection/sizing/run/continue", { method: "POST" });
@@ -462,6 +505,7 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
   chartGapsNotFound: [],
   chartGapsNoBrand: [],
   chartTotals: EMPTY_CHARTS_RESPONSE.totals,
+  chartLeafCounts: [],
   chartsResearched: false,
   chartsLoading: false,
   chartsError: null,
@@ -489,6 +533,8 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
         chartGapsNotFound: data.notFound ?? [],
         chartGapsNoBrand: data.noBrand ?? [],
         chartTotals: data.totals ?? EMPTY_CHARTS_RESPONSE.totals,
+        chartLeafCounts: data.leafCounts ?? [],
+        mappedLeaves: data.mappedLeaves ?? [],
         chartsResearched: data.researched ?? false,
         chartsLoading: false,
         chartsError: null,
@@ -551,30 +597,28 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
       },
     }),
 
-  forkChart: (chart) =>
+  editManualChart: (chart) => {
+    if (chart.shared || !isSizingGroup(chart.sizingCategory)) return;
     set({
       manualChartTarget: {
-        id: `fork-${chart.id}`,
+        id: chart.id,
         brandKey: chart.brandKey,
         brandName: chart.brand,
         sizingCategory: chart.sizingCategory,
         skuCount: chart.skuCount,
-        reason: "Your own copy — the researched chart is left untouched",
-        // Renamed rather than reused: the fork is written scoped to this connection, and sharing a
-        // name with the researched row is what makes `chart-results` treat it as a replacement
-        // instead of an addition. A merchant wanting to replace can delete the suffix.
-        variantName: `${chart.variantName} (edited)`,
-        seedRows: isSizingGroup(chart.sizingCategory)
-          ? draftRowsFrom(chart.chartRows, chart.sizingCategory, chart.audience)
-          : undefined,
+        reason: "Editing saved private chart",
+        variantName: chart.variantName,
+        seedRows: draftRowsFrom(chart.chartRows, chart.sizingCategory, chart.audience),
         audience: chart.audience,
         coversLeaves: chart.coversLeaves,
+        editing: true,
       },
-    }),
+    });
+  },
 
   closeManualChart: () => set({ manualChartTarget: null }),
 
-  saveManualChart: async ({ rows, variantName, coversLeaves }) => {
+  saveManualChart: async ({ rows, variantName, coversLeaves, audience, keepOpen = false }) => {
     const target = get().manualChartTarget;
     if (!target) return "Nothing to save.";
 
@@ -589,9 +633,8 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
           rows,
           // Sent even when undefined (becomes `null`, which the route reads the same as absent):
           // without it the route's `sanitizeCoverage` falls back to `unisex`, which silently drops
-          // every kids/boys/girls leaf a merchant just checked — see `chartsForLeaf` for why that
-          // filter exists.
-          audience: target.audience ?? null,
+          // every kids/boys/girls leaf a merchant just checked.
+          audience: audience ?? target.audience ?? null,
           coversLeaves,
         }),
       });
@@ -599,94 +642,17 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) return data.error ?? "Could not save this chart.";
 
-      set({ manualChartTarget: null });
+      if (!keepOpen) set({ manualChartTarget: null });
       // Forced, because the filled gap has to move out of the gap tab and into the chart list. A
-      // cached read would leave the merchant looking at the gap they just resolved. Assignments are
-      // invalidated too: a new chart is a new option in every dropdown for that brand and parent.
+      // cached read would leave the merchant looking at the gap they just resolved.
       await get().loadCharts({ force: true });
-      set({ assignmentsLoaded: false });
       return null;
     } catch {
       return "Could not reach the server.";
     }
   },
 
-  assignmentPaths: [],
   mappedLeaves: [],
-  assignmentTotals: EMPTY_ASSIGNMENT_TOTALS,
-  assignmentAutoMatched: 0,
-  assignmentsLoading: false,
-  assignmentsError: null,
-  assignmentsLoaded: false,
-  assignmentSaving: null,
-
-  loadAssignments: async (options) => {
-    if (!options?.force && (get().assignmentsLoaded || get().assignmentsLoading)) return;
-    set({ assignmentsLoading: true, assignmentsError: null });
-
-    try {
-      const res = await fetch("/api/store-connection/sizing/assignments");
-      const data = (await res.json()) as Partial<SizingAssignmentsResponse> & { error?: string };
-
-      if (!res.ok) {
-        set({ assignmentsError: data.error ?? "Could not load the chart assignments", assignmentsLoading: false });
-        return;
-      }
-
-      set({
-        assignmentPaths: data.paths ?? [],
-        mappedLeaves: data.mappedLeaves ?? [],
-        assignmentTotals: data.totals ?? EMPTY_ASSIGNMENT_TOTALS,
-        assignmentAutoMatched: data.autoMatched ?? 0,
-        assignmentsLoading: false,
-        assignmentsError: null,
-        assignmentsLoaded: true,
-      });
-    } catch {
-      set({ assignmentsError: "Could not reach the server", assignmentsLoading: false });
-    }
-  },
-
-  setPathVariant: async (pathId, variantName) => {
-    const path = get().assignmentPaths.find((row) => row.id === pathId);
-    if (!path || get().assignmentSaving !== null) return;
-
-    set({ assignmentSaving: pathId, assignmentsError: null });
-
-    try {
-      const res = await fetch("/api/store-connection/sizing/assignments", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          brandKey: path.brandKey,
-          categoryId: path.categoryId,
-          sizingCategory: path.sizingCategory,
-          variantName,
-        }),
-      });
-      const data = (await res.json()) as { error?: string };
-
-      if (!res.ok) {
-        set({ assignmentsError: data.error ?? "Could not save this assignment", assignmentSaving: null });
-        return;
-      }
-
-      // Patched in place rather than re-read. The whole response carries every variant's measurement
-      // table, and re-fetching all of it to learn one row's new name would make a dropdown change the
-      // most expensive interaction on the screen. The totals are recomputed from the patched rows so
-      // the header cannot drift from the table under it.
-      set((state) => {
-        const paths = state.assignmentPaths.map((row) =>
-          row.id === pathId
-            ? { ...row, variantName, decided: true, source: "merchant" as const, missingVariant: false }
-            : row
-        );
-        return { assignmentPaths: paths, assignmentTotals: totalsFor(paths), assignmentSaving: null };
-      });
-    } catch {
-      set({ assignmentsError: "Could not reach the server", assignmentSaving: null });
-    }
-  },
 
   sample: [],
   samplePage: 1,

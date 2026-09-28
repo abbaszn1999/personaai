@@ -278,14 +278,12 @@ Verified end to end. For a product at `persona > women > full-body > gown`:
 1. Persona mapping stores dept + category + leaf on the **store category**.
 2. Scan collapses the category to one of five groups (`full-body` â†’ `dresses`) but keeps the leaf as the
    path key `women:full-body:gown`.
-3. Path coverage and `sizing_chart_assignments` are uniquely keyed
-   `(connection_id, brand_key, category_id, sizing_category)` where **`category_id` is the leaf key**.
-4. Stage 5 binds that row to a `variant_name` among the charts for `(brand, group)`.
+3. Each chart stores the exact Persona leaves it covers in `sizing_charts.covers_leaves`.
+4. Stage 5 resolves the product's primary leaf directly against that list. There is no assignment
+   table, per-SKU override or category-path fallback.
 
-**So yes â€” `women > dresses > formal` can be bound to a different chart than `women > dresses > casual`.
-The leaf is the assignment identity.** What the leaf does *not* do is *pick* the variant: nothing maps
-`jean` â†’ `Women Denim`. Candidates are offered by `(brand, group)` only, and auto-match narrows by
-audience alone.
+**So yes â€” `women > dresses > formal` can resolve to a different chart than
+`women > dresses > casual`. The leaf list stored on each chart is the sole assignment identity.**
 
 ## 7. Coverage audit â€” the 38 Tommy charts against 204 leaves
 

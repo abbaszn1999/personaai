@@ -29,7 +29,7 @@ describe("CoverageAggregator", () => {
       brandName: "Aria",
       sizingCategory: "tops",
       skuCount: 1,
-      rawFormats: { "S,M,L": { count: 1, canonical: null } },
+      rawFormats: { "S,M,L": { count: 1 } },
     });
   });
 

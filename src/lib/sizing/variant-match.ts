@@ -99,7 +99,7 @@ export function audienceCompatible(path: Audience, chart: Audience): boolean {
  * `Big & Tall` meant the one bra table this catalog seeds (`Women Bras (Wired)`) could never be
  * auto-picked even for the `bra` leaf it is the sole answer to. Garment-type coverage now lives on
  * `covers_leaves` (`sizing_charts.covers_leaves`, migration `20260922020000`) as an explicit,
- * per-chart leaf list rather than a name/tag guess — see `chartsForLeaf` below.
+ * per-chart leaf list rather than a name/tag guess.
  */
 export type FitTag = "big-tall" | "long" | "short" | "petite" | "tall" | "plus" | "curve" | "maternity" | "slim" | "husky";
 
@@ -138,63 +138,6 @@ export function variantTags(variantName: string): VariantTags {
   };
 }
 
-/** The shape `chartsForLeaf` needs. Kept minimal so it can be called with a chart row or an
- *  `AssignableVariant` without either module depending on the other. */
-export interface MatchableVariant {
-  variantName: string;
-  /** The Persona leaf keys this exact chart claims — `sizing_charts.covers_leaves`. The only signal
-   *  `chartsForLeaf` matches on; nothing here is inferred from the variant's own name or fields. */
-  coversLeaves: string[];
-}
-
-/**
- * The one variant a leaf can be bound to without asking, or null to leave it for the merchant.
- *
- * Replaces the old two-pass `pickVariant`, which read `LEAF_GARMENT_TAGS` (a closed list of which
- * leaves imply which garment word) against `VARIANT_GARMENT_PATTERNS` (a regex guess at which
- * garment word a variant's own name states) to find a specialized table, then fell back to
- * whichever table carried no garment tag at all. That worked for a hand-seeded catalog small enough
- * to enumerate every leaf's garment word up front, but it could not scale to research running across
- * thousands of brands: deciding which of a brand's five "tops" tables a leaf belongs to is a judgment
- * call, not a pattern match, and every brand phrases its headings differently. `covers_leaves` moves
- * that judgment call onto the chart itself — stated once, by whoever transcribed or researched it —
- * so matching becomes a plain membership test instead of two guesses stacked on each other.
- *
- * Still drops anything carrying a fit class before returning, which is what lets a leaf resolve to
- * `Men Tailored` while `Men Tailored Long` and `Men Tailored Short` stay available for a merchant who
- * knows their stock is long. In practice this guard is now redundant with authors never listing a
- * leaf on a fit-class table's `covers_leaves` (see the LEAF COVERAGE instructions in `research.ts`
- * and the seed notes in `src/lib/sizing/seeds`) — it stays here anyway, because trusting that
- * invariant to hold everywhere it is written is exactly the kind of trust this module exists to not
- * extend.
- *
- * Returning null is a real outcome: no candidate claims the leaf at all (nothing published, or the
- * brand's specialized table for it doesn't exist), or more than one candidate claims it — which is
- * how the age-disjoint kids case surfaces now (an `Infant` table and a `Boys & Girls` table both
- * legitimately claiming one `kids-unisex` footwear leaf, deliberately, because only the merchant
- * knows the age band). Guessing either case would report the path as governed when it either isn't
- * or is ambiguous.
- */
-export function chartsForLeaf<T extends MatchableVariant>(leafKey: string, candidates: readonly T[]): T | null {
-  if (!leafKey) return null;
-
-  const claimed = candidates
-    .filter((variant) => variant.coversLeaves.includes(leafKey))
-    .map((variant) => ({ variant, tags: variantTags(variant.variantName) }));
-
-  return withoutFitClass(claimed);
-}
-
-/** The one survivor with no fit class. Null for none, for an ambiguous several, and for exactly one
- *  candidate that itself carries a fit tag, which the caller reads the same way as "several": leave
- *  it to the merchant. */
-function withoutFitClass<T extends MatchableVariant>(
-  entries: readonly { variant: T; tags: VariantTags }[]
-): T | null {
-  const plain = entries.filter((entry) => entry.tags.fit.length === 0);
-  return plain.length === 1 ? plain[0].variant : null;
-}
-
 const ALL_PERSONA_LEAF_KEY_SET = new Set<string>(ALL_PERSONA_LEAF_KEYS);
 
 /**
@@ -205,8 +148,7 @@ const ALL_PERSONA_LEAF_KEY_SET = new Set<string>(ALL_PERSONA_LEAF_KEYS);
  *
  * Defensive rather than trusting the writer (a model's LEAF COVERAGE instructions, a merchant typing
  * into a checklist) to get it right every time: a leaf claimed outside its rightful audience/group is
- * a wrong chart assignment downstream — `chartsForLeaf` would hand a men's chart to a womens path —
- * not a cosmetic slip, so it is dropped here rather than stored.
+ * a wrong chart downstream, not a cosmetic slip, so it is dropped here rather than stored.
  */
 export function sanitizeCoverage(
   raw: unknown,

@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import React, { useState, useMemo } from 'react';
 import {
   User,
@@ -275,7 +276,7 @@ export function SizingTesterView() {
   const availableBrands = useMemo(() => {
     return TESTER_BRANDS.filter((brand) =>
       brand.categories.some((cat) =>
-        cat.subcategories.some((sub) => sub.rowsByPersona[persona]?.length > 0)
+        cat.subcategories.some((sub) => (sub.rowsByPersona[persona]?.length ?? 0) > 0)
       )
     );
   }, [persona]);
@@ -301,7 +302,7 @@ export function SizingTesterView() {
   // Available categories for current brand and persona
   const brandCategories = useMemo(() => {
     return currentBrand.categories.filter((cat) =>
-      cat.subcategories.some((sub) => sub.rowsByPersona[persona]?.length > 0)
+      cat.subcategories.some((sub) => (sub.rowsByPersona[persona]?.length ?? 0) > 0)
     );
   }, [currentBrand, persona]);
 
@@ -326,7 +327,7 @@ export function SizingTesterView() {
   const availableSubcategories = useMemo(() => {
     if (!currentCategory) return [];
     return currentCategory.subcategories.filter(
-      (sub) => sub.rowsByPersona[persona]?.length > 0
+      (sub) => (sub.rowsByPersona[persona]?.length ?? 0) > 0
     );
   }, [currentCategory, persona]);
 
@@ -552,7 +553,7 @@ export function SizingTesterView() {
     > = {};
 
     brandCategories.forEach((cat) => {
-      const firstSub = cat.subcategories.find((s) => s.rowsByPersona[persona]?.length > 0);
+      const firstSub = cat.subcategories.find((s) => (s.rowsByPersona[persona]?.length ?? 0) > 0);
       if (firstSub) {
         const rows = firstSub.rowsByPersona[persona] || [];
         const result = calculateBestMatch(rows, cat.key, currentBrand.name, firstSub.name);

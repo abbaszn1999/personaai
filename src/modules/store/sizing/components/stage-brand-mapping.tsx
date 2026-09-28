@@ -1,9 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { ArrowRightLeft, Check, Loader2, Plus, RotateCcw, Split } from "lucide-react";
+import { Check, Loader2, RotateCcw, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { normalizeBrandKey } from "@/lib/sizing/keys";
+import { MappingSelect, type SelectOption } from "@/modules/store/components/mapping-select";
 import { useSizingStore } from "../store";
 import type {
   BrandMappingResponse,
@@ -12,8 +13,37 @@ import type {
 } from "../server-types";
 import { StageHeaderBanner } from "./stage-header-banner";
 
-function cloneGroups(groups: readonly CanonicalBrandGroup[]): CanonicalBrandGroup[] {
-  return groups.map((group) => ({ ...group, rawKeys: [...group.rawKeys] }));
+function assignmentsFromGroups(groups: readonly CanonicalBrandGroup[]): Record<string, string> {
+  return Object.fromEntries(
+    groups.flatMap((group) => group.rawKeys.map((rawKey) => [rawKey, group.canonicalName])),
+  );
+}
+
+function groupsFromAssignments(
+  assignments: Record<string, string>,
+  targets: BrandMappingResponse["targets"],
+): CanonicalBrandGroup[] {
+  const targetByKey = new Map(targets.map((target) => [target.canonicalKey, target]));
+  const groups = new Map<string, CanonicalBrandGroup>();
+
+  for (const [rawKey, value] of Object.entries(assignments)) {
+    const canonicalName = value.trim().replace(/\s+/g, " ");
+    const canonicalKey = normalizeBrandKey(canonicalName);
+    if (!canonicalKey || !canonicalName) continue;
+    const target = targetByKey.get(canonicalKey);
+    const current = groups.get(canonicalKey);
+    if (current) current.rawKeys.push(rawKey);
+    else {
+      groups.set(canonicalKey, {
+        canonicalKey,
+        canonicalName: target?.canonicalName ?? canonicalName,
+        rawKeys: [rawKey],
+        shared: target?.shared ?? false,
+      });
+    }
+  }
+
+  return [...groups.values()].sort((a, b) => a.canonicalName.localeCompare(b.canonicalName));
 }
 
 export function StageBrandMapping() {
@@ -26,23 +56,6 @@ export function StageBrandMapping() {
   React.useEffect(() => {
     void load();
   }, [load]);
-
-  if (status === "rescanning") {
-    return (
-      <div className="space-y-4">
-        <StageHeaderBanner
-          stageNumber={4}
-          eyebrow="Canonical brand mapping"
-          title="Applying your brand mapping"
-          description="The catalog is being rescanned under the canonical brand keys. Chart research will appear here when coverage is rebuilt."
-        />
-        <div className="flex items-center justify-center gap-3 rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] p-10 text-sm text-[var(--color-text-muted)]">
-          <Loader2 className="h-5 w-5 animate-spin" />
-          Merging aliases and rebuilding chart coverage…
-        </div>
-      </div>
-    );
-  }
 
   if ((loading || !mapping) && !error) {
     return (
@@ -84,80 +97,66 @@ function BrandMappingEditor({
   const editing = useSizingStore((state) => state.brandMappingEditing);
   const save = useSizingStore((state) => state.saveBrandMapping);
   const closeEditor = useSizingStore((state) => state.closeBrandMappingEditor);
-  const [groups, setGroups] = React.useState<CanonicalBrandGroup[]>(() => cloneGroups(mapping.groups));
+  const suggestedAssignments = React.useMemo(
+    () => assignmentsFromGroups(mapping.groups),
+    [mapping.groups],
+  );
+  const [assignments, setAssignments] = React.useState<Record<string, string>>(
+    () => suggestedAssignments,
+  );
+  const [query, setQuery] = React.useState("");
 
-  const brandByKey = new Map(mapping.brands.map((brand) => [brand.rawKey, brand]));
-
-  const renameGroup = (index: number, canonicalName: string) => {
-    setGroups((current) =>
-      current.map((group, groupIndex) =>
-        groupIndex === index
-          ? { ...group, canonicalName, canonicalKey: normalizeBrandKey(canonicalName), shared: false }
-          : group,
-      ),
+  const groups = React.useMemo(
+    () => groupsFromAssignments(assignments, mapping.targets),
+    [assignments, mapping.targets],
+  );
+  const complete = mapping.brands.every((brand) => assignments[brand.rawKey]?.trim());
+  const canonicalCount = new Set(
+    Object.values(assignments).map(normalizeBrandKey).filter(Boolean),
+  ).size;
+  const consolidated = Math.max(0, mapping.brands.length - canonicalCount);
+  const canonicalOptions = React.useMemo<SelectOption[]>(() => {
+    const options = new Map<string, SelectOption>();
+    for (const target of mapping.targets) {
+      options.set(target.canonicalKey, {
+        key: target.canonicalKey,
+        label: target.canonicalName,
+        hint: target.shared ? "Shared charts available" : "Brand found in this store",
+        group: target.shared ? "Shared chart registry" : "Store brands",
+      });
+    }
+    for (const group of mapping.groups) {
+      if (options.has(group.canonicalKey)) continue;
+      options.set(group.canonicalKey, {
+        key: group.canonicalKey,
+        label: group.canonicalName,
+        hint: "Suggested canonical brand",
+        group: "Suggested brands",
+      });
+    }
+    return [...options.values()].sort(
+      (a, b) => (a.group ?? "").localeCompare(b.group ?? "") || a.label.localeCompare(b.label),
     );
-  };
+  }, [mapping.groups, mapping.targets]);
+  const targetByKey = new Map(mapping.targets.map((target) => [target.canonicalKey, target]));
+  const optionByKey = new Map(canonicalOptions.map((option) => [option.key, option]));
+  const filteredBrands = mapping.brands.filter((brand) => {
+    const needle = query.trim().toLocaleLowerCase();
+    if (!needle) return true;
+    return [
+      ...brand.labels,
+      brand.rawKey,
+      assignments[brand.rawKey] ?? "",
+      ...brand.sizingCategories,
+    ].some((value) => value.toLocaleLowerCase().includes(needle));
+  });
 
-  const selectTarget = (index: number, canonicalKey: string) => {
-    const target = mapping?.targets.find((item) => item.canonicalKey === canonicalKey);
-    if (!target) return;
-    setGroups((current) =>
-      current.map((group, groupIndex) =>
-        groupIndex === index
-          ? { ...group, canonicalKey: target.canonicalKey, canonicalName: target.canonicalName, shared: target.shared }
-          : group,
-      ),
-    );
+  const resetSuggestions = () => setAssignments({ ...suggestedAssignments });
+  const setCanonicalKey = (rawKey: string, canonicalKey: string) => {
+    const option = optionByKey.get(canonicalKey);
+    if (!option) return;
+    setAssignments((current) => ({ ...current, [rawKey]: option.label }));
   };
-
-  const moveAlias = (rawKey: string, targetIndex: number) => {
-    setGroups((current) =>
-      current
-        .map((group, index) => ({
-          ...group,
-          rawKeys: index === targetIndex
-            ? [...new Set([...group.rawKeys, rawKey])]
-            : group.rawKeys.filter((key) => key !== rawKey),
-        }))
-        .filter((group) => group.rawKeys.length > 0),
-    );
-  };
-
-  const splitAlias = (rawKey: string) => {
-    const brand = brandByKey.get(rawKey);
-    const canonicalName = brand?.labels[0] ?? rawKey;
-    setGroups((current) => [
-      ...current
-        .map((group) => ({ ...group, rawKeys: group.rawKeys.filter((key) => key !== rawKey) }))
-        .filter((group) => group.rawKeys.length > 0),
-      {
-        canonicalKey: rawKey,
-        canonicalName,
-        rawKeys: [rawKey],
-        shared: false,
-      },
-    ]);
-  };
-
-  const addGroup = () => {
-    const unassigned = mapping?.brands.find((brand) => !groups.some((group) => group.rawKeys.includes(brand.rawKey)));
-    if (!unassigned) return;
-    setGroups((current) => [
-      ...current,
-      {
-        canonicalKey: unassigned.rawKey,
-        canonicalName: unassigned.labels[0] ?? unassigned.rawKey,
-        rawKeys: [unassigned.rawKey],
-        shared: false,
-      },
-    ]);
-  };
-
-  const assigned = new Set(groups.flatMap((group) => group.rawKeys));
-  const complete =
-    mapping !== null &&
-    mapping.brands.every((brand) => assigned.has(brand.rawKey)) &&
-    groups.every((group) => group.rawKeys.length > 0 && group.canonicalKey && group.canonicalName.trim());
 
   return (
     <div className="space-y-4">
@@ -165,7 +164,7 @@ function BrandMappingEditor({
         stageNumber={4}
         eyebrow="Canonical brand mapping"
         title="Confirm which store labels are the same brand"
-        description="These decisions are saved only for this store. Every product will be rescanned under the selected canonical chart key before research becomes available."
+        description="These aliases only route chart lookup in Phase 4 and later. Your products, original brand labels, classifications, and earlier-stage data remain unchanged."
         actions={
           <>
             {editing && status === "ready" && (
@@ -173,7 +172,7 @@ function BrandMappingEditor({
                 Cancel
               </Button>
             )}
-            <Button variant="ghost" size="sm" onClick={() => mapping && setGroups(cloneGroups(mapping.groups))} disabled={saving}>
+            <Button variant="ghost" size="sm" onClick={resetSuggestions} disabled={saving}>
               <RotateCcw className="h-3.5 w-3.5" /> Reset suggestions
             </Button>
             <Button size="sm" onClick={() => void save(groups)} disabled={!complete || saving}>
@@ -190,91 +189,115 @@ function BrandMappingEditor({
         </p>
       )}
 
-      {groups.length === 0 ? (
+      {mapping.brands.length === 0 ? (
         <div className="rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] p-6 text-sm text-[var(--color-text-secondary)]">
           No global brand labels need grouping. Save the empty mapping to continue.
         </div>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
-          {groups.map((group, groupIndex) => (
-            <section
-              key={`${group.canonicalKey}-${groupIndex}`}
-              className="space-y-4 rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] p-4 shadow-[var(--shadow-card)]"
-            >
-              <div className="space-y-2">
-                <label className="text-xs font-semibold text-[var(--color-text-muted)]">Canonical brand</label>
-                <input
-                  value={group.canonicalName}
-                  onChange={(event) => renameGroup(groupIndex, event.target.value)}
-                  className="w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-base)] px-3 py-2 text-sm font-semibold text-[var(--color-text-primary)] outline-none focus:border-[var(--color-brand)]"
-                />
-                {mapping && mapping.targets.length > 0 && (
-                  <select
-                    value={mapping.targets.some((target) => target.canonicalKey === group.canonicalKey) ? group.canonicalKey : ""}
-                    onChange={(event) => selectTarget(groupIndex, event.target.value)}
-                    className="w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-base)] px-3 py-2 text-xs text-[var(--color-text-secondary)]"
-                  >
-                    <option value="">New canonical brand</option>
-                    {mapping.targets.map((target) => (
-                      <option key={target.canonicalKey} value={target.canonicalKey}>
-                        {target.canonicalName}{target.shared ? " — shared chart registry" : ""}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
+        <div className="overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] shadow-[var(--shadow-card)]">
+          <div className="flex flex-col gap-3 border-b border-[var(--color-border)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="rounded-full bg-[var(--color-surface-base)] px-2.5 py-1 font-semibold text-[var(--color-text-secondary)]">
+                {mapping.brands.length} store labels
+              </span>
+              <span className="text-[var(--color-text-muted)]">→</span>
+              <span className="rounded-full bg-[var(--color-brand-light)] px-2.5 py-1 font-semibold text-[var(--color-brand)]">
+                {canonicalCount} canonical brands
+              </span>
+              {consolidated > 0 && (
+                <span className="text-[var(--color-text-muted)]">
+                  {consolidated} duplicate label{consolidated === 1 ? "" : "s"} consolidated
+                </span>
+              )}
+            </div>
+            <div className="relative w-full sm:w-72">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--color-text-muted)]" />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search store or canonical brand…"
+                className="w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-base)] py-2 pl-8 pr-3 text-xs text-[var(--color-text-primary)] outline-none focus:border-[var(--color-brand)]"
+              />
+            </div>
+          </div>
 
-              <div className="space-y-2">
-                {group.rawKeys.map((rawKey) => {
-                  const brand = brandByKey.get(rawKey);
+          <div className="max-h-[min(62vh,42rem)] overflow-auto">
+            <table className="w-full min-w-[760px] border-collapse text-left">
+              <thead className="sticky top-0 z-10 bg-[var(--color-surface-sticky)] text-[10px] uppercase tracking-[0.08em] text-[var(--color-text-muted)]">
+                <tr>
+                  <th className="w-[30%] px-4 py-3 font-semibold">Store brand label</th>
+                  <th className="w-[12%] px-4 py-3 font-semibold">Products</th>
+                  <th className="w-[25%] px-4 py-3 font-semibold">Sizing categories</th>
+                  <th className="w-[33%] px-4 py-3 font-semibold">Use charts from</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--color-border)]">
+                {filteredBrands.map((brand) => {
+                  const canonicalName = assignments[brand.rawKey] ?? "";
+                  const target = targetByKey.get(normalizeBrandKey(canonicalName));
+                  const isAlias = normalizeBrandKey(canonicalName) !== brand.rawKey;
                   return (
-                    <div key={rawKey} className="rounded-[var(--radius-lg)] border border-[var(--color-border)] p-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold text-[var(--color-text-primary)]">
-                            {brand?.labels.join(" / ") ?? rawKey}
+                    <tr key={brand.rawKey} className="align-middle transition-colors hover:bg-[var(--color-brand-light)]/15">
+                      <td className="px-4 py-3">
+                        <p className="text-sm font-semibold text-[var(--color-text-primary)]">
+                          {brand.labels[0] ?? brand.rawKey}
+                        </p>
+                        {brand.labels.length > 1 && (
+                          <p className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
+                            Also seen as: {brand.labels.slice(1).join(", ")}
                           </p>
-                          <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-                            {(brand?.skuCount ?? 0).toLocaleString()} items
-                            {brand?.sizingCategories.length ? ` · ${brand.sizingCategories.join(", ")}` : ""}
-                          </p>
-                        </div>
-                        {group.rawKeys.length > 1 && (
-                          <Button variant="ghost" size="sm" onClick={() => splitAlias(rawKey)}>
-                            <Split className="h-3.5 w-3.5" /> Separate
-                          </Button>
                         )}
-                      </div>
-                      {groups.length > 1 && (
-                        <label className="mt-3 flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
-                          <ArrowRightLeft className="h-3.5 w-3.5" />
-                          Move to
-                          <select
-                            value={groupIndex}
-                            onChange={(event) => moveAlias(rawKey, Number(event.target.value))}
-                            className="min-w-0 flex-1 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-base)] px-2 py-1.5 text-xs"
-                          >
-                            {groups.map((target, targetIndex) => (
-                              <option key={`${target.canonicalKey}-${targetIndex}`} value={targetIndex}>
-                                {target.canonicalName}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      )}
-                    </div>
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs font-semibold text-[var(--color-text-secondary)]">
+                        {brand.skuCount.toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-1">
+                          {brand.sizingCategories.slice(0, 3).map((category) => (
+                            <span
+                              key={category}
+                              className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface-base)] px-2 py-0.5 text-[10px] text-[var(--color-text-secondary)]"
+                            >
+                              {category}
+                            </span>
+                          ))}
+                          {brand.sizingCategories.length > 3 && (
+                            <span className="px-1 py-0.5 text-[10px] text-[var(--color-text-muted)]">
+                              +{brand.sizingCategories.length - 3}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <MappingSelect
+                          options={canonicalOptions}
+                          value={normalizeBrandKey(canonicalName)}
+                          onChange={(canonicalKey) => setCanonicalKey(brand.rawKey, canonicalKey)}
+                          label={`Canonical brand for ${brand.labels[0] ?? brand.rawKey}`}
+                          placeholder="Choose canonical brand…"
+                          disabled={saving}
+                          className="w-full py-2 text-sm"
+                        />
+                        <p className="mt-1 text-[10px] text-[var(--color-text-muted)]">
+                          {target?.shared
+                            ? "Shared chart registry match"
+                            : isAlias
+                              ? `Mapped to ${canonicalName || "—"}`
+                              : "Keeps its own chart identity"}
+                        </p>
+                      </td>
+                    </tr>
                   );
                 })}
+              </tbody>
+            </table>
+            {filteredBrands.length === 0 && (
+              <div className="px-4 py-10 text-center text-sm text-[var(--color-text-muted)]">
+                No brands match your search.
               </div>
-            </section>
-          ))}
+            )}
+          </div>
         </div>
-      )}
-
-      {mapping && assigned.size < mapping.brands.length && (
-        <Button variant="secondary" size="sm" onClick={addGroup}>
-          <Plus className="h-3.5 w-3.5" /> Add unassigned brand group
-        </Button>
       )}
     </div>
   );

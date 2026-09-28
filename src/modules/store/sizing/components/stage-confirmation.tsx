@@ -2,468 +2,402 @@
 
 import * as React from "react";
 import Image from "next/image";
+import { usePathname, useRouter } from "next/navigation";
 import {
-  Code2,
+  ArrowLeft,
+  ArrowRight,
   CheckCircle2,
-  Ruler,
-  Layers,
-  PackageCheck,
-  Sparkles,
-  Search,
-  Tag,
+  ChevronLeft,
+  ChevronRight,
   Eye,
-  ImageOff,
+  Layers,
+  Loader2,
+  RefreshCw,
+  Ruler,
+  Search,
+  ShieldCheck,
+  Tag,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { RunProgress, type RunLogLine, type RunPhase } from "@/components/ui/run-progress";
-import { StatTile } from "@/components/ui/stat-tile";
-import { CatalogIndexCard } from "@/modules/store/components/catalog-index-card";
-import { cn } from "@/lib/utils/cn";
+import { Modal } from "@/components/ui/modal";
+import {
+  isBodyMeasurement,
+  isSizingGroup,
+  MEASUREMENTS,
+  measurementsFor,
+  type Measurement,
+} from "@/lib/sizing/measurements";
+import { audienceForPersonaPath } from "@/lib/sizing/variant-match";
+import type {
+  ServerBrandType,
+  SizingResolutionSummary,
+  SizingSampleResponse,
+  SizingSampleRow,
+} from "../server-types";
+import { isRunWorking } from "../server-types";
 import { useSizingStore } from "../store";
-import { FOUND_SIZE_CHARTS } from "../mocks/charts";
-import { MOCK_SIZING_PRODUCTS } from "../mocks/catalog";
-import type { BrandType, FoundSizeChart, GapItem, SizingProduct } from "../types";
-import { StageHeaderBanner } from "./stage-header-banner";
 
-type BrandFilter = "all" | BrandType;
-
-/** Mirrors the demo's `resolveSizeChartForProduct`: which chart a given item actually resolves
- *  to, so the "Active Overview" table can show a real answer per row rather than a static label.
- *  Global brands hit their researched chart; private/null brands fall back to whichever gap item
- *  covers their category, then a generic metric matrix if nothing matches yet. */
-function resolveSizeChartForProduct(
-  product: SizingProduct,
-  charts: FoundSizeChart[],
-  gaps: GapItem[]
-): { chartName: string; chartType: BrandType; sourceLabel: string } {
-  const brandLower = product.brand.toLowerCase().trim();
-
-  if (product.brandType === "global") {
-    const found = charts.find((c) => c.brand.toLowerCase() === brandLower);
-    if (found) {
-      return { chartName: `${found.brand} Official Size Chart`, chartType: "global", sourceLabel: "Official brand source" };
-    }
-  }
-
-  if (product.brandType === "private" && brandLower) {
-    const matched = gaps.find((g) => g.brandName.toLowerCase().includes(brandLower) || brandLower.includes(g.brandName.toLowerCase()));
-    if (matched) {
-      return {
-        chartName: `${matched.brandName} — ${matched.categoryPath.split(">").pop()?.trim() ?? matched.categoryPath}`,
-        chartType: "private",
-        sourceLabel: matched.status === "complete" ? "Custom path matrix" : "Needs review",
-      };
-    }
-  }
-
-  const nullGap = gaps.find((g) => g.type === "category" && g.categoryPath.toLowerCase().includes(product.category.toLowerCase()));
-  if (nullGap) {
-    return { chartName: `Category Matrix (${nullGap.categoryPath})`, chartType: "null", sourceLabel: nullGap.status === "complete" ? "Category fallback matrix" : "Needs review" };
-  }
-
-  return { chartName: "Standard Apparel Metric Matrix", chartType: "null", sourceLabel: "Universal fallback" };
-}
-
-const PHASES: RunPhase[] = [
-  { id: "ingest", label: "Ingest", description: "Charts & gap grids" },
-  { id: "normalize", label: "Normalize", description: "Metric units" },
-  { id: "synthesize", label: "Synthesize", description: "Per-SKU schemas" },
-  { id: "validate", label: "Validate", description: "Integrity check" },
-];
-
-const LOGS: RunLogLine[] = [
-  { time: "0.2s", text: "Ingesting 6 researched charts and 5 hand-filled grids...", phaseId: "ingest" },
-  { time: "0.7s", text: "Resolving every SKU to its brand + category chart family...", phaseId: "ingest" },
-  { time: "1.2s", text: "Normalizing chest, waist, hip, inseam and foot length to cm...", phaseId: "normalize" },
-  { time: "1.8s", text: "Mapping regional labels (US, EU, JP) onto one vocabulary...", phaseId: "normalize" },
-  { time: "2.4s", text: "Synthesizing per-SKU size specifications...", phaseId: "synthesize" },
-  { time: "3.0s", text: "Attaching tolerances from your Size Filter defaults...", phaseId: "synthesize" },
-  { time: "3.5s", text: "Validating schema compliance across 2,240 items...", phaseId: "validate" },
-  { time: "3.9s", text: "Published: every item in scope now has a size specification.", phaseId: "validate" },
-];
-
-const PAYLOAD_STAGES = [
-  `{
-  "status": "initializing",
-  "chart_families": 11,
-  "items": 2240
-}`,
-  `{
-  "brand": "Nike",
-  "category": "Men > Tops",
-  "units": "cm",
-  "normalizing": true
-}`,
-  `{
-  "sku": "NK-TS-4410",
-  "chart_family": "nike__men-tops",
-  "sizes": [
-    { "label": "M", "chest_cm": [96, 104] },
-    { "label": "L", "chest_cm": [104, 112] }
-  ]
-}`,
-  `{
-  "status": "published",
-  "items_with_sizing": 2240,
-  "coverage": "100%"
-}`,
-];
-
-/**
- * Stage 6 — turning charts into per-item size specifications.
- *
- * The extraction run is what actually makes sizing usable: up to this point everything is keyed on
- * brand and category, and a shopper's measurements can only be checked against an individual item.
- */
-export function StageConfirmation() {
-  const extractionDone = useSizingStore((s) => s.extractionDone);
-  const setExtractionDone = useSizingStore((s) => s.setExtractionDone);
-  const gapItems = useSizingStore((s) => s.gapItems);
-
-  if (!extractionDone) {
-    return (
-      <RunProgress
-        title="Building size specifications"
-        subtitle="Resolving every item in scope to a chart and writing its measurement ranges"
-        icon={<Code2 className="h-5 w-5" />}
-        phases={PHASES}
-        logs={LOGS}
-        counter={{ total: 2240, noun: "items" }}
-        logFileName="size_spec_extraction.log"
-        onComplete={() => setExtractionDone(true)}
-        renderAside={({ percent }) => {
-          const index = Math.min(
-            PAYLOAD_STAGES.length - 1,
-            Math.floor((percent / 100) * PAYLOAD_STAGES.length)
-          );
-          return (
-            <div className="flex h-full flex-col overflow-hidden rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-elevated)]">
-              <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-2.5">
-                <span className="font-mono text-[11px] text-[var(--color-text-secondary)]">
-                  size_spec.json
-                </span>
-                <Badge variant="default" className="text-[10px]">
-                  <Sparkles className="h-2.5 w-2.5" /> Streaming
-                </Badge>
-              </div>
-              <pre className="flex-1 overflow-x-auto p-4 font-mono text-[11px] leading-relaxed text-[var(--color-success)]">
-                <code>{PAYLOAD_STAGES[index]}</code>
-              </pre>
-            </div>
-          );
-        }}
-      />
-    );
-  }
-
-  const filledGaps = gapItems.filter((gap) => gap.status === "complete").length;
-
-  return (
-    <div className="space-y-4">
-      <StageHeaderBanner
-        stageNumber={6}
-        eyebrow="Publish"
-        title="Sizing Pipeline — Active Overview"
-        description="Every item in scope now carries a per-SKU size specification your agent can check a shopper against."
-      />
-
-      <div className="flex items-start gap-3 rounded-[var(--radius-xl)] border border-[var(--color-success)]/30 bg-[var(--color-success-light)] p-5">
-        <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[var(--color-success)]" />
-        <div>
-          <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">
-            Sizing is live for your agent
-          </h3>
-          <p className="mt-0.5 text-xs text-[var(--color-text-secondary)]">
-            Every item in scope now carries measurement ranges. When a shopper gives their
-            measurements, Persona can rule out what will not fit before it recommends anything.
-          </p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <StatTile
-          icon={<Ruler className="h-4 w-4" />}
-          label="Charts published"
-          value={FOUND_SIZE_CHARTS.length}
-          note="Researched from brand size guides"
-        />
-        <StatTile
-          icon={<Layers className="h-4 w-4" />}
-          label="Gaps filled"
-          value={`${filledGaps} / ${gapItems.length}`}
-          note="Private labels and unbranded stock"
-        />
-        <StatTile
-          icon={<PackageCheck className="h-4 w-4" />}
-          label="Items covered"
-          value="2,240"
-          note="100% of your selected categories"
-        />
-      </div>
-
-      {/* The pipeline's last action, and the only place an index can be started. Everything it needs
-          is upstream: Stage 1's approved mapping, the Categories scope, and the charts resolved
-          above. */}
-      <div className="space-y-3 rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] p-4 shadow-[var(--shadow-card)] backdrop-blur-xl">
-        <div>
-          <h3 className="text-sm font-bold text-[var(--color-text-primary)]">Publish to search</h3>
-          <p className="text-xs text-[var(--color-text-muted)]">
-            Builds the search index your agent queries, carrying everything above with it. Safe to
-            re-run — it replaces what is already there rather than duplicating it.
-          </p>
-        </div>
-        <CatalogIndexCard />
-      </div>
-
-      <StageConfirmationCatalog gapItems={gapItems} />
-
-      <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-base)] p-4">
-        <p className="text-xs font-semibold text-[var(--color-text-primary)]">What happens next</p>
-        <ul className="mt-2 space-y-1.5 text-xs text-[var(--color-text-muted)]">
-          <li>
-            · New products arriving from your store are handled on the <strong>Sync</strong> tab —
-            brands already in the registry cost nothing to resolve.
-          </li>
-          <li>
-            · How strictly a size has to match before an item is ruled out is set on the{" "}
-            <strong>Size Filter</strong> tab.
-          </li>
-        </ul>
-      </div>
-    </div>
-  );
-}
-
-const BRAND_FILTER_META: Record<
-  BrandFilter,
-  { label: string; dotClass: string; activeClass: string; idleClass: string }
-> = {
-  all: {
-    label: "All items",
-    dotClass: "",
-    activeClass: "bg-[var(--color-neutral-fill-strong)] text-[var(--color-text-primary)] border border-[var(--color-border-strong)]",
-    idleClass: "bg-[var(--color-surface-elevated)] text-[var(--color-text-secondary)] border border-[var(--color-border)] hover:border-[var(--color-border-strong)]",
-  },
-  global: {
-    label: "Global brands",
-    dotClass: "bg-[var(--color-success)]",
-    activeClass: "bg-[var(--color-success-fill-strong)] text-[var(--color-success)] border border-[var(--color-success-border)]",
-    idleClass: "bg-[var(--color-success-light)] text-[var(--color-success)] border border-[var(--color-success)]/25 hover:border-[var(--color-success-border)]",
-  },
-  private: {
-    label: "Private brands",
-    dotClass: "bg-[var(--color-warning)]",
-    activeClass: "bg-[var(--color-warning-fill-strong)] text-[var(--color-warning)] border border-[var(--color-warning-border)]",
-    idleClass: "bg-[var(--color-warning-light)] text-[var(--color-warning)] border border-[var(--color-warning)]/25 hover:border-[var(--color-warning-border)]",
-  },
-  null: {
-    label: "Null / no brand",
-    dotClass: "bg-[var(--color-error)]",
-    activeClass: "bg-[var(--color-error-fill-strong)] text-[var(--color-error)] border border-[var(--color-error-border)]",
-    idleClass: "bg-[var(--color-error-light)] text-[var(--color-error)] border border-[var(--color-error)]/25 hover:border-[var(--color-error-border)]",
-  },
+const PAGE_SIZE = 25;
+const STATUS_LABELS: Record<string, string> = {
+  matched: "Ready",
+  "sizes-unknown": "Rescan needed",
+  "no-leaf": "No sizing leaf",
+  unclassified: "Brand unclassified",
+  "stale-brand-mapping": "Brand mapping changed",
+  "no-chart": "No chart covers this leaf",
+  ambiguous: "Several charts cover this leaf",
+  "fit-only": "Fit-specific chart only",
+  "parent-mismatch": "Leaf and parent disagree",
+  "sizes-unresolved": "Size labels do not match",
 };
 
-/**
- * The demo's marquee feature for this stage: every item next to the exact size chart it resolves
- * to, with an eye button to inspect it. Reuses the same brand-type filter chips as Stage 2 so the
- * two "browse the catalog" moments in the pipeline look like one interface, not two.
- */
-function StageConfirmationCatalog({ gapItems }: { gapItems: GapItem[] }) {
-  const openChartModal = useSizingStore((s) => s.openChartModal);
-  const [filter, setFilter] = React.useState<BrandFilter>("all");
-  const [query, setQuery] = React.useState("");
+function money(row: SizingSampleRow): string {
+  if (row.price === null) return "—";
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: row.currency ?? "USD",
+    }).format(row.price);
+  } catch {
+    return `${row.price} ${row.currency ?? ""}`.trim();
+  }
+}
 
-  const products = MOCK_SIZING_PRODUCTS;
+function brandTypeParam(type: "all" | ServerBrandType): string {
+  return type === "all" ? "" : `&brandType=${encodeURIComponent(type)}`;
+}
 
-  const counts = React.useMemo(
-    () => ({
-      all: products.length,
-      global: products.filter((p) => p.brandType === "global").length,
-      private: products.filter((p) => p.brandType === "private").length,
-      null: products.filter((p) => p.brandType === "null").length,
-    }),
-    [products]
-  );
+type PreviewChartRow = NonNullable<SizingSampleRow["chartRows"]>[number];
 
-  const visible = React.useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return products.filter((product) => {
-      if (filter !== "all" && product.brandType !== filter) return false;
-      if (!needle) return true;
-      return product.title.toLowerCase().includes(needle) || product.sku.toLowerCase().includes(needle) || product.brand.toLowerCase().includes(needle);
-    });
-  }, [products, filter, query]);
+function stockedChartRows(preview: SizingSampleRow): PreviewChartRow[] {
+  return (preview.chartRows ?? []).filter((chartRow) => {
+    const labels = [chartRow.size, ...Object.values(chartRow.aliases ?? {})];
+    return preview.canonicalSizes?.some((size) => labels.includes(size));
+  });
+}
+
+function bodyMeasurementsForPreview(preview: SizingSampleRow): Measurement[] {
+  if (!isSizingGroup(preview.sizingCategory)) return [];
+  const audience = preview.primaryLeafKey
+    ? audienceForPersonaPath(preview.primaryLeafKey) ?? "unisex"
+    : "unisex";
+  return measurementsFor(preview.sizingCategory, audience).filter(isBodyMeasurement);
+}
+
+function measurementRange(row: PreviewChartRow, measurement: Measurement): string {
+  const min = row[`${measurement}_min`];
+  const max = row[`${measurement}_max`];
+  if (typeof min === "number" && typeof max === "number") {
+    return min === max ? String(min) : `${min}–${max}`;
+  }
+  if (typeof min === "number") return `${min}+`;
+  if (typeof max === "number") return `≤${max}`;
+  return "—";
+}
+
+function StageFiveChartPreview({
+  preview,
+  onClose,
+}: {
+  preview: SizingSampleRow;
+  onClose: () => void;
+}) {
+  const chartRows = stockedChartRows(preview);
+  const measurements = bodyMeasurementsForPreview(preview);
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-col gap-3 rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] p-4 shadow-[var(--shadow-card)] backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="flex items-center gap-1 pl-1 font-medium text-[var(--color-text-muted)]">
-            <Tag className="h-3.5 w-3.5" /> Filter by brand type:
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="xl"
+      icon={<Ruler className="h-4 w-4" />}
+      title={
+        <span className="flex flex-wrap items-center gap-2">
+          {preview.canonicalBrandKey || preview.brand || "No brand"}
+          <span className="rounded-md border border-[var(--color-brand)]/25 bg-[var(--color-brand-light)] px-2 py-0.5 text-[10px] font-bold text-[var(--color-brand-strong)]">
+            {preview.chartVariantName}
           </span>
-          {(["all", "global", "private", "null"] as BrandFilter[]).map((id) => {
-            const meta = BRAND_FILTER_META[id];
-            const active = filter === id;
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setFilter(id)}
-                className={cn(
-                  "flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 font-medium transition-all",
-                  active ? meta.activeClass : meta.idleClass
-                )}
-              >
-                {meta.dotClass && <span className={cn("h-2 w-2 rounded-full", meta.dotClass)} />}
-                <span>{meta.label}</span>
-                <span className={cn("rounded-full px-1.5 py-0.2 text-[10px] font-bold", active ? "bg-[var(--color-surface-base)]/60" : "bg-[var(--color-surface-base)]")}>
-                  {counts[id]}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="relative w-full sm:w-64">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--color-text-muted)]" />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search title, SKU or brand…"
-            className="w-full rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-base)] py-2 pl-9 pr-3 text-xs text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-brand)] focus:outline-none"
-          />
-        </div>
-      </div>
-
-      <div className="overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] shadow-[var(--shadow-elevated)] backdrop-blur-xl">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-elevated)] text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">
-              <tr>
-                <th className="px-4 py-3.5">Product</th>
-                <th className="px-3 py-3.5">SKU</th>
-                <th className="px-3 py-3.5">Brand</th>
-                <th className="px-3 py-3.5">Sizes</th>
-                <th className="px-3 py-3.5">Price</th>
-                <th className="border-l border-[var(--color-brand)]/20 bg-[var(--color-brand-light)]/40 px-4 py-3.5 text-[var(--color-brand-strong)]">
-                  <span className="flex items-center gap-1.5">
-                    <Ruler className="h-3.5 w-3.5" /> Size chart
+        </span>
+      }
+      description="Only chart rows matching this product's stocked canonical sizes are shown."
+      footer={
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-[var(--radius-md)] bg-[var(--color-text-primary)] px-4 py-2 text-xs font-bold text-[var(--color-text-inverse)] shadow-sm transition-opacity hover:opacity-90"
+        >
+          Done &amp; Close
+        </button>
+      }
+    >
+      <div className="overflow-x-auto rounded-[var(--radius-lg)] border border-[var(--color-border)]">
+        <table className="w-full min-w-max text-left text-xs">
+          <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-elevated)] text-[var(--color-text-muted)]">
+            <tr>
+              <th className="whitespace-nowrap px-4 py-3 font-bold">Size</th>
+              <th className="whitespace-nowrap px-4 py-3 font-bold">Aliases</th>
+              {measurements.map((measurement) => (
+                <th key={measurement} className="whitespace-nowrap px-4 py-3 font-bold">
+                  {MEASUREMENTS[measurement].label}
+                  <span className="ml-1 font-normal text-[var(--color-text-muted)]">
+                    ({MEASUREMENTS[measurement].unit})
                   </span>
                 </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--color-border)]">
+            {chartRows.map((chartRow) => (
+              <tr key={chartRow.size} className="transition-colors hover:bg-[var(--color-brand-light)]/30">
+                <td className="whitespace-nowrap px-4 py-3 font-bold text-[var(--color-text-primary)]">
+                  {chartRow.size}
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-[var(--color-text-secondary)]">
+                  {Object.values(chartRow.aliases ?? {}).join(" · ") || "—"}
+                </td>
+                {measurements.map((measurement) => (
+                  <td
+                    key={measurement}
+                    className="whitespace-nowrap px-4 py-3 font-mono text-[var(--color-text-secondary)]"
+                  >
+                    {measurementRange(chartRow, measurement)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Modal>
+  );
+}
+
+export function StageConfirmation() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const run = useSizingStore((state) => state.run);
+  const loadRun = useSizingStore((state) => state.loadRun);
+  const prevStage = useSizingStore((state) => state.prevStage);
+
+  const [rows, setRows] = React.useState<SizingSampleRow[]>([]);
+  const [summary, setSummary] = React.useState<SizingResolutionSummary | null>(null);
+  const [brandType, setBrandType] = React.useState<"all" | ServerBrandType>("all");
+  const [queryInput, setQueryInput] = React.useState("");
+  const [query, setQuery] = React.useState("");
+  const [page, setPage] = React.useState(1);
+  const [total, setTotal] = React.useState(0);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+  const [publishing, setPublishing] = React.useState(false);
+  const [preview, setPreview] = React.useState<SizingSampleRow | null>(null);
+
+  const loadOverview = React.useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    const cursor = (page - 1) * PAGE_SIZE;
+    const params =
+      `?include=resolution&pageSize=${PAGE_SIZE}&count=1&cursor=${cursor}` +
+      brandTypeParam(brandType) +
+      (query ? `&q=${encodeURIComponent(query)}` : "");
+    try {
+      const [sampleResponse, summaryResponse] = await Promise.all([
+        fetch(`/api/store-connection/sizing/sample${params}`, { cache: "no-store" }),
+        fetch("/api/store-connection/sizing/resolution-summary", { cache: "no-store" }),
+      ]);
+      const sampleBody = await sampleResponse.json() as SizingSampleResponse & { error?: string };
+      const summaryBody = await summaryResponse.json() as SizingResolutionSummary & { error?: string };
+      if (!sampleResponse.ok) throw new Error(sampleBody.error ?? "Could not load products");
+      if (!summaryResponse.ok) throw new Error(summaryBody.error ?? "Could not load resolution totals");
+      setRows(sampleBody.rows);
+      setSummary(summaryBody);
+      setTotal(sampleBody.filteredTotal ?? sampleBody.selectionTotal ?? summaryBody.total);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not load Active Overview");
+    } finally {
+      setLoading(false);
+    }
+  }, [brandType, page, query]);
+
+  React.useEffect(() => {
+    void loadRun();
+  }, [loadRun]);
+
+  React.useEffect(() => {
+    const timer = window.setTimeout(() => void loadOverview(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadOverview]);
+
+  React.useEffect(() => {
+    if (!isRunWorking(run)) return;
+    const timer = window.setInterval(() => void loadRun(), 2_000);
+    return () => window.clearInterval(timer);
+  }, [loadRun, run]);
+
+  async function startPublish() {
+    setPublishing(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/store-connection/sizing/publish", { method: "POST" });
+      const body = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "Could not publish sizing");
+      await loadRun();
+    } catch (caught) {
+      setPublishing(false);
+      setError(caught instanceof Error ? caught.message : "Could not publish sizing");
+    }
+  }
+
+  const matched = summary?.matched ?? 0;
+  const percentage = summary?.matchPercent ?? 0;
+  const maxPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const publishWorking = publishing || (run?.stage === "publish" && isRunWorking(run));
+
+  return (
+    <div className="space-y-5">
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200 bg-gradient-to-r from-violet-50 via-white to-pink-50 px-6 py-5">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold text-violet-700">Stage 5 of 5 · Active Catalog</span>
+                <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
+                  {percentage}% resolved
+                </span>
+              </div>
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+                Active Catalog &amp; Size-Chart Mapping Matrix
+              </h1>
+              <p className="mt-1 text-sm text-slate-600">
+                Every result below is resolved from the product&apos;s primary Persona leaf and Stage 4 chart coverage.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void loadOverview()}
+              disabled={loading}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-sm disabled:opacity-50"
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
+            </button>
+          </div>
+        </div>
+
+        <div className="grid gap-3 border-b border-slate-200 bg-slate-50/70 p-4 sm:grid-cols-4">
+          {[
+            { label: "Catalog products", value: summary?.total ?? "—", icon: Layers },
+            { label: "Ready for sizing", value: matched, icon: CheckCircle2 },
+            { label: "Exact charts used", value: summary?.chartCount ?? "—", icon: ShieldCheck },
+            { label: "Unresolved", value: summary?.unresolved ?? "—", icon: Tag },
+          ].map(({ label, value, icon: Icon }) => (
+            <div key={label} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                <Icon className="h-4 w-4 text-violet-600" /> {label}
+              </div>
+              <p className="mt-1 text-xl font-extrabold text-slate-900">{value}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex flex-col gap-3 border-b border-slate-200 p-4 lg:flex-row lg:items-center lg:justify-between">
+          <form
+            className="relative min-w-0 flex-1"
+            onSubmit={(event) => {
+              event.preventDefault();
+              setPage(1);
+              setQuery(queryInput.trim());
+            }}
+          >
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+            <input
+              value={queryInput}
+              onChange={(event) => setQueryInput(event.target.value)}
+              placeholder="Search SKU, product or brand"
+              className="w-full rounded-xl border border-slate-200 py-2 pl-9 pr-3 text-sm text-slate-900 outline-none focus:border-violet-400"
+            />
+          </form>
+          <div className="flex flex-wrap gap-2">
+            {(["all", "global", "private", "none"] as const).map((type) => (
+              <button
+                key={type}
+                type="button"
+                onClick={() => {
+                  setPage(1);
+                  setBrandType(type);
+                }}
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
+                  brandType === type ? "bg-violet-600 text-white" : "bg-slate-100 text-slate-600"
+                }`}
+              >
+                {type === "all" ? "All" : type === "none" ? "No brand" : type[0].toUpperCase() + type.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {error && (
+          <div className="m-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+        )}
+
+        <div className="overflow-x-auto">
+          <table className="min-w-[1180px] w-full text-left text-xs">
+            <thead className="border-b border-slate-200 bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+              <tr>
+                {["Product", "Brand", "Merchant path", "Sizing leaf", "Store sizes", "Canonical sizes", "Final chart", "Status", ""].map((label) => (
+                  <th key={label} className="px-4 py-3 font-bold">{label}</th>
+                ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-[var(--color-border)]">
-              {visible.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-6 py-10 text-center text-[var(--color-text-muted)]">
-                    Nothing matches that filter.
-                  </td>
-                </tr>
-              ) : (
-                visible.map((product) => {
-                  const resolved = resolveSizeChartForProduct(product, FOUND_SIZE_CHARTS, gapItems);
-                  const isNull = product.brandType === "null" || !product.brand;
-                  const isPrivate = product.brandType === "private";
-                  return (
-                    <tr
-                      key={product.id}
-                      className={cn(
-                        "transition-colors",
-                        isNull
-                          ? "bg-[var(--color-error-light)]/20 hover:bg-[var(--color-error-light)]/40"
-                          : isPrivate
-                            ? "bg-[var(--color-warning-light)]/20 hover:bg-[var(--color-warning-light)]/40"
-                            : "hover:bg-[var(--color-brand-light)]/20"
-                      )}
-                    >
-                      <td className="min-w-[200px] px-4 py-3">
-                        <div className="flex items-center gap-2.5">
-                          <ConfirmationThumb src={product.imageUrl} alt={product.title} />
-                          <div className="min-w-0">
-                            <p className="truncate font-semibold text-[var(--color-text-primary)]" title={product.title}>
-                              {product.title}
-                            </p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-3 font-mono text-[var(--color-text-secondary)]">{product.sku}</td>
-                      <td className="whitespace-nowrap px-3 py-3">
-                        {isNull ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-error)]/30 bg-[var(--color-error-light)] px-2 py-0.5 text-[10px] font-bold text-[var(--color-error)]">
-                            No brand
-                          </span>
-                        ) : (
-                          <span
-                            className={cn(
-                              "inline-flex items-center gap-1.5 rounded-lg border px-2 py-0.5 text-[10px] font-bold",
-                              isPrivate
-                                ? "border-[var(--color-warning)]/30 bg-[var(--color-warning-light)] text-[var(--color-warning)]"
-                                : "border-[var(--color-success)]/30 bg-[var(--color-success-light)] text-[var(--color-success)]"
-                            )}
-                          >
-                            {product.brand}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-3">
-                        <div className="flex max-w-[110px] flex-wrap gap-1">
-                          {product.sizes.slice(0, 2).map((size) => (
-                            <span key={size} className="rounded border border-[var(--color-border)] bg-[var(--color-surface-base)] px-1 py-0.5 font-mono text-[9px] text-[var(--color-text-secondary)]">
-                              {size}
-                            </span>
-                          ))}
-                          {product.sizes.length > 2 && (
-                            <span className="self-center font-mono text-[9px] text-[var(--color-text-muted)]">+{product.sizes.length - 2}</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-3 font-bold text-[var(--color-text-primary)]">{product.price}</td>
-                      <td className="border-l border-[var(--color-brand)]/20 bg-[var(--color-brand-light)]/10 px-4 py-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="truncate text-[11px] font-semibold text-[var(--color-text-primary)]" title={resolved.chartName}>
-                              {resolved.chartName}
-                            </p>
-                            <p className="text-[10px] font-medium text-[var(--color-brand)]">{resolved.sourceLabel}</p>
-                          </div>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            className="shrink-0"
-                            onClick={() => {
-                              const chart = FOUND_SIZE_CHARTS.find((c) => c.brand.toLowerCase() === product.brand.toLowerCase());
-                              if (chart) openChartModal(chart, product);
-                            }}
-                          >
-                            <Eye className="h-3 w-3" /> View
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
+            <tbody className="divide-y divide-slate-100">
+              {loading && rows.length === 0 ? (
+                <tr><td colSpan={9} className="px-4 py-16 text-center text-slate-500"><Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />Resolving products…</td></tr>
+              ) : rows.length === 0 ? (
+                <tr><td colSpan={9} className="px-4 py-16 text-center text-slate-500">No products match this view.</td></tr>
+              ) : rows.map((row) => {
+                const ready = row.resolutionStatus === "matched";
+                return (
+                  <tr key={row.externalId} className="align-top hover:bg-violet-50/30">
+                    <td className="px-4 py-3">
+                      <div className="flex min-w-[190px] gap-3">
+                        {row.imageUrl ? <Image src={row.imageUrl} alt="" width={40} height={40} unoptimized className="h-10 w-10 rounded-lg object-cover" /> : <div className="h-10 w-10 rounded-lg bg-slate-100" />}
+                        <div><p className="font-semibold text-slate-900">{row.title}</p><p className="text-slate-400">{row.sku ?? "No SKU"} · {money(row)}</p></div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3"><p className="font-semibold text-slate-800">{row.canonicalBrandKey || row.brand || "No brand"}</p><p className="text-slate-400">{row.brand ?? "Unbranded"}</p></td>
+                    <td className="max-w-[180px] px-4 py-3 text-slate-600">{row.storeCategoryPath.join(" › ") || "—"}</td>
+                    <td className="px-4 py-3 font-mono text-[11px] text-slate-600">{row.primaryLeafKey ?? "—"}</td>
+                    <td className="px-4 py-3 text-slate-700">{row.sizes.join(", ") || "—"}</td>
+                    <td className="px-4 py-3 font-semibold text-violet-700">{row.canonicalSizes?.join(", ") || "—"}</td>
+                    <td className="px-4 py-3"><p className="font-semibold text-slate-800">{row.chartVariantName ?? "—"}</p><p className="max-w-[150px] truncate font-mono text-[9px] text-slate-400">{row.chartKey}</p></td>
+                    <td className="px-4 py-3"><span className={`rounded-full px-2 py-1 font-semibold ${ready ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{STATUS_LABELS[row.resolutionStatus ?? ""] ?? "Pending"}</span></td>
+                    <td className="px-4 py-3">
+                      <button type="button" disabled={!ready} onClick={() => setPreview(row)} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 font-semibold text-violet-700 disabled:opacity-30"><Eye className="h-3.5 w-3.5" /> Chart</button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
-      </div>
-    </div>
-  );
-}
 
-function ConfirmationThumb({ src, alt }: { src: string; alt: string }) {
-  const [failed, setFailed] = React.useState(false);
-
-  return (
-    <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-elevated)]">
-      {failed ? (
-        <div className="flex h-full w-full items-center justify-center">
-          <ImageOff className="h-3 w-3 text-[var(--color-text-muted)]" />
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-xs text-slate-600">
+          <span><strong>{total.toLocaleString()}</strong> products · page {page} of {maxPage}</span>
+          <div className="flex gap-2">
+            <button type="button" disabled={page === 1 || loading} onClick={() => setPage((value) => value - 1)} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 disabled:opacity-40"><ChevronLeft className="h-3.5 w-3.5" /> Previous</button>
+            <button type="button" disabled={page >= maxPage || loading} onClick={() => setPage((value) => value + 1)} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 disabled:opacity-40">Next <ChevronRight className="h-3.5 w-3.5" /></button>
+          </div>
         </div>
-      ) : (
-        <Image src={src} alt={alt} fill sizes="36px" className="object-cover" onError={() => setFailed(true)} unoptimized />
+      </section>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <button type="button" onClick={prevStage} className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700"><ArrowLeft className="h-4 w-4" /> Back to Size Chart Research</button>
+        {run?.publishedAt ? (
+          <button type="button" onClick={() => router.push(`${pathname}?section=sizingtester`)} className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-pink-500 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-violet-500/20">Open Sizing Tester <ArrowRight className="h-4 w-4" /></button>
+        ) : (
+          <button type="button" disabled={publishWorking || loading} onClick={() => void startPublish()} className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-pink-500 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-violet-500/20 disabled:opacity-50">{publishWorking ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />} Finish &amp; publish sizing</button>
+        )}
+      </div>
+
+      {preview && (
+        <StageFiveChartPreview preview={preview} onClose={() => setPreview(null)} />
       )}
     </div>
   );

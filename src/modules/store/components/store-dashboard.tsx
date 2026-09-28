@@ -2,19 +2,19 @@
 
 import { Suspense } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Palette, SlidersHorizontal } from "lucide-react";
+import { Palette } from "lucide-react";
 import { DashboardPageHeader } from "@/components/layout/dashboard-header-context";
 import { SettingsSection } from "@/components/ui/settings-section";
 import { ConnectStoreView } from "./connect-store-view";
 import { CategoryMappingView } from "../mapping/category-mapping-view";
 import { StyleGuideEditor } from "./style-guide-editor";
 import { SetupPipeline } from "../sizing/components/setup-pipeline";
-import { SizeFilterPanel } from "../sizing/components/size-filter-panel";
+import { SizingTesterView } from "../../../../Documentation/store_src_demo_frontend/components/SizingTesterView";
 import { useStoreConnect } from "../hooks/use-store-connect";
 import { useSizingStore } from "../sizing/store";
 
 /**
- * Connection → Categories → Setup → Size Filter → Style Guide, which is the order the work actually
+ * Connection → Mapping → Setup → Sizing Tester → Style Guide, which is the order the work actually
  * happens in.
  *
  * The old "Catalog Sync" tab is gone: it sat before Setup and could start an index, so a merchant
@@ -22,14 +22,19 @@ import { useSizingStore } from "../sizing/store";
  * control is now Setup's final step. "Sync" (daily delta) is hidden until it is built, rather than
  * shipping a tab backed entirely by mocks.
  */
-type StoreTab = "connection" | "mapping" | "setup" | "sizefilter" | "style";
+type StoreTab = "connection" | "mapping" | "setup" | "sizingtester" | "style";
 
-const VALID_TABS = new Set<StoreTab>(["connection", "mapping", "setup", "sizefilter", "style"]);
+const VALID_TABS = new Set<StoreTab>(["connection", "mapping", "setup", "sizingtester", "style"]);
 
 /** `catalog` was the retired Catalog Sync tab. Anything still linking to it — a bookmark, the
  *  catalog-ready CTA — lands on Setup, which is where indexing lives now, rather than silently
  *  falling back to Connection. */
-const RETIRED_TABS: Record<string, StoreTab> = { categories: "mapping", catalog: "setup", sync: "setup" };
+const RETIRED_TABS: Record<string, StoreTab> = {
+  categories: "mapping",
+  catalog: "setup",
+  sync: "setup",
+  sizefilter: "sizingtester",
+};
 
 function parseTab(value: string | null): StoreTab {
   if (!value) return "connection";
@@ -95,15 +100,10 @@ function StoreDashboardInner() {
            *  Setup tab, which is the stepper and the stage content with no title card above them. */}
           {activeTab === "setup" && connection && <SetupPipeline />}
 
-          {activeTab === "sizefilter" && connection && (
-            <SettingsSection
-              title="Size Filter"
-              description="How strictly a size has to match a shopper before Persona rules an item out"
-              icon={<SlidersHorizontal className="h-4 w-4" />}
-              accent="violet"
-            >
-              <SizeFilterPanel />
-            </SettingsSection>
+          {activeTab === "sizingtester" && connection && (
+            <div className="sizing-tester-brand">
+              <SizingTesterView />
+            </div>
           )}
 
           {activeTab === "style" && connection && (

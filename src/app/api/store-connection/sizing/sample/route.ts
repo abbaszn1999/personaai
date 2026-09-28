@@ -14,6 +14,12 @@ import { normalizeBrandKey, UNKNOWN_BRAND_KEY } from "@/lib/sizing/keys";
 import { isSizingGroup, SIZING_GROUP_KEYS } from "@/lib/sizing/measurements";
 import { labelFor } from "@/lib/sizing/summary";
 import { toRawFormat } from "@/lib/sizing/aggregate";
+import {
+  loadSizingResolutionContext,
+  resolveProductChart,
+  type ProductChartStatus,
+} from "@/lib/sizing/product-chart";
+import type { SizeChartRow } from "@/lib/sizing/chart-schema";
 import { SAMPLE_PAGE_SIZES } from "@/modules/store/sizing/server-types";
 
 const DEFAULT_PAGE_SIZE = 25;
@@ -55,6 +61,14 @@ export interface SizingSampleRow {
   /** The deduplicated size string this product contributes to its coverage row. */
   rawFormat: string | null;
   storeCategoryPath: string[];
+  primaryLeafKey?: string | null;
+  canonicalBrandKey?: string;
+  resolutionStatus?: ProductChartStatus;
+  canonicalSizes?: string[];
+  chartId?: string | null;
+  chartVariantName?: string | null;
+  chartRows?: SizeChartRow[];
+  chartKey?: string | null;
 }
 
 /**
@@ -155,6 +169,7 @@ export async function GET(request: Request) {
     const requestedParent = params.get("parent");
     const parentFilter = requestedParent && isSizingGroup(requestedParent) ? requestedParent : null;
     const search = (params.get("q") ?? "").trim().toLowerCase();
+    const includeResolution = params.get("include")?.split(",").includes("resolution") === true;
     const filtering = brandTypeFilter !== null || parentFilter !== null || search.length > 0;
 
     const { chips: typeChipCounts, items: typeItemCounts, byParent } = countCoverage(coverage);
@@ -179,6 +194,9 @@ export async function GET(request: Request) {
     // One entry per brand: a brand's type is the same in every category it appears in.
     const brandTypes = new Map<string, BrandType>();
     for (const row of coverage) brandTypes.set(row.brandKey, row.brandType);
+    const resolutionContext = includeResolution
+      ? await loadSizingResolutionContext(connection)
+      : null;
 
     const toRow = (raw: RawCatalogProduct, indexed?: SizingProductRecordRow): SizingSampleRow => {
       const variants = extractVariantAttributes(raw, connection.acsFieldMapping);
@@ -197,7 +215,7 @@ export async function GET(request: Request) {
       const sizingCategory = indexed?.sizingCategory ??
         (isSizingGroup(override) ? override : primaryPersonaPath?.sizingGroup ?? null);
 
-      return {
+      const row: SizingSampleRow = {
         externalId: raw.externalId,
         sku: raw.sku,
         title: raw.title,
@@ -216,6 +234,23 @@ export async function GET(request: Request) {
         rawFormat: toRawFormat(variants.sizes),
         storeCategoryPath: storeCategoryPaths[0] ?? [],
       };
+      if (resolutionContext) {
+        const resolution = resolveProductChart({
+          brandKey,
+          sizingCategory: indexed?.sizingCategory ?? sizingCategory ?? "",
+          primaryPersonaLeafKey: indexed?.primaryPersonaLeafKey ?? primaryPersonaPath?.key ?? null,
+          rawSizeFormat: toRawFormat(variants.sizes),
+        }, resolutionContext);
+        row.primaryLeafKey = resolution.leafKey;
+        row.canonicalBrandKey = resolution.canonicalBrandKey;
+        row.resolutionStatus = resolution.status;
+        row.canonicalSizes = resolution.status === "matched" ? resolution.canonicalSizes : [];
+        row.chartId = resolution.status === "matched" ? resolution.chart.id : null;
+        row.chartVariantName = resolution.status === "matched" ? resolution.chart.variantName : null;
+        row.chartRows = resolution.status === "matched" ? resolution.chart.chartRows : [];
+        row.chartKey = resolution.status === "matched" ? resolution.chartKey : null;
+      }
+      return row;
     };
 
     const parsedOffset = Number(params.get("cursor"));

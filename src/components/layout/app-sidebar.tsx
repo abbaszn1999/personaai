@@ -20,7 +20,7 @@ import {
   Clock3,
   FolderTree,
   Ruler,
-  SlidersHorizontal,
+  FlaskConical,
 } from "lucide-react";
 import { LogoMark } from "@/components/brand/logo";
 import { SidebarNavItem } from "./sidebar/sidebar-nav-item";
@@ -130,10 +130,10 @@ export function AppSidebar() {
       disabled: !connection,
     },
     {
-      label: "Size Filter",
-      href: "/store?section=sizefilter",
-      icon: <SlidersHorizontal className="h-3.5 w-3.5" />,
-      active: storeActive && storeSection === "sizefilter",
+      label: "Sizing Tester",
+      href: "/store?section=sizingtester",
+      icon: <FlaskConical className="h-3.5 w-3.5" />,
+      active: storeActive && storeSection === "sizingtester",
       disabled: !connection,
     },
     // Style Guide sits last so the tabs above it read as the setup pipeline, in order.

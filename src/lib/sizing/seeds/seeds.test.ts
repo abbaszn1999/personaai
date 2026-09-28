@@ -1,10 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { allSeedCharts, CHART_SEEDS } from "./index";
-import { boundsFor, chartHasBounds, chartLabelSystems, rowLabels } from "@/lib/sizing/chart-schema";
-import { GIRTH_MEASUREMENTS, isSizingGroup, MEASUREMENT_KEYS, requiredMeasurementsFor, type SizingGroup } from "@/lib/sizing/measurements";
+import {
+  allowedAliasKeys,
+  boundsFor,
+  chartHasBounds,
+  chartLabelSystems,
+  rowLabels,
+  type SizeAliasKey,
+} from "@/lib/sizing/chart-schema";
+import {
+  GIRTH_MEASUREMENTS,
+  isSizingGroup,
+  MEASUREMENT_KEYS,
+  measurementsFor,
+  requiredMeasurementsFor,
+  type SizingGroup,
+} from "@/lib/sizing/measurements";
 import { AUDIENCES, normalizeBrandKey } from "@/lib/sizing/keys";
 import { rowsFromColumns } from "./types";
-import { audienceForPersonaPath, sanitizeCoverage, variantTags } from "@/lib/sizing/variant-match";
+import { sanitizeCoverage, variantTags } from "@/lib/sizing/variant-match";
 import { PERSONA_CATEGORIES, PERSONA_DEPARTMENTS, leafKeysFor } from "@/modules/store/mapping/persona-taxonomy";
 
 /**
@@ -71,7 +85,7 @@ describe("chart seeds", () => {
   it("carries the measurement its group is useless without", () => {
     for (const chart of charts) {
       expect(
-        chartHasBounds(chart.chartRows, chart.sizingCategory),
+        chartHasBounds(chart.chartRows, chart.sizingCategory, chart.audience),
         `${chart.variantName} (${chart.sizingCategory}) has no required measurement`
       ).toBe(true);
     }
@@ -88,6 +102,35 @@ describe("chart seeds", () => {
             boundsFor(row, measurement),
             `${chart.variantName} row ${row.size} is missing ${measurement}`
           ).not.toBeNull();
+        }
+      }
+    }
+  });
+
+  it("publishes only the fixed measurements for its audience and category", () => {
+    for (const chart of charts) {
+      const allowed = new Set(measurementsFor(chart.sizingCategory, chart.audience));
+      for (const row of chart.chartRows) {
+        const present = MEASUREMENT_KEYS.filter(
+          (measurement) => `${measurement}_min` in row || `${measurement}_max` in row
+        );
+        expect(
+          present.every((measurement) => allowed.has(measurement)),
+          `${chart.brandKey} ${chart.variantName} (${chart.audience}/${chart.sizingCategory}) has ${present.join(", ")}`
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("uses aliases only in their allowed audience and category", () => {
+    for (const chart of charts) {
+      const allowedAliases = new Set(allowedAliasKeys(chart.sizingCategory, chart.audience));
+      for (const row of chart.chartRows) {
+        for (const alias of Object.keys(row.aliases ?? {})) {
+          expect(
+            allowedAliases.has(alias as SizeAliasKey),
+            `${chart.brandKey} ${chart.variantName} (${chart.audience}/${chart.sizingCategory}) uses ${alias}`
+          ).toBe(true);
         }
       }
     }
@@ -136,13 +179,11 @@ describe("chart seeds", () => {
     // right table, but one size's range sits below the size before it. This is the check that caught
     // the swimsuit hip typo.
     //
-    // Charts carrying `underbust` are exempt, and only those. A bra grid is two-dimensional — band
-    // then cup — so chest genuinely resets when the band steps up (70F is a wider chest than 75A).
-    // Asserting a single ordering over a 2-D grid flattened into rows would be asserting something
-    // untrue about the garment, so the exemption is keyed on the measurement that proves the grid is
-    // 2-D rather than on the variant's name.
+    // A bra grid is two-dimensional — band then cup — so chest genuinely resets when the band steps
+    // up (70F is a wider chest than 75A). Underbust is intentionally absent from the fixed tops
+    // fields, so the stable bra leaf identifies this one legitimate duplicate-range exception.
     const isBandAndCup = (chart: (typeof charts)[number]) =>
-      chart.chartRows.some((row) => boundsFor(row, "underbust") !== null);
+      chart.coversLeaves.includes("women:top:bra");
 
     for (const chart of charts) {
       if (isBandAndCup(chart)) continue;
@@ -189,8 +230,8 @@ describe("chart seeds", () => {
   });
 
   /**
-   * `covers_leaves` is what `chartsForLeaf` trusts absolutely — it is never re-derived from a
-   * chart's name or fields, only read back. So a seed claiming a leaf outside its own audience or
+   * `covers_leaves` is the resolver's assignment truth — it is never re-derived from a
+   * chart's name or fields. So a seed claiming a leaf outside its own audience or
    * sizing group would misassign real stock with nothing downstream positioned to catch it. This
    * re-runs every hand-transcribed chart through the exact gate the research pass and the manual
    * chart API are held to, rather than trusting a human transcriber to have applied the rule by eye.
@@ -203,8 +244,7 @@ describe("chart seeds", () => {
   });
 
   /**
-   * The invariant `chartsForLeaf`'s fit-class guard exists to not have to rely on: `Men Tailored
-   * Long` and every table like it should carry no leaf in the first place, because a fit class
+   * Fit-class tables such as `Men Tailored Long` should carry no leaf, because a fit class
    * describes the shopper's own proportions, never the garment. This is checked at the data level so
    * a future seed cannot quietly depend on the guard instead of stating its coverage honestly.
    */
@@ -227,11 +267,12 @@ describe("chart seeds", () => {
     const claimCounts = new Map<string, number>();
     for (const chart of charts) {
       for (const leaf of chart.coversLeaves) {
-        claimCounts.set(leaf, (claimCounts.get(leaf) ?? 0) + 1);
+        const key = `${chart.brandKey}|${leaf}`;
+        claimCounts.set(key, (claimCounts.get(key) ?? 0) + 1);
       }
     }
-    for (const [leaf, count] of claimCounts) {
-      expect(count, `${leaf} is claimed by ${count} charts`).toBeLessThanOrEqual(2);
+    for (const [key, count] of claimCounts) {
+      expect(count, `${key} is claimed by ${count} charts`).toBeLessThanOrEqual(2);
     }
   });
 });
@@ -243,10 +284,9 @@ describe("chart seeds", () => {
  * outerwear leaves, which sat uncovered for a release because nothing forced a diff against the full
  * taxonomy rather than against the previous seed.
  *
- * A department the brand's seed never touches at all (zero leaves claimed anywhere under it, e.g.
- * Tommy Hilfiger and `unisex`) is skipped rather than flagged: that is a whole department the brand
- * genuinely does not sell into, which is a different fact from a gap inside a department it does
- * sell into, and conflating the two would force either a fabricated unisex chart or a silenced test.
+ * Whole departments the brand does not publish are not silently skipped. They must be declared in
+ * `UNSUPPORTED_DEPARTMENTS`, so all six Persona departments are audited for every global seed
+ * without forcing a fabricated chart.
  *
  * Every entry below is a leaf a real, cited source does not publish — not a chart this file forgot
  * to write. Adding to this list without a reason next to it defeats the point of the test.
@@ -279,24 +319,140 @@ const ALLOWED_GAPS: Record<string, string[]> = {
     "kids-girls:footwear:sock",
     "kids-unisex:footwear:sock",
   ],
+  tom_tailor: [
+    // The official guide names only T-shirts/polos, knits/sweats and blouses in women's tops.
+    "women:top:camisole",
+    "women:top:crop-top",
+    "women:top:bodysuit",
+    "women:top:tunic",
+    "women:top:activewear-top",
+    "women:top:swim-top",
+    "women:top:sleep-top",
+    "women:top:bra",
+    // Trousers, jeans and skirts are the only published women's bottom tables.
+    "women:bottom:culotte",
+    "women:bottom:activewear-bottom",
+    "women:bottom:swim-bottom",
+    "women:bottom:sleep-bottom",
+    // The full-body source heading names dresses only.
+    "women:full-body:gown",
+    "women:full-body:romper",
+    "women:full-body:kaftan",
+    "women:full-body:abaya",
+    "women:full-body:swimsuit",
+    "women:full-body:set",
+    "women:full-body:sleepwear-set",
+    // Only jackets and blazers have published women's outerwear tables.
+    "women:outerwear:trench",
+    "women:outerwear:vest",
+    "women:outerwear:kimono",
+    "women:outerwear:activewear-jacket",
+    // This guide publishes no foot-length table.
+    ...leafKeysFor("women", "footwear"),
+    // Men's tops cover shirts and the explicitly named T-shirt/polo/knit/sweat family only.
+    "men:top:activewear-top",
+    "men:top:sleep-top",
+    // Only jeans and trousers have published men's bottom tables.
+    "men:bottom:jogger",
+    "men:bottom:activewear-bottom",
+    "men:bottom:swim-short",
+    "men:bottom:sleep-bottom",
+    // No men's full-body table is published.
+    ...leafKeysFor("men", "full-body"),
+    // The source names jackets and blazers, not the remaining outerwear classes.
+    "men:outerwear:suit-jacket",
+    "men:outerwear:coat",
+    "men:outerwear:activewear-jacket",
+    ...leafKeysFor("men", "footwear"),
+  ],
+  penti: [
+    // The ordinary apparel table has no blouse-specific table.
+    "women:top:blouse",
+    "women:top:knit",
+    "women:top:sweater",
+    "women:top:hoodie",
+    "women:top:sweatshirt",
+    "women:top:tunic",
+    // Penti's cited ordinary and swim sources publish no denim table.
+    "women:bottom:jean",
+    "women:bottom:culotte",
+    // Neither source names gowns or abayas.
+    "women:full-body:gown",
+    "women:full-body:jumpsuit",
+    "women:full-body:romper",
+    "women:full-body:abaya",
+    // The ordinary table supports the brand's kimono product class, but the available official
+    // sources publish no chart for the other outerwear classes.
+    "women:outerwear:blazer",
+    "women:outerwear:jacket",
+    "women:outerwear:coat",
+    "women:outerwear:trench",
+    "women:outerwear:cardigan",
+    "women:outerwear:vest",
+    "women:outerwear:activewear-jacket",
+    // No foot-length table is published in the cited sources.
+    ...leafKeysFor("women", "footwear"),
+    // Penti's general kids chart supports apparel and sleepwear. It does not publish infant
+    // one-piece measurements, a boys' swim chart, outerwear-specific tables or foot lengths.
+    "kids-boys:top:bodysuit",
+    "kids-boys:bottom:swim-short",
+    "kids-boys:full-body:romper",
+    "kids-boys:full-body:all-in-one",
+    "kids-boys:full-body:sleepsuit",
+    "kids-boys:full-body:swimsuit",
+    ...leafKeysFor("kids-boys", "outerwear"),
+    ...leafKeysFor("kids-boys", "footwear"),
+    "kids-girls:top:bodysuit",
+    "kids-girls:full-body:romper",
+    "kids-girls:full-body:all-in-one",
+    "kids-girls:full-body:sleepsuit",
+    // The girls' swim table publishes bust/waist/hip but no required height, so it cannot safely
+    // drive the child recommendation model without fabricating a height mapping.
+    "kids-girls:full-body:swimsuit",
+    ...leafKeysFor("kids-girls", "outerwear"),
+    ...leafKeysFor("kids-girls", "footwear"),
+  ],
+  xint: [
+    // XINT's embedded guide publishes tops, bottoms and shoes only.
+    "women:top:bra",
+    ...leafKeysFor("women", "full-body"),
+    ...leafKeysFor("women", "outerwear"),
+    "women:footwear:sock",
+    ...leafKeysFor("men", "full-body"),
+    ...leafKeysFor("men", "outerwear"),
+    "men:footwear:sock",
+  ],
+};
+
+/** A whole Persona department for which the brand publishes no applicable chart. This is explicit
+ * rather than inferred from an empty seed so adding a new global brand always requires reviewing all
+ * six departments. A listed department must have zero claimed leaves. */
+const UNSUPPORTED_DEPARTMENTS: Record<string, string[]> = {
+  tommy_hilfiger: ["unisex"],
+  tom_tailor: ["unisex", "kids-boys", "kids-girls", "kids-unisex"],
+  penti: ["men", "unisex", "kids-unisex"],
+  xint: ["unisex", "kids-boys", "kids-girls", "kids-unisex"],
 };
 
 describe("seed coverage completeness", () => {
-  it("claims every taxonomy leaf a brand's seed touches at all, or documents why not", () => {
+  it("audits every department and claims every supported leaf or documents why not", () => {
     for (const [brandKey, brandCharts] of Object.entries(CHART_SEEDS)) {
       const claimed = new Set(brandCharts.flatMap((chart) => chart.coversLeaves));
       const allowed = new Set(ALLOWED_GAPS[brandKey] ?? []);
+      const unsupportedDepartments = new Set(UNSUPPORTED_DEPARTMENTS[brandKey] ?? []);
 
       for (const dept of PERSONA_DEPARTMENTS) {
-        const deptAudience = audienceForPersonaPath(dept.id);
+        const departmentLeaves = PERSONA_CATEGORIES.flatMap((cat) => leafKeysFor(dept.id, cat.id));
+        if (unsupportedDepartments.has(dept.id)) {
+          expect(
+            departmentLeaves.some((leaf) => claimed.has(leaf)),
+            `${brandKey}: ${dept.id} is declared unsupported but claims leaves`
+          ).toBe(false);
+          continue;
+        }
+
         for (const cat of PERSONA_CATEGORIES) {
           const leaves = leafKeysFor(dept.id, cat.id);
-          // Skip a department this brand's seed never claims a single leaf under, in any category —
-          // a whole department the brand does not sell into, not a gap inside one it does.
-          const brandTouchesDept = brandCharts.some(
-            (chart) => chart.audience === deptAudience || chart.coversLeaves.some((leaf) => leaf.startsWith(`${dept.id}:`))
-          );
-          if (!brandTouchesDept) continue;
 
           for (const leaf of leaves) {
             expect(
@@ -311,6 +467,13 @@ describe("seed coverage completeness", () => {
       // added for it — otherwise the allowlist rots into a second place gaps hide.
       for (const leaf of allowed) {
         expect(claimed.has(leaf), `${brandKey}: ${leaf} is on the allowlist but is also claimed by a chart`).toBe(false);
+      }
+
+      for (const deptId of unsupportedDepartments) {
+        expect(
+          PERSONA_DEPARTMENTS.some((dept) => dept.id === deptId),
+          `${brandKey}: unknown unsupported department ${deptId}`
+        ).toBe(true);
       }
     }
   });

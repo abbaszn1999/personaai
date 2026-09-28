@@ -96,6 +96,24 @@ describe("deleteAllAcsProductsForConnection", () => {
     expect(listSpy).toHaveBeenNthCalledWith(2, "page-2");
   });
 
+  it("deletes every variant before deleting its parent", async () => {
+    const parentId = `${CONNECTION_ID}_gid://shopify/Product/1`;
+    const variantId = `${parentId}::gid://shopify/ProductVariant/2`;
+    vi.spyOn(client, "listProducts").mockResolvedValue({
+      // Parent first deliberately: ACS listing order must not control deletion order.
+      products: [
+        product({ id: parentId, type: "PRIMARY" }),
+        product({ id: variantId, type: "VARIANT", primaryProductId: parentId }),
+      ],
+    });
+    const deleteSpy = vi.spyOn(client, "deleteProduct").mockResolvedValue(true);
+
+    await expect(deleteAllAcsProductsForConnection(CONNECTION_ID)).resolves.toBe(2);
+
+    expect(deleteSpy).toHaveBeenNthCalledWith(1, variantId);
+    expect(deleteSpy).toHaveBeenNthCalledWith(2, parentId);
+  });
+
   it("reads the whole source catalog before deleting, so pagination stays stable", async () => {
     const listSpy = vi
       .spyOn(client, "listProducts")

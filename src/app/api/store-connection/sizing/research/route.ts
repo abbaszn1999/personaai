@@ -4,7 +4,9 @@ import { listSizingCoverage, resetResearchOutcomes } from "@/lib/db/sizing-cover
 import { getActiveSizingRun, queueScopedResearch } from "@/lib/db/sizing-runs";
 import { UNKNOWN_BRAND_KEY } from "@/lib/sizing/keys";
 import { buildBrandResearch } from "@/lib/sizing/chart-results";
-import { listChartsForBrands } from "@/lib/db/sizing-charts";
+import { listSharedChartsForBrands } from "@/lib/db/sizing-charts";
+import { canonicalizeCoverageForCharts } from "@/lib/sizing/brand-mapping-view";
+import { brandMappingIsCurrent, parseStoreBrandMapping } from "@/lib/sizing/brand-mapping";
 
 /**
  * Starts chart research for one brand, or for every brand still outstanding.
@@ -27,7 +29,7 @@ import { listChartsForBrands } from "@/lib/db/sizing-charts";
  *  3. **Regenerate does not delete first.** The old re-run endpoint cleared the brand's researched
  *     charts up front so the registry short-circuit could not skip them. That left a merchant with
  *     nothing at all if the new search then failed. `force` bypasses the short-circuit instead, and
- *     `upsertChart` replaces each table as it succeeds.
+ *     `upsertSharedChart` replaces each table as it succeeds.
  */
 export async function POST(request: Request) {
   try {
@@ -44,6 +46,8 @@ export async function POST(request: Request) {
     const body = (await request.json().catch(() => ({}))) as { brandKey?: unknown; force?: unknown };
     const requested = typeof body.brandKey === "string" && body.brandKey.trim() ? body.brandKey.trim() : null;
     const force = body.force === true;
+
+    const brandMapping = parseStoreBrandMapping(connection.sizingBrandMapping);
 
     const run = await getActiveSizingRun(connection.id);
     if (!run) {
@@ -62,11 +66,24 @@ export async function POST(request: Request) {
     }
 
     const coverage = await listSizingCoverage(connection.id);
-    const charts = await listChartsForBrands(
-      connection.id,
-      [...new Set(coverage.map((row) => row.brandKey))]
-    );
-    const brands = buildBrandResearch(coverage, charts);
+    const discoveredGlobalKeys = [
+      ...new Set(
+        coverage
+          .filter((row) => row.brandType === "global")
+          .map((row) => row.brandKey),
+      ),
+    ];
+    if (!brandMappingIsCurrent(discoveredGlobalKeys, brandMapping)) {
+      return Response.json(
+        { error: "Confirm the canonical brand mapping before starting chart research.", reason: "brand_mapping_required" },
+        { status: 409 },
+      );
+    }
+    const canonical = canonicalizeCoverageForCharts(coverage, brandMapping);
+    const charts = await listSharedChartsForBrands([
+      ...new Set(canonical.rows.map((row) => row.brandKey)),
+    ]);
+    const brands = buildBrandResearch(canonical.rows, charts);
 
     const eligible = brands.filter((brand) => brand.brandKey !== UNKNOWN_BRAND_KEY);
     const scope = requested
@@ -93,7 +110,12 @@ export async function POST(request: Request) {
     // Reopens the recorded conclusions so the pass looks at them again. Without this a brand marked
     // `not_found` last time is skipped by the outstanding-pairs filter, and Regenerate would report
     // success having searched nothing.
-    if (force) await resetResearchOutcomes(connection.id, brandKeys);
+    if (force) {
+      await resetResearchOutcomes(
+        connection.id,
+        brandKeys.flatMap((brandKey) => canonical.rawKeysByCanonicalKey.get(brandKey) ?? [brandKey]),
+      );
+    }
 
     const queued = await queueScopedResearch(connection.id, brandKeys, { force });
     if (!queued) {

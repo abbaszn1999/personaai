@@ -17,11 +17,19 @@ vi.mock("@/lib/catalog/acs/catalog-reads", () => ({
 vi.mock("@/lib/db/sizing-runs", () => ({
   rewindRun: vi.fn(),
 }));
+vi.mock("@/lib/db/sizing-product-records", () => ({
+  getSizingProductPrimaryLeafCounts: vi.fn().mockResolvedValue(null),
+}));
+vi.mock("@/lib/db/sizing-coverage", () => ({
+  listSizingCoverage: vi.fn().mockResolvedValue([]),
+}));
 
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner, updateStoreConnection } from "@/lib/db/store-connections";
 import { deactivateAcsCatalogForRemapping } from "@/lib/catalog/acs/catalog-reads";
 import { rewindRun } from "@/lib/db/sizing-runs";
+import { getSizingProductPrimaryLeafCounts } from "@/lib/db/sizing-product-records";
+import { listSizingCoverage } from "@/lib/db/sizing-coverage";
 import { DELETE, GET, PUT } from "./route";
 
 const scope = {
@@ -61,6 +69,7 @@ function row(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRow {
     acsMapperVersionApproved: null,
     acsFieldMapping: EMPTY_ACS_MAPPING,
     sizingSource: "ai_pipeline",
+    sizingBrandMapping: { version: 1, confirmedAt: null, sourceFingerprint: "", observed: {}, aliases: {} },
     sizingStagesSkippedAt: null,
     acsFieldOverridesApprovedHash: null,
     cmsColumnDiscoveryStatus: "idle",
@@ -82,11 +91,33 @@ describe("Persona mapping endpoint", () => {
     vi.mocked(getStoreConnectionByOwner).mockResolvedValue(row());
     vi.mocked(deactivateAcsCatalogForRemapping).mockResolvedValue(0);
     vi.mocked(rewindRun).mockResolvedValue(null);
+    vi.mocked(getSizingProductPrimaryLeafCounts).mockResolvedValue(null);
+    vi.mocked(listSizingCoverage).mockResolvedValue([]);
   });
 
   it("requires authentication", async () => {
     vi.mocked(getCurrentUser).mockResolvedValue(null);
     expect((await GET()).status).toBe(401);
+  });
+
+  it("returns exact scan counts only when every Stage 2 product has one current primary leaf", async () => {
+    vi.mocked(getStoreConnectionByOwner).mockResolvedValue(row({
+      personaMappingUpdatedAt: "2026-01-01T00:00:00.000Z",
+    }));
+    vi.mocked(getSizingProductPrimaryLeafCounts).mockResolvedValue({
+      total: 12,
+      assigned: 12,
+      byLeaf: { "women:top:t-shirt": 12 },
+      scannedAt: "2026-01-02T00:00:00.000Z",
+    });
+    vi.mocked(listSizingCoverage).mockResolvedValue([{ skuCount: 12 }] as never);
+
+    const data = await (await GET()).json();
+
+    expect(data.scanCounts).toEqual({
+      total: 12,
+      byLeaf: { "women:top:t-shirt": 12 },
+    });
   });
 
   it("persists mapping, derives the internal walk scope, and invalidates the old index", async () => {

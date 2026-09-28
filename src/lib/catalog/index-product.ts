@@ -1,5 +1,7 @@
 import { downgradeAcsProductIfExists, syncProductToAcs } from "@/lib/catalog/acs/sync";
 import type { StoreConnectionRow } from "@/lib/db/store-connections";
+import { loadSizingResolutionContext } from "@/lib/sizing/product-chart";
+import { sizingForRawProduct } from "./sizing-for-product";
 import type { CategoryPath } from "@/lib/retrieval/types";
 import { mapToCanonical } from "@/lib/retrieval/taxonomy";
 import { boundMetafieldKeys, SHOPIFY_METAFIELD_PREFIX } from "./acs-mapping";
@@ -26,7 +28,10 @@ export type WebhookIndexOutcome = IndexOutcome | "out-of-scope" | "removed";
 export type CategoryLookup = Pick<
   StoreConnectionRow,
   "selectedCategoryIds" | "categories" | "acsFieldMapping"
-> & Partial<Pick<StoreConnectionRow, "personaTaxonomyScope" | "personaCategoryMap">>;
+> & Partial<Pick<
+  StoreConnectionRow,
+  "personaTaxonomyScope" | "personaCategoryMap" | "sizingBrandMapping" | "storeSizeSettings" | "skuParentOverrides"
+>>;
 
 /**
  * Resolves every selected category a product belongs to, using the merchant's own names, in
@@ -95,6 +100,26 @@ export async function indexSingleProduct(
     if (categoryPaths.length === 0) return "failed";
     const { garmentCategory, garmentSubcategory } = resolveGarmentCategory(product);
 
+    const brandMapping = connection.sizingBrandMapping;
+    const sizeSettings = connection.storeSizeSettings;
+    const sizingReady =
+      connection.personaTaxonomyScope !== undefined &&
+      connection.personaCategoryMap !== undefined &&
+      connection.skuParentOverrides !== undefined &&
+      brandMapping !== undefined &&
+      sizeSettings !== undefined;
+    const rawWithMembership = { ...product, sourceCategoryIds };
+    const sizing = sizingReady
+      ? sizingForRawProduct(
+          rawWithMembership,
+          connection as StoreConnectionRow,
+          await loadSizingResolutionContext({
+            id: connectionId,
+            sizingBrandMapping: brandMapping!,
+            storeSizeSettings: sizeSettings!,
+          }),
+        )
+      : null;
     const written = await syncProductToAcs({
       raw: product,
       connectionId,
@@ -102,6 +127,7 @@ export async function indexSingleProduct(
       garmentCategory,
       garmentSubcategory,
       fieldMapping: connection.acsFieldMapping,
+      sizing,
     });
 
     return written ? "indexed" : "failed";

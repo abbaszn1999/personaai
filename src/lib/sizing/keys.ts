@@ -154,8 +154,10 @@ export function isSizingCategory(value: unknown): value is SizingGroup {
 export function chartKey(
   brandKey: string,
   sizingCategory: string,
-  audience: Audience,
-  version: number
+  variantName: string,
+  sizeType: string,
+  version: number,
 ): string {
-  return `${brandKey || "none"}|${sizingCategory}|${audience}|v${version}`;
+  const variant = normalizeBrandKey(variantName) || "default";
+  return `${brandKey || "none"}|${sizingCategory}|${variant}|${sizeType.toLowerCase()}|v${version}`;
 }

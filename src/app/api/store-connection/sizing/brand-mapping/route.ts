@@ -1,24 +1,24 @@
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
-import { getStoreConnectionByOwner, updateStoreConnection } from "@/lib/db/store-connections";
+import {
+  getStoreConnectionByOwner,
+  updateSizingBrandMapping,
+} from "@/lib/db/store-connections";
 import { listSizingCoverage } from "@/lib/db/sizing-coverage";
 import { listSharedChartBrandKeys } from "@/lib/db/sizing-charts";
-import { createSizingRun, getLatestSizingRun, rewindRun } from "@/lib/db/sizing-runs";
 import { mappingFromGroups, type BrandMappingGroup } from "@/lib/sizing/brand-mapping";
 import { buildBrandMappingState } from "@/lib/sizing/brand-mapping-state";
 
 async function stateFor(
   connection: NonNullable<Awaited<ReturnType<typeof getStoreConnectionByOwner>>>,
 ) {
-  const [coverage, sharedBrandKeys, run] = await Promise.all([
+  const [coverage, sharedBrandKeys] = await Promise.all([
     listSizingCoverage(connection.id),
     listSharedChartBrandKeys(),
-    getLatestSizingRun(connection.id),
   ]);
   return buildBrandMappingState({
     coverage,
     mapping: connection.sizingBrandMapping,
     sharedBrandKeys,
-    run,
   });
 }
 
@@ -66,16 +66,8 @@ export async function PUT(request: Request) {
       );
     }
 
-    const updated = await updateStoreConnection(user.id, { sizingBrandMapping: mapping });
+    const updated = await updateSizingBrandMapping(user.id, mapping);
     if (!updated) return Response.json({ error: "Could not save brand mapping" }, { status: 500 });
-
-    const run = (await rewindRun(updated.id, "scan")) ?? (await createSizingRun(updated.id));
-    if (!run) {
-      return Response.json(
-        { error: "The mapping was saved, but the canonical catalog rescan could not start." },
-        { status: 500 },
-      );
-    }
 
     return Response.json(await stateFor(updated));
   } catch (error) {

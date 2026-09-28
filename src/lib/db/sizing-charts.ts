@@ -4,17 +4,13 @@ import type { Audience } from "@/lib/sizing/keys";
 import { isSizingGroup } from "@/lib/sizing/measurements";
 
 /**
- * The registry Phase 4's web search pays to fill: measurement bounds per (brand x sizing category x
- * audience x source table).
+ * Measurement bounds from two deliberately isolated stores:
  *
- * `connectionId` is null for a shared global-brand chart — see the migration's uniqueness comment —
- * so the resolver and this reader both have to treat "look up this brand+category" as "prefer my own
- * store's row, fall back to the shared one" rather than a single-key lookup.
+ * - `sizing_charts`: shared, verified global-brand charts only.
+ * - `sizing_charts_private`: one connection's private-label and unbranded charts only.
  *
- * One (brand, category) returns **several** rows, not one: doc Part 5's whole point is that a brand
- * publishes however many chart *variants* it publishes — `Men`, `Men Tall`, `Women Petite` — and
- * research discovers them rather than fitting them to a list. Choosing between them is doc Part 7's
- * Chart Assignment and belongs to whoever knows the product; this module hands back the full set.
+ * One (brand, category) can return several published tables. `covers_leaves` is the sole assignment
+ * truth; fit-class-only tables remain review material and never receive ordinary leaf coverage.
  */
 export interface SizingChartRow {
   id: string;
@@ -34,8 +30,8 @@ export interface SizingChartRow {
    *  `sizing_charts.covers_leaves`, migration `20260922020000`. Replaces the old name/tag guess
    *  (`LEAF_GARMENT_TAGS`/`VARIANT_GARMENT_PATTERNS`/`pickVariant`'s garment pass in
    *  `variant-match.ts`, deleted alongside this column) as the source of truth for which of a
-   *  brand's several charts in one `sizingCategory` a leaf binds to — see `chartsForLeaf`. Empty for
-   *  a chart nothing has been assigned to yet. */
+   *  brand's several charts in one `sizingCategory` a leaf resolves to. Empty for a chart that
+   *  claims no Persona leaf. */
   coversLeaves: string[];
   /** Read off the source guide's own page — the URL, the section heading — rather than parsed from
    *  `variantName`. A Phase 5 matching hint, not identity. The row's only gender/audience signal as
@@ -66,8 +62,11 @@ export interface SizingChartRow {
  */
 function rowToChart(row: Record<string, unknown>): SizingChartRow {
   const sizingCategory = row.sizing_category as string;
+  const audience = (row.audience as Audience) ?? "unisex";
   const rawRows = row.chart_rows ?? [];
-  const chartRows = isSizingGroup(sizingCategory) ? parseSizeChart(rawRows, sizingCategory) : ((rawRows as SizeChartRow[]) ?? []);
+  const chartRows = isSizingGroup(sizingCategory)
+    ? parseSizeChart(rawRows, sizingCategory, audience)
+    : ((rawRows as SizeChartRow[]) ?? []);
 
   return {
     id: row.id as string,
@@ -76,7 +75,7 @@ function rowToChart(row: Record<string, unknown>): SizingChartRow {
     sizingCategory,
     variantName: (row.variant_name as string | null) ?? "",
     coversLeaves: (row.covers_leaves as string[] | null) ?? [],
-    audience: (row.audience as Audience) ?? "unisex",
+    audience,
     sourceTitle: (row.source_title as string | null) ?? "",
     chartRows,
     confidence: row.confidence === null || row.confidence === undefined ? null : Number(row.confidence),
@@ -87,34 +86,65 @@ function rowToChart(row: Record<string, unknown>): SizingChartRow {
   };
 }
 
-/**
- * The registry short-circuit's bulk read: every chart this connection can see for a set of brands,
- * scoped or shared. One query per research pass rather than one per brand — the whole point of
- * checking before spending a search request is that the check itself has to be cheap.
- */
-export async function listChartsForBrands(
-  connectionId: string,
-  brandKeys: string[]
-): Promise<SizingChartRow[]> {
+/** Shared global charts only. Research and canonical-brand proof must use this function. */
+export async function listSharedChartsForBrands(brandKeys: string[]): Promise<SizingChartRow[]> {
   if (brandKeys.length === 0) return [];
 
   const { data, error } = await db
     .from("sizing_charts")
     .select("*")
-    .in("brand_key", brandKeys)
-    .or(`connection_id.is.null,connection_id.eq.${connectionId}`);
+    .in("brand_key", brandKeys);
 
   if (error) {
-    console.error("[db/sizing-charts listChartsForBrands]", connectionId, error);
+    console.error("[db/sizing-charts listSharedChartsForBrands]", error);
     return [];
   }
 
   return ((data as Array<Record<string, unknown>>) ?? []).map(rowToChart);
 }
 
-export interface UpsertChartInput {
-  /** Null for a global brand's shared chart; a real connection id for private-label or manual. */
-  connectionId: string | null;
+/** Private-label and unbranded charts belonging to exactly one connection. */
+export async function listPrivateChartsForBrands(
+  connectionId: string,
+  brandKeys: string[],
+): Promise<SizingChartRow[]> {
+  if (brandKeys.length === 0) return [];
+
+  const { data, error } = await db
+    .from("sizing_charts_private")
+    .select("*")
+    .eq("connection_id", connectionId)
+    .in("brand_key", brandKeys);
+
+  if (error) {
+    console.error("[db/sizing-charts listPrivateChartsForBrands]", connectionId, error);
+    return [];
+  }
+
+  return ((data as Array<Record<string, unknown>>) ?? []).map(rowToChart);
+}
+
+/** Canonical brand targets already proven by a shared researched chart. */
+export async function listSharedChartBrandKeys(): Promise<string[]> {
+  const { data, error } = await db
+    .from("sizing_charts")
+    .select("brand_key");
+
+  if (error) {
+    console.error("[db/sizing-charts listSharedChartBrandKeys]", error);
+    return [];
+  }
+
+  return [
+    ...new Set(
+      ((data as Array<Record<string, unknown>>) ?? [])
+        .map((row) => row.brand_key as string)
+        .filter(Boolean),
+    ),
+  ].sort();
+}
+
+interface ChartWrite {
   brandKey: string;
   sizingCategory: string;
   variantName: string;
@@ -128,40 +158,66 @@ export interface UpsertChartInput {
 }
 
 /**
- * Writes one published table's chart, replacing whatever was there for that exact table.
- *
- * Delete-then-insert like `replaceSizingCoverage`, not a Postgres upsert — the two uniqueness rules
- * (`sizing_charts_global_idx` for null connection, `sizing_charts_scoped_idx` for a real one) are two
- * different partial indexes, and Supabase's `.upsert()` only ever targets one `onConflict` target at
- * a time. A brand's global-vs-scoped-ness never changes between calls for the same key, so this never
- * needs to migrate a row from one index to the other.
- *
- * The delete is scoped down to `variant_name`, matching the index. It used to clear every chart for
- * the brand and category, which was correct when that pair held exactly one chart — now it would
- * mean each table written during a research pass deleted the one written just before it, and a brand
- * publishing fifteen variants would end with one.
- *
- * Scoped on the variant rather than on `(audience, source_title)` as it was before doc Part 5: two
- * headings can name one variant, so keying on the heading wrote the same variant twice under
- * different names, and the merchant then had to choose between duplicates in Phase 5's dropdown.
+ * Writes a verified shared global-brand chart. No connection-scoped input is accepted, so private
+ * chart data cannot enter the global registry through this function.
  */
-export async function upsertChart(input: UpsertChartInput): Promise<boolean> {
-  const query = db
+export async function upsertSharedChart(input: ChartWrite): Promise<boolean> {
+  if (!isSizingGroup(input.sizingCategory)) return false;
+  const chartRows = parseSizeChart(input.chartRows, input.sizingCategory, input.audience);
+  const { error: deleteError } = await db
     .from("sizing_charts")
     .delete()
     .eq("brand_key", input.brandKey)
     .eq("sizing_category", input.sizingCategory)
     .eq("variant_name", input.variantName);
 
-  const { error: deleteError } =
-    input.connectionId === null ? await query.is("connection_id", null) : await query.eq("connection_id", input.connectionId);
-
   if (deleteError) {
-    console.error("[db/sizing-charts upsertChart delete]", input.brandKey, input.sizingCategory, deleteError);
+    console.error("[db/sizing-charts upsertSharedChart delete]", input.brandKey, input.sizingCategory, deleteError);
     return false;
   }
 
   const { error } = await db.from("sizing_charts").insert({
+    connection_id: null,
+    brand_key: input.brandKey,
+    sizing_category: input.sizingCategory,
+    variant_name: input.variantName,
+    covers_leaves: input.coversLeaves,
+    audience: input.audience,
+    source_title: input.sourceTitle,
+    chart_rows: chartRows,
+    confidence: input.confidence,
+    source_url: input.sourceUrl,
+    provenance: input.provenance,
+  });
+
+  if (error) {
+    console.error("[db/sizing-charts upsertSharedChart insert]", input.brandKey, input.sizingCategory, error);
+    return false;
+  }
+
+  return true;
+}
+
+/** Writes one store's private-label or unbranded chart to the isolated private table. */
+export async function upsertPrivateChart(
+  input: ChartWrite & { connectionId: string },
+): Promise<boolean> {
+  if (!isSizingGroup(input.sizingCategory)) return false;
+  const chartRows = parseSizeChart(input.chartRows, input.sizingCategory, input.audience);
+  const { error: deleteError } = await db
+    .from("sizing_charts_private")
+    .delete()
+    .eq("connection_id", input.connectionId)
+    .eq("brand_key", input.brandKey)
+    .eq("sizing_category", input.sizingCategory)
+    .eq("variant_name", input.variantName);
+
+  if (deleteError) {
+    console.error("[db/sizing-charts upsertPrivateChart delete]", input.brandKey, input.sizingCategory, deleteError);
+    return false;
+  }
+
+  const { error } = await db.from("sizing_charts_private").insert({
     connection_id: input.connectionId,
     brand_key: input.brandKey,
     sizing_category: input.sizingCategory,
@@ -169,14 +225,14 @@ export async function upsertChart(input: UpsertChartInput): Promise<boolean> {
     covers_leaves: input.coversLeaves,
     audience: input.audience,
     source_title: input.sourceTitle,
-    chart_rows: input.chartRows,
+    chart_rows: chartRows,
     confidence: input.confidence,
     source_url: input.sourceUrl,
     provenance: input.provenance,
   });
 
   if (error) {
-    console.error("[db/sizing-charts upsertChart insert]", input.brandKey, input.sizingCategory, error);
+    console.error("[db/sizing-charts upsertPrivateChart insert]", input.brandKey, input.sizingCategory, error);
     return false;
   }
 
@@ -197,7 +253,6 @@ export async function deleteResearchedCharts(brandKeys: string[]): Promise<numbe
   const { data, error } = await db
     .from("sizing_charts")
     .delete()
-    .is("connection_id", null)
     .eq("provenance", "research")
     .in("brand_key", brandKeys)
     .select("id");

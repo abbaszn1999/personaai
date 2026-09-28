@@ -11,7 +11,6 @@ import {
   ExternalLink,
   Globe,
   Layers2,
-  PencilLine,
   Ruler,
   ShieldCheck,
   Sliders,
@@ -180,24 +179,13 @@ function SizeChartModalBody({
   target: { charts: ChartModalChart[]; product: SizingProduct | null; initialCategory: string | null };
   onClose: () => void;
 }) {
-  const forkChart = useSizingStore((s) => s.forkChart);
   const sizeSettings = useStoreConnectionStore((s) => s.storeSizeSettings);
-  const assignmentPaths = useSizingStore((s) => s.assignmentPaths);
   const mappedLeaves = useSizingStore((s) => s.mappedLeaves);
-  const assignmentsLoaded = useSizingStore((s) => s.assignmentsLoaded);
-  const loadAssignments = useSizingStore((s) => s.loadAssignments);
+  const chartLeafCounts = useSizingStore((s) => s.chartLeafCounts);
+  const chartsLoaded = useSizingStore((s) => s.chartsLoaded);
   const { charts, product, initialCategory } = target;
   const brandName = charts[0].brand;
   const brandKey = isResearched(charts[0]) ? charts[0].brandKey : null;
-
-  // Stage 5's own data, not a copy of it — the one place that already knows every persona leaf this
-  // store's catalog actually maps to for this brand. Loaded here too, and not just from Stage 5,
-  // because a merchant opening this modal from Stage 4 (View chart, before ever visiting Stage 5)
-  // still needs it to filter "Covers" down to leaves they have, rather than every leaf the brand
-  // publishes. `loadAssignments` no-ops if Stage 5 already fetched it.
-  React.useEffect(() => {
-    void loadAssignments();
-  }, [loadAssignments]);
 
   // Null means "don't know" (the mock `FoundSizeChart` charts carry no `brandKey`), which is read
   // downstream as "show every leaf the chart claims" rather than as "this merchant maps to nothing".
@@ -209,22 +197,21 @@ function SizeChartModalBody({
   // independent of live stock — so a leaf they have mapped a store category to still shows as
   // "covered" (at 0 items) even when this exact brand has nothing in it right now, rather than
   // vanishing the moment `sizing_path_coverage` (a scan artifact) happens to have no row for it.
-  // `assignmentPaths` then overwrites with this brand's real counts wherever it has them. Summed
-  // rather than overwritten across several `assignmentPaths` rows for the same leaf, because Stage
-  // 2's per-product parent override can legitimately split one leaf across two `sizingCategory` rows.
+  // `chartLeafCounts` then overwrites with this brand's real counts wherever it has them. Counts are
+  // summed because Stage 2's mappings can place several merchant paths on the same Persona leaf.
   const merchantLeaves = React.useMemo(() => {
     if (!brandKey) return null;
     const map = new Map<string, number>();
     for (const leaf of mappedLeaves) map.set(leaf, 0);
-    for (const path of assignmentPaths) {
-      if (path.brandKey !== brandKey) continue;
+    for (const count of chartLeafCounts) {
+      if (count.brandKey !== brandKey) continue;
       // Merchandise Scope is authoritative once loaded. A stale or category-level scan path must
       // not silently expand the taxonomy the merchant explicitly selected.
-      if (!map.has(path.categoryId)) continue;
-      map.set(path.categoryId, (map.get(path.categoryId) ?? 0) + path.skuCount);
+      if (!map.has(count.leafKey)) continue;
+      map.set(count.leafKey, (map.get(count.leafKey) ?? 0) + count.skuCount);
     }
     return map;
-  }, [assignmentPaths, mappedLeaves, brandKey]);
+  }, [chartLeafCounts, mappedLeaves, brandKey]);
   // Display-only — the size type this brand's labels are read as, same lookup the matching pipeline
   // itself uses (brand override if one exists, otherwise the store default). Not a filter: every
   // chart here already carries this brand's own aliases, so there is nothing to switch between.
@@ -239,13 +226,13 @@ function SizeChartModalBody({
   // part of this store's view only if at least one of its claimed leaves exists in that taxonomy.
   // Empty-coverage charts are excluded too: they have no path by which any SKU can reach them.
   const entries = React.useMemo(() => {
-    if (!brandKey || !assignmentsLoaded || !merchantLeaves) return allEntries;
+    if (!brandKey || !chartsLoaded || !merchantLeaves) return allEntries;
     return allEntries.filter(
       (entry) =>
         !isResearched(entry.chart) ||
         entry.chart.coversLeaves.some((leaf) => merchantLeaves.has(leaf))
     );
-  }, [allEntries, assignmentsLoaded, brandKey, merchantLeaves]);
+  }, [allEntries, chartsLoaded, brandKey, merchantLeaves]);
 
   // Only the departments this brand actually publishes for, in taxonomy order. Empty for the mock
   // charts, which is what hides the axis rather than showing a filter with one option in it.
@@ -320,15 +307,6 @@ function SizeChartModalBody({
     setTimeout(() => setCopied(false), 2000);
   }
 
-  // Doc Part 6. A researched chart is shared with every other store carrying the brand, so
-  // correcting it forks a copy scoped to this connection rather than editing the shared row
-  // underneath everyone else — and the fork opens its own editor, so this modal steps aside for it.
-  function handleFork(chart: ChartModalChart) {
-    if (!isResearched(chart)) return;
-    forkChart(chart);
-    onClose();
-  }
-
   return (
     <Modal
       isOpen
@@ -352,7 +330,7 @@ function SizeChartModalBody({
         <>
           <p className="mr-auto max-w-md text-[11px] text-[var(--color-text-muted)]">
             {entries.some((entry) => isResearched(entry.chart) && entry.chart.shared)
-              ? `Shared across every Persona store carrying ${brandName} — use "Make my own copy" on a table to adjust it just for you.`
+              ? `Verified global chart shared across every Persona store carrying ${brandName}.`
               : "Your own chart, not shared with any other store."}
           </p>
           <button
@@ -450,7 +428,6 @@ function SizeChartModalBody({
               active={entry}
               merchantLeaves={merchantLeaves}
               product={product}
-              onFork={() => handleFork(entry.chart)}
             />
           ))}
         </div>
@@ -522,7 +499,6 @@ function CategoryBlock({
   active,
   merchantLeaves,
   product,
-  onFork,
 }: {
   brandName: string;
   category: string;
@@ -536,7 +512,6 @@ function CategoryBlock({
    *  actually claims, instead of repeating the brand's whole `sizing_coverage` bucket total. */
   merchantLeaves: ReadonlyMap<string, number> | null;
   product: SizingProduct | null;
-  onFork: () => void;
 }) {
   const chart = active.chart;
   const researched = isResearched(chart);
@@ -605,16 +580,6 @@ function CategoryBlock({
             <Badge variant="info">
               <Layers2 className="h-3 w-3" /> {active.variantName}
             </Badge>
-          )}
-          {researched && (
-            <button
-              type="button"
-              onClick={onFork}
-              title="Make your own editable copy of this chart"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-base)] px-2.5 py-1 text-[11px] font-bold text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-brand)]/40 hover:text-[var(--color-brand)]"
-            >
-              <PencilLine className="h-3 w-3" /> Make my own copy
-            </button>
           )}
         </div>
       </div>

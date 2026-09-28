@@ -54,12 +54,12 @@ describe("stageForRun", () => {
     expect(stageForRun(run("gap_fill", "blocked"))).toBe(4);
   });
 
-  it("returns a merchant mid-assignment to stage 5 rather than to the research they finished", () => {
+  it("lands the legacy post-research assign state on the Stage 5 overview", () => {
     expect(stageForRun(run("assign", "blocked"))).toBe(5);
   });
 
   it("lands a finished run on the overview", () => {
-    expect(stageForRun(run("resolve", "running"))).toBe(6);
-    expect(stageForRun(run("publish", "complete"))).toBe(6);
+    expect(stageForRun(run("resolve", "running"))).toBe(5);
+    expect(stageForRun(run("publish", "complete"))).toBe(5);
   });
 });

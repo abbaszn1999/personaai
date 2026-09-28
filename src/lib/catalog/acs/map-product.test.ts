@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { RawCatalogProduct, RawCatalogVariant } from "@/lib/catalog/sync-types";
-import { buildVariantAcsProducts, rawCatalogProductToAcsProduct, rawCatalogProductToAcsProducts } from "./map-product";
+import {
+  buildVariantAcsProducts,
+  rawCatalogProductToAcsProduct,
+  rawCatalogProductToAcsProducts,
+  type MapProductInput,
+} from "./map-product";
 import type { AcsFieldMapping, CmsColumnRef, CustomAttributeDef } from "@/lib/catalog/acs-mapping";
 import { buildAcsProductId, parseAcsProductId } from "./isolation";
 
@@ -86,6 +91,37 @@ describe("rawCatalogProductToAcsProduct", () => {
     expect(productA.id).not.toBe(productB.id);
     expect(productA.attributes?.merchant_id.text?.[0]).toBe("11111111-1111-1111-1111-111111111111");
     expect(productB.attributes?.merchant_id.text?.[0]).toBe("22222222-2222-2222-2222-222222222222");
+  });
+
+  it("writes only the resolved product-sized ACS payload", () => {
+    const product = rawCatalogProductToAcsProduct({
+      raw: raw(),
+      connectionId: CONNECTION_ID,
+      categoryPaths: [["Men", "T-Shirts"]],
+      garmentCategory: "tops",
+      garmentSubcategory: "t-shirt",
+      sizing: {
+        chartKey: "acme|tops|men|alpha|v1",
+        leaf: "men:top:t-shirt",
+        group: "tops",
+        audience: "mens",
+        chartVariant: "Men",
+        entries: [
+          { raw: "SMALL", label: "S", rowJson: '{"s":"S","chest":[89,94]}' },
+          { raw: "MEDIUM", label: "M", rowJson: '{"s":"M","chest":[94,99]}' },
+        ],
+        envelopes: { chest_min: 89, chest_max: 99 },
+      },
+    });
+
+    expect(product.attributes?.fit_size_labels?.text).toEqual(["S", "M"]);
+    expect(product.attributes?.fit_rows).toMatchObject({
+      text: ['{"s":"S","chest":[89,94]}', '{"s":"M","chest":[94,99]}'],
+      indexable: false,
+    });
+    expect(product.attributes?.fit_chest_min?.numbers).toEqual([89]);
+    expect(product.attributes?.fit_chest_max?.numbers).toEqual([99]);
+    expect(product.attributes?.size_chart_data).toBeUndefined();
   });
 
   it("round-trips the namespaced id back to connectionId + externalId", () => {
@@ -597,7 +633,11 @@ function variant(overrides: Partial<RawCatalogVariant> = {}): RawCatalogVariant 
 }
 
 describe("buildVariantAcsProducts", () => {
-  function build(variants: RawCatalogVariant[], overrides: Partial<RawCatalogProduct> = {}) {
+  function build(
+    variants: RawCatalogVariant[],
+    overrides: Partial<RawCatalogProduct> = {},
+    sizing?: MapProductInput["sizing"],
+  ) {
     const input = {
       raw: raw({ variants, ...overrides }),
       connectionId: CONNECTION_ID,
@@ -605,6 +645,7 @@ describe("buildVariantAcsProducts", () => {
       garmentCategory: "tops",
       garmentSubcategory: "shirt",
       sourceCategoryIds: ["cat-1"],
+      sizing,
     };
     const primary = rawCatalogProductToAcsProduct(input);
     return { primary, variants: buildVariantAcsProducts(input, primary) };
@@ -669,6 +710,30 @@ describe("buildVariantAcsProducts", () => {
     expect(variants[0].sizes).toEqual(["M"]);
     expect(variants[1].colorInfo).toEqual({ colors: ["Pine Green"] });
     expect(variants[1].sizes).toEqual(["L"]);
+  });
+
+  it("gives each variant only the sizing row for its own selected size", () => {
+    const sizing: NonNullable<MapProductInput["sizing"]> = {
+      chartKey: "acme|tops|men|alpha|v1",
+      leaf: "men:top:shirt",
+      group: "tops",
+      audience: "mens",
+      chartVariant: "Men",
+      entries: [
+        { raw: "MEDIUM", label: "M", rowJson: '{"s":"M","chest":[94,99]}' },
+        { raw: "LARGE", label: "L", rowJson: '{"s":"L","chest":[99,107]}' },
+      ],
+      envelopes: { chest_min: 94, chest_max: 107 },
+    };
+    const { variants } = build([
+      variant({ externalId: "v1", selectedOptions: { Color: "Berry", Size: "MEDIUM" } }),
+      variant({ externalId: "v2", selectedOptions: { Color: "Pine Green", Size: "LARGE" } }),
+    ], {}, sizing);
+
+    expect(variants[0].attributes?.fit_size_labels?.text).toEqual(["M"]);
+    expect(variants[0].attributes?.fit_rows?.text).toEqual(['{"s":"M","chest":[94,99]}']);
+    expect(variants[1].attributes?.fit_size_labels?.text).toEqual(["L"]);
+    expect(variants[1].attributes?.fit_rows?.text).toEqual(['{"s":"L","chest":[99,107]}']);
   });
 
   it("writes gtin from a variant's own barcode", () => {

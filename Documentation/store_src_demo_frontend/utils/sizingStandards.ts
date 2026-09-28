@@ -379,7 +379,7 @@ export function getCategorySizingTable(
   const categoryTemplates =
     STANDARD_CATEGORY_SIZING_TEMPLATES[parentCategory as StandardParentCategoryType] ||
     STANDARD_CATEGORY_SIZING_TEMPLATES['Tops'];
-  return categoryTemplates[system] || categoryTemplates['US'];
+  return categoryTemplates[system] || categoryTemplates['US']!;
 }
 
 export function getCanonicalSizes(product: { sizes: string[]; canonicalSizes?: string[] }): string[] {
@@ -454,7 +454,7 @@ export function resolveFinalSkuChart(
   let assignedVariantName = 'Standard';
   let isSkuOverride = false;
   let overrideReason: string | undefined = undefined;
-  let assignedVariantId = '';
+  let assignedVariantId: string | null = '';
 
   if (override) {
     assignedVariantName = override.overriddenVariantName || override.targetVariantId || 'Custom Override';

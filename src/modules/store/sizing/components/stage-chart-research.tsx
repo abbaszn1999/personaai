@@ -14,7 +14,6 @@ import {
   Loader2,
   PencilLine,
   Globe,
-  Sparkles,
   Ban,
   ListTree,
 } from "lucide-react";
@@ -23,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { cn } from "@/lib/utils/cn";
 import { CHART_CONFIDENCE_PERCENT } from "@/lib/sizing/chart-review";
+import { UNKNOWN_BRAND_KEY } from "@/lib/sizing/keys";
 import { leafLabel } from "@/modules/store/mapping/persona-taxonomy";
 import { useSizingStore } from "../store";
 import {
@@ -39,22 +39,12 @@ import { StageHeaderBanner } from "./stage-header-banner";
 type ResultTab = "brands" | "not_found" | "no_brand";
 type StatusFilter = "all" | "done" | "needs_action";
 
-/** Sentinel the store uses for a Generate All request, so one row's spinner can be told apart from
- *  the bulk button's. */
-const ALL = "__all__";
-
 /**
  * Stage 4 — the brand queue, and the charts research pulled out of each brand's guide.
  *
- * The screen is a queue rather than a report, and that is the change this version is about. Research
- * used to start by itself the moment a merchant left Stage 3: the whole catalog's brands were searched
- * in one bulk pass, the table was replaced by a full-page progress panel while it ran, and a merchant
- * who wanted to try one brand first had no way to. Now every row carries its own Generate, the table
- * stays on screen while a pass runs, and Generate All is an explicit press.
- *
- * The brand is the unit because the brand is what a search costs. One web search reads a brand's whole
- * size guide and yields every table it publishes, so charging per (brand x parent) would pay several
- * times for one page. Charts nest under the brand that produced them for the same reason.
+ * Global charts are centrally curated. Merchants may inspect charts already in the shared registry;
+ * a missing global brand is a support request, never a merchant-triggered research or private-chart
+ * write. This keeps the global registry separate from lower-confidence private and unbranded charts.
  *
  * Sizing categories print as their raw keys (`tops`, not "Tops & knitwear") deliberately. A friendly
  * label would hide exactly the class of bug this screen exists to catch.
@@ -72,11 +62,9 @@ export function StageChartResearch() {
   const loadCharts = useSizingStore((s) => s.loadCharts);
   const loadRun = useSizingStore((s) => s.loadRun);
   const stopPolling = useSizingStore((s) => s.stopPolling);
-  const startResearch = useSizingStore((s) => s.startResearch);
-  const researchStarting = useSizingStore((s) => s.researchStarting);
   const openChartModal = useSizingStore((s) => s.openChartModal);
   const mappedLeaves = useSizingStore((s) => s.mappedLeaves);
-  const loadAssignments = useSizingStore((s) => s.loadAssignments);
+  const openBrandMappingEditor = useSizingStore((s) => s.openBrandMappingEditor);
 
   const [tab, setTab] = React.useState<ResultTab>("brands");
   const [statusFilter, setStatusFilter] = React.useState<StatusFilter>("all");
@@ -92,13 +80,6 @@ export function StageChartResearch() {
   React.useEffect(() => {
     if (!researching) void loadCharts();
   }, [researching, loadCharts]);
-
-  // Subcategory coverage is scoped to this merchant's enabled taxonomy leaves, not every leaf a
-  // global brand happens to publish for. Stage 5's assignments endpoint already returns that one
-  // authoritative leaf set, including selected leaves with zero current stock.
-  React.useEffect(() => {
-    void loadAssignments();
-  }, [loadAssignments]);
 
   // Research persists each brand's outcome as it finishes, so progress is a re-read of real rows
   // rather than an animated timer. Only while a pass is live: this response carries every chart's
@@ -161,6 +142,7 @@ export function StageChartResearch() {
           !matchesQuery([
             brand.brandName,
             brand.searchName,
+            ...(brand.memberBrands ?? []).map((member) => member.brandName),
             ...brand.sizingCategories,
             ...variantNames,
             ...coveredLeafLabels,
@@ -182,6 +164,28 @@ export function StageChartResearch() {
 
   const filteredNotFound = React.useMemo(() => filterGaps(notFoundGaps), [notFoundGaps, filterGaps]);
   const filteredNoBrand = React.useMemo(() => filterGaps(noBrandGaps), [noBrandGaps, filterGaps]);
+  const allSavedPrivateCharts = React.useMemo(
+    () => charts.filter((chart) => !chart.shared && chart.brandKey !== UNKNOWN_BRAND_KEY),
+    [charts],
+  );
+  const allSavedNoBrandCharts = React.useMemo(
+    () => charts.filter((chart) => !chart.shared && chart.brandKey === UNKNOWN_BRAND_KEY),
+    [charts],
+  );
+  const savedPrivateCharts = React.useMemo(
+    () =>
+      allSavedPrivateCharts.filter((chart) =>
+        matchesQuery([chart.brand, chart.sizingCategory, chart.variantName]),
+      ),
+    [allSavedPrivateCharts, matchesQuery],
+  );
+  const savedNoBrandCharts = React.useMemo(
+    () =>
+      allSavedNoBrandCharts.filter((chart) =>
+        matchesQuery([chart.brand, chart.sizingCategory, chart.variantName]),
+      ),
+    [allSavedNoBrandCharts, matchesQuery],
+  );
 
   // Only the very first read gets a spinner. A poll that flipped this would blank the table every
   // three seconds while research runs, which is exactly when the merchant is watching it.
@@ -195,42 +199,29 @@ export function StageChartResearch() {
 
   const outstanding = brands.filter((brand) => brand.status !== "done").length;
   const totalSizedSkus = totals.chartedSkus + totals.gapSkus;
-  // A pass in flight owns the whole queue: the worker takes one brand at a time from a scope it has
-  // already been handed, so a second request would either be ignored or reorder work already paid
-  // for. Every action is disabled rather than queued, and the strip above says why.
-  const busy = researching || researchStarting !== null;
-
   return (
     <div className="space-y-4">
       <StageHeaderBanner
         stageNumber={4}
-        eyebrow="Autonomous Web Research"
+        eyebrow="Global Brand Charts"
         title={
           brands.length === 0
-            ? "No brands to research"
+            ? "No global brands"
             : `${brands.length - outstanding} of ${brands.length} brands charted`
         }
         description={
           totals.pairsNeeded === 0
             ? "No sized brand and category pairs yet — run the catalog scan first."
-            : `${totals.chartsFound} chart${totals.chartsFound === 1 ? "" : "s"} covering ${totals.chartedSkus.toLocaleString()} of ${totalSizedSkus.toLocaleString()} sized items. Research costs a real web request per brand, so nothing runs until you ask for it.`
+            : `${totals.chartsFound} verified chart${totals.chartsFound === 1 ? "" : "s"} covering ${totals.chartedSkus.toLocaleString()} of ${totalSizedSkus.toLocaleString()} sized items. If a global brand has no chart yet, contact support so it can be added to the shared registry.`
         }
-        aiPowered
         actions={
           <>
+            <Button variant="ghost" size="sm" onClick={openBrandMappingEditor} disabled={researching}>
+              <PencilLine className="h-3.5 w-3.5" /> Edit brand mapping
+            </Button>
             <Button variant="ghost" size="sm" onClick={() => void loadCharts({ force: true })} disabled={loading}>
               <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> Refresh
             </Button>
-            {outstanding > 0 && (
-              <Button size="sm" onClick={() => void startResearch()} disabled={busy}>
-                {researchStarting === ALL ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Sparkles className="h-3.5 w-3.5" />
-                )}
-                Generate all ({outstanding})
-              </Button>
-            )}
           </>
         }
       />
@@ -257,14 +248,14 @@ export function StageChartResearch() {
             onClick={() => setTab("not_found")}
             tone="warning"
             icon={<AlertTriangle className="h-4 w-4" />}
-            label={`Not found / private (${notFoundGaps.length})`}
+            label={`Private / missing (${notFoundGaps.length + allSavedPrivateCharts.length})`}
           />
           <ResultTabButton
             active={tab === "no_brand"}
             onClick={() => setTab("no_brand")}
             tone="error"
             icon={<HelpCircle className="h-4 w-4" />}
-            label={`No brand (${noBrandGaps.length})`}
+            label={`No brand (${noBrandGaps.length + allSavedNoBrandCharts.length})`}
           />
         </div>
 
@@ -285,13 +276,13 @@ export function StageChartResearch() {
                 onClick={() => setStatusFilter("needs_action")}
                 tone="warning"
               >
-                <AlertTriangle className="h-3 w-3" /> Needs research
+                <AlertTriangle className="h-3 w-3" /> Needs support
               </FilterChip>
             </div>
           ) : (
             <p className="text-xs text-[var(--color-text-muted)]">
               {tab === "not_found"
-                ? "Brands and categories research could not chart, plus every private label."
+                ? "Global brands without a shared chart, plus private labels that need their own chart."
                 : "Products with no brand at all, grouped by the category they need a chart for."}
             </p>
           )}
@@ -314,17 +305,28 @@ export function StageChartResearch() {
           chartsByBrand={chartsByBrand}
           mappedLeaves={mappedLeaves}
           hasBrands={brands.length > 0}
-          busy={busy}
-          startingKey={researchStarting}
-          onGenerate={(brandKey) => void startResearch({ brandKey })}
           onViewChart={(brandCharts, initialCategory) => openChartModal(brandCharts, undefined, initialCategory)}
         />
       )}
-      {tab === "not_found" && <GapTable items={filteredNotFound} kind="brand" />}
+      {tab === "not_found" && (
+        <>
+          <SavedManualChartTable charts={savedPrivateCharts} kind="brand" />
+          {(filteredNotFound.length > 0 || savedPrivateCharts.length === 0) && (
+            <GapTable items={filteredNotFound} kind="brand" />
+          )}
+        </>
+      )}
       {/* No retry on either gap tab. A private label publishes nothing to find and an unbranded row has
           no name to search for, so the only route out of both is a hand-filled chart — and a brand
           research demoted to private is retried from its own row on the Global brands tab. */}
-      {tab === "no_brand" && <GapTable items={filteredNoBrand} kind="category" />}
+      {tab === "no_brand" && (
+        <>
+          <SavedManualChartTable charts={savedNoBrandCharts} kind="category" />
+          {(filteredNoBrand.length > 0 || savedNoBrandCharts.length === 0) && (
+            <GapTable items={filteredNoBrand} kind="category" />
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -387,21 +389,21 @@ const BRAND_STATUS_META: Record<
   BrandResearchStatus,
   { label: string; tone: "success" | "warning" | "error" | "info" | "neutral"; hint: string }
 > = {
-  pending: { label: "Not researched", tone: "neutral", hint: "No search has been spent on this brand yet." },
+  pending: { label: "Chart unavailable", tone: "neutral", hint: "Contact support to add this global brand." },
   queued: { label: "Queued", tone: "info", hint: "Authorised and waiting for the worker to pick it up." },
   researching: { label: "Researching", tone: "info", hint: "The search is running right now." },
   done: { label: "Charted", tone: "success", hint: "Every parent this store carries the brand in has a chart." },
   partial: {
-    label: "Partial",
+    label: "Partial coverage",
     tone: "warning",
-    hint: "The guide covers some of the parents this store sells, but not all of them.",
+    hint: "Some categories have verified charts; contact support for the missing coverage.",
   },
   not_found: {
-    label: "No guide found",
+    label: "No shared chart",
     tone: "warning",
-    hint: "Searched, and the brand publishes nothing findable. Hand-fill from the gaps tab.",
+    hint: "Contact support to add or verify this global brand's chart.",
   },
-  failed: { label: "Failed", tone: "error", hint: "The research call itself broke. Worth generating again." },
+  failed: { label: "Chart unavailable", tone: "error", hint: "Contact support to add this global brand." },
 };
 
 function BrandStatusBadge({ status }: { status: BrandResearchStatus }) {
@@ -455,21 +457,15 @@ function BrandResearchTable({
   chartsByBrand,
   mappedLeaves,
   hasBrands,
-  busy,
-  startingKey,
-  onGenerate,
   onViewChart,
 }: {
   brands: BrandResearchRow[];
   chartsByBrand: Map<string, ResearchedChart[]>;
   mappedLeaves: string[];
   hasBrands: boolean;
-  busy: boolean;
-  startingKey: string | null;
-  onGenerate: (brandKey: string) => void;
   onViewChart: (charts: ResearchedChart[], initialCategory?: string) => void;
 }) {
-  const [coverageModal, setCoverageModal] = React.useState<{ brandName: string; leaves: string[] } | null>(null);
+  const [coverageModal, setCoverageModal] = React.useState<CoverageModalState | null>(null);
   const merchantLeafSet = React.useMemo(() => new Set(mappedLeaves), [mappedLeaves]);
 
   const coverageFor = React.useCallback(
@@ -486,7 +482,7 @@ function BrandResearchTable({
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-border)] bg-[var(--color-brand-light)]/30 px-6 py-4">
         <div className="flex items-center gap-2">
           <span className="h-2.5 w-2.5 rounded-full bg-[var(--color-brand)]" />
-          <h3 className="text-sm font-bold text-[var(--color-text-primary)]">Brands to research ({brands.length})</h3>
+          <h3 className="text-sm font-bold text-[var(--color-text-primary)]">Global brands ({brands.length})</h3>
         </div>
         <span className="rounded-full border border-[var(--color-success)]/30 bg-[var(--color-success-light)] px-2.5 py-0.5 text-xs font-semibold text-[var(--color-success)]">
           Charts are reused across every Persona store
@@ -512,30 +508,29 @@ function BrandResearchTable({
                 <td colSpan={7} className="px-6 py-10 text-center text-xs text-[var(--color-text-muted)]">
                   {hasBrands
                     ? "No brand matches the active filter."
-                    : "No brand in this catalog was classified as a global brand, so there is nothing to search for."}
+                    : "No brand in this catalog was classified as a global brand."}
                 </td>
               </tr>
             ) : (
               brands.map((brand) => {
                 const variants = chartsByBrand.get(brand.brandKey) ?? [];
                 const coveredLeaves = coverageFor(variants);
-                const starting = startingKey === brand.brandKey;
-                const live = brand.status === "queued" || brand.status === "researching";
-                // A partial brand gets both: charts to look at, and parents still missing one.
                 const canView = variants.length > 0;
-                const canGenerate = brand.status !== "done";
 
                 return (
                   <tr key={brand.brandKey} className="transition-colors hover:bg-[var(--color-brand-light)]/20">
                     <td className="px-6 py-4">
                       <div className="min-w-0">
                         <p className="font-bold text-[var(--color-text-primary)]">{brand.brandName}</p>
+                        <p className="mt-1 text-[10px] text-[var(--color-text-muted)]">
+                          Includes: {(brand.memberBrands ?? []).map((member) => member.brandName).join(", ") || brand.brandName}
+                        </p>
                         {/* Only when the two differ. A store filing Claudie Pierlot as "CLAUDIE" is why a
                             search can come back empty on a brand the merchant knows is real, and this is
                             the only place that is visible. */}
                         {brand.searchName !== brand.brandName && (
                           <p className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
-                            searched as {brand.searchName}
+                            registry name: {brand.searchName}
                           </p>
                         )}
                       </div>
@@ -558,7 +553,13 @@ function BrandResearchTable({
                       <SubcategoryCoverage
                         leaves={coveredLeaves}
                         charted={variants.length > 0}
-                        onViewAll={() => setCoverageModal({ brandName: brand.brandName, leaves: coveredLeaves })}
+                        onViewAll={() =>
+                          setCoverageModal({
+                            title: `${brand.brandName} subcategory coverage`,
+                            leaves: coveredLeaves,
+                            description: `${coveredLeaves.length} selected taxonomy ${coveredLeaves.length === 1 ? "leaf" : "leaves"} covered by this brand's charts.`,
+                          })
+                        }
                       />
                     </td>
                     <td className="px-6 py-4 font-mono text-xs font-semibold text-[var(--color-text-secondary)]">
@@ -589,20 +590,15 @@ function BrandResearchTable({
                             View chart
                           </button>
                         )}
-                        {canGenerate && (
+                        {!canView && (
                           <button
                             type="button"
-                            onClick={() => onGenerate(brand.brandKey)}
-                            disabled={busy || live}
-                            title="Spend one web search on this brand's official size guide."
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-brand)]/40 bg-[var(--color-brand-light)] px-3 py-1.5 text-xs font-bold text-[var(--color-brand-strong)] transition-colors hover:border-[var(--color-brand)] disabled:cursor-not-allowed disabled:opacity-50"
+                            disabled
+                            title="Support contact will be connected here."
+                            className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-1.5 text-xs font-bold text-[var(--color-text-muted)] opacity-70"
                           >
-                            {starting ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <Sparkles className="h-3.5 w-3.5" />
-                            )}
-                            Generate
+                            <HelpCircle className="h-3.5 w-3.5" />
+                            Contact support
                           </button>
                         )}
                       </div>
@@ -620,6 +616,12 @@ function BrandResearchTable({
   );
 }
 
+type CoverageModalState = {
+  title: string;
+  leaves: string[];
+  description: string;
+};
+
 const VISIBLE_SUBCATEGORY_CHIPS = 4;
 
 function SubcategoryCoverage({
@@ -634,7 +636,7 @@ function SubcategoryCoverage({
   if (leaves.length === 0) {
     return (
       <span className="text-[11px] text-[var(--color-text-muted)]">
-        {charted ? "No selected leaves covered" : "Available after research"}
+        {charted ? "No selected leaves covered" : "Contact support to add this chart"}
       </span>
     );
   }
@@ -670,7 +672,7 @@ function SubcategoryCoverageModal({
   value,
   onClose,
 }: {
-  value: { brandName: string; leaves: string[] } | null;
+  value: CoverageModalState | null;
   onClose: () => void;
 }) {
   return (
@@ -679,12 +681,8 @@ function SubcategoryCoverageModal({
       onClose={onClose}
       size="md"
       icon={<ListTree className="h-4 w-4" />}
-      title={value ? `${value.brandName} subcategory coverage` : "Subcategory coverage"}
-      description={
-        value
-          ? `${value.leaves.length} selected taxonomy ${value.leaves.length === 1 ? "leaf" : "leaves"} covered by this brand's charts.`
-          : undefined
-      }
+      title={value?.title ?? "Subcategory coverage"}
+      description={value?.description}
       footer={
         <Button size="sm" onClick={onClose}>
           Done
@@ -857,6 +855,102 @@ function CategoryKey({ value, onClick }: { value: string; onClick?: () => void }
   );
 }
 
+function SavedManualChartTable({
+  charts,
+  kind,
+}: {
+  charts: ResearchedChart[];
+  kind: "brand" | "category";
+}) {
+  const editManualChart = useSizingStore((s) => s.editManualChart);
+  const openChartModal = useSizingStore((s) => s.openChartModal);
+  const [coverageModal, setCoverageModal] = React.useState<CoverageModalState | null>(null);
+  if (charts.length === 0) return null;
+
+  return (
+    <>
+    <div className="overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] shadow-[var(--shadow-elevated)] backdrop-blur-xl">
+      <div className="flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-success-light)]/40 px-6 py-4">
+        <div className="flex items-center gap-2">
+          <CheckCircle2 className="h-4 w-4 text-[var(--color-success)]" />
+          <h3 className="text-sm font-bold text-[var(--color-text-primary)]">
+            {kind === "brand" ? "Saved private charts" : "Saved no-brand charts"} ({charts.length})
+          </h3>
+        </div>
+        <span className="rounded-full border border-[var(--color-success)]/30 bg-[var(--color-success-light)] px-2.5 py-0.5 text-xs font-semibold text-[var(--color-success)]">
+          Editable
+        </span>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-elevated)] text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">
+            <tr>
+              <th className="px-6 py-3.5">{kind === "brand" ? "Brand" : "Brand entity"}</th>
+              <th className="px-6 py-3.5">Sizing key</th>
+              <th className="px-6 py-3.5">Chart</th>
+              <th className="px-6 py-3.5">SKU count</th>
+              <th className="px-6 py-3.5 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--color-border)]">
+            {charts.map((chart) => {
+              const coveredLeaves = [...chart.coversLeaves].sort((a, b) => leafLabel(a).localeCompare(leafLabel(b)));
+              return (
+              <tr key={chart.id} className="transition-colors hover:bg-[var(--color-brand-light)]/20">
+                <td className="px-6 py-4 font-bold text-[var(--color-text-primary)]">{chart.brand}</td>
+                <td className="px-6 py-4">
+                  <CategoryKey value={chart.sizingCategory} />
+                </td>
+                <td className="max-w-[22rem] px-6 py-4">
+                  <p className="font-semibold text-[var(--color-text-primary)]">{chart.variantName}</p>
+                  <div className="mt-1.5">
+                    <SubcategoryCoverage
+                      leaves={coveredLeaves}
+                      charted
+                      onViewAll={() =>
+                        setCoverageModal({
+                          title: `${chart.variantName} covered subcategories`,
+                          leaves: coveredLeaves,
+                          description: `${coveredLeaves.length} subcategor${coveredLeaves.length === 1 ? "y" : "ies"} this chart covers.`,
+                        })
+                      }
+                    />
+                  </div>
+                </td>
+                <td className="px-6 py-4 font-mono font-semibold text-[var(--color-text-secondary)]">
+                  {chart.skuCount.toLocaleString()} SKUs
+                </td>
+                <td className="px-6 py-4">
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openChartModal(chart)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-base)] px-3 py-1.5 text-xs font-bold text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-brand)]/40 hover:text-[var(--color-brand)]"
+                    >
+                      <Eye className="h-3.5 w-3.5" /> View
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => editManualChart(chart)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-brand)]/40 bg-[var(--color-brand-light)] px-3 py-1.5 text-xs font-bold text-[var(--color-brand-strong)] transition-colors hover:border-[var(--color-brand)]"
+                    >
+                      <PencilLine className="h-3.5 w-3.5" /> Edit
+                    </button>
+                  </div>
+                </td>
+              </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <SubcategoryCoverageModal value={coverageModal} onClose={() => setCoverageModal(null)} />
+    </>
+  );
+}
+
 function GapTable({ items, kind }: { items: ChartGap[]; kind: "brand" | "category" }) {
   const openManualChart = useSizingStore((s) => s.openManualChart);
   const tone = kind === "brand" ? "warning" : "error";
@@ -880,7 +974,7 @@ function GapTable({ items, kind }: { items: ChartGap[]; kind: "brand" | "categor
         <div className={cn("flex items-center gap-2", headerText)}>
           {kind === "brand" ? <AlertTriangle className="h-4 w-4" /> : <HelpCircle className="h-4 w-4" />}
           <h3 className="text-sm font-bold text-[var(--color-text-primary)]">
-            {kind === "brand" ? `Needs a hand-filled chart (${items.length})` : `No-brand fallbacks (${items.length})`}
+            {kind === "brand" ? `Missing charts (${items.length})` : `No-brand fallbacks (${items.length})`}
           </h3>
         </div>
         <span
@@ -938,15 +1032,24 @@ function GapTable({ items, kind }: { items: ChartGap[]; kind: "brand" | "categor
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center justify-end">
-                      {/* Doc Part 4. The only action either gap tab has: neither a private label nor an
-                          unbranded row has anything for a web search to find. */}
-                      <button
-                        type="button"
-                        onClick={() => openManualChart(item)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-brand)]/40 bg-[var(--color-brand-light)] px-3 py-1.5 text-xs font-bold text-[var(--color-brand-strong)] transition-colors hover:border-[var(--color-brand)]"
-                      >
-                        <PencilLine className="h-3.5 w-3.5" /> Fill chart
-                      </button>
+                      {item.brandType === "global" ? (
+                        <button
+                          type="button"
+                          disabled
+                          title="Support contact will be connected here."
+                          className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-1.5 text-xs font-bold text-[var(--color-text-muted)] opacity-70"
+                        >
+                          <HelpCircle className="h-3.5 w-3.5" /> Contact support
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => openManualChart(item)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-brand)]/40 bg-[var(--color-brand-light)] px-3 py-1.5 text-xs font-bold text-[var(--color-brand-strong)] transition-colors hover:border-[var(--color-brand)]"
+                        >
+                          <PencilLine className="h-3.5 w-3.5" /> Fill chart
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

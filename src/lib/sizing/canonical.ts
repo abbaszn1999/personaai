@@ -1,5 +1,6 @@
 import { rowLabels, type SizeAliasKey, type SizeChartRow } from "./chart-schema";
 import { normalizeSizeLabel, splitRawSizeValue } from "./keys";
+import { sizeLabelCandidates } from "./size-label-forms";
 import { sizeTypeAliasKey, type SizeType } from "./size-types";
 
 /**
@@ -53,33 +54,46 @@ function primaryClaimedByOtherKey(row: SizeChartRow, key: SizeAliasKey, sizeNorm
   return false;
 }
 
-function matchesKey(row: SizeChartRow, key: SizeAliasKey, target: string): boolean {
+function labelsOverlap(
+  left: string,
+  leftKey: SizeAliasKey,
+  right: string,
+  rightKey: SizeAliasKey,
+): boolean {
+  const rightForms = new Set(sizeLabelCandidates(right, rightKey));
+  return sizeLabelCandidates(left, leftKey).some((form) => rightForms.has(form));
+}
+
+function matchesKey(row: SizeChartRow, key: SizeAliasKey, rawLabel: string, rawKey: SizeAliasKey): boolean {
   const aliasValue = row.aliases?.[key];
-  if (aliasValue !== undefined) return normalizeSizeLabel(aliasValue) === target;
+  if (aliasValue !== undefined) return labelsOverlap(rawLabel, rawKey, aliasValue, key);
 
   const sizeNormalized = normalizeSizeLabel(row.size);
-  if (sizeNormalized !== target) return false;
-  return !primaryClaimedByOtherKey(row, key, sizeNormalized);
+  if (primaryClaimedByOtherKey(row, key, sizeNormalized)) return false;
+  return labelsOverlap(rawLabel, rawKey, row.size, key);
 }
 
 export function matchLabel(rawLabel: string, rows: readonly SizeChartRow[], sizeType: SizeType): LabelMatch {
-  const target = normalizeSizeLabel(rawLabel);
-  if (!target) return { raw: rawLabel, row: null, matchedVia: null };
+  if (sizeLabelCandidates(rawLabel).length === 0) return { raw: rawLabel, row: null, matchedVia: null };
 
   const declaredKey = sizeTypeAliasKey(sizeType);
 
   for (const row of rows) {
-    if (matchesKey(row, declaredKey, target)) return { raw: rawLabel, row, matchedVia: declaredKey };
+    if (matchesKey(row, declaredKey, rawLabel, declaredKey)) {
+      return { raw: rawLabel, row, matchedVia: declaredKey };
+    }
   }
 
   if (declaredKey !== "alpha") {
     for (const row of rows) {
-      if (matchesKey(row, "alpha", target)) return { raw: rawLabel, row, matchedVia: "alpha" };
+      if (matchesKey(row, "alpha", rawLabel, declaredKey)) {
+        return { raw: rawLabel, row, matchedVia: "alpha" };
+      }
     }
   }
 
   for (const row of rows) {
-    if (rowLabels(row).some((label) => normalizeSizeLabel(label) === target)) {
+    if (rowLabels(row).some((label) => labelsOverlap(rawLabel, declaredKey, label, declaredKey))) {
       return { raw: rawLabel, row, matchedVia: null };
     }
   }
@@ -97,6 +111,11 @@ export interface RawFormatMatch {
   needsReview: boolean;
 }
 
+/** The label from the merchant's declared system that should be published back for this row. */
+export function canonicalLabelForRow(row: SizeChartRow, sizeType: SizeType): string {
+  return row.aliases?.[sizeTypeAliasKey(sizeType)] ?? row.size;
+}
+
 export function matchRawFormat(raw: string, rows: readonly SizeChartRow[], sizeType: SizeType): RawFormatMatch {
   const matches = splitRawSizeValue(raw).map((label) => matchLabel(label, rows, sizeType));
   return {
@@ -107,23 +126,3 @@ export function matchRawFormat(raw: string, rows: readonly SizeChartRow[], sizeT
   };
 }
 
-/**
- * The `canonical` half of `CoverageRow.rawFormats` (`aggregate.ts`), filled in.
- *
- * Deliberately not called from `CoverageAggregator` itself: the aggregator folds the scan before
- * any chart exists for the brand, and — for a brand with several variants (`Men`, `Men Tailored`,
- * `Men Big & Tall`) — there is no single chart to resolve against until Stage 5 assignment has
- * picked one for the product's Persona leaf. This is the function that assignment's resolver
- * (`assignments.ts` / the Phase 9 index pass) calls once it has: pass the assigned variant's rows
- * and the store's declared `SizeType`, get back the canonical labels or `null` if the format does
- * not fully resolve against that chart.
- */
-export function canonicalSizesForRawFormat(
-  raw: string,
-  rows: readonly SizeChartRow[],
-  sizeType: SizeType
-): string[] | null {
-  const { matches, fullyMatched } = matchRawFormat(raw, rows, sizeType);
-  if (!fullyMatched) return null;
-  return matches.map((match) => match.row!.size);
-}

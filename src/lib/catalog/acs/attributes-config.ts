@@ -22,6 +22,15 @@ interface RequiredAttribute {
   name: string;
   /** Why this app filters on it, for whoever reads the bootstrap output. */
   purpose: string;
+  type?: "TEXTUAL" | "NUMERICAL";
+  /** `fit_rows` is payload-only; every other required attribute may appear in a filter. */
+  indexable?: boolean;
+  /**
+   * ACS permits at most 30 retrievable attributes per catalog. Identity and envelope fields are
+   * used in server-side filters and do not need to be returned in every result; the exact fitter
+   * only needs `fit_size_labels` and `fit_rows`.
+   */
+  retrievable?: boolean;
 }
 
 const REQUIRED_ATTRIBUTES: RequiredAttribute[] = [
@@ -31,6 +40,24 @@ const REQUIRED_ATTRIBUTES: RequiredAttribute[] = [
   { name: "product_group_id", purpose: "variant lookups (getProductGroup)" },
   { name: "sku", purpose: "exact-match product lookups (support tooling)" },
   { name: "primary_external_id", purpose: "finding a product's VARIANT children (getAcsVariantIds)" },
+  { name: "sizing_chart_key", purpose: "targeted sizing republishes", retrievable: false },
+  { name: "fit_leaf", purpose: "resolved Persona leaf diagnostics", retrievable: false },
+  { name: "fit_group", purpose: "sizing-group filters", retrievable: false },
+  { name: "fit_audience", purpose: "sizing audience diagnostics", retrievable: false },
+  { name: "fit_chart_variant", purpose: "resolved chart diagnostics", retrievable: false },
+  { name: "fit_size_labels", purpose: "canonical in-stock size filters" },
+  { name: "fit_rows", purpose: "exact per-size fit payload", indexable: false },
+  ...[
+    "fit_chest_min", "fit_chest_max",
+    "fit_waist_min", "fit_waist_max",
+    "fit_height_min", "fit_height_max",
+    "fit_foot_length_min", "fit_foot_length_max",
+  ].map((name) => ({
+    name,
+    purpose: "recall-preserving sizing envelope",
+    type: "NUMERICAL" as const,
+    retrievable: false,
+  })),
 ];
 
 /**
@@ -100,15 +127,17 @@ export interface AttributeRegistrationResult {
  * shopper's free-text query match against a connection uuid. `DYNAMIC_FACETABLE_DISABLED` for the
  * same reason — none of them is a facet a shopper should ever see.
  */
-function attributeBody(key: string) {
+function attributeBody(key: string, attribute: RequiredAttribute) {
   return {
     catalogAttribute: {
       key,
-      type: "TEXTUAL",
-      indexableOption: "INDEXABLE_ENABLED",
+      type: attribute.type ?? "TEXTUAL",
+      indexableOption: attribute.indexable === false ? "INDEXABLE_DISABLED" : "INDEXABLE_ENABLED",
       searchableOption: "SEARCHABLE_DISABLED",
       dynamicFacetableOption: "DYNAMIC_FACETABLE_DISABLED",
-      retrievableOption: "RETRIEVABLE_ENABLED",
+      retrievableOption: attribute.retrievable === false
+        ? "RETRIEVABLE_DISABLED"
+        : "RETRIEVABLE_ENABLED",
     },
   };
 }
@@ -129,7 +158,7 @@ export async function ensureAcsCatalogAttributes(): Promise<AttributeRegistratio
     const res = await fetch(url, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify(attributeBody(key)),
+      body: JSON.stringify(attributeBody(key, attribute)),
     });
 
     if (res.ok) {
@@ -145,7 +174,7 @@ export async function ensureAcsCatalogAttributes(): Promise<AttributeRegistratio
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify({
-            ...attributeBody(key),
+            ...attributeBody(key, attribute),
             updateMask: "indexableOption,searchableOption,dynamicFacetableOption,retrievableOption",
           }),
         },

@@ -1,6 +1,8 @@
 Persona — Full Pipeline & Sizing Logic
 Updated Developer Brief
-This version keeps the strong parts of the existing pipeline, but updates the size-chart architecture so we do not force US/UK/EU conversions and so each merchant category path is assigned to the correct researched brand chart variant.
+This document describes the current five-stage workflow. Stage 4 `covers_leaves` is the only source
+of truth for assigning a chart to a product. Category-path assignments, parent fallbacks, per-SKU
+overrides, and AI/manual size-label mappings are not part of the current architecture.
 
 PART 1 — Categories Tab
 After store connection, the merchant selects which leaf-level categories / collections are included.
@@ -165,8 +167,9 @@ Editable as a table
 Editable as JSON
 Synchronized between both views
 
-PART 7 — NEW: Chart Assignment
-This is the missing layer between researching charts and assigning the right chart to SKUs.
+PART 7 — RETIRED DESIGN: Chart Assignment
+This section is retained only as historical context and must not be implemented. The current
+resolver uses exact Stage 4 `covers_leaves`; it does not read or write path assignments.
 Knowing:
 Tom Ford
 +
@@ -206,7 +209,9 @@ Women
 The user performs this mapping once, not SKU by SKU.
 All matching SKUs inherit the assignment automatically.
 
-PART 8 — SKU-Level Override
+PART 8 — RETIRED DESIGN: SKU-Level Override
+SKU-level chart overrides are not supported. Allowing one would create a second chart truth and
+could contradict the taxonomy leaf selected during category mapping.
 Category-path assignment is the default.
 However, individual SKUs can override it when necessary.
 Example:
@@ -228,7 +233,28 @@ Brand + Merchant Path assignment
 Parent-category default
 This prevents unusual products from being forced into the wrong chart.
 
-PART 9 — Tab 5: Results Review & final_chart
+PART 9 — RETIRED DESIGN: AI canonicalization and `final_chart`
+The LLM mapping and Postgres `final_chart` described in this section are not used. Canonical sizes
+are derived deterministically from the product's `raw_size_format` and resolved chart at read and
+publish time. The complete chart stays in Postgres; only stocked rows are published to ACS.
+
+CURRENT STAGE 5 — Active Overview and publish
+For every product:
+1. Read `primary_persona_leaf_key`, raw brand, brand type, and `raw_size_format`.
+2. For global brands, resolve the canonical brand from
+   `store_connections.sizing_brand_mapping` and read `sizing_charts`.
+3. For private or null brands, read only that connection's `sizing_charts_private`.
+4. Keep charts with a compatible parent/audience whose exact `covers_leaves` includes the leaf.
+5. Accept exactly one non-fit-class chart. Zero or multiple matches remain unresolved.
+6. Match every stocked raw size through deterministic label forms. Any unmatched label makes the
+   product `sizes-unresolved`; no partial sizing payload is published.
+7. Publish only stocked chart rows to ACS and persist completion after the catalog queue succeeds.
+
+ACS stores `fit_size_labels` plus one compact JSON value per stocked size in `fit_rows`. Numeric
+min/max envelopes support recall-preserving server-side filtering. The full chart, unused sizes,
+other regional label systems, and garment-only measurements are not copied into ACS.
+
+HISTORICAL EXAMPLE (not the current implementation)
 By this point, every SKU can resolve to:
 SKU
 → Brand
@@ -498,7 +524,7 @@ or:
 No suitable size
 The original architecture correctly reserves this item-specific precision work for Persona rather than the filter.
 
-Complete Updated Pipeline
+HISTORICAL PIPELINE (superseded by the five-stage flow above)
 STORE CONNECTION
         ↓
 CATEGORIES TAB
@@ -563,8 +589,12 @@ Product-specific research/reasoning
 Best product + best size
 OR
 No suitable size
-Core architecture in one sentence
-Merchant categories first map into one of five normalized sizing families; brand research then discovers the actual chart variants available for each family; each brand + merchant category path is assigned to the correct chart variant; that chart is trimmed to the SKU's actual available sizes to create final_chart; a generous deterministic body-measurement filter removes only clearly impossible products, and Persona performs the final product-specific sizing decision.
+Current architecture in one sentence
+Merchant leaf taxonomy determines the sizing family; Stage 4 charts explicitly declare their
+covered leaves; Stage 5 resolves exactly one isolated global/private chart for each product,
+deterministically trims it to stocked labels, and publishes compact ACS sizing attributes; the
+retrieval filter removes only clearly impossible products before Persona makes the final
+product-and-size recommendation.
 
 
 

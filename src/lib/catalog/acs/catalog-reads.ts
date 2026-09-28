@@ -279,7 +279,8 @@ export async function deleteAllAcsProductsForConnection(connectionId: string): P
   // used here, but its eventual consistency made a successful disconnect capable of missing
   // recently imported products. The deterministic id prefix is the primary ownership check;
   // merchant_id also covers any legacy products that did not use that id convention.
-  const ids = new Set<string>();
+  const variantIds = new Set<string>();
+  const parentIds = new Set<string>();
   const seenTokens = new Set<string>();
   let pageToken: string | undefined;
 
@@ -288,7 +289,14 @@ export async function deleteAllAcsProductsForConnection(connectionId: string): P
     for (const product of response.products ?? []) {
       const merchantIds = product.attributes?.merchant_id?.text ?? [];
       if (product.id.startsWith(`${connectionId}_`) || merchantIds.includes(connectionId)) {
-        ids.add(product.id);
+        // ACS enforces this dependency: a PRIMARY cannot be deleted while any VARIANT points at it.
+        // Prefer the schema fields and retain the composite-id check for older records written
+        // before `type`/`primaryProductId` were persisted consistently.
+        const isVariant =
+          product.type === "VARIANT" ||
+          Boolean(product.primaryProductId) ||
+          product.id.includes("::");
+        (isVariant ? variantIds : parentIds).add(product.id);
       }
     }
 
@@ -300,12 +308,16 @@ export async function deleteAllAcsProductsForConnection(connectionId: string): P
   } while (pageToken);
 
   let deleted = 0;
-  for (const batch of chunk([...ids], DELETE_CONCURRENCY)) {
-    const removed = await Promise.allSettled(batch.map((id) => deleteProduct(id)));
-    deleted += removed.filter((result) => result.status === "fulfilled" && result.value).length;
+  // Two distinct passes are required. Parallelizing a mixed parent/variant batch races the deletes
+  // and intermittently lets a parent reach ACS before its children are gone.
+  for (const ids of [variantIds, parentIds]) {
+    for (const batch of chunk([...ids], DELETE_CONCURRENCY)) {
+      const removed = await Promise.allSettled(batch.map((id) => deleteProduct(id)));
+      deleted += removed.filter((result) => result.status === "fulfilled" && result.value).length;
 
-    const failure = removed.find((result) => result.status === "rejected");
-    if (failure) throw failure.reason;
+      const failure = removed.find((result) => result.status === "rejected");
+      if (failure) throw failure.reason;
+    }
   }
 
   return deleted;

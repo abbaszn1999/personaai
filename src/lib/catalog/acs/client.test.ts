@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { importProducts, searchProducts } from "./client";
+import { deleteProduct, getProduct, importProducts, patchProduct, searchProducts } from "./client";
 import type { AcsProduct } from "./types";
 
 vi.mock("./auth", () => ({ getAcsAccessToken: () => Promise.resolve("test-token") }));
@@ -58,6 +58,35 @@ describe("searchProducts request body", () => {
     const filter = String(bodyOf(fetchSpy).filter);
     expect(filter).toContain(`attributes.merchant_id: ANY("${CONNECTION_ID}")`);
     expect(filter).toContain('categories: ANY("424","441")');
+  });
+});
+
+describe("single-product resource paths", () => {
+  const shopifyId = `${CONNECTION_ID}_gid://shopify/Product/10313039249650`;
+  const encodedId = encodeURIComponent(shopifyId);
+
+  beforeEach(() => {
+    process.env.ACS_PROJECT_ID = "test-project";
+  });
+
+  afterEach(() => {
+    if (originalProjectId) process.env.ACS_PROJECT_ID = originalProjectId;
+    else delete process.env.ACS_PROJECT_ID;
+    vi.restoreAllMocks();
+  });
+
+  it.each([
+    ["get", () => getProduct(shopifyId)],
+    ["patch", () => patchProduct({ id: shopifyId, availability: "OUT_OF_STOCK" }, ["availability"])],
+    ["delete", () => deleteProduct(shopifyId)],
+  ])("URL-encodes a Shopify GID for %s", async (_operation, request) => {
+    const fetchSpy = mockFetch();
+
+    await request();
+
+    const url = String(fetchSpy.mock.calls[0][0]);
+    expect(url).toContain(`/products/${encodedId}`);
+    expect(url).not.toContain("gid://");
   });
 });
 

@@ -3,7 +3,7 @@
 import * as React from "react";
 import { Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
-import type { StageNumber } from "../types";
+import { LAST_STAGE, type StageNumber } from "../types";
 
 interface StageHeaderBannerProps {
   stageNumber: StageNumber;
@@ -19,9 +19,9 @@ interface StageHeaderBannerProps {
 }
 
 /**
- * The "Stage N of 6" banner every stage in the demo opens with — title, one-line framing, and an
- * optional action/stat area on the right. Centralized so all six stages read as one pipeline
- * instead of six components that each invented their own header.
+ * The "Stage N of N" banner every stage opens with — title, one-line framing, and an
+ * optional action/stat area on the right. Centralized so all stages read as one pipeline instead of
+ * each component inventing its own header.
  */
 export function StageHeaderBanner({
   stageNumber,
@@ -50,7 +50,7 @@ export function StageHeaderBanner({
             )}
           >
             {aiPowered && <Sparkles className="h-3 w-3" />}
-            Stage {stageNumber} of 6
+            Stage {stageNumber} of {LAST_STAGE}
           </span>
           <span className="text-[var(--color-text-muted)]">·</span>
           <span className="text-xs font-medium text-[var(--color-text-muted)]">{eyebrow}</span>

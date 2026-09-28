@@ -32,7 +32,7 @@ describe("formatBounds", () => {
 });
 
 describe("chartTable", () => {
-  it("only builds columns the chart has data for", () => {
+  it("builds the fixed columns even when the source leaves one blank", () => {
     const rows: SizeChartRow[] = [
       { size: "S", chest_min: 88, chest_max: 96 },
       { size: "M", chest_min: 96, chest_max: 104 },
@@ -40,10 +40,8 @@ describe("chartTable", () => {
 
     const table = chartTable(rows, "tops");
 
-    // `tops` needs chest, waist and height; this source published only chest. An empty waist column
-    // would read as "this size has no waist" instead of "the guide never gave one".
-    expect(table.headers).toEqual(["Size", "Chest (cm)"]);
-    expect(table.rows[0]).toEqual({ Size: "S", "Chest (cm)": "88-96" });
+    expect(table.headers).toEqual(["Size", "Chest (cm)", "Waist (cm)"]);
+    expect(table.rows[0]).toEqual({ Size: "S", "Chest (cm)": "88-96", "Waist (cm)": "—" });
   });
 
   it("keys cells by header so the renderer needs no measurement vocabulary", () => {
@@ -52,8 +50,11 @@ describe("chartTable", () => {
     expect(table.rows).toEqual([{ Size: "40", "Foot length (cm)": "25-25.7" }]);
   });
 
-  it("returns just a size column for a chart with no bounds at all", () => {
-    expect(chartTable([{ size: "M" }], "tops")).toEqual({ headers: ["Size"], rows: [{ Size: "M" }] });
+  it("keeps the fixed columns for a chart with no bounds at all", () => {
+    expect(chartTable([{ size: "M" }], "tops")).toEqual({
+      headers: ["Size", "Chest (cm)", "Waist (cm)"],
+      rows: [{ Size: "M", "Chest (cm)": "—", "Waist (cm)": "—" }],
+    });
   });
 });
 
@@ -173,6 +174,20 @@ describe("assessChart", () => {
     expect(pinned?.severity).toBe("error");
     expect(pinned?.detail).toContain("chest");
     expect(pinned?.detail).toContain("waist");
+  });
+
+  it("keeps official point-value guides visible without treating them as a bad extraction", () => {
+    const rows: SizeChartRow[] = [
+      { size: "S", chest_min: 97, chest_max: 97, source_point_values: true },
+      { size: "M", chest_min: 101, chest_max: 101, source_point_values: true },
+    ];
+
+    const pinned = assessChart({ rows, group: "tops", sourceUrl: "https://brand.example" }).find(
+      (flag) => flag.code === "point_bounds"
+    );
+
+    expect(pinned?.severity).toBe("warning");
+    expect(pinned?.label).toBe("Official reference values");
   });
 
   it("flags a chart that mixes alpha labels with numeric ones", () => {

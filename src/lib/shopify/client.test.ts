@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getShopifyVendors, listShopifyCatalogPage, mapShopifyWebhookProduct } from "./client";
+import {
+  getShopifyCollections,
+  getShopifyVendors,
+  listShopifyCatalogPage,
+  mapShopifyWebhookProduct,
+} from "./client";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -49,6 +54,60 @@ describe("mapShopifyWebhookProduct", () => {
 });
 
 describe("Shopify Admin GraphQL 2026-07 compatibility", () => {
+  it("loads collection counts in paginated GraphQL responses without per-collection REST calls", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as {
+        query: string;
+        variables: { after: string | null };
+      };
+      expect(body.query).toContain("productsCount { count }");
+      expect(body.query).toContain("ruleSet { appliedDisjunctively }");
+
+      const secondPage = body.variables.after === "page-2";
+      return Response.json({
+        data: {
+          collections: {
+            nodes: secondPage
+              ? [{
+                  legacyResourceId: "3",
+                  title: "Sale",
+                  handle: "sale",
+                  productsCount: { count: 91 },
+                  ruleSet: { appliedDisjunctively: true },
+                }]
+              : [
+                  {
+                    legacyResourceId: "1",
+                    title: "Women",
+                    handle: "women",
+                    productsCount: { count: 1200 },
+                    ruleSet: null,
+                  },
+                  {
+                    legacyResourceId: "2",
+                    title: "New In",
+                    handle: "new-in",
+                    productsCount: { count: 204 },
+                    ruleSet: { appliedDisjunctively: false },
+                  },
+                ],
+            pageInfo: secondPage
+              ? { hasNextPage: false, endCursor: null }
+              : { hasNextPage: true, endCursor: "page-2" },
+          },
+        },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getShopifyCollections("store.myshopify.com", "token")).resolves.toEqual([
+      { id: "1", name: "Women", handle: "women", collectionType: "custom", productCount: 1200 },
+      { id: "2", name: "New In", handle: "new-in", collectionType: "smart", productCount: 204 },
+      { id: "3", name: "Sale", handle: "sale", collectionType: "smart", productCount: 91 },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("reads product vendors without the unsupported after argument", async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as { query: string; variables: Record<string, unknown> };

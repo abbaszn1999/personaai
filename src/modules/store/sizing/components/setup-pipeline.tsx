@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangle, ArrowLeft, ArrowRight, RotateCcw } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useStoreConnectionStore } from "@/modules/store/store";
 import { useSizingStore } from "../store";
@@ -10,7 +10,7 @@ import { StageFieldMapping } from "./stage-field-mapping";
 import { StageItemPreview } from "./stage-item-preview";
 import { StageBrandDiscovery } from "./stage-brand-discovery";
 import { StageChartResearch } from "./stage-chart-research";
-import { StageChartAssignment } from "./stage-chart-assignment";
+import { StageBrandMapping } from "./stage-brand-mapping";
 import { StageConfirmation } from "./stage-confirmation";
 import { SizeChartModal } from "./size-chart-modal";
 import { ManualChartModal } from "./manual-chart-modal";
@@ -23,10 +23,9 @@ import { LAST_STAGE } from "../types";
  * a finished stage without redoing it, but cannot skip ahead of the furthest point they have
  * actually reached.
  *
- * Gap filling used to be stage 5. Doc Part 4 moved it into Stage 4 as a modal, which removed a step
- * every merchant walked through even with nothing to fill and put the gap list on the same screen
- * as the research results that define it. Doc Part 7's Chart Assignment took the vacated slot, and
- * the Active Overview moved to the stage 6 it had always numbered itself.
+ * Gap filling and leaf coverage both live in Stage 4. `covers_leaves` is the chart-assignment source
+ * of truth, so the duplicate Chart Assignment screen is no longer part of the merchant flow and
+ * Active Overview follows research directly as Stage 5.
  */
 export function SetupPipeline() {
   const stage = useSizingStore((s) => s.stage);
@@ -34,13 +33,14 @@ export function SetupPipeline() {
   const goToStage = useSizingStore((s) => s.goToStage);
   const nextStage = useSizingStore((s) => s.nextStage);
   const prevStage = useSizingStore((s) => s.prevStage);
-  const resetPipeline = useSizingStore((s) => s.resetPipeline);
   const continueRun = useSizingStore((s) => s.continueRun);
   const startRun = useSizingStore((s) => s.startRun);
   const startingRun = useSizingStore((s) => s.startingRun);
   const chartBrands = useSizingStore((s) => s.chartBrands);
   const chartTotals = useSizingStore((s) => s.chartTotals);
   const run = useSizingStore((s) => s.run);
+  const brandMappingStatus = useSizingStore((s) => s.brandMappingStatus);
+  const brandMappingEditing = useSizingStore((s) => s.brandMappingEditing);
   const mappingApproved = useStoreConnectionStore((s) => s.acsMapping.approved);
   const mappingApproving = useStoreConnectionStore((s) => s.mapping.isApproving);
   const approveMapping = useStoreConnectionStore((s) => s.approveMapping);
@@ -72,19 +72,18 @@ export function SetupPipeline() {
   // is still empty or still unclassified — and read as a pipeline that ran fine.
   const scanIncomplete = run === null || run.stage === "scan" || run.stage === "classify";
   const blockedByScan = stage === 3 && scanIncomplete;
+  const blockedByBrandMapping =
+    stage === 4 && (brandMappingStatus !== "ready" || brandMappingEditing);
 
   // A scoped research pass writes charts from a background job. Leaving mid-pass would carry a
-  // half-written chart set into the assignment screen, where the missing variants look like brands
-  // that publish nothing.
+  // half-written chart set into Active Overview, where missing charts look like completed gaps.
   const researching = stage === 4 && run?.stage === "research" && (run.status === "pending" || run.status === "running");
   const stageOneActionPending = mappingApproving || startingRun;
 
   const advance = React.useCallback(() => {
     setConfirmingGaps(false);
-    // Stage 4 and 5 are both parked run states, so leaving either records the move server-side —
-    // that is what makes a refresh come back to the screen the merchant was on rather than to the
-    // last one the worker touched. Stage 4 no longer *starts* anything by being left; research is
-    // requested per brand from the screen itself.
+    // Leaving Stage 4 records the parked `assign` run state server-side. That legacy internal name
+    // now maps directly to Active Overview; there is no merchant-facing assignment stage.
     if (stage === 4) void continueRun();
     nextStage();
   }, [stage, continueRun, nextStage]);
@@ -94,12 +93,12 @@ export function SetupPipeline() {
     // and holding a merchant on stage 4 over those would make the pipeline uncompletable. It is
     // confirmed rather than silent, because the consequence (that stock publishing with no size
     // chart) is invisible from anywhere else.
-    if (stage === 4 && unresearchedBrands > 0) {
+    if (stage === 4 && !blockedByBrandMapping && unresearchedBrands > 0) {
       setConfirmingGaps(true);
       return;
     }
     advance();
-  }, [stage, unresearchedBrands, advance]);
+  }, [stage, blockedByBrandMapping, unresearchedBrands, advance]);
 
   return (
     <div className="space-y-4 pb-4">
@@ -127,9 +126,8 @@ export function SetupPipeline() {
         )}
         {stage === 2 && <StageItemPreview />}
         {stage === 3 && <StageBrandDiscovery />}
-        {stage === 4 && <StageChartResearch />}
-        {stage === 5 && <StageChartAssignment />}
-        {stage === 6 && <StageConfirmation />}
+        {stage === 4 && (blockedByBrandMapping ? <StageBrandMapping /> : <StageChartResearch />)}
+        {stage === 5 && <StageConfirmation />}
       </div>
 
       {/* Stage 1 owns its Approve/Continue and Reset actions, so a second Continue underneath would
@@ -178,22 +176,20 @@ export function SetupPipeline() {
                   Waiting for the brand being researched to finish
                 </p>
               )}
-              <Button size="sm" onClick={handleContinue} disabled={blockedByScan || researching}>
+              {blockedByBrandMapping && (
+                <p className="text-xs font-medium text-[var(--color-text-muted)]">
+                  Save the canonical brand mapping to continue
+                </p>
+              )}
+              <Button
+                size="sm"
+                onClick={handleContinue}
+                disabled={blockedByScan || blockedByBrandMapping || researching}
+              >
                 Continue <ArrowRight className="h-3.5 w-3.5" />
               </Button>
             </div>
           </div>
-        </div>
-      )}
-
-      {stage === LAST_STAGE && (
-        <div className="sticky bottom-4 z-10 flex items-center justify-between gap-3 rounded-[var(--radius-2xl)] border border-[var(--color-border-strong)] bg-[var(--color-surface-sticky)] p-3.5 shadow-[var(--shadow-modal)]">
-          <Button variant="ghost" size="sm" onClick={prevStage}>
-            <ArrowLeft className="h-3.5 w-3.5" /> Back
-          </Button>
-          <Button variant="secondary" size="sm" onClick={resetPipeline}>
-            <RotateCcw className="h-3.5 w-3.5" /> Run setup again
-          </Button>
         </div>
       )}
 

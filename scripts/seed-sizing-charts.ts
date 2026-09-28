@@ -6,16 +6,16 @@
  * other way in: charts read off the brand's own guide, checked by `seeds.test.ts`, and written once
  * for every merchant rather than per connection.
  *
- * `connectionId` is null on every row — that is what global means, and it is not configurable here.
- * `provenance` is `manual`, which is both true and load-bearing: `deleteResearchedCharts` scopes
- * itself to `research`, so a regenerate pass can never wipe this work.
+ * This writer can only reach the shared table — that is what global means, and it is not
+ * configurable here. `provenance` is `manual`, which is both true and load-bearing:
+ * `deleteResearchedCharts` scopes itself to `research`, so a regenerate pass can never wipe this work.
  *
  *   npm run sizing:seed -- --dry-run          show what would be written, touch nothing
  *   npm run sizing:seed -- tommy_hilfiger     one brand
  *   npm run sizing:seed                       every seeded brand
  */
 import { CHART_SEEDS, type SeedChart } from "@/lib/sizing/seeds";
-import { upsertChart } from "@/lib/db/sizing-charts";
+import { upsertSharedChart } from "@/lib/db/sizing-charts";
 import { assessChart } from "@/lib/sizing/chart-review";
 import { chartHasBounds } from "@/lib/sizing/chart-schema";
 
@@ -24,20 +24,25 @@ import { chartHasBounds } from "@/lib/sizing/chart-schema";
  *  and never spends a web request re-deriving something already verified. */
 const SEED_CONFIDENCE = 1;
 
+function rowsForWrite(chart: SeedChart): SeedChart["chartRows"] {
+  if (!chart.sourcePublishesPointValues) return chart.chartRows;
+  return chart.chartRows.map((row) => ({ ...row, source_point_values: true }));
+}
+
 function pad(value: string | number, width: number): string {
   return String(value).padEnd(width).slice(0, width);
 }
 
 async function writeChart(chart: SeedChart): Promise<boolean> {
-  return upsertChart({
-    connectionId: null,
+  const chartRows = rowsForWrite(chart);
+  return upsertSharedChart({
     brandKey: chart.brandKey,
     sizingCategory: chart.sizingCategory,
     variantName: chart.variantName,
     coversLeaves: chart.coversLeaves,
     audience: chart.audience,
     sourceTitle: chart.sourceTitle,
-    chartRows: chart.chartRows,
+    chartRows,
     confidence: SEED_CONFIDENCE,
     sourceUrl: chart.sourceUrl,
     provenance: "manual",
@@ -68,17 +73,19 @@ async function main() {
     console.log(`  ${pad("GROUP", 11)}${pad("AUDIENCE", 9)}${pad("ROWS", 5)}${pad("VARIANT", 30)}FLAGS`);
 
     for (const chart of charts) {
+      const chartRows = rowsForWrite(chart);
       // Re-checked at write time rather than trusted from the test run: this is the last point before
       // a row every merchant reads, and a chart carrying no usable measurement is worse than absent.
-      if (!chartHasBounds(chart.chartRows, chart.sizingCategory)) {
+      if (!chartHasBounds(chartRows, chart.sizingCategory, chart.audience)) {
         console.error(`  SKIP  ${chart.variantName} (${chart.sizingCategory}) — no required measurement`);
         failed += 1;
         continue;
       }
 
       const flags = assessChart({
-        rows: chart.chartRows,
+        rows: chartRows,
         group: chart.sizingCategory,
+        audience: chart.audience,
         sourceUrl: chart.sourceUrl,
       });
 

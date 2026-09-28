@@ -1,4 +1,11 @@
-import { boundsFor, SIZE_ALIAS_KEYS, type MeasurementBounds, type SizeAliasKey, type SizeChartRow } from "./chart-schema";
+import {
+  allowedAliasKeys,
+  boundsFor,
+  type MeasurementBounds,
+  type SizeAliasKey,
+  type SizeChartRow,
+} from "./chart-schema";
+import type { Audience } from "./keys";
 import { GIRTH_MEASUREMENTS, MEASUREMENTS, measurementsFor, type Measurement, type SizingGroup } from "./measurements";
 
 /**
@@ -73,19 +80,18 @@ const ALIAS_HEADERS: Record<SizeAliasKey, string> = {
  * Turns stored rows into a display table: the size, the other names it goes by, then its
  * measurements.
  *
- * Only columns the chart has data for. A tops chart that came back with chest and height but no
- * waist gets two measurement columns, not three with one full of dashes — an empty column reads as
- * "this size has no waist", when the truth is the source never published one. The same rule applies
- * to the alias columns, which is what keeps a chart with no UK sizing from showing an empty UK strip.
+ * Measurement columns are fixed by parent and audience. A missing value is rendered as a dash,
+ * making the chart honest without letting one brand redefine Persona's sizing vocabulary.
  *
  * Aliases come before measurements because they are what a merchant recognises: their own stock says
  * `41` or `3431`, and finding that on the row is how they check the chart is the right one at all.
  */
-export function chartTable(rows: SizeChartRow[], group: SizingGroup): ChartTable {
-  const aliases = SIZE_ALIAS_KEYS.filter((key) => rows.some((row) => row.aliases?.[key]));
-  const present = measurementsFor(group).filter((measurement) =>
-    rows.some((row) => boundsFor(row, measurement) !== null)
+export function chartTable(rows: SizeChartRow[], group: SizingGroup, audience?: Audience): ChartTable {
+  const chartAudience = audience ?? "unisex";
+  const aliases = allowedAliasKeys(group, chartAudience).filter(
+    (key) => key === "age" || rows.some((row) => row.aliases?.[key]),
   );
+  const present = measurementsFor(group, chartAudience);
 
   const headers = ["Size", ...aliases.map((key) => ALIAS_HEADERS[key]), ...present.map(headerFor)];
   const tableRows = rows.map((row) => {
@@ -235,8 +241,12 @@ export function sizeScaleKinds(rows: SizeChartRow[]): SizeScaleKind[] {
  * brand does the same. Flagging those was safe only while extraction was too broken to produce them;
  * once it works, an unrestricted check condemns correct charts. See `GIRTH_MEASUREMENTS`.
  */
-export function pinnedMeasurements(rows: SizeChartRow[], group: SizingGroup): Measurement[] {
-  return measurementsFor(group).filter((measurement) => {
+export function pinnedMeasurements(
+  rows: SizeChartRow[],
+  group: SizingGroup,
+  audience?: Audience,
+): Measurement[] {
+  return measurementsFor(group, audience).filter((measurement) => {
     if (!GIRTH_MEASUREMENTS.has(measurement)) return false;
     const bounds = rows.map((row) => boundsFor(row, measurement)).filter((b): b is MeasurementBounds => b !== null);
     if (bounds.length === 0) return false;
@@ -247,6 +257,7 @@ export function pinnedMeasurements(rows: SizeChartRow[], group: SizingGroup): Me
 export interface AssessChartInput {
   rows: SizeChartRow[];
   group: SizingGroup;
+  audience?: Audience;
   sourceUrl: string | null;
 }
 
@@ -258,10 +269,10 @@ export interface AssessChartInput {
  * pinned height columns and three merged size scales. These flags are checks on the artifact
  * itself, so they can disagree with the model, which is the entire reason to compute them.
  */
-export function assessChart({ rows, group, sourceUrl }: AssessChartInput): ChartQualityFlag[] {
+export function assessChart({ rows, group, audience, sourceUrl }: AssessChartInput): ChartQualityFlag[] {
   const flags: ChartQualityFlag[] = [];
 
-  const measurements = measurementsFor(group);
+  const measurements = measurementsFor(group, audience);
   const hasAnyBound = rows.some((row) => measurements.some((m) => boundsFor(row, m) !== null));
 
   if (rows.length === 0 || !hasAnyBound) {
@@ -277,14 +288,17 @@ export function assessChart({ rows, group, sourceUrl }: AssessChartInput): Chart
     return flags;
   }
 
-  const pinned = pinnedMeasurements(rows, group);
+  const pinned = pinnedMeasurements(rows, group, audience);
   if (pinned.length > 0) {
     const names = pinned.map((m) => MEASUREMENTS[m].label.toLowerCase()).join(" and ");
+    const publishedAsPoints = rows.every((row) => row.source_point_values === true);
     flags.push({
       code: "point_bounds",
-      severity: "error",
-      label: "Single values, not ranges",
-      detail: `Every size pins an exact ${names} rather than covering a range, so only a shopper measuring that number to the centimetre would be matched.`,
+      severity: publishedAsPoints ? "warning" : "error",
+      label: publishedAsPoints ? "Official reference values" : "Single values, not ranges",
+      detail: publishedAsPoints
+        ? `The brand publishes exact ${names} reference values rather than intervals; the chart preserves those official values without inventing ranges.`
+        : `Every size pins an exact ${names} rather than covering a range, so only a shopper measuring that number to the centimetre would be matched.`,
     });
   }
 

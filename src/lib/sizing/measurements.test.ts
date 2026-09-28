@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { requiredMeasurementsFor, SIZING_GROUP_KEYS } from "./measurements";
+import { measurementsFor, requiredMeasurementsFor, SIZING_GROUP_KEYS } from "./measurements";
 import { AUDIENCES } from "./keys";
 
 /**
@@ -38,5 +38,22 @@ describe("requiredMeasurementsFor", () => {
     for (const group of SIZING_GROUP_KEYS) {
       expect(requiredMeasurementsFor(group)).toEqual(requiredMeasurementsFor(group, "unisex"));
     }
+  });
+});
+
+describe("measurementsFor", () => {
+  it("uses the fixed adult templates", () => {
+    expect(measurementsFor("tops", "womens")).toEqual(["chest", "waist"]);
+    expect(measurementsFor("outerwear", "mens")).toEqual(["chest", "waist"]);
+    expect(measurementsFor("bottoms", "unisex")).toEqual(["waist", "hip", "inseam"]);
+    expect(measurementsFor("dresses", "mens")).toEqual(["chest", "waist", "hip"]);
+    expect(measurementsFor("footwear", "womens")).toEqual(["foot_length"]);
+  });
+
+  it("adds height only to kids apparel", () => {
+    expect(measurementsFor("tops", "kids")).toEqual(["chest", "waist", "height"]);
+    expect(measurementsFor("bottoms", "girls")).toEqual(["waist", "hip", "inseam", "height"]);
+    expect(measurementsFor("dresses", "boys")).toEqual(["chest", "waist", "hip", "height"]);
+    expect(measurementsFor("footwear", "kids")).toEqual(["foot_length"]);
   });
 });

@@ -1,5 +1,4 @@
 import type { SizingCoverageRow } from "@/lib/db/sizing-coverage";
-import type { SizingRunRow } from "@/lib/db/sizing-runs";
 import {
   brandDisplayNameFromKey,
   brandSourceFingerprint,
@@ -11,7 +10,7 @@ import {
   type StoreBrandMapping,
 } from "./brand-mapping";
 
-export type BrandMappingStatus = "needs_mapping" | "rescanning" | "ready";
+export type BrandMappingStatus = "needs_mapping" | "ready";
 
 export interface BrandMappingState {
   ready: boolean;
@@ -27,33 +26,14 @@ function discoveredGlobalBrands(
   coverage: readonly SizingCoverageRow[],
   mapping: StoreBrandMapping,
 ): DiscoveredBrand[] {
-  const canonicalTargets = new Set(Object.values(mapping.aliases).map((alias) => alias.canonicalKey));
   const aggregate = new Map<string, DiscoveredBrand>();
-
-  // Persisted aliases retain the store spellings after coverage has merged onto canonical keys.
-  for (const [rawKey, alias] of Object.entries(mapping.aliases)) {
-    aggregate.set(rawKey, {
-      rawKey,
-      labels: mapping.observed[rawKey] ?? alias.labels,
-      skuCount: alias.skuCount,
-      sizingCategories: [...alias.sizingCategories],
-    });
-  }
 
   for (const row of coverage) {
     if (row.brandType !== "global" || !row.brandKey) continue;
-    // Once confirmed, a canonical coverage row is the output of mapping, not a newly discovered raw
-    // alias. A raw key not represented by a target is new and must reopen the gate.
-    if (
-      mapping.confirmedAt &&
-      (canonicalTargets.has(row.brandKey) || mapping.aliases[row.brandKey] !== undefined)
-    ) {
-      continue;
-    }
 
     const current = aggregate.get(row.brandKey) ?? {
       rawKey: row.brandKey,
-      labels: mapping.observed[row.brandKey] ?? [],
+      labels: mapping.observed[row.brandKey] ?? mapping.aliases[row.brandKey]?.labels ?? [],
       skuCount: 0,
       sizingCategories: [],
     };
@@ -120,9 +100,8 @@ export function buildBrandMappingState(input: {
   coverage: readonly SizingCoverageRow[];
   mapping: StoreBrandMapping;
   sharedBrandKeys: readonly string[];
-  run: SizingRunRow | null;
 }): BrandMappingState {
-  const { coverage, run } = input;
+  const { coverage } = input;
   const mapping = parseStoreBrandMapping(input.mapping);
   const brands = discoveredGlobalBrands(coverage, mapping);
   const knownNames = new Map<string, string>();
@@ -152,13 +131,11 @@ export function buildBrandMappingState(input: {
     mapping.confirmedAt !== null &&
     mapping.sourceFingerprint === fingerprint &&
     complete;
-  const rescanning =
-    confirmed && (run?.stage === "scan" || run?.stage === "classify" || run?.status === "pending" || run?.status === "running");
-  const ready = confirmed && !rescanning;
+  const ready = confirmed;
 
   return {
     ready,
-    status: ready ? "ready" : rescanning ? "rescanning" : "needs_mapping",
+    status: ready ? "ready" : "needs_mapping",
     confirmedAt: mapping.confirmedAt,
     sourceFingerprint: fingerprint,
     brands,

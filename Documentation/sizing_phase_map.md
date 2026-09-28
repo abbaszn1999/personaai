@@ -1,24 +1,21 @@
-# Sizing Implementation — Phase to Page Map
+# Sizing Implementation — Five-Stage Page Map
 
 | Phase | Page | Stage | Responsible for |
 |---|---|---|---|
 | 1 | Categories | Sub-step 2 (new) | Merchant maps each selected leaf path to one of five parent sizing categories. |
 | 2 | Setup | Stage 1 — Column Mapping | Merchant declares the store's size type (EU/US/UK/Alpha/Numeric) plus brand overrides. |
-| 3 | Setup | Stage 4 — Size Chart Research | Research discovers and normalizes the real chart variants each brand publishes per parent. |
-| 4 | Setup | Stage 4 — Size Chart Research (modal) | Merchant hand-fills charts for private and null brands, and forks a template when editing. |
-| 5 | Setup | Stage 5 — Chart Assignment | Merchant binds each brand + category path to one discovered chart variant. |
-| 6 | Setup | Stage 6 — Active Overview | Merchant overrides the inherited chart for individual odd SKUs. |
-| 7 | None (catalog ingest) | — | Capture per-size stock from Woo and Shopify so each size carries its own availability. |
-| 8 | Setup | Stage 6 — Active Overview | Map the merchant's raw size strings to canonical sizes that exist in the assigned chart. |
-| 9 | None (index pass) | Shown in Stage 6 | Trim the chart to the SKU's canonical sizes and write `final_chart` onto the indexed product. |
-| 10 | Shopper body profile | — | Collect and persist hip circumference and foot length alongside the existing measurements. |
-| 11 | None (retrieval) | Config on Size Filter page | Exclude SKUs where no single available size satisfies every measurement within guard bands. |
-| 12 | Shopper chat | — | Persona picks the actual size from `final_chart` instead of guessing from BMI. |
+| 3 | Setup | Stages 2–3 — Item Preview / Brand Discovery | Persist product-grain leaf, raw brand, brand type and canonical-brand mapping. |
+| 4 | Setup | Stage 4 — Size Chart Research | Maintain global and private charts and their exact `covers_leaves` coverage. |
+| 5 | Setup | Stage 5 — Active Overview | Resolve every product, show exact counts, and publish trimmed sizing data to ACS. |
+| 6 | None (catalog ingest) | — | Capture per-size stock from Woo and Shopify so each size carries its own availability. |
+| 7 | Shopper body profile / retrieval | Size Filter | Apply recall-preserving envelopes and exact same-size measurement checks. |
+| 8 | Shopper chat | — | Persona recommends from products and sizes that passed deterministic sizing. |
 
-Phases 1 through 6 are all merchant-facing screens; 7, 9 and 11 have no page of their own and run in the pipeline, with 9's output visible in Stage 6; 10 and 12 are the shopper side.
+There are five Setup stages: 1 Column Mapping, 2 Item Preview, 3 Brand Discovery, 4 Size
+Chart Research, and 5 Active Overview.
 
-The six Setup stages are: 1 Column Mapping, 2 Item Preview, 3 Brand Discovery, 4 Size Chart Research,
-5 Chart Assignment, 6 Active Overview.
+`covers_leaves` is the sole chart-assignment truth. There is no category-path assignment stage,
+parent fallback, fit-class fallback, or per-SKU chart override.
 
 ## Stage 4 — research is a queue, not a pass
 
@@ -58,91 +55,53 @@ unbranded bucket, which publish nothing to find.
 Leaving Stage 4 with brands still uncharted is allowed, and confirmed rather than silent. Some brands
 genuinely publish nothing; holding a merchant there over those would make the pipeline uncompletable.
 
-## Stage 5 — Chart Assignment
+## Stage 5 — Active Overview
 
-Stage 5 exists because research and the catalog each know half the answer. Research can prove that
-Tommy Hilfiger publishes a men's tops table and a women's one. It cannot know that this store's
-`Sale > Tops` is womenswear. The merchant knows that, and nothing else in the pipeline does.
+Stage 5 is a live product-resolution and publish screen. For each `sizing_product_records` row it
+uses the product's `primary_persona_leaf_key`, brand type, canonical brand mapping, and the isolated
+global/private chart source. A chart matches only when its exact `covers_leaves` contains that leaf
+and its parent and audience are compatible.
 
-### Why `sizing_path_coverage` is a separate table
+Global products resolve from `sizing_charts` through the connection's canonical brand mapping.
+Private and unbranded products resolve only from `sizing_charts_private` for that connection.
+Fit-class charts without leaf coverage are never selected. Zero or multiple matching charts leave
+the product unresolved with an explicit status.
 
-`sizing_coverage` groups by (brand × sizing parent), so "Tommy Hilfiger tops" is one row whether the
-store files it under `Men > T-Shirts` or `Women > Tops` — and those two legitimately want different
-variants of the same brand's chart. `sizing_path_coverage` adds the merchant category the product was
-actually sized from.
+Raw stock labels are matched deterministically to labels in the resolved chart. Canonical labels
+are derived at read/publish time and are never stored in Postgres. If any stock label cannot be
+resolved, the product publishes no sizing attributes rather than a misleading partial chart.
 
-It is **aggregate only**: brand, the deepest mapped category id, the sizing parent, and a SKU count.
-No SKUs, ids, prices or images. Storing the merchant's catalog is what this pipeline is built to avoid,
-and a count per path is all an assignment screen can act on — which is why Stage 5's inspector reports
-what a rule governs without listing products, unlike the demo it is modelled on.
+Finish queues a full sizing-aware catalog publish. Completion is persisted only after the catalog
+queue settles successfully (`sizing_runs.status = complete` and `published_at` is set), so refreshes
+cannot fake or lose the completed state.
 
-`category_id` is the platform's own stable term id, so a merchant renaming a category keeps their
-assignment. `category_path` is the breadcrumb, refreshed by every scan.
+## ACS sizing contract
 
-### Why assignments are their own table
+Only stocked chart rows are written to ACS; the complete chart remains in Postgres:
 
-`sizing_chart_assignments` is keyed identically to `sizing_path_coverage` so the join is exact, but the
-two have opposite lifecycles: coverage is replaced wholesale by every scan, while an assignment is a
-merchant decision that has to survive one. A rescan prunes assignments whose path no longer exists and
-leaves the rest alone.
+- Identity/filter fields: `sizing_chart_key`, `fit_leaf`, `fit_group`, `fit_audience`,
+  `fit_chart_variant`, `fit_size_labels`.
+- Exact retrieved payload: `fit_rows`, one compact JSON string per stocked canonical size.
+- Filterable numeric envelopes: `fit_chest_min/max`, `fit_waist_min/max`,
+  `fit_height_min/max`, and `fit_foot_length_min/max`.
 
-It stores `variant_name`, not a chart id. Writing a chart deletes and re-inserts the row for that
-published table, so a re-run of research mints new uuids for the same guide and a uuid here would dangle
-the moment a merchant re-researched a brand they had just finished assigning. When a stored name matches
-nothing current, the row is flagged rather than cleared — the merchant's decision is still the best
-evidence of their intent.
-
-A row with `variant_name is null` is a real answer: the merchant looked at the path and decided it gets
-no chart. That is deliberately distinct from having no row, which means undecided, and it is what lets
-the unresolved count reach zero.
-
-### What auto-matching will and will not do
-
-Two cases are resolved without asking: a brand publishing exactly one chart for a parent, and a path
-whose own breadcrumb names an audience that exactly one variant matches. Everything else is left blank.
-Guessing between a brand's Regular and its Petite line sizes every shopper on that path against the
-wrong body *and* reports the path as governed, which is worse than an obviously undone one.
-
-`unisex` is never matched on, because `audienceFor` returns it both for a genuinely unisex path and for
-one it could not read at all.
-
-Auto-matches are applied on read by `GET /sizing/assignments` rather than by a background job: the match
-is a pure function over rows already in hand, it never touches a path that has a row, and doing it there
-means a merchant's first visit shows the obvious cases resolved instead of forty dropdowns with one
-option each. They are persisted as `source = 'auto'`, and a merchant's own choice is always written as
-`source = 'merchant'`, which is what protects it from a later pass.
-
-## Out of scope for stages 4 and 5
-
-Stage 6 (`stage-confirmation.tsx`), SKU-level chart overrides, `final_chart`, and ACS publishing are
-untouched by this work — Phase 9's index pass is its own pipeline.
-
-## Known seeding gaps (data, not code)
-
-`audienceCompatible` and `pickVariant` already handle every leaf correctly; these 58 leaves simply
-have no chart in `sizing_charts` yet for any brand, Tommy Hilfiger included. Nothing here blocks a
-merchant — an uncovered leaf just shows "no chart found" in Stage 4/5 the same way a brand that
-publishes nothing does. Recorded so the next seeding pass has a checklist instead of a guess:
-
-| Gap | Leaves | Why it's missing |
-|---|---|---|
-| No unisex-audience chart | 24 | Tommy publishes every table split by a specific audience (mens/womens/boys/girls/kids); unisex paths currently fall through to the closest adult chart via `audienceCompatible` rather than a chart of their own. |
-| No mens `dresses` chart | 6 | Covers suits/formalwear — Tommy's own guide has no dedicated mens full-body table to transcribe from. |
-| No girls full-body / outerwear / footwear chart | 17 | Tommy's girls guide stops at tops and bottoms (see the girls-tops truncation note in `tommy-hilfiger-kids.ts`); no source table exists for these three groups. |
-| No boys full-body / footwear chart | 11 | Same shape as girls: the boys guide has no full-body or footwear table published. |
-
-Closing these requires a source table to transcribe, so it is seeding work for the next brand pass,
-not a code change.
+ACS limits a catalog to 30 retrievable attributes. `fit_size_labels` and `fit_rows` are retrievable
+because exact fitting needs them. Identity and numeric envelope fields remain indexable/filterable but
+are not retrievable; their role is server-side filtering and they would otherwise consume the shared
+retrievable budget.
 
 ## Where the code lives
 
 | Concern | File |
 |---|---|
-| Path aggregation during the scan | `src/lib/sizing/path-coverage.ts` |
+| Product-grain scan record | `src/lib/db/sizing-product-records.ts`, `src/lib/sizing/scan.ts` |
+| Deterministic label forms | `src/lib/sizing/size-label-forms.ts` |
+| Product/chart resolver | `src/lib/sizing/product-chart.ts` |
+| ACS trimmed payload | `src/lib/sizing/acs-payload.ts` |
 | Brand-level research status | `buildBrandResearch` in `src/lib/sizing/chart-results.ts` |
-| Stage 5 join and auto-match | `src/lib/sizing/assignments.ts` |
-| Research scope on the run | `src/lib/db/sizing-runs.ts` (`queueScopedResearch`, `advanceBlockedRun`) |
-| New tables | `src/lib/db/sizing-path-coverage.ts`, `src/lib/db/sizing-chart-assignments.ts` |
+| Publish lifecycle | `src/lib/sizing/jobs.ts`, `src/lib/catalog/process-queue.ts` |
+| Single-product webhook indexing | `src/lib/catalog/index-product.ts` |
+| ACS attribute registration | `src/lib/catalog/acs/attributes-config.ts` |
 | Stage 4 screen | `src/modules/store/sizing/components/stage-chart-research.tsx` |
-| Stage 5 screen | `src/modules/store/sizing/components/stage-chart-assignment.tsx` |
-| Migration | `supabase/migrations/20260914140000_sizing_stage4_stage5.sql` |
+| Stage 5 screen | `src/modules/store/sizing/components/stage-confirmation.tsx` |
+| Migration | `supabase/migrations/20260925155000_sizing_product_raw_size_format.sql` |

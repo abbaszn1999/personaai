@@ -6,6 +6,8 @@ export interface SizingProductRecordInput {
   title: string;
   brandKey: string;
   sizingCategory: string;
+  primaryPersonaLeafKey: string | null;
+  rawSizeFormat: string | null;
 }
 
 export interface SizingProductRecordRow extends SizingProductRecordInput {
@@ -47,6 +49,8 @@ export async function replaceSizingProductRecords(
       title: record.title,
       brand_key: record.brandKey,
       sizing_category: record.sizingCategory,
+      primary_persona_leaf_key: record.primaryPersonaLeafKey,
+      raw_size_format: record.rawSizeFormat,
     }));
     const { error } = await db.from("sizing_product_records").insert(payload);
     if (error) {
@@ -67,7 +71,49 @@ function rowToProduct(row: Record<string, unknown>): SizingProductRecordRow {
     title: row.title as string,
     brandKey: (row.brand_key as string) ?? "",
     sizingCategory: row.sizing_category as string,
+    primaryPersonaLeafKey: (row.primary_persona_leaf_key as string | null) ?? null,
+    rawSizeFormat: (row.raw_size_format as string | null) ?? null,
   };
+}
+
+export interface SizingProductPrimaryLeafCounts {
+  total: number;
+  assigned: number;
+  byLeaf: Record<string, number>;
+  scannedAt: string | null;
+}
+
+/** Exact Stage 2 product total partitioned by one primary Persona leaf per product. */
+export async function getSizingProductPrimaryLeafCounts(
+  connectionId: string,
+): Promise<SizingProductPrimaryLeafCounts | null> {
+  const { data, error } = await db
+    .from("sizing_product_primary_leaf_counts")
+    .select("primary_persona_leaf_key, product_count, scanned_at")
+    .eq("connection_id", connectionId);
+
+  if (error) {
+    console.error("[db/sizing-product-records primaryLeafCounts]", connectionId, error);
+    return null;
+  }
+
+  const byLeaf: Record<string, number> = {};
+  let total = 0;
+  let assigned = 0;
+  let scannedAt: string | null = null;
+  for (const row of (data as Array<Record<string, unknown>>) ?? []) {
+    const count = Number(row.product_count) || 0;
+    const leaf = typeof row.primary_persona_leaf_key === "string" ? row.primary_persona_leaf_key : null;
+    total += count;
+    if (leaf) {
+      byLeaf[leaf] = count;
+      assigned += count;
+    }
+    const rowScannedAt = typeof row.scanned_at === "string" ? row.scanned_at : null;
+    if (rowScannedAt && (!scannedAt || rowScannedAt > scannedAt)) scannedAt = rowScannedAt;
+  }
+
+  return { total, assigned, byLeaf, scannedAt };
 }
 
 /** Protects PostgREST's comma-separated `or` syntax and prevents user wildcards widening a search. */
@@ -96,7 +142,7 @@ export async function listSizingProductRecordsPage(
 
   let query = db
     .from("sizing_product_records")
-    .select("id, connection_id, external_id, sku, title, brand_key, sizing_category", { count: "exact" })
+    .select("id, connection_id, external_id, sku, title, brand_key, sizing_category, primary_persona_leaf_key, raw_size_format", { count: "exact" })
     .eq("connection_id", connectionId);
 
   // PostgREST's `in` grammar does not reliably preserve an empty-string member (`in.("")`), and

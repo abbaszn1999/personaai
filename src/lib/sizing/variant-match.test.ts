@@ -2,73 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   audienceCompatible,
   audienceForPersonaPath,
-  chartsForLeaf,
   leafOfPersonaPath,
   sanitizeCoverage,
   variantTags,
-  type MatchableVariant,
 } from "./variant-match";
-
-/**
- * The fixtures below are drawn from the real seeded Tommy Hilfiger `covers_leaves` values (see
- * `src/lib/sizing/seeds/tommy-hilfiger.ts` and `tommy-hilfiger-kids.ts`), grouped as
- * `indexAssignableVariants` groups them — one list per `(sizing_category)` across every audience
- * that publishes into it.
- */
-const WOMENS_BOTTOMS: MatchableVariant[] = [
-  {
-    variantName: "Women",
-    coversLeaves: [
-      "women:bottom:trouser",
-      "women:bottom:skirt",
-      "women:bottom:short",
-      "women:bottom:legging",
-      "women:bottom:culotte",
-      "women:bottom:activewear-bottom",
-      "women:bottom:sleep-bottom",
-    ],
-  },
-  { variantName: "Women Denim", coversLeaves: ["women:bottom:jean"] },
-  { variantName: "Women Swim & Beach Bottoms", coversLeaves: ["women:bottom:swim-bottom"] },
-];
-
-const MENS_OUTERWEAR: MatchableVariant[] = [
-  { variantName: "Men Tailored", coversLeaves: ["men:outerwear:blazer", "men:outerwear:suit-jacket"] },
-  { variantName: "Men Tailored Long", coversLeaves: [] },
-  { variantName: "Men Tailored Short", coversLeaves: [] },
-  { variantName: "Men Big & Tall", coversLeaves: [] },
-];
-
-const WOMENS_TOPS: MatchableVariant[] = [
-  { variantName: "Women", coversLeaves: ["women:top:tank-top", "women:top:camisole"] },
-  { variantName: "Women Shirts & Blouses", coversLeaves: ["women:top:shirt", "women:top:blouse"] },
-  { variantName: "Women Bras (Wired)", coversLeaves: ["women:top:bra"] },
-];
-
-const WOMENS_FOOTWEAR: MatchableVariant[] = [
-  {
-    variantName: "Women",
-    coversLeaves: [
-      "women:footwear:heel",
-      "women:footwear:flat",
-      "women:footwear:sneaker",
-      "women:footwear:boot",
-      "women:footwear:sandal",
-      "women:footwear:loafer",
-      "women:footwear:mule",
-      "women:footwear:wedge",
-      "women:footwear:slipper",
-    ],
-  },
-  { variantName: "Women Socks", coversLeaves: ["women:footwear:sock"] },
-];
-
-const KIDS_BATHROBE: MatchableVariant[] = [
-  {
-    variantName: "Kids Bathrobes",
-    coversLeaves: ["kids-boys:full-body:bathrobe", "kids-girls:full-body:bathrobe", "kids-unisex:full-body:bathrobe"],
-  },
-];
 
 describe("audienceForPersonaPath", () => {
   it("reads the audience off the department, for all six", () => {
@@ -141,8 +78,7 @@ describe("variantTags", () => {
     expect(variantTags("Men Tall & Slim").fit).toEqual(["tall", "slim"]);
   });
 
-  /** `Regular` names the absence of a fit class. Tagging it would leave a brand's default table with
-   *  nothing to fall back to, and `chartsForLeaf` would never be able to auto-pick it. */
+  /** `Regular` names the absence of a fit class. */
   it("does not treat Regular as a fit class", () => {
     expect(variantTags("Women Regular").fit).toEqual([]);
     expect(variantTags("Men Regular").fit).toEqual([]);
@@ -151,121 +87,6 @@ describe("variantTags", () => {
   it("finds no fit tag on a plain table with no fit line named", () => {
     expect(variantTags("Men").fit).toEqual([]);
     expect(variantTags("Women Denim").fit).toEqual([]);
-  });
-});
-
-describe("chartsForLeaf", () => {
-  it("sends jean to the denim table and trouser to the base one", () => {
-    expect(chartsForLeaf("women:bottom:jean", WOMENS_BOTTOMS)?.variantName).toBe("Women Denim");
-    expect(chartsForLeaf("women:bottom:trouser", WOMENS_BOTTOMS)?.variantName).toBe("Women");
-    expect(chartsForLeaf("women:bottom:skirt", WOMENS_BOTTOMS)?.variantName).toBe("Women");
-  });
-
-  it("sends a swim leaf to the swim table", () => {
-    expect(chartsForLeaf("women:bottom:swim-bottom", WOMENS_BOTTOMS)?.variantName).toBe(
-      "Women Swim & Beach Bottoms"
-    );
-  });
-
-  /**
-   * `bra` used to have no leaf a merchant could ever map onto, which meant this real seeded chart
-   * could never be reached by auto-match. Also proves the fit-class guard does not misfire on it:
-   * "Wired" is a garment-type word, not one of `VARIANT_FIT_PATTERNS`, so it carries no fit tag.
-   */
-  it("sends bra to the wired bra table, the sole chart that claims that leaf", () => {
-    expect(chartsForLeaf("women:top:bra", WOMENS_TOPS)?.variantName).toBe("Women Bras (Wired)");
-  });
-
-  it("does not let t-shirt inherit the shirt leaf's chart", () => {
-    // `shirt` and `blouse` are explicitly listed on the specialized table; `t-shirt` is a different
-    // leaf entirely and is not, so it resolves to nothing here rather than borrowing a collar-keyed
-    // table.
-    expect(chartsForLeaf("women:top:shirt", WOMENS_TOPS)?.variantName).toBe("Women Shirts & Blouses");
-    expect(chartsForLeaf("women:top:blouse", WOMENS_TOPS)?.variantName).toBe("Women Shirts & Blouses");
-    expect(chartsForLeaf("women:top:t-shirt", WOMENS_TOPS)).toBeNull();
-  });
-
-  it("picks the tailored table for a blazer and ignores its length variants", () => {
-    // `Men Tailored Long` and `Men Tailored Short` never carry a leaf at all — a fit class describes
-    // the shopper's own proportions, not the garment, so the unqualified table is the only reachable
-    // answer.
-    expect(chartsForLeaf("men:outerwear:blazer", MENS_OUTERWEAR)?.variantName).toBe("Men Tailored");
-    expect(chartsForLeaf("men:outerwear:suit-jacket", MENS_OUTERWEAR)?.variantName).toBe("Men Tailored");
-  });
-
-  it("resolves sock to the socks table and leaves the base table for everything else", () => {
-    expect(chartsForLeaf("women:footwear:sock", WOMENS_FOOTWEAR)?.variantName).toBe("Women Socks");
-    expect(chartsForLeaf("women:footwear:sneaker", WOMENS_FOOTWEAR)?.variantName).toBe("Women");
-  });
-
-  it("resolves bathrobe to its sole seeded chart, shared across three kids departments", () => {
-    expect(chartsForLeaf("kids-boys:full-body:bathrobe", KIDS_BATHROBE)?.variantName).toBe("Kids Bathrobes");
-    expect(chartsForLeaf("kids-girls:full-body:bathrobe", KIDS_BATHROBE)?.variantName).toBe("Kids Bathrobes");
-    expect(chartsForLeaf("kids-unisex:full-body:bathrobe", KIDS_BATHROBE)?.variantName).toBe("Kids Bathrobes");
-  });
-
-  it("returns null when no candidate claims the leaf", () => {
-    expect(
-      chartsForLeaf("women:bottom:culotte", [
-        { variantName: "Women Denim", coversLeaves: ["women:bottom:jean"] },
-      ])
-    ).toBeNull();
-  });
-
-  it("returns null for an empty leaf key — a category-level mapping with no leaf chosen", () => {
-    expect(chartsForLeaf("", WOMENS_BOTTOMS)).toBeNull();
-  });
-
-  it("still resolves a sole candidate that carries no fit class", () => {
-    expect(
-      chartsForLeaf("men:outerwear:blazer", [
-        { variantName: "Women", coversLeaves: ["men:outerwear:blazer"] },
-      ])?.variantName
-    ).toBe("Women");
-    expect(chartsForLeaf("anything", [])).toBeNull();
-  });
-
-  /**
-   * The belt-and-braces guard from `chartsForLeaf`'s own docstring: chart authors should never put a
-   * leaf on a fit-class table's `covers_leaves`, but a private brand whose entire tops list is
-   * `Men Big & Tall` must not have every ordinary top auto-assigned to it on nothing more than being
-   * alone in the list.
-   */
-  it("refuses to auto-pick a sole candidate that itself carries a fit class", () => {
-    const onlyBigTall: MatchableVariant[] = [
-      { variantName: "Men Big & Tall", coversLeaves: ["men:top:t-shirt"] },
-    ];
-    expect(chartsForLeaf("men:top:t-shirt", onlyBigTall)).toBeNull();
-  });
-
-  it("takes the plain table over a fit-class sibling when both claim the same leaf", () => {
-    const candidates: MatchableVariant[] = [
-      { variantName: "Men Regular", coversLeaves: ["men:top:t-shirt"] },
-      { variantName: "Men Tall", coversLeaves: ["men:top:t-shirt"] },
-    ];
-    expect(chartsForLeaf("men:top:t-shirt", candidates)?.variantName).toBe("Men Regular");
-  });
-
-  it("refuses when every table claiming the leaf carries a fit class", () => {
-    const candidates: MatchableVariant[] = [
-      { variantName: "Men Tall", coversLeaves: ["men:top:t-shirt"] },
-      { variantName: "Men Big & Tall", coversLeaves: ["men:top:t-shirt"] },
-    ];
-    expect(chartsForLeaf("men:top:t-shirt", candidates)).toBeNull();
-  });
-
-  /**
-   * The age-disjoint kids case this is modelled on: Tommy's `Infant` tables cover 44-92cm and its
-   * `Boys` tables cover 98-176cm, two sequential age bands rather than two readings of one child.
-   * Both legitimately claiming one leaf is how that surfaces now — deliberately, since only the
-   * merchant knows the age band this stock is sized for.
-   */
-  it("refuses to choose between two tables that both legitimately claim the same leaf", () => {
-    const kids: MatchableVariant[] = [
-      { variantName: "Boys", coversLeaves: ["kids-unisex:footwear:sneaker"] },
-      { variantName: "Infant", coversLeaves: ["kids-unisex:footwear:sneaker"] },
-    ];
-    expect(chartsForLeaf("kids-unisex:footwear:sneaker", kids)).toBeNull();
   });
 });
 

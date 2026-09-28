@@ -47,7 +47,7 @@ export const MEASUREMENTS = {
   /** Crotch to floor along the inside of the leg. Separate from height because two people of the
    *  same height regularly take different leg lengths, which is the entire reason trousers are
    *  sold in a length as well as a waist. */
-  inseam: { unit: "cm", label: "Inside leg" },
+  inseam: { unit: "cm", label: "Inseam" },
   height: { unit: "cm", label: "Height" },
   weight: { unit: "kg", label: "Weight" },
   /** Heel to longest toe. The only shoe measurement worth keying on: every regional shoe scale
@@ -130,10 +130,9 @@ export function isBodyMeasurement(measurement: Measurement): boolean {
  * synonym list can. Five is what the merchant is asked to choose between, so five is the whole
  * vocabulary.
  *
- * `required` is the measurement a chart in this parent is useless without, and is what the
- * exclusion filter compares. `optional` is everything a brand's guide might also publish: stored,
- * displayed, and handed to Persona as context, never used to exclude. That split is why garment
- * lengths can live here at all — see `GARMENT_MEASUREMENTS`.
+ * `adult` and `child` are the complete, closed chart-column sets. They are deliberately narrower
+ * than `MEASUREMENTS`: shopper onboarding and image generation may need measurements such as
+ * weight, but sizing-chart creation must never expose or persist them.
  *
  * `childRequired` overrides `required` for a child audience (boys/girls/kids). Kidswear runs on a
  * different axis: Tommy's own infant, boys and girls tables all key their sizes on `height` — the
@@ -145,40 +144,43 @@ export function isBodyMeasurement(measurement: Measurement): boolean {
  * changes — only which of its measurements the filter treats as load-bearing for that audience.
  */
 export const SIZING_GROUPS = {
-  /** `neck`, `shoulder` and `sleeve` are optional rather than dropped because menswear guides
-   *  publish them as standard — a dress shirt is sold on collar and sleeve — and discarding those
-   *  columns would lose real data off a chart we already paid to extract. */
   tops: {
+    adult: ["chest", "waist"],
+    child: ["chest", "waist", "height"],
     required: ["chest"],
-    optional: ["waist", "body_length", "neck", "shoulder", "sleeve", "height"],
     childRequired: ["height"],
   },
-  /** Its own parent rather than folded into `tops`: brands publish outerwear separately because
-   *  it's cut to layer over a top, so the same body chest maps to a different label. */
   outerwear: {
+    adult: ["chest", "waist"],
+    child: ["chest", "waist", "height"],
     required: ["chest"],
-    optional: ["waist", "sleeve", "body_length", "neck", "shoulder", "height"],
     childRequired: ["height"],
   },
   bottoms: {
+    adult: ["waist", "hip", "inseam"],
+    child: ["waist", "hip", "inseam", "height"],
     required: ["waist"],
-    optional: ["hip", "inseam", "thigh", "height"],
     childRequired: ["height"],
   },
   dresses: {
+    adult: ["chest", "waist", "hip"],
+    child: ["chest", "waist", "hip", "height"],
     required: ["chest"],
-    optional: ["waist", "hip", "dress_length", "height"],
     childRequired: ["height"],
   },
-  /** No `childRequired`: foot length is what every regional shoe scale relabels regardless of the
-   *  wearer's age, so footwear has one discriminator for every audience. */
   footwear: {
+    adult: ["foot_length"],
+    child: ["foot_length"],
     required: ["foot_length"],
-    optional: [],
   },
 } as const satisfies Record<
   string,
-  { required: readonly Measurement[]; optional: readonly Measurement[]; childRequired?: readonly Measurement[] }
+  {
+    adult: readonly Measurement[];
+    child: readonly Measurement[];
+    required: readonly Measurement[];
+    childRequired?: readonly Measurement[];
+  }
 >;
 
 export type SizingGroup = keyof typeof SIZING_GROUPS;
@@ -220,15 +222,21 @@ export function isSizingGroup(value: unknown): value is SizingGroup {
   return typeof value === "string" && value in SIZING_GROUPS;
 }
 
-/** Every measurement a chart in this parent may carry, required first. Callers that just want to
- *  know which columns are in play — chart parsing, table rendering, the normalizer schema — want
- *  this one. */
-export function measurementsFor(group: SizingGroup): readonly Measurement[] {
-  return [...SIZING_GROUPS[group].required, ...SIZING_GROUPS[group].optional];
+/** Whether an audience belongs to the kids side of Persona's taxonomy. */
+export function isChildAudience(audience: Audience): boolean {
+  return audience === "boys" || audience === "girls" || audience === "kids";
 }
 
-function isChildAudience(audience: Audience): boolean {
-  return audience === "boys" || audience === "girls" || audience === "kids";
+/**
+ * The only measurement columns a chart may carry for this parent and audience.
+ *
+ * An omitted audience returns the union solely for aggregate displays that combine adult and kids
+ * coverage. Chart parsing, creation and publishing always pass the chart's real audience.
+ */
+export function measurementsFor(group: SizingGroup, audience?: Audience): readonly Measurement[] {
+  const config = SIZING_GROUPS[group];
+  if (audience) return isChildAudience(audience) ? config.child : config.adult;
+  return [...new Set<Measurement>([...config.adult, ...config.child])];
 }
 
 /**
@@ -264,8 +272,9 @@ export function requiredMeasurementsFor(group: SizingGroup, audience?: Audience)
  * merchant and to us. Asking once per path is a few minutes of their time and has neither failure.
  *
  * Note what the group does *not* carry: the leaf. `women:bottom:jean` and `women:bottom:trouser` both
- * resolve to `bottoms` here, and the leaf survives only on the path-coverage/assignment key, which is
- * what lets Stage 5 bind them to different chart variants. An earlier version of this comment pointed
- * at `category_parent_map` and `resolveParentCategory`; that column was dropped in
+ * resolve to `bottoms` here, while `sizing_product_records.primary_persona_leaf_key` preserves the
+ * exact leaf. Stage 5 matches that key directly against chart `covers_leaves`; there is no separate
+ * assignment layer. An earlier version of this comment pointed at `category_parent_map` and
+ * `resolveParentCategory`; that column was dropped in
  * 20260915143000_drop_legacy_category_setup.sql and the resolver is no longer on the scan path.
  */

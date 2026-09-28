@@ -65,11 +65,12 @@ describe("draftColumnsFor", () => {
     expect(columns.some((c) => c.measurement === "chest")).toBe(false);
   });
 
-  it("offers the optional fields too, so real numbers need not be discarded", () => {
+  it("offers only the fixed fields for the parent", () => {
     const columns = draftColumnsFor("tops");
 
     expect(columns.find((c) => c.measurement === "chest")?.required).toBe(true);
-    expect(columns.find((c) => c.measurement === "sleeve")?.required).toBe(false);
+    expect(columns.find((c) => c.measurement === "waist")?.required).toBe(false);
+    expect(columns.some((c) => c.measurement === "sleeve")).toBe(false);
   });
 
   it("requires height rather than chest for a child audience", () => {

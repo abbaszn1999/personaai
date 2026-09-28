@@ -20,6 +20,8 @@ import { SOURCE_FIELDS } from "@/lib/catalog/source-fields";
 import { variantFieldDef } from "@/lib/catalog/cms-columns";
 import { buildAcsProductId, merchantAttributeValue, MERCHANT_ID_ATTRIBUTE } from "./isolation";
 import type { AcsAvailability, AcsCustomAttribute, AcsProduct } from "./types";
+import type { AcsSizingPayload } from "@/lib/sizing/acs-payload";
+import { sizeLabelCandidates } from "@/lib/sizing/size-label-forms";
 
 /**
  * Bump whenever this function's output shape changes in a way that should force merchants to
@@ -64,6 +66,9 @@ export interface MapProductInput {
    *  `store_connections.acs_field_overrides`. Omitted means "nothing bound", which reproduces
    *  auto-mapping and the built-in name match exactly. */
   fieldMapping?: AcsFieldMapping;
+  /** Stage 5's resolved, stock-trimmed chart payload. Absent leaves the ordinary catalog document
+   * unchanged, which is the correct behavior before sizing has been published or when unresolved. */
+  sizing?: AcsSizingPayload | null;
 }
 
 /**
@@ -109,6 +114,21 @@ export const PIPELINE_ATTRIBUTE_KEYS: ReadonlySet<string> = new Set([
   "product_group_id",
   "sku",
   "size_chart_data",
+  "sizing_chart_key",
+  "fit_leaf",
+  "fit_group",
+  "fit_audience",
+  "fit_chart_variant",
+  "fit_size_labels",
+  "fit_rows",
+  "fit_chest_min",
+  "fit_chest_max",
+  "fit_waist_min",
+  "fit_waist_max",
+  "fit_height_min",
+  "fit_height_max",
+  "fit_foot_length_min",
+  "fit_foot_length_max",
   // Written on every VARIANT record (see `buildVariantAcsProducts`) so `catalog-reads.ts` can find
   // and downgrade a product's variant children by a plain filter without knowing their ids —
   // `primaryProductId` alone is not documented as filterable, where a registered custom attribute
@@ -266,6 +286,26 @@ function bucketVariantSelectedOptions(
   }
 
   return buckets;
+}
+
+/** Size labels that are actually purchasable now, through the same Stage 1 role routing as indexing. */
+export function extractInStockSizeLabels(
+  raw: RawCatalogProduct,
+  mapping: AcsFieldMapping,
+): string[] {
+  if (!raw.inStock) return [];
+  if (raw.variants.length <= 1) return extractVariantAttributes(raw, mapping).sizes;
+
+  const labels = new Set<string>();
+  for (const variant of raw.variants) {
+    if (!variant.inStock) continue;
+    for (const label of bucketVariantSelectedOptions(variant.selectedOptions, mapping).sizes) {
+      if (label.trim()) labels.add(label);
+    }
+  }
+  // Some Woo payloads expose product-level stock and aggregate attributes but no populated
+  // variation options. Falling back is safer than publishing no sizes for an in-stock product.
+  return labels.size > 0 ? [...labels] : extractVariantAttributes(raw, mapping).sizes;
 }
 
 /** A store field's value, in whichever shape its kind implies. */
@@ -652,6 +692,46 @@ function textListAttribute(values: string[], opts: { searchable: boolean; indexa
   };
 }
 
+function numberListAttribute(values: number[]): AcsCustomAttribute {
+  return { numbers: values, searchable: false, indexable: true };
+}
+
+function labelsOverlap(left: string, right: string): boolean {
+  const rightForms = new Set(sizeLabelCandidates(right));
+  return sizeLabelCandidates(left).some((form) => rightForms.has(form));
+}
+
+function sizingAttributes(
+  sizing: AcsSizingPayload | null | undefined,
+  rawLabels?: readonly string[],
+): Record<string, AcsCustomAttribute> {
+  if (!sizing) return {};
+  const entries = rawLabels && rawLabels.length > 0
+    ? sizing.entries.filter((entry) => rawLabels.some((label) => labelsOverlap(label, entry.raw)))
+    : sizing.entries;
+  if (entries.length === 0) return {};
+
+  const attributes: Record<string, AcsCustomAttribute> = {
+    sizing_chart_key: textAttribute(sizing.chartKey, { searchable: false, indexable: true }),
+    fit_leaf: textAttribute(sizing.leaf, { searchable: false, indexable: true }),
+    fit_group: textAttribute(sizing.group, { searchable: false, indexable: true }),
+    fit_audience: textAttribute(sizing.audience, { searchable: false, indexable: true }),
+    fit_chart_variant: textAttribute(sizing.chartVariant, { searchable: false, indexable: true }),
+    fit_size_labels: textListAttribute(entries.map((entry) => entry.label), {
+      searchable: false,
+      indexable: true,
+    }),
+    fit_rows: textListAttribute(entries.map((entry) => entry.rowJson), {
+      searchable: false,
+      indexable: false,
+    }),
+  };
+  for (const [key, value] of Object.entries(sizing.envelopes)) {
+    if (typeof value === "number") attributes[`fit_${key}`] = numberListAttribute([value]);
+  }
+  return attributes;
+}
+
 /**
  * The single, pure, deterministic mapper from this app's raw sync data to an ACS `Product`.
  * Called on every product, every sync — backfill batches and single-item webhook patches alike
@@ -679,6 +759,7 @@ export function rawCatalogProductToAcsProduct(input: MapProductInput): AcsProduc
       searchable: false,
       indexable: true,
     }),
+    ...sizingAttributes(input.sizing),
   };
   if (garmentCategory) {
     attributes.garment_category = textAttribute(garmentCategory, { searchable: false, indexable: true });
@@ -807,6 +888,7 @@ export function buildVariantAcsProducts(input: MapProductInput, primary: AcsProd
       // filter clause when only the parent's externalId is known (a webhook delete, a category
       // deselection) — see `getAcsVariantIds`.
       primary_external_id: textAttribute(raw.externalId, { searchable: false, indexable: true }),
+      ...sizingAttributes(input.sizing, buckets.sizes),
     };
     if (variant.sku) attributes.sku = textAttribute(variant.sku, { searchable: false, indexable: true });
 

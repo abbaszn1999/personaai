@@ -73,7 +73,7 @@ describe("buildChartResults", () => {
     // covers, which is the number the merchant is deciding about.
     expect(row.skuCount).toBe(79);
     expect(row.confidence).toBe(95);
-    expect(row.headers).toEqual(["Size", "Chest (cm)"]);
+    expect(row.headers).toEqual(["Size", "Chest (cm)", "Waist (cm)"]);
     expect(row.shared).toBe(true);
   });
 
@@ -127,6 +127,16 @@ describe("buildChartResults", () => {
     expect(result.noBrand).toHaveLength(1);
     expect(result.noBrand[0].brandName).toBe("No brand");
     expect(result.noBrand[0].reason).toContain("No brand on these products");
+  });
+
+  it("labels a saved no-brand chart for people instead of exposing the sentinel key", () => {
+    const result = buildChartResults(
+      [coverage({ brandKey: "", brandName: null, brandType: "none" })],
+      [chart({ connectionId: "conn-1", brandKey: "", provenance: "manual" })],
+    );
+
+    expect(result.charts[0].brand).toBe("No brand");
+    expect(result.charts[0].shared).toBe(false);
   });
 
   it("surfaces the two tables disagreeing instead of smoothing it over", () => {

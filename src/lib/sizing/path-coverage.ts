@@ -112,7 +112,7 @@ export class PathCoverageAggregator {
   }
 }
 
-/** The natural key both `sizing_path_coverage` and `sizing_chart_assignments` are unique on. */
+/** Stable identity for one brand, Persona leaf and sizing parent coverage row. */
 export function pathKey(brandKey: string, categoryId: string, sizingCategory: string): string {
   return `${brandKey}\u0000${categoryId}\u0000${sizingCategory}`;
 }

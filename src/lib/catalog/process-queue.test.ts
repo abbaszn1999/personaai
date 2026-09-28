@@ -38,6 +38,28 @@ vi.mock("@/lib/db/store-connections", () => ({
   listConnectionsBySyncStatus: (...args: unknown[]) => listConnectionsBySyncStatus(...args),
 }));
 
+const getActiveSizingRun = vi.fn(
+  async (connectionId: string): Promise<{ id: string; stage: string } | null> => {
+    void connectionId;
+    return null;
+  },
+);
+const listActivePublishingSizingRuns = vi.fn(async () => [] as Array<{
+  id: string;
+  connectionId: string;
+  stage: string;
+}>);
+const updateSizingRun = vi.fn(async (runId: string, patch: unknown) => {
+  void runId;
+  void patch;
+  return null;
+});
+vi.mock("@/lib/db/sizing-runs", () => ({
+  getActiveSizingRun: (connectionId: string) => getActiveSizingRun(connectionId),
+  listActivePublishingSizingRuns: () => listActivePublishingSizingRuns(),
+  updateSizingRun: (runId: string, patch: unknown) => updateSizingRun(runId, patch),
+}));
+
 const { drainCatalogQueue, mergeSourceCategories, settleFinishedRuns } = await import("./process-queue");
 
 const CONNECTION_ID = "11111111-1111-1111-1111-111111111111";
@@ -113,6 +135,9 @@ beforeEach(() => {
   getStoreConnectionById.mockReset().mockResolvedValue(connection);
   updateCatalogSyncState.mockReset().mockResolvedValue(true);
   listConnectionsBySyncStatus.mockReset().mockResolvedValue([]);
+  getActiveSizingRun.mockReset().mockResolvedValue(null);
+  listActivePublishingSizingRuns.mockReset().mockResolvedValue([]);
+  updateSizingRun.mockReset().mockResolvedValue(null);
 });
 
 describe("drainCatalogQueue — Persona mapping boundary", () => {
@@ -134,6 +159,25 @@ describe("drainCatalogQueue — Persona mapping boundary", () => {
     expect(syncProductsToAcs).toHaveBeenCalledWith([]);
     expect(ackCatalogMessages).toHaveBeenCalledWith([1]);
     expect(result).toMatchObject({ indexed: 0, failed: 0 });
+  });
+});
+
+describe("drainCatalogQueue — completion boundary", () => {
+  it("keeps the catalog indexing at the numeric total until the queue is empty", async () => {
+    getCatalogQueueDepth.mockResolvedValue(1);
+    queueOnce(Array.from({ length: 10 }, (_, index) => message(index + 1, `p-${index + 1}`)));
+
+    await drainCatalogQueue();
+
+    expect(readCatalogMessages).toHaveBeenCalledWith(20, 300);
+    expect(updateCatalogSyncState).toHaveBeenCalledWith(CONNECTION_ID, {
+      progress: 10,
+      status: "indexing",
+    });
+    expect(updateCatalogSyncState).not.toHaveBeenCalledWith(
+      CONNECTION_ID,
+      expect.objectContaining({ status: "ready" }),
+    );
   });
 });
 
@@ -188,6 +232,45 @@ describe("settleFinishedRuns", () => {
 
     await expect(settleFinishedRuns()).resolves.toBe(1);
     expect(updateCatalogSyncState).toHaveBeenCalledWith(CONNECTION_ID, { status: "ready" });
+  });
+
+  it("persists Stage 5 completion only after its sizing publish settles successfully", async () => {
+    listConnectionsBySyncStatus.mockResolvedValue([stranded()]);
+    listActivePublishingSizingRuns.mockResolvedValue([{
+      id: "run-1",
+      connectionId: CONNECTION_ID,
+      stage: "publish",
+    }]);
+
+    await settleFinishedRuns();
+
+    expect(updateSizingRun).toHaveBeenCalledWith("run-1", expect.objectContaining({
+      status: "complete",
+      phaseDone: 5967,
+      phaseTotal: 6026,
+      publishedAt: expect.any(String),
+      error: null,
+    }));
+  });
+
+  it("recovers a publish run stranded after its catalog was already marked ready", async () => {
+    listConnectionsBySyncStatus.mockResolvedValue([]);
+    listActivePublishingSizingRuns.mockResolvedValue([{
+      id: "run-1",
+      connectionId: CONNECTION_ID,
+      stage: "publish",
+    }]);
+    getStoreConnectionById.mockResolvedValue(stranded({
+      catalogSyncStatus: "ready",
+      catalogSyncProgress: 6026,
+    }));
+
+    await expect(settleFinishedRuns()).resolves.toBe(1);
+    expect(updateCatalogSyncState).not.toHaveBeenCalled();
+    expect(updateSizingRun).toHaveBeenCalledWith("run-1", expect.objectContaining({
+      status: "complete",
+      publishedAt: expect.any(String),
+    }));
   });
 
   it("leaves the count alone, so the shortfall stays visible", async () => {

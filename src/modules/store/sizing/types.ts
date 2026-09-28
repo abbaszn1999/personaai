@@ -12,14 +12,13 @@
 
 /** Setup pipeline stages, 1-indexed to match the merchant-facing step numbers.
  *
- *  All six are now rendered. Doc Part 4 folded Gap Filling into Stage 4 as a modal, and doc Part 7's
- *  Chart Assignment took the vacated slot — which is why the Active Overview screen has carried
- *  `stageNumber={6}` in its own banner since before there was a stage 5 to precede it. */
-export type StageNumber = 1 | 2 | 3 | 4 | 5 | 6;
+ * Chart coverage is now authoritative on Stage 4's `covers_leaves`, so the duplicate Chart
+ * Assignment screen was removed and Active Overview became Stage 5. */
+export type StageNumber = 1 | 2 | 3 | 4 | 5;
 
 /** The last stage the pipeline currently renders. One constant rather than a literal in each of the
  *  three places that compared against it, which is how the stepper and the footer last disagreed. */
-export const LAST_STAGE = 6 satisfies StageNumber;
+export const LAST_STAGE = 5 satisfies StageNumber;
 
 /**
  * How a product's brand resolved during discovery.

@@ -1,4 +1,4 @@
-import { exact, rowsFromColumns, type SeedChart } from "./types";
+import { exact, rowsFromColumns, type SeedChart } from "../types";
 
 /**
  * Tommy Hilfiger childrenswear, from https://uk.tommy.com/children-size-guide.
@@ -76,8 +76,6 @@ const INFANT: SeedChart[] = [
       bounds: {
         height: INFANT_HEIGHT,
         chest: exact([31.75, 36, 38.5, 43, 45.5, 47, 49.5, 50.75, 52.5]),
-        shoulder: exact([13.75, 15.75, 17, 18.25, 19.25, 20.5, 21.5, 22.5, 23.75]),
-        neck: exact([17.25, 19.5, 21.25, 22, 22.5, 23.5, 24, 24.5, 25]),
       },
     }),
     notes: [
@@ -105,8 +103,6 @@ const INFANT: SeedChart[] = [
       bounds: {
         height: INFANT_HEIGHT,
         chest: exact([31.75, 36, 38.5, 43, 45.5, 47, 49.5, 50.75, 52.5]),
-        shoulder: exact([13.75, 15.75, 17, 18.25, 19.25, 20.5, 21.5, 22.5, 23.75]),
-        neck: exact([17.25, 19.5, 21.25, 22, 22.5, 23.5, 24, 24.5, 25]),
       },
     }),
     notes: ["Same table as the Infant `tops` variant — baby outerwear is sized on the same body."],
@@ -225,11 +221,9 @@ const BOYS: SeedChart[] = [
       bounds: {
         height: BOYS_HEIGHT,
         chest: exact([54.25, 56, 58, 60.5, 63, 64, 71, 78, 86, 91.5]),
-        shoulder: exact([24.25, 25.5, 25.75, 27, 27.75, 29, 30.75, 33.5, 35.75, 37]),
-        neck: exact([25.5, 26, 26.5, 27.5, 28.5, 29.75, 31, 33, 34.5, 37]),
       },
     }),
-    notes: ["`size` is the EU height scale, which is what boys garments are labelled with; the year range is the alpha alias."],
+    notes: ["`size` is the EU height scale, which is what boys garments are labelled with; the year range is the age alias."],
   },
   {
     brandKey: BRAND,
@@ -252,8 +246,6 @@ const BOYS: SeedChart[] = [
       bounds: {
         height: BOYS_HEIGHT,
         chest: exact([54.25, 56, 58, 60.5, 63, 64, 71, 78, 86, 91.5]),
-        shoulder: exact([24.25, 25.5, 25.75, 27, 27.75, 29, 30.75, 33.5, 35.75, 37]),
-        neck: exact([25.5, 26, 26.5, 27.5, 28.5, 29.75, 31, 33, 34.5, 37]),
       },
     }),
     notes: ["Same table as the Boys `tops` variant."],
@@ -411,8 +403,6 @@ const GIRLS: SeedChart[] = [
           [116, 122],
         ],
         chest: exact([54.25, 56, 58, 60.5, 63]),
-        shoulder: exact([24.25, 25.5, 25.75, 27, 27.75]),
-        neck: exact([25.5, 26, 26.5, 27.5, 28.5]),
       },
     }),
     notes: [
@@ -452,8 +442,6 @@ const GIRLS: SeedChart[] = [
           [116, 122],
         ],
         chest: exact([54.25, 56, 58, 60.5, 63]),
-        shoulder: exact([24.25, 25.5, 25.75, 27, 27.75]),
-        neck: exact([25.5, 26, 26.5, 27.5, 28.5]),
       },
     }),
     notes: [

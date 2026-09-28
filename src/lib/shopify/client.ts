@@ -121,22 +121,6 @@ async function shopifyFetch<T>(domain: string, accessToken: string, path: string
   return res.json() as Promise<T>;
 }
 
-/** Runs `fn` over `items` with at most `limit` calls in flight at once. */
-async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let cursor = 0;
-
-  async function worker() {
-    while (cursor < items.length) {
-      const index = cursor++;
-      results[index] = await fn(items[index]);
-    }
-  }
-
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
-}
-
 export interface ShopifyShopInfo {
   name: string;
   domain: string;
@@ -179,56 +163,100 @@ export async function countShopifyCollectionProducts(
 }
 
 interface ShopifyCollection {
-  id: number;
+  id: string;
   title: string;
   handle: string;
+  productCount: number;
+  collectionType: "custom" | "smart";
 }
 
 /**
- * Fetches custom + smart collections and their product counts (used as the app's "categories").
+ * Fetches every Shopify collection and its product count (used as the app's "categories").
  *
- * Nothing here reports a parent, because Shopify collections genuinely have none: "Women",
- * "Dresses" and "Summer Sale" are peers in one flat bag. The merchant arranges them into a
- * hierarchy themselves in the Categories tab, which is what `handle` and `collectionType` are
- * carried for — they are the two things that let someone tell a real taxonomy collection from a
- * merchandising one when the titles alone are ambiguous.
+ * This deliberately uses one paginated GraphQL connection rather than REST's two collection lists
+ * followed by one `/products/count` request per collection. A large shop exhausted REST's request
+ * bucket during those count requests; the old catch block then persisted every throttled request as
+ * a real zero. GraphQL returns the count with the collection, so two pages can replace hundreds of
+ * failure-prone requests without truncating either collection type at 250.
  */
 export async function getShopifyCollections(domain: string, accessToken: string): Promise<StoreCategory[]> {
-  const [customRes, smartRes] = await Promise.all([
-    shopifyFetch<{ custom_collections: ShopifyCollection[] }>(domain, accessToken, "/custom_collections.json?limit=250"),
-    shopifyFetch<{ smart_collections: ShopifyCollection[] }>(domain, accessToken, "/smart_collections.json?limit=250"),
-  ]);
+  const collections: ShopifyCollection[] = [];
+  let after: string | null = null;
 
-  const collections = [
-    ...(customRes.custom_collections ?? []).map((c) => ({ ...c, collectionType: "custom" as const })),
-    ...(smartRes.smart_collections ?? []).map((c) => ({ ...c, collectionType: "smart" as const })),
-  ];
-  const seen = new Set<number>();
-  const uniqueCollections = collections.filter((c) => {
-    if (seen.has(c.id)) return false;
-    seen.add(c.id);
-    return true;
-  });
-
-  return mapWithConcurrency(uniqueCollections, 4, async (collection): Promise<StoreCategory> => {
-    const base = {
-      id: String(collection.id),
-      name: collection.title,
-      handle: collection.handle,
-      collectionType: collection.collectionType,
-    };
-    try {
-      const countData = await shopifyFetch<{ count: number }>(
-        domain,
-        accessToken,
-        `/products/count.json?collection_id=${collection.id}`
-      );
-      return { ...base, productCount: countData.count ?? 0 };
-    } catch (err) {
-      console.error(`[shopify getShopifyCollections] product count failed for collection ${collection.id}`, err);
-      return { ...base, productCount: 0 };
+  for (let page = 0; page < SHOPIFY_MAX_PAGES; page++) {
+    let response: Awaited<ReturnType<typeof fetchShopifyCollectionPage>>;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        response = await fetchShopifyCollectionPage(domain, accessToken, after);
+        break;
+      } catch (error) {
+        if (!(error instanceof ShopifyApiError) || !error.throttled || attempt >= 5) throw error;
+        await new Promise((resolve) => setTimeout(resolve, Math.max(error.retryAfterMs ?? 1000, 250)));
+      }
     }
+
+    collections.push(...response.collections);
+    if (!response.nextCursor) break;
+    after = response.nextCursor;
+  }
+
+  return collections.map((collection) => ({
+    id: collection.id,
+    name: collection.title,
+    handle: collection.handle,
+    collectionType: collection.collectionType,
+    productCount: collection.productCount,
+  }));
+}
+
+const SHOPIFY_COLLECTIONS_QUERY = `
+  query ListCollections($first: Int!, $after: String) {
+    collections(first: $first, after: $after, sortKey: ID) {
+      nodes {
+        legacyResourceId
+        title
+        handle
+        productsCount { count }
+        ruleSet { appliedDisjunctively }
+      }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+`;
+
+async function fetchShopifyCollectionPage(
+  domain: string,
+  accessToken: string,
+  after: string | null,
+): Promise<{ collections: ShopifyCollection[]; nextCursor: string | null }> {
+  const { data } = await shopifyGraphqlFetch<{
+    collections: {
+      nodes: Array<{
+        legacyResourceId: string;
+        title: string;
+        handle: string;
+        productsCount: { count: number };
+        ruleSet: { appliedDisjunctively: boolean } | null;
+      }>;
+      pageInfo: { hasNextPage: boolean; endCursor: string | null };
+    };
+  }>(domain, accessToken, SHOPIFY_COLLECTIONS_QUERY, {
+    first: SHOPIFY_PAGE_SIZE,
+    after,
   });
+
+  return {
+    collections: data.collections.nodes.map((node) => ({
+      id: String(node.legacyResourceId),
+      title: node.title,
+      handle: node.handle,
+      productCount: node.productsCount.count,
+      collectionType: node.ruleSet ? "smart" : "custom",
+    })),
+    nextCursor: data.collections.pageInfo.hasNextPage
+      ? data.collections.pageInfo.endCursor
+      : null,
+  };
 }
 
 // ─── Live catalog search (Admin GraphQL API) ──────────────────────────────────

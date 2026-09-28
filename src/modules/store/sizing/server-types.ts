@@ -22,7 +22,7 @@ export type SizingRunStage =
   | "classify"
   | "research"
   | "gap_fill"
-  /** Stage 5's own stage, so a refresh returns to Chart Assignment. */
+  /** Legacy internal parked state after Stage 4; now opens Stage 5 Active Overview. */
   | "assign"
   | "resolve"
   | "publish";
@@ -129,6 +129,35 @@ export interface SizingRunResponse {
   mappingApproved: boolean;
 }
 
+export type BrandMappingStatus = "needs_mapping" | "ready";
+
+export interface DiscoveredBrandMapping {
+  rawKey: string;
+  labels: string[];
+  skuCount: number;
+  sizingCategories: string[];
+}
+
+export interface CanonicalBrandOption {
+  canonicalKey: string;
+  canonicalName: string;
+  shared: boolean;
+}
+
+export interface CanonicalBrandGroup extends CanonicalBrandOption {
+  rawKeys: string[];
+}
+
+export interface BrandMappingResponse {
+  ready: boolean;
+  status: BrandMappingStatus;
+  confirmedAt: string | null;
+  sourceFingerprint: string;
+  brands: DiscoveredBrandMapping[];
+  groups: CanonicalBrandGroup[];
+  targets: CanonicalBrandOption[];
+}
+
 // ─── Stage 4: researched charts and the gaps between them ─────────────────────
 
 /** Why a (brand x sizing category) does or does not have a chart. Mirrors `research_status` on
@@ -185,7 +214,7 @@ export interface ResearchedChart {
   lastUpdated: string;
   sourceUrl: string | null;
   provenance: "research" | "manual" | "merchant";
-  /** True for the shared cross-merchant row (`connection_id is null`) rather than this store's own. */
+  /** True for a row from the shared global registry rather than this store's private chart table. */
   shared: boolean;
   headers: string[];
   rows: Record<string, string>[];
@@ -248,6 +277,8 @@ export interface BrandResearchRow {
   chartedCategories: number;
   chartCount: number;
   note: string | null;
+  /** Original merchant brand labels routed through this canonical Stage 4 row. */
+  memberBrands: { brandKey: string; brandName: string; skuCount: number }[];
 }
 
 export interface SizingChartsResponse {
@@ -271,6 +302,8 @@ export interface SizingChartsResponse {
   /** False until a research pass has recorded an outcome anywhere, which is what separates "no gaps"
    *  from "nothing has run yet" — two states that otherwise render as the same empty table. */
   researched: boolean;
+  mappedLeaves: string[];
+  leafCounts: Array<{ brandKey: string; leafKey: string; skuCount: number }>;
 }
 
 export const EMPTY_CHARTS_RESPONSE: SizingChartsResponse = {
@@ -280,92 +313,8 @@ export const EMPTY_CHARTS_RESPONSE: SizingChartsResponse = {
   noBrand: [],
   totals: { chartsFound: 0, brandsCharted: 0, chartedSkus: 0, pairsNeeded: 0, gapSkus: 0 },
   researched: false,
-};
-
-// ─── Stage 5: chart assignment (doc Part 7) ───────────────────────────────────
-
-/** One chart a merchant path may be bound to. Mirrors `AssignableVariant` in `lib/sizing/assignments`. */
-export interface AssignableVariant {
-  chartId: string;
-  variantName: string;
-  audience: ChartAudience;
-  /** The Persona leaf keys this exact chart claims — see `coversLeaves` on the server-side
-   *  `AssignableVariant` in `assignments.ts`. */
-  coversLeaves: string[];
-  /** 0-100. */
-  confidence: number;
-  sourceTitle: string;
-  sourceUrl: string | null;
-  shared: boolean;
-  needsReview: boolean;
-  headers: string[];
-  rows: Record<string, string>[];
-}
-
-/**
- * One (brand x merchant category path x sizing parent) and the chart governing it.
- *
- * The path axis is what Stage 4 does not have: coverage keys on the sizing parent, so "Tommy tops"
- * cannot distinguish `Men > T-Shirts` from `Women > Tops` — and those two want different variants of
- * the same brand's chart.
- */
-export interface PathAssignment {
-  /** Derived from the natural key, because a path nobody has assigned yet has no row and so no id. */
-  id: string;
-  brandKey: string;
-  brandName: string;
-  brandType: ServerBrandType;
-  categoryId: string;
-  /** Breadcrumb, root first. */
-  categoryPath: string[];
-  sizingCategory: string;
-  skuCount: number;
-  /** Null with `decided` true is the merchant's explicit "no chart here". Null with `decided` false is
-   *  a path nobody has answered — two states that must not render the same way. */
-  variantName: string | null;
-  decided: boolean;
-  source: "merchant" | "auto" | null;
-  /** Only the variants that may size this path's audience — an adult path is never offered a child's
-   *  table. A stored choice is always included, even if the guard would now exclude it. */
-  variants: AssignableVariant[];
-  /** Read off the path's Persona department. Null for pre-Universal-Mapping rows, which state no
-   *  audience and so are offered everything. */
-  audience: ChartAudience | null;
-  /** Variants the audience guard removed. Non-zero with an empty `variants` means the brand has charts
-   *  for this parent but none for this audience — a Stage 4 coverage gap, not a missing research run. */
-  variantsOtherAudience: number;
-  /** The stored name matches no current chart: research renamed or dropped the table the merchant
-   *  chose. Shown rather than cleared, since their decision is still the best evidence of intent. */
-  missingVariant: boolean;
-}
-
-export interface AssignmentTotals {
-  paths: number;
-  assigned: number;
-  assignedSkus: number;
-  /** Paths nobody has answered. An explicit no-chart decision is not counted here. */
-  unresolved: number;
-  unresolvedSkus: number;
-  skipped: number;
-}
-
-export interface SizingAssignmentsResponse {
-  paths: PathAssignment[];
-  totals: AssignmentTotals;
-  /** How many paths this read resolved by itself — sole variants and unambiguous audience matches. */
-  autoMatched: number;
-  /** Every leaf enabled in this merchant's taxonomy scope — brand-agnostic and independent of
-   *  `paths`' live SKU counts. See `mappedPersonaLeaves`. */
-  mappedLeaves: string[];
-}
-
-export const EMPTY_ASSIGNMENT_TOTALS: AssignmentTotals = {
-  paths: 0,
-  assigned: 0,
-  assignedSkus: 0,
-  unresolved: 0,
-  unresolvedSkus: 0,
-  skipped: 0,
+  mappedLeaves: [],
+  leafCounts: [],
 };
 
 export interface SizingSampleRow {
@@ -389,6 +338,27 @@ export interface SizingSampleRow {
   sizes: string[];
   rawFormat: string | null;
   storeCategoryPath: string[];
+  /** Present only when Stage 5 requests `include=resolution`. */
+  primaryLeafKey?: string | null;
+  canonicalBrandKey?: string;
+  resolutionStatus?: import("@/lib/sizing/product-chart").ProductChartStatus;
+  canonicalSizes?: string[];
+  chartId?: string | null;
+  chartVariantName?: string | null;
+  chartRows?: import("@/lib/sizing/chart-schema").SizeChartRow[];
+  chartKey?: string | null;
+}
+
+export interface SizingResolutionSummary {
+  total: number;
+  matched: number;
+  unresolved: number;
+  matchPercent: number;
+  byStatus: Record<import("@/lib/sizing/product-chart").ProductChartStatus, number>;
+  chartCount: number;
+  canonicalBrandCount: number;
+  unmatchedLabels: Array<{ label: string; count: number; exampleSku: string | null }>;
+  brandMappingCurrent: boolean;
 }
 
 export interface SizingSampleResponse {
@@ -497,7 +467,6 @@ export function stageForRun(run: SizingRun | null): StageNumber {
     case "gap_fill":
       return 4;
     case "assign":
-      return 5;
     case "resolve":
     case "publish":
       return LAST_STAGE;
