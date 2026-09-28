@@ -90,17 +90,28 @@ function rowToChart(row: Record<string, unknown>): SizingChartRow {
 export async function listSharedChartsForBrands(brandKeys: string[]): Promise<SizingChartRow[]> {
   if (brandKeys.length === 0) return [];
 
-  const { data, error } = await db
-    .from("sizing_charts")
-    .select("*")
-    .in("brand_key", brandKeys);
+  const rows: Array<Record<string, unknown>> = [];
+  const pageSize = 1000;
 
-  if (error) {
-    console.error("[db/sizing-charts listSharedChartsForBrands]", error);
-    return [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await db
+      .from("sizing_charts")
+      .select("*")
+      .in("brand_key", brandKeys)
+      .order("id")
+      .range(from, from + pageSize - 1);
+
+    if (error) {
+      console.error("[db/sizing-charts listSharedChartsForBrands]", error);
+      return [];
+    }
+
+    const batch = (data ?? []) as Array<Record<string, unknown>>;
+    rows.push(...batch);
+    if (batch.length < pageSize) break;
   }
 
-  return ((data as Array<Record<string, unknown>>) ?? []).map(rowToChart);
+  return rows.map(rowToChart);
 }
 
 /** Private-label and unbranded charts belonging to exactly one connection. */
@@ -110,18 +121,29 @@ export async function listPrivateChartsForBrands(
 ): Promise<SizingChartRow[]> {
   if (brandKeys.length === 0) return [];
 
-  const { data, error } = await db
-    .from("sizing_charts_private")
-    .select("*")
-    .eq("connection_id", connectionId)
-    .in("brand_key", brandKeys);
+  const rows: Array<Record<string, unknown>> = [];
+  const pageSize = 1000;
 
-  if (error) {
-    console.error("[db/sizing-charts listPrivateChartsForBrands]", connectionId, error);
-    return [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await db
+      .from("sizing_charts_private")
+      .select("*")
+      .eq("connection_id", connectionId)
+      .in("brand_key", brandKeys)
+      .order("id")
+      .range(from, from + pageSize - 1);
+
+    if (error) {
+      console.error("[db/sizing-charts listPrivateChartsForBrands]", connectionId, error);
+      return [];
+    }
+
+    const batch = (data ?? []) as Array<Record<string, unknown>>;
+    rows.push(...batch);
+    if (batch.length < pageSize) break;
   }
 
-  return ((data as Array<Record<string, unknown>>) ?? []).map(rowToChart);
+  return rows.map(rowToChart);
 }
 
 /** Canonical brand targets already proven by a shared researched chart. */
@@ -133,6 +155,7 @@ export async function listSharedChartBrandKeys(): Promise<string[]> {
     const { data, error } = await db
       .from("sizing_charts")
       .select("brand_key")
+      .order("id")
       .range(from, from + pageSize - 1);
 
     if (error) {

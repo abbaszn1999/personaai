@@ -17,7 +17,6 @@ import { mappedSourceCategoryIds, parsePersonaCategoryMap, parsePersonaScope } f
 import { parseStoreBrandMapping, type StoreBrandMapping } from "@/lib/sizing/brand-mapping";
 import { parseSizeSettings, type SizeSettings } from "@/lib/sizing/size-types";
 import { parseSizingSource, type SizingSource } from "@/lib/sizing/sizing-source";
-import { parseStoreBrandMapping, type StoreBrandMapping } from "@/lib/sizing/brand-mapping";
 
 /**
  * Where the catalog is in its enrichment/embedding lifecycle. Retrieval falls back to the
@@ -73,7 +72,6 @@ export interface StoreConnectionRow {
   /** When the merchant skipped setup stages 2-5 because their own charts made them redundant; null if
    *  they never did. Cleared when the size chart binding goes away, since the work is needed again. */
   sizingStagesSkippedAt: string | null;
-  sizingBrandMapping: StoreBrandMapping;
   productCount: number;
   syncedAt: string | null;
   hardRules: HardRule[];
@@ -138,7 +136,6 @@ function rowToConnection(row: Record<string, unknown>): StoreConnectionRow {
     sizingSource: parseSizingSource(row.sizing_source),
     sizingBrandMapping: parseStoreBrandMapping(row.sizing_brand_mapping),
     sizingStagesSkippedAt: (row.sizing_stages_skipped_at as string | null) ?? null,
-    sizingBrandMapping: parseStoreBrandMapping(row.sizing_brand_mapping),
     productCount: (row.product_count as number) ?? 0,
     syncedAt: (row.synced_at as string | null) ?? null,
     hardRules: (row.hard_rules as HardRule[]) ?? [],
@@ -274,7 +271,6 @@ export interface UpdateStoreConnectionInput {
   sizingSource?: SizingSource;
   sizingBrandMapping?: StoreBrandMapping;
   sizingStagesSkippedAt?: string | null;
-  sizingBrandMapping?: StoreBrandMapping;
   productCount?: number;
   syncedAt?: string | null;
   status?: StoreConnectionStatus;
@@ -303,7 +299,6 @@ export async function updateStoreConnection(
   if (patch.sizingSource !== undefined) dbPatch.sizing_source = patch.sizingSource;
   if (patch.sizingBrandMapping !== undefined) dbPatch.sizing_brand_mapping = patch.sizingBrandMapping;
   if (patch.sizingStagesSkippedAt !== undefined) dbPatch.sizing_stages_skipped_at = patch.sizingStagesSkippedAt;
-  if (patch.sizingBrandMapping !== undefined) dbPatch.sizing_brand_mapping = patch.sizingBrandMapping;
   if (patch.productCount !== undefined) dbPatch.product_count = patch.productCount;
   if (patch.syncedAt !== undefined) dbPatch.synced_at = patch.syncedAt;
   if (patch.status !== undefined) dbPatch.status = patch.status;

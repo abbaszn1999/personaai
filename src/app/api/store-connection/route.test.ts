@@ -39,7 +39,6 @@ function baseRow(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRo
   return {
     id: "conn-1",
     ownerId: "user-1",
-    sizingBrandMapping: { version: 1, confirmedAt: null, sourceFingerprint: "", observed: {}, aliases: {} },
     platform: "shopify",
     storeName: "Test Store",
     storeUrl: "test.myshopify.com",

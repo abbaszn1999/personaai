@@ -44,7 +44,6 @@ function row(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRow {
   return {
     id: "11111111-1111-1111-1111-111111111111",
     ownerId: "user-1",
-    sizingBrandMapping: { version: 1, confirmedAt: null, sourceFingerprint: "", observed: {}, aliases: {} },
     platform: "shopify",
     storeName: "Store",
     storeUrl: "store.myshopify.com",
