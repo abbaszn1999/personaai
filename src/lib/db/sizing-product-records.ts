@@ -83,6 +83,47 @@ export interface SizingProductPrimaryLeafCounts {
   scannedAt: string | null;
 }
 
+export interface SizingProductSnapshotHealth {
+  total: number;
+  missingPrimaryLeaf: number;
+  missingRawSizeFormat: number;
+}
+
+/**
+ * Checks whether the persisted Stage 2 snapshot contains everything deterministic resolution uses.
+ *
+ * Stage 5 must never silently substitute live store values for these fields: the publish worker
+ * reads this snapshot, so doing that would let Preview say "Ready" for products Publish cannot
+ * resolve. Individual nulls are valid unresolved products; both columns being absent from every
+ * row identifies the legacy snapshot shape that must be replaced by a fresh scan.
+ */
+export async function getSizingProductSnapshotHealth(
+  connectionId: string,
+): Promise<SizingProductSnapshotHealth | null> {
+  const count = async (column?: "primary_persona_leaf_key" | "raw_size_format"): Promise<number | null> => {
+    let query = db
+      .from("sizing_product_records")
+      .select("id", { count: "exact", head: true })
+      .eq("connection_id", connectionId);
+    if (column) query = query.is(column, null);
+    const { count: result, error } = await query;
+    if (error) {
+      console.error("[db/sizing-product-records snapshotHealth]", connectionId, column ?? "total", error);
+      return null;
+    }
+    return result ?? 0;
+  };
+
+  const [total, missingPrimaryLeaf, missingRawSizeFormat] = await Promise.all([
+    count(),
+    count("primary_persona_leaf_key"),
+    count("raw_size_format"),
+  ]);
+  if (total === null || missingPrimaryLeaf === null || missingRawSizeFormat === null) return null;
+
+  return { total, missingPrimaryLeaf, missingRawSizeFormat };
+}
+
 /** Exact Stage 2 product total partitioned by one primary Persona leaf per product. */
 export async function getSizingProductPrimaryLeafCounts(
   connectionId: string,

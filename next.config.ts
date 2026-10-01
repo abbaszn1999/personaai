@@ -10,12 +10,12 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "32mb",
     },
   },
-  // The wearable agents read their prompts from `skills/*.md` at runtime (see load-skill.ts).
+  // The agents read their prompts from `skills/*.md` at runtime (see agents/shared/load-skill.ts).
   // Tracing can't infer that from a `readFileSync` on a composed path, so the files have to be
   // named explicitly or a standalone build ships without them and every turn throws ENOENT.
   outputFileTracingIncludes: {
-    "/api/agents/wearable": ["./src/lib/agents/wearable/**/*.md"],
-    "/api/embed/wearable": ["./src/lib/agents/wearable/**/*.md"],
+    "/api/agents/wearable": ["./src/lib/agents/**/skills/*.md"],
+    "/api/embed/wearable": ["./src/lib/agents/**/skills/*.md"],
   },
   async headers() {
     // Next serves everything in `public/` as `max-age=0`, which for the widget meant every

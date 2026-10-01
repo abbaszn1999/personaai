@@ -1,4 +1,5 @@
 import { db } from "@/lib/supabase/server";
+import type { TurnAttribution } from "@/modules/commerce/types";
 
 export interface RecordCartEventInput {
   workspaceId: string;
@@ -13,6 +14,8 @@ export interface RecordCartEventInput {
   platformItemId?: string | null;
   ipHash?: string | null;
   uaHash?: string | null;
+  /** The chat turn that surfaced the product, plus the look it was added from. */
+  attribution?: (TurnAttribution & { lookId: string | null }) | null;
 }
 
 /** Logs one add-to-cart attempt the embedded widget caused, with the real success/failure
@@ -35,6 +38,7 @@ export async function recordCartEvent(input: RecordCartEventInput): Promise<void
     platform_item_id: input.platformItemId ?? null,
     ip_hash: input.ipHash ?? null,
     ua_hash: input.uaHash ?? null,
+    attribution: input.attribution ?? null,
   });
 
   if (error) {

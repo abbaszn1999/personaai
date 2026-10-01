@@ -15,6 +15,7 @@ import {
   type PersonaDepartmentId,
 } from "@/modules/store/mapping/persona-taxonomy";
 import { deactivateAcsCatalogForRemapping } from "@/lib/catalog/acs/catalog-reads";
+import { markPathConfigStale } from "@/lib/catalog/path-config/rebuild";
 import { rewindRun } from "@/lib/db/sizing-runs";
 import { getSizingProductPrimaryLeafCounts } from "@/lib/db/sizing-product-records";
 import { listSizingCoverage } from "@/lib/db/sizing-coverage";
@@ -180,6 +181,7 @@ export async function PUT(req: NextRequest) {
   if (!updated) return Response.json({ error: "Could not save category mappings" }, { status: 500 });
   await Promise.all([
     deactivateAcsCatalogForRemapping(updated.id),
+    markPathConfigStale(updated.id),
     // Category paths are one of the scan's inputs. Keeping a completed/blocked run after changing
     // them leaves `sizing_path_coverage` describing the old mapping — exactly how leafless products
     // remained in Stage 4 after their mapping was corrected.
@@ -211,6 +213,7 @@ export async function DELETE() {
   if (!updated) return Response.json({ error: "Could not clear category mappings" }, { status: 500 });
   await Promise.all([
     deactivateAcsCatalogForRemapping(updated.id),
+    markPathConfigStale(updated.id),
     rewindRun(updated.id, "scan"),
   ]);
   return Response.json(await responseFor(updated));

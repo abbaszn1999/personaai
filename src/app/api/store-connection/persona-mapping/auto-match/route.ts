@@ -8,6 +8,7 @@ import { classifyPersonaPaths, type PersonaPathCandidate } from "@/lib/catalog/c
 import { storeContextFor } from "@/lib/catalog/store-context";
 import { isQuotaExhaustedError } from "@/lib/ai/gemini";
 import type { StoreCategory } from "@/modules/store/types";
+import { ShopifyApiError } from "@/lib/shopify/client";
 
 // One Gemini call classifies the entire request — no client-side batching. This cap only
 // guards against pathological input sizes; a real store's category list (even several hundred
@@ -32,6 +33,42 @@ const CHILD_NAMES_IN_PROMPT = 12;
 // firing at once, and a fragile WooCommerce host (cheap shared hosting especially) has shown it
 // can't absorb much more than this before its own database connection starts dropping requests.
 const SAMPLE_CONCURRENCY = 3;
+const SHOPIFY_SAMPLE_CONCURRENCY = 1;
+const SHOPIFY_SAMPLE_MAX_ATTEMPTS = 8;
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchSampleWithRetry(
+  connection: NonNullable<Awaited<ReturnType<typeof getStoreConnectionByOwner>>>,
+  sourceIds: string[],
+  sampleSize: number,
+) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fetchSampleRawProducts(connection, sourceIds, sampleSize, { skipVariants: true });
+    } catch (error) {
+      if (
+        connection.platform !== "shopify" ||
+        !(error instanceof ShopifyApiError) ||
+        !error.throttled ||
+        attempt >= SHOPIFY_SAMPLE_MAX_ATTEMPTS - 1
+      ) {
+        throw error;
+      }
+
+      // Shopify sometimes reports a zero wait for a query it has already rejected. Always allow
+      // at least half a second for its cost bucket to refill, with a small bounded backoff when the
+      // store is also serving another catalog operation.
+      const retryAfterMs = Math.min(
+        Math.max(error.retryAfterMs ?? 0, 500) * 2 ** Math.min(attempt, 3),
+        10_000,
+      );
+      await wait(retryAfterMs);
+    }
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -116,17 +153,21 @@ export async function POST(req: NextRequest) {
           // fetch removes the single biggest source of concurrent requests this makes per category
           // (previously one extra request per "variable" product in the sample) for data this
           // endpoint never looks at.
-          const products = await fetchSampleRawProducts(activeConnection, sourceIds, sampleSizeFor(candidate.productCount), {
-            skipVariants: true,
-          });
+          const products = await fetchSampleWithRetry(
+            activeConnection,
+            sourceIds,
+            sampleSizeFor(candidate.productCount),
+          );
           candidate.sampleTitles = products.map((product) => product.title).filter(Boolean);
         } catch (error) {
           console.error(`[persona auto-match] sample failed for ${candidate.id}`, error);
         }
       }
     }
+    const sampleConcurrency =
+      activeConnection.platform === "shopify" ? SHOPIFY_SAMPLE_CONCURRENCY : SAMPLE_CONCURRENCY;
     await Promise.all(Array.from(
-      { length: Math.min(SAMPLE_CONCURRENCY, candidates.length) },
+      { length: Math.min(sampleConcurrency, candidates.length) },
       () => sampleWorker(),
     ));
 

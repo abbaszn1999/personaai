@@ -2,12 +2,14 @@ import { NextRequest } from "next/server";
 import { resolveEmbedRequest } from "@/lib/embed/resolve";
 import { embedJson, embedOptions } from "@/lib/embed/cors";
 import { recordChatEvent, type ChatEventRole } from "@/lib/db/chat-events";
+import { parseAttribution } from "@/lib/agents/attribution";
 
 interface RequestBody {
   embedToken?: string;
   sessionId?: string;
   role?: string;
   topic?: string;
+  attribution?: unknown;
 }
 
 const VALID_ROLES: ChatEventRole[] = ["user", "assistant"];
@@ -45,6 +47,7 @@ export async function POST(req: NextRequest) {
       sessionId,
       role,
       topic,
+      attribution: role === "assistant" ? parseAttribution(body.attribution) : null,
     });
 
     return embedJson({ ok: true });

@@ -1,6 +1,7 @@
 import { enqueueCatalogSync } from "@/lib/catalog/enqueue-sync";
 import { listConnectedStores, updateCatalogSyncState } from "@/lib/db/store-connections";
 import { isInternalRequest } from "@/lib/utils/internal-auth";
+import { rebuildStalePathConfigs } from "@/lib/catalog/path-config/rebuild";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -58,7 +59,11 @@ export async function POST(request: Request) {
       }
     }
 
-    return Response.json({ reconciled });
+    // Webhook edits only flag the path config stale; this is where those rows are rebuilt, so a
+    // merchant's single-product edits reach the agents' prompt without waiting for a full sync.
+    const pathConfigs = await rebuildStalePathConfigs();
+
+    return Response.json({ reconciled, pathConfigs });
   } catch (err) {
     console.error("[internal/catalog/reconcile]", err);
     return Response.json({ error: "Reconcile failed" }, { status: 500 });

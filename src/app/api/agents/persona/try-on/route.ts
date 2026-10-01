@@ -4,7 +4,7 @@ import { consumeImageGeneration } from "@/lib/db/image-generations";
 import { getUserById } from "@/lib/db/users";
 import { canGenerateImage, getAccountBillingContext } from "@/lib/billing/account";
 import { tryOnCostNanos } from "@/lib/billing/pricing";
-import { generateTryOnImage, mergeOutfitGarments, PersonaAgentError } from "@/lib/agents/persona-agent";
+import { generateTryOnImage, mergeOutfitGarments, PersonaAgentError } from "@/lib/try-on/image-generation";
 import { PrunaApiError } from "@/lib/ai/pruna";
 
 export async function POST(req: NextRequest) {

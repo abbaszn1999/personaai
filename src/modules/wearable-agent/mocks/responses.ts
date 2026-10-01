@@ -3,7 +3,7 @@ import type { ChatMessage } from "@/modules/commerce/types";
 export const INITIAL_WEARABLE_MESSAGE: ChatMessage = {
   id: "msg-wearable-init",
   role: "assistant",
-  content: "Hi Alex, I'm your Style Assistant. Let's find you the perfect look — I just need a few quick details.",
+  content: "Hi, I'm your Style Assistant. Tell me what you're shopping for and I'll find it in this store.",
   timestamp: new Date().toISOString(),
 };
 
@@ -20,15 +20,14 @@ export const WEARABLE_QUICK_REPLIES: WearableQuickReply[] = [
 ];
 
 /**
- * Labels cycled only while the server explicitly reports a complete-bundle build in flight.
- *
- * These are the real pipeline phases, not labels attached to every search_catalog tool call.
+ * Labels cycled only while the outfit agent reports it is composing looks — its real phases:
+ * allocate, search every slot, compose, verify.
  */
 export const SCAN_STAGES = [
+  "Allocating your budget across the pieces…",
   "Finding options for every piece…",
-  "Allocating your budget across categories…",
   "Styling coordinated complete looks…",
-  "Preparing your bundle cards…",
+  "Checking prices and stock…",
 ] as const;
 
 export const SCAN_STAGE_DURATION_MS = 650;

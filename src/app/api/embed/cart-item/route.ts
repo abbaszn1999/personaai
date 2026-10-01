@@ -23,6 +23,9 @@ interface RequestBody {
    *  omitted, falls back to auto-picking the first in-stock variant (unchanged behavior,
    *  and the only path for WooCommerce and bulk "Add All to Cart" adds). */
   variantId?: string;
+  /** The sizes that fit the shopper, best first. When set, only an in-stock variant in one of
+   *  them is added; the request fails rather than falling back to another size. */
+  sizes?: string[];
 }
 
 export async function OPTIONS() {
@@ -47,6 +50,9 @@ export async function POST(req: NextRequest) {
     if (!productId) {
       return embedJson({ error: "Missing product id" }, { status: 400 });
     }
+    const sizes = Array.isArray(body.sizes)
+      ? body.sizes.filter((size): size is string => typeof size === "string" && size.trim() !== "").slice(0, 10)
+      : [];
 
     const connection = await getStoreConnectionByOwner(workspace.ownerId);
     if (!connection || connection.status !== "connected" || !connection.apiKeyEncrypted) {
@@ -67,7 +73,7 @@ export async function POST(req: NextRequest) {
         return embedJson({ platform: "shopify" as const, id: explicitVariantId });
       }
       const token = await getShopifyAccessToken(domain, clientId, clientSecret, connection.id);
-      const id = await resolveShopifyCartVariantId(domain, token, productId);
+      const id = await resolveShopifyCartVariantId(domain, token, productId, sizes);
       return embedJson({ platform: "shopify" as const, id });
     }
 
@@ -77,7 +83,7 @@ export async function POST(req: NextRequest) {
         return embedJson({ error: "WordPress credentials are incomplete." }, { status: 400 });
       }
       const siteUrl = normalizeWordPressUrl(connection.storeUrl);
-      const id = await resolveAddToCartItemId(siteUrl, wpUsername, wpAppPassword, productId);
+      const id = await resolveAddToCartItemId(siteUrl, wpUsername, wpAppPassword, productId, sizes);
       return embedJson({ platform: "wordpress" as const, id });
     }
 

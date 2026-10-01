@@ -1,6 +1,8 @@
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
 import { listSizingProductRecordsPage } from "@/lib/db/sizing-product-records";
+import { summarizeGeneratedSizing } from "@/lib/catalog/acs/stage-five-preview";
+import { getLatestSizingRun } from "@/lib/db/sizing-runs";
 import {
   loadSizingResolutionContext,
   PRODUCT_CHART_STATUSES,
@@ -17,6 +19,27 @@ export async function GET() {
 
     const connection = await getStoreConnectionByOwner(user.id);
     if (!connection) return Response.json({ error: "Store connection not found" }, { status: 404 });
+
+    const run = await getLatestSizingRun(connection.id);
+    if (!run?.publishedAt) {
+      const live = await summarizeGeneratedSizing(connection);
+      const byStatus = Object.fromEntries(
+        PRODUCT_CHART_STATUSES.map((status) => [status, status === "matched" ? live.matched : 0]),
+      ) as Record<ProductChartStatus, number>;
+      return Response.json({
+        total: live.total,
+        variantCount: live.variantCount,
+        matched: live.matched,
+        unresolved: live.total - live.matched,
+        matchPercent: live.total === 0 ? 0 : Math.round((live.matched / live.total) * 10_000) / 100,
+        byStatus,
+        chartCount: live.chartKeys.length,
+        canonicalBrandCount: live.canonicalBrandKeys.length,
+        unmatchedLabels: [],
+        brandMappingCurrent: live.brandMappingCurrent,
+        source: "live-preview",
+      });
+    }
 
     const context = await loadSizingResolutionContext(connection);
     const byStatus = Object.fromEntries(

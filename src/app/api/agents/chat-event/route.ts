@@ -2,12 +2,14 @@ import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getWorkspaceByIdForOwner } from "@/lib/db/workspaces";
 import { recordChatEvent, type ChatEventRole } from "@/lib/db/chat-events";
+import { parseAttribution } from "@/lib/agents/attribution";
 
 interface RequestBody {
   workspaceId?: string;
   sessionId?: string;
   role?: string;
   topic?: string;
+  attribution?: unknown;
 }
 
 const VALID_ROLES: ChatEventRole[] = ["user", "assistant"];
@@ -37,7 +39,13 @@ export async function POST(req: NextRequest) {
     const workspace = await getWorkspaceByIdForOwner(workspaceId, user.id);
     if (!workspace) return Response.json({ error: "Workspace not found" }, { status: 404 });
 
-    await recordChatEvent({ workspaceId, sessionId, role, topic });
+    await recordChatEvent({
+      workspaceId,
+      sessionId,
+      role,
+      topic,
+      attribution: role === "assistant" ? parseAttribution(body.attribution) : null,
+    });
 
     return Response.json({ ok: true });
   } catch (error) {

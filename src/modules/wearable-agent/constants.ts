@@ -12,7 +12,7 @@ export const AVATAR_GENERATION_STAGES = [
 export let DEFAULT_MANNEQUIN_IMAGE = "/avatars/avatar-studio-male-1.png";
 
 /** The 4 fixed studio backdrop plates — same photos paired 1:1 with the generated avatar
- *  styles (see persona-agent backdropPathForIndex), offered here as swappable choices. */
+ *  styles (see try-on/image-generation backdropPathForIndex), offered here as swappable choices. */
 /** Saved profiles still point at the old PNG plates. The files are WebP now. */
 export function studioPlateUrl(url: string): string {
   return url.replace(/\/avatars\/backgrounds\/backdrop-(\d)\.png\b/, "/avatars/backgrounds/backdrop-$1.webp");

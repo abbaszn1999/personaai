@@ -237,9 +237,9 @@ export async function GET(request: Request) {
       if (resolutionContext) {
         const resolution = resolveProductChart({
           brandKey,
-          sizingCategory: indexed?.sizingCategory ?? sizingCategory ?? "",
-          primaryPersonaLeafKey: indexed?.primaryPersonaLeafKey ?? primaryPersonaPath?.key ?? null,
-          rawSizeFormat: toRawFormat(variants.sizes),
+          sizingCategory: indexed?.sizingCategory ?? "",
+          primaryPersonaLeafKey: indexed?.primaryPersonaLeafKey ?? null,
+          rawSizeFormat: indexed?.rawSizeFormat ?? null,
         }, resolutionContext);
         row.primaryLeafKey = resolution.leafKey;
         row.canonicalBrandKey = resolution.canonicalBrandKey;

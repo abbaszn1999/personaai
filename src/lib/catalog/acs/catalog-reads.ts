@@ -9,7 +9,7 @@ import type { AcsProduct, AcsSearchResultItem } from "./types";
  * ACS-backed replacements for the three `catalog_products` reads that weren't in scope for the
  * search-adapter phase — `getCatalogFacets`, `getProductGroup` and `getCatalogProductsByExternalIds`
  * — needed before the table can actually be dropped. These are direct reads/lookups, never
- * relevance-ranked, so none of them go through the relaxation ladder the search modes use.
+ * relevance-ranked.
  */
 
 /** Same permission-boundary contract as the pgvector reads: a required, never-optional scope, and

@@ -4,7 +4,13 @@ import * as React from "react";
 import { ArrowUp, ChevronDown, ChevronUp, GripVertical, MessageCircle } from "lucide-react";
 import type { UseTryOnAgentReturn } from "../hooks/use-try-on-agent";
 import type { Product } from "@/modules/commerce/types";
-import { PinnedAnchorBar, PinnedBundleBar, WearableChatMessage, WearableScanningIndicator, WearableTypingIndicator } from "./wearable-chat-message";
+import {
+  AttachedItemBar,
+  AttachedLookBar,
+  WearableChatMessage,
+  WearableScanningIndicator,
+  WearableTypingIndicator,
+} from "./wearable-chat-message";
 import { AvatarMannequinPanel } from "./avatar-mannequin-panel";
 import { ProfileSwitcher } from "./profile-switcher";
 import { useEmbedShopperSession } from "../hooks/embed-shopper-session";
@@ -254,6 +260,7 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
   // showing them again below every subsequent turn is clutter, not a shortcut.
   const hasStartedChat = agent.messages.some((m) => m.role === "user");
   const canShowQuickReplies = !hasStartedChat && !agent.isScanning && !agent.isTyping && !agent.isGenerating;
+  const chatBusy = agent.isTyping || agent.isScanning;
 
   React.useEffect(() => {
     const el = messagesRef.current;
@@ -314,13 +321,16 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
               onWearItem={agent.wearItem}
               onAddToCart={handleAddToCart}
               knownProducts={agent.knownProducts}
-              selectedAnchorId={agent.selectedAnchor?.id ?? null}
-              onSelectItem={agent.selectItem}
+              attachedItemId={agent.attachment?.kind === "item" ? agent.attachment.product.id : null}
+              attachedLookId={agent.attachment?.kind === "look" ? agent.attachment.look.id : null}
+              isBusy={chatBusy}
+              onAskAboutItem={agent.attachItem}
+              onCompleteLook={agent.completeLook}
               onQuickOption={(label) => agent.sendMessage(label)}
               onRenderBundle={agent.wearBundle}
               onAddBundleToCart={agent.addBundleToCart}
-              onDiscussBundle={agent.discussBundle}
-              discussedBundleId={agent.discussedBundle?.id ?? null}
+              onAskAboutLook={agent.attachLook}
+              onChooseBudget={agent.chooseLookBudget}
             />
           );
         })}
@@ -344,22 +354,14 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
         </div>
       )}
 
-      {/* Pinned anchor — a single product and a whole outfit are mutually exclusive subjects,
-          so at most one of these ever renders. */}
-      {agent.selectedAnchor && (
-        <div className={cn("shrink-0", compact ? "px-3 pb-2" : "px-5 pb-2")}>
-          <PinnedAnchorBar product={agent.selectedAnchor} onClear={agent.clearAnchor} />
-        </div>
-      )}
-      {agent.discussedBundle && (
-        <div className={cn("shrink-0", compact ? "px-3 pb-2" : "px-5 pb-2")}>
-          <PinnedBundleBar
-            bundle={agent.discussedBundle}
-            knownProducts={agent.knownProducts}
-            onClear={agent.clearDiscussedBundle}
-          />
-        </div>
-      )}
+      <div className={cn("shrink-0 space-y-2", compact ? "px-3 pb-2" : "px-5 pb-2")}>
+        {agent.attachment?.kind === "item" && (
+          <AttachedItemBar product={agent.attachment.product} onClear={agent.detach} />
+        )}
+        {agent.attachment?.kind === "look" && (
+          <AttachedLookBar bundle={agent.attachment.look} knownProducts={agent.knownProducts} onClear={agent.detach} />
+        )}
+      </div>
 
       {/* Input */}
       <div className={cn("border-t border-[var(--color-border)] flex gap-2 shrink-0", compact ? "px-3 py-3" : "px-5 py-4")}>
@@ -415,6 +417,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
   // showing them again below every subsequent turn is clutter, not a shortcut.
   const hasStartedChat = agent.messages.some((m) => m.role === "user");
   const canShowQuickReplies = !hasStartedChat && !agent.isScanning && !agent.isTyping && !agent.isGenerating;
+  const chatBusy = agent.isTyping || agent.isScanning;
   // The full header bar (title, profile switcher, grab handle) only makes sense once there's
   // an actual panel underneath it to be the header *of* — at rest, collapsed, it used to
   // render that same edge-to-edge bar with nothing open below it, which read as a flat,
@@ -625,13 +628,16 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
                     onWearItem={agent.wearItem}
                     onAddToCart={handleAddToCart}
                     knownProducts={agent.knownProducts}
-                    selectedAnchorId={agent.selectedAnchor?.id ?? null}
-                    onSelectItem={agent.selectItem}
+                    attachedItemId={agent.attachment?.kind === "item" ? agent.attachment.product.id : null}
+                    attachedLookId={agent.attachment?.kind === "look" ? agent.attachment.look.id : null}
+                    isBusy={chatBusy}
+                    onAskAboutItem={agent.attachItem}
+                    onCompleteLook={agent.completeLook}
                     onQuickOption={(label) => agent.sendMessage(label)}
                     onRenderBundle={agent.wearBundle}
                     onAddBundleToCart={agent.addBundleToCart}
-                    onDiscussBundle={agent.discussBundle}
-                    discussedBundleId={agent.discussedBundle?.id ?? null}
+                    onAskAboutLook={agent.attachLook}
+                    onChooseBudget={agent.chooseLookBudget}
                   />
                 );
               })}
@@ -659,22 +665,19 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
               </div>
             )}
 
-            {/* Pinned anchor — mutually exclusive with the pinned outfit below. */}
-            {agent.selectedAnchor && (
-              <div className="shrink-0 px-3 pb-1.5">
-                <PinnedAnchorBar product={agent.selectedAnchor} onClear={agent.clearAnchor} tone={theme} />
-              </div>
-            )}
-            {agent.discussedBundle && (
-              <div className="shrink-0 px-3 pb-1.5">
-                <PinnedBundleBar
-                  bundle={agent.discussedBundle}
+            <div className="shrink-0 space-y-1.5 px-3 pb-1.5">
+              {agent.attachment?.kind === "item" && (
+                <AttachedItemBar product={agent.attachment.product} onClear={agent.detach} tone={theme} />
+              )}
+              {agent.attachment?.kind === "look" && (
+                <AttachedLookBar
+                  bundle={agent.attachment.look}
                   knownProducts={agent.knownProducts}
-                  onClear={agent.clearDiscussedBundle}
+                  onClear={agent.detach}
                   tone={theme}
                 />
-              </div>
-            )}
+              )}
+            </div>
 
             {/* Input — lifted above the on-screen keyboard, and padded clear of the home
                 indicator when there is no keyboard. */}

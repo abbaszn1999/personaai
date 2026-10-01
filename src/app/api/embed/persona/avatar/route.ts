@@ -6,7 +6,7 @@ import { AVATAR_IMAGE_NANOS } from "@/lib/billing/pricing";
 import {
   generateAvatarVariationsStream,
   DEFAULT_AVATAR_VARIATION_COUNT,
-} from "@/lib/agents/persona-agent";
+} from "@/lib/try-on/image-generation";
 import { resolveEmbedRequest } from "@/lib/embed/resolve";
 import { embedOptions, EMBED_CORS_HEADERS } from "@/lib/embed/cors";
 

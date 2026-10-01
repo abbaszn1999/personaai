@@ -107,20 +107,35 @@ describe("rawCatalogProductToAcsProduct", () => {
         audience: "mens",
         chartVariant: "Men",
         entries: [
-          { raw: "SMALL", label: "S", rowJson: '{"s":"S","chest":[89,94]}' },
-          { raw: "MEDIUM", label: "M", rowJson: '{"s":"M","chest":[94,99]}' },
+          {
+            raw: "SMALL",
+            label: "S",
+            rowJson: '{"s":"S","chest":[89,94],"waist":[72,77]}',
+            envelopes: { chest_min: 89, chest_max: 94, waist_min: 72, waist_max: 77 },
+          },
+          {
+            raw: "MEDIUM",
+            label: "M",
+            rowJson: '{"s":"M","chest":[94,99],"waist":[77,82]}',
+            envelopes: { chest_min: 94, chest_max: 99, waist_min: 77, waist_max: 82 },
+          },
         ],
-        envelopes: { chest_min: 89, chest_max: 99 },
+        envelopes: { chest_min: 89, chest_max: 99, waist_min: 72, waist_max: 82 },
       },
     });
 
     expect(product.attributes?.fit_size_labels?.text).toEqual(["S", "M"]);
     expect(product.attributes?.fit_rows).toMatchObject({
-      text: ['{"s":"S","chest":[89,94]}', '{"s":"M","chest":[94,99]}'],
+      text: [
+        '{"s":"S","chest":[89,94],"waist":[72,77]}',
+        '{"s":"M","chest":[94,99],"waist":[77,82]}',
+      ],
       indexable: false,
     });
     expect(product.attributes?.fit_chest_min?.numbers).toEqual([89]);
     expect(product.attributes?.fit_chest_max?.numbers).toEqual([99]);
+    expect(product.attributes?.fit_waist_min?.numbers).toEqual([72]);
+    expect(product.attributes?.fit_waist_max?.numbers).toEqual([82]);
     expect(product.attributes?.size_chart_data).toBeUndefined();
   });
 
@@ -682,6 +697,20 @@ describe("buildVariantAcsProducts", () => {
     expect(variants[1].availability).toBe("OUT_OF_STOCK");
   });
 
+  it("omits a stale compare-at price below the current price so ACS accepts the variant", () => {
+    const { variants } = build([
+      variant({ externalId: "v1", price: 45, compareAtPrice: 39 }),
+      variant({ externalId: "v2", price: 45, compareAtPrice: 60 }),
+    ]);
+
+    expect(variants[0].priceInfo).toEqual({ price: 45, currencyCode: "USD" });
+    expect(variants[1].priceInfo).toEqual({
+      price: 45,
+      originalPrice: 60,
+      currencyCode: "USD",
+    });
+  });
+
   it("inherits the PRIMARY's category, description, and brand rather than re-resolving them", () => {
     const { primary, variants } = build([variant({ externalId: "v1" }), variant({ externalId: "v2" })]);
 
@@ -720,10 +749,20 @@ describe("buildVariantAcsProducts", () => {
       audience: "mens",
       chartVariant: "Men",
       entries: [
-        { raw: "MEDIUM", label: "M", rowJson: '{"s":"M","chest":[94,99]}' },
-        { raw: "LARGE", label: "L", rowJson: '{"s":"L","chest":[99,107]}' },
+        {
+          raw: "MEDIUM",
+          label: "M",
+          rowJson: '{"s":"M","chest":[94,99],"waist":[80,85]}',
+          envelopes: { chest_min: 94, chest_max: 99, waist_min: 80, waist_max: 85 },
+        },
+        {
+          raw: "LARGE",
+          label: "L",
+          rowJson: '{"s":"L","chest":[99,107],"waist":[85,92]}',
+          envelopes: { chest_min: 99, chest_max: 107, waist_min: 85, waist_max: 92 },
+        },
       ],
-      envelopes: { chest_min: 94, chest_max: 107 },
+      envelopes: { chest_min: 94, chest_max: 107, waist_min: 80, waist_max: 92 },
     };
     const { variants } = build([
       variant({ externalId: "v1", selectedOptions: { Color: "Berry", Size: "MEDIUM" } }),
@@ -731,9 +770,21 @@ describe("buildVariantAcsProducts", () => {
     ], {}, sizing);
 
     expect(variants[0].attributes?.fit_size_labels?.text).toEqual(["M"]);
-    expect(variants[0].attributes?.fit_rows?.text).toEqual(['{"s":"M","chest":[94,99]}']);
+    expect(variants[0].attributes?.fit_rows?.text).toEqual([
+      '{"s":"M","chest":[94,99],"waist":[80,85]}',
+    ]);
+    expect(variants[0].attributes?.fit_chest_min?.numbers).toEqual([94]);
+    expect(variants[0].attributes?.fit_chest_max?.numbers).toEqual([99]);
+    expect(variants[0].attributes?.fit_waist_min?.numbers).toEqual([80]);
+    expect(variants[0].attributes?.fit_waist_max?.numbers).toEqual([85]);
     expect(variants[1].attributes?.fit_size_labels?.text).toEqual(["L"]);
-    expect(variants[1].attributes?.fit_rows?.text).toEqual(['{"s":"L","chest":[99,107]}']);
+    expect(variants[1].attributes?.fit_rows?.text).toEqual([
+      '{"s":"L","chest":[99,107],"waist":[85,92]}',
+    ]);
+    expect(variants[1].attributes?.fit_chest_min?.numbers).toEqual([99]);
+    expect(variants[1].attributes?.fit_chest_max?.numbers).toEqual([107]);
+    expect(variants[1].attributes?.fit_waist_min?.numbers).toEqual([85]);
+    expect(variants[1].attributes?.fit_waist_max?.numbers).toEqual([92]);
   });
 
   it("writes gtin from a variant's own barcode", () => {

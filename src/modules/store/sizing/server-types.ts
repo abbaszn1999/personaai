@@ -351,6 +351,9 @@ export interface SizingSampleRow {
 
 export interface SizingResolutionSummary {
   total: number;
+  /** Exact generated VARIANT record count before publish. Authoritative ACS supplies this directly
+   * after publish, so older responses may omit it. */
+  variantCount?: number;
   matched: number;
   unresolved: number;
   matchPercent: number;
@@ -359,6 +362,46 @@ export interface SizingResolutionSummary {
   canonicalBrandCount: number;
   unmatchedLabels: Array<{ label: string; count: number; exampleSku: string | null }>;
   brandMappingCurrent: boolean;
+}
+
+export interface AcsStageFiveRow {
+  id: string;
+  type: "PRIMARY" | "VARIANT" | "COLLECTION";
+  primaryProductId: string | null;
+  title: string;
+  sku: string | null;
+  imageUrl: string | null;
+  price: number | null;
+  currency: string | null;
+  availability: "IN_STOCK" | "OUT_OF_STOCK" | "PREORDER" | "BACKORDER" | "UNKNOWN";
+  brand: string | null;
+  brandType: ServerBrandType;
+  categories: string[];
+  sizes: string[];
+  fitLeaf: string | null;
+  fitGroup: string | null;
+  fitAudience: string | null;
+  fitChartVariant: string | null;
+  fitSizeLabels: string[];
+  fitRows: string[];
+}
+
+export interface AcsStageFiveResponse {
+  rows: AcsStageFiveRow[];
+  /** Generated mapper output before first publish; authoritative ProductService data afterward. */
+  source: "preview" | "acs";
+  total: number;
+  pageSize: number;
+  offset: number;
+  /** Present in preview mode: PRIMARY records contained in this final ACS-record page. */
+  pageProductCount?: number;
+  counts: {
+    primary: number;
+    variant: number;
+    inStock: number;
+    outOfStock: number;
+    otherAvailability: number;
+  };
 }
 
 export interface SizingSampleResponse {
@@ -394,6 +437,10 @@ export interface SizingSampleResponse {
 /** Page sizes stage 2 offers. Capped at 100 because that is WooCommerce's own `per_page` ceiling —
  *  anything larger would quietly become two store requests per page. */
 export const SAMPLE_PAGE_SIZES = [25, 50, 100] as const;
+
+/** Stage 5 reads persisted preview rows or ACS records, so it is not constrained by a store API's
+ * per-request page ceiling. */
+export const STAGE_FIVE_PAGE_SIZES = [25, 50, 100, 250, 500] as const;
 
 export const EMPTY_COVERAGE_SUMMARY: CoverageSummary = {
   totalSkus: 0,

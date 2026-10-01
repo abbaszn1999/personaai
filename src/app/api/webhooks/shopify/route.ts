@@ -1,6 +1,7 @@
 import { indexProductIfInScope } from "@/lib/catalog/index-product";
 import { markAcsProductOutOfStock } from "@/lib/catalog/acs/sync";
 import { getStoreConnectionByStoreUrl } from "@/lib/db/store-connections";
+import { markPathConfigStale } from "@/lib/catalog/path-config/rebuild";
 import { mapShopifyWebhookProduct, normalizeShopifyDomain } from "@/lib/shopify/client";
 import { decodeCredentials } from "@/lib/utils/crypto";
 import { verifyHmacSignature } from "@/lib/utils/internal-auth";
@@ -54,6 +55,7 @@ export async function POST(request: Request) {
       // Downgraded rather than removed — Google's own guidance is that deleting an ACS product
       // invalidates the user-event history tied to its id (see `markAcsProductOutOfStock`).
       if (id) await markAcsProductOutOfStock(connection.id, `gid://shopify/Product/${id}`);
+      await markPathConfigStale(connection.id);
       return Response.json({ deleted: true });
     }
 
@@ -61,6 +63,7 @@ export async function POST(request: Request) {
     if (!product) return Response.json({ ignored: "unmappable payload" });
 
     const outcome = await indexProductIfInScope(connection, product);
+    await markPathConfigStale(connection.id);
     return Response.json({ outcome });
   } catch (err) {
     console.error("[webhooks/shopify]", err);

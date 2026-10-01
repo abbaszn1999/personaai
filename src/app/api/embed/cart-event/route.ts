@@ -3,6 +3,8 @@ import { resolveEmbedRequest } from "@/lib/embed/resolve";
 import { embedJson, embedOptions } from "@/lib/embed/cors";
 import { recordCartEvent } from "@/lib/db/cart-events";
 import { hashVisitorSignal } from "@/lib/utils/internal-auth";
+import { parseAttribution } from "@/lib/agents/attribution";
+import type { TurnAttribution } from "@/modules/commerce/types";
 
 interface RequestBody {
   embedToken?: string;
@@ -15,6 +17,14 @@ interface RequestBody {
   success?: boolean;
   platform?: string;
   platformItemId?: string;
+  attribution?: unknown;
+  lookId?: unknown;
+}
+
+function withLook(attribution: TurnAttribution | null, lookId: unknown) {
+  if (!attribution) return null;
+  const look = typeof lookId === "string" && attribution.lookIds.includes(lookId) ? lookId : null;
+  return { ...attribution, lookId: look };
 }
 
 export async function OPTIONS() {
@@ -84,6 +94,7 @@ export async function POST(req: NextRequest) {
       platformItemId,
       ipHash,
       uaHash,
+      attribution: withLook(parseAttribution(body.attribution), body.lookId),
     });
 
     return embedJson({ ok: true });

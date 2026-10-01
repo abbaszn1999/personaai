@@ -11,10 +11,11 @@ import { StageItemPreview } from "./stage-item-preview";
 import { StageBrandDiscovery } from "./stage-brand-discovery";
 import { StageChartResearch } from "./stage-chart-research";
 import { StageBrandMapping } from "./stage-brand-mapping";
-import { StageConfirmation } from "./stage-confirmation";
+import { StageConfirmation } from "./stage-confirmation-acs";
 import { SizeChartModal } from "./size-chart-modal";
 import { ManualChartModal } from "./manual-chart-modal";
 import { LAST_STAGE } from "../types";
+import { readStoredSizingStage, storeSizingStage } from "../stage-storage";
 
 /**
  * The setup pipeline that turns a connected catalog into size intelligence.
@@ -30,6 +31,7 @@ import { LAST_STAGE } from "../types";
 export function SetupPipeline() {
   const stage = useSizingStore((s) => s.stage);
   const highestStage = useSizingStore((s) => s.highestStage);
+  const loadRun = useSizingStore((s) => s.loadRun);
   const goToStage = useSizingStore((s) => s.goToStage);
   const nextStage = useSizingStore((s) => s.nextStage);
   const prevStage = useSizingStore((s) => s.prevStage);
@@ -42,11 +44,29 @@ export function SetupPipeline() {
   const brandMappingStatus = useSizingStore((s) => s.brandMappingStatus);
   const brandMappingEditing = useSizingStore((s) => s.brandMappingEditing);
   const mappingApproved = useStoreConnectionStore((s) => s.acsMapping.approved);
+  const connectionId = useStoreConnectionStore((s) => s.connection?.id ?? null);
   const mappingApproving = useStoreConnectionStore((s) => s.mapping.isApproving);
   const approveMapping = useStoreConnectionStore((s) => s.approveMapping);
 
   /** Set while the merchant is being shown what leaving stage 4 early actually costs. */
   const [confirmingGaps, setConfirmingGaps] = React.useState(false);
+  const [restoredConnectionId, setRestoredConnectionId] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!connectionId) return;
+    let cancelled = false;
+    const preferredStage = readStoredSizingStage(connectionId) ?? undefined;
+    void loadRun({ restoreStage: true, preferredStage }).finally(() => {
+      if (!cancelled) setRestoredConnectionId(connectionId);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [connectionId, loadRun]);
+
+  React.useEffect(() => {
+    if (restoredConnectionId === connectionId && connectionId) storeSizingStage(connectionId, stage);
+  }, [connectionId, restoredConnectionId, stage]);
 
   const approveAndReadCatalog = React.useCallback(async () => {
     if (!mappingApproved && !(await approveMapping())) return;
@@ -99,6 +119,14 @@ export function SetupPipeline() {
     }
     advance();
   }, [stage, blockedByBrandMapping, unresearchedBrands, advance]);
+
+  if (restoredConnectionId !== connectionId) {
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-white px-6 py-14 text-center text-sm font-semibold text-slate-500 shadow-sm">
+        Restoring your setup progress…
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4 pb-4">

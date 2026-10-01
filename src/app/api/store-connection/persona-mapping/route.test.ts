@@ -23,6 +23,9 @@ vi.mock("@/lib/db/sizing-product-records", () => ({
 vi.mock("@/lib/db/sizing-coverage", () => ({
   listSizingCoverage: vi.fn().mockResolvedValue([]),
 }));
+vi.mock("@/lib/catalog/path-config/rebuild", () => ({
+  markPathConfigStale: vi.fn().mockResolvedValue(undefined),
+}));
 
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner, updateStoreConnection } from "@/lib/db/store-connections";

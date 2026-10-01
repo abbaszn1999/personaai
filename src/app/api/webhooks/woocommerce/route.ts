@@ -1,6 +1,7 @@
 import { indexProductIfInScope } from "@/lib/catalog/index-product";
 import { markAcsProductOutOfStock } from "@/lib/catalog/acs/sync";
 import { getStoreConnectionByStoreUrl } from "@/lib/db/store-connections";
+import { markPathConfigStale } from "@/lib/catalog/path-config/rebuild";
 import { mapWooWebhookProduct } from "@/lib/woocommerce/client";
 import { deriveWebhookSecret, verifyHmacSignature } from "@/lib/utils/internal-auth";
 
@@ -45,6 +46,7 @@ export async function POST(request: Request) {
       const id = (payload as { id?: number }).id;
       // Downgraded rather than removed — see the Shopify webhook route's identical note.
       if (id) await markAcsProductOutOfStock(connection.id, String(id));
+      await markPathConfigStale(connection.id);
       return Response.json({ deleted: true });
     }
 
@@ -52,6 +54,7 @@ export async function POST(request: Request) {
     if (!product) return Response.json({ ignored: "unmappable payload" });
 
     const outcome = await indexProductIfInScope(connection, product);
+    await markPathConfigStale(connection.id);
     return Response.json({ outcome });
   } catch (err) {
     console.error("[webhooks/woocommerce]", err);

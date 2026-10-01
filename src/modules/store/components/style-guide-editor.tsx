@@ -8,8 +8,8 @@ import { STYLE_GUIDE_MAX_LENGTH } from "@/modules/store/types";
 import { cn } from "@/lib/utils/cn";
 
 /**
- * Soft styling guidance for outfit building, read by the budget allocator and the stylist's
- * vision prompt (see `src/lib/agents/wearable/stylist/select-bundles.ts`) — never enforced, only
+ * Soft styling guidance, read by the Persona agent's prompt and the Bundle agent's compose step
+ * (see `src/lib/agents/persona/prompt.ts` and `src/lib/agents/bundle/prompt.ts`) — never enforced, only
  * used to lean the agent's choices. Absolute rules ("never show X", "always require Y") belong
  * wherever hard rules eventually live, not here.
  *

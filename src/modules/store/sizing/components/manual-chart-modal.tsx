@@ -14,7 +14,12 @@ import {
   type DraftProblem,
 } from "@/lib/sizing/chart-draft";
 import { SIZE_TYPE_LABELS } from "@/lib/sizing/size-types";
-import { isSizingGroup, SIZING_GROUP_LABELS, type Measurement } from "@/lib/sizing/measurements";
+import {
+  isChildAudience,
+  isSizingGroup,
+  SIZING_GROUP_LABELS,
+  type Measurement,
+} from "@/lib/sizing/measurements";
 import {
   audienceCompatible,
   audienceForPersonaPath,
@@ -25,7 +30,6 @@ import {
 import {
   leafLabel,
   PERSONA_DEPARTMENTS,
-  personaSizingGroup,
 } from "@/modules/store/mapping/persona-taxonomy";
 import { useStoreConnectionStore } from "@/modules/store/store";
 import { useSizingStore } from "../store";
@@ -64,18 +68,13 @@ function ManualChartForm() {
   const target = useSizingStore((s) => s.manualChartTarget)!;
   const close = useSizingStore((s) => s.closeManualChart);
   const saveChart = useSizingStore((s) => s.saveManualChart);
-  const mappedLeaves = useSizingStore((s) => s.mappedLeaves);
   const charts = useSizingStore((s) => s.charts);
   const storeSizeType = useStoreConnectionStore((s) => s.storeSizeSettings.default);
 
   const group = isSizingGroup(target.sizingCategory) ? target.sizingCategory : "tops";
   const availableLeaves = React.useMemo(
-    () =>
-      [...new Set([
-        ...(target.coversLeaves ?? []),
-        ...mappedLeaves.filter((leaf) => personaSizingGroup(leaf.split(":")[1] ?? "") === target.sizingCategory),
-      ])].sort((a, b) => leafLabel(a).localeCompare(leafLabel(b))),
-    [mappedLeaves, target.coversLeaves, target.sizingCategory],
+    () => [...new Set(target.coversLeaves ?? [])].sort((a, b) => leafLabel(a).localeCompare(leafLabel(b))),
+    [target.coversLeaves],
   );
   const audienceOptions = React.useMemo(() => manualChartAudiences(availableLeaves), [availableLeaves]);
   const [selectedAudience, setAudience] = React.useState<ChartAudience | null>(
@@ -83,6 +82,7 @@ function ManualChartForm() {
   );
   const audience =
     selectedAudience ?? (audienceOptions.length === 1 ? audienceOptions[0] : null);
+  const childAudience = audience !== null && isChildAudience(audience);
   const columns = React.useMemo(
     () => draftColumnsFor(group, audience ?? undefined),
     [group, audience],
@@ -172,6 +172,12 @@ function ManualChartForm() {
   function updateSize(rowIndex: number, value: string) {
     setRows((current) =>
       current.map((row, index) => (index === rowIndex ? { ...row, size: value } : row))
+    );
+  }
+
+  function updateAge(rowIndex: number, value: string) {
+    setRows((current) =>
+      current.map((row, index) => (index === rowIndex ? { ...row, age: value } : row))
     );
   }
 
@@ -446,6 +452,14 @@ function ManualChartForm() {
                 <th className="whitespace-nowrap px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
                   Size
                 </th>
+                {childAudience && (
+                  <th className="whitespace-nowrap px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+                    <span className="flex items-center gap-1">
+                      Age
+                      <Badge variant="default" className="px-1 py-0 text-[8px]">Req</Badge>
+                    </span>
+                  </th>
+                )}
                 {columns.map((column) => (
                   <th
                     key={column.measurement}
@@ -479,6 +493,22 @@ function ManualChartForm() {
                       )}
                     />
                   </td>
+                  {childAudience && (
+                    <td className="px-2 py-1.5">
+                      <input
+                        value={row.age ?? ""}
+                        onChange={(event) => updateAge(rowIndex, event.target.value)}
+                        placeholder="8-9y"
+                        aria-label={`Age for row ${rowIndex + 1}`}
+                        className={cn(
+                          "w-full rounded-[var(--radius-md)] border bg-[var(--color-surface-base)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] focus:outline-none",
+                          shown.some((problem) => problem.rowIndex === rowIndex && problem.alias === "age")
+                            ? "border-[var(--color-error)]"
+                            : "border-[var(--color-border)] focus:border-[var(--color-brand)]"
+                        )}
+                      />
+                    </td>
+                  )}
                   {columns.map((column) => (
                     <td key={column.measurement} className="px-2 py-1.5">
                       <input

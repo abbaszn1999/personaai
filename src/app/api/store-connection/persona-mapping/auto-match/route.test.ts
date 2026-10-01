@@ -10,7 +10,9 @@ vi.mock("@/lib/catalog/store-context", () => ({ storeContextFor: vi.fn(() => "Te
 
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
+import { fetchSampleRawProducts } from "@/lib/catalog/acs/preview";
 import { classifyPersonaPaths } from "@/lib/catalog/classify-persona-paths";
+import { ShopifyApiError } from "@/lib/shopify/client";
 import { POST } from "./route";
 
 const defaultScope = {
@@ -85,5 +87,29 @@ describe("Persona mapping Auto-Match endpoint", () => {
     await expect(response.json()).resolves.toEqual({
       error: "AI Auto-Match is unavailable because the Gemini API credits are depleted.",
     });
+  });
+
+  it("waits and retries a throttled Shopify category sample instead of silently dropping it", async () => {
+    vi.mocked(getStoreConnectionByOwner).mockResolvedValue({
+      platform: "shopify",
+      categories: [{ id: "tees", name: "T-Shirts", productCount: 12, parentId: null }],
+      personaTaxonomyScope: defaultScope,
+      personaAutoMatchCompletedAt: null,
+    } as never);
+    vi.mocked(fetchSampleRawProducts)
+      .mockRejectedValueOnce(new ShopifyApiError("throttled", 200, true, 1))
+      .mockResolvedValueOnce([]);
+    vi.useFakeTimers();
+
+    try {
+      const pending = POST(request());
+      await vi.runAllTimersAsync();
+      const response = await pending;
+
+      expect(response.status).toBe(200);
+      expect(fetchSampleRawProducts).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

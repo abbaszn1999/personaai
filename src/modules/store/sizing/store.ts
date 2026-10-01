@@ -35,7 +35,9 @@ import {
   type SizingSampleRow,
 } from "./server-types";
 import { draftRowsFrom, type ChartDraftRow } from "@/lib/sizing/chart-draft";
+import { manualChartLeaves } from "@/lib/sizing/manual-chart-coverage";
 import { isSizingGroup } from "@/lib/sizing/measurements";
+import { personaSizingGroup } from "@/modules/store/mapping/persona-taxonomy";
 import { INITIAL_GAP_ITEMS } from "./mocks/gaps";
 import { INITIAL_FILTER_CONFIGS } from "./mocks/filter";
 
@@ -131,7 +133,7 @@ interface SizingUiState {
   brandMappingError: string | null;
   brandMappingEditing: boolean;
 
-  loadRun: () => Promise<void>;
+  loadRun: (options?: { restoreStage?: boolean; preferredStage?: StageNumber }) => Promise<void>;
   loadBrandMapping: (options?: { force?: boolean }) => Promise<void>;
   saveBrandMapping: (groups: CanonicalBrandGroup[]) => Promise<boolean>;
   openBrandMappingEditor: () => void;
@@ -325,7 +327,7 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
   brandMappingError: null,
   brandMappingEditing: false,
 
-  loadRun: async () => {
+  loadRun: async (options) => {
     // Only the first read shows a spinner. A poll that flipped this would make the whole stage
     // flash between the brand list and a loading state every couple of seconds.
     if (!get().run) set({ runLoading: true });
@@ -339,9 +341,18 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
         return;
       }
 
-      // Guarded on the high-water mark as well as the one-shot flag, so a merchant who clicked
-      // forward while this request was in flight is never pulled back to where the run happens to be.
-      const landing = !get().stageRestored && get().highestStage === 1 ? stageForRun(data.run) : null;
+      // Normal polling never moves navigation. Setup mount can explicitly restore it once, using a
+      // persisted preferred stage when that stage is not ahead of authoritative server progress.
+      const serverStage = stageForRun(data.run);
+      const shouldRestore =
+        options?.restoreStage === true ||
+        (!get().stageRestored && get().highestStage === 1);
+      const preferredStage = options?.preferredStage;
+      const landing = shouldRestore
+        ? preferredStage && preferredStage <= serverStage
+          ? preferredStage
+          : serverStage
+        : null;
       const previousRun = get().run;
       const scanRestarted =
         previousRun !== null && !isScanIncomplete(previousRun) && isScanIncomplete(data.run);
@@ -369,7 +380,13 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
               sampleScanned: false,
             }
           : {}),
-        ...(landing !== null ? { stage: landing, highestStage: landing, stageRestored: true } : {}),
+        ...(landing !== null
+          ? {
+              stage: landing,
+              highestStage: Math.max(get().highestStage, serverStage) as StageNumber,
+              stageRestored: true,
+            }
+          : {}),
       });
 
       // Self-rescheduling rather than a fixed interval, so a slow response can never stack up
@@ -581,7 +598,18 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
 
   manualChartTarget: null,
 
-  openManualChart: (gap) =>
+  openManualChart: (gap) => {
+    const coversLeaves = manualChartLeaves(
+      get().chartLeafCounts
+        .filter((entry) => entry.skuCount > 0)
+        .map((entry) => ({
+          brandKey: entry.brandKey,
+          sizingCategory: personaSizingGroup(entry.leafKey.split(":")[1] ?? "") ?? "",
+          categoryId: entry.leafKey,
+        })),
+      gap.brandKey,
+      gap.sizingCategory,
+    );
     set({
       manualChartTarget: {
         id: gap.id,
@@ -594,8 +622,12 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
         // so a default of "Men" on an unbranded womenswear gap would be a wrong answer that reads
         // as a filled field nobody needs to check.
         variantName: "",
+        // Exact brand/category paths only. The editor used to offer every mapped leaf in the store,
+        // which let a men's private footwear gap claim unrelated women's and kids products.
+        coversLeaves,
       },
-    }),
+    });
+  },
 
   editManualChart: (chart) => {
     if (chart.shared || !isSizingGroup(chart.sizingCategory)) return;

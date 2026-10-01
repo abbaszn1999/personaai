@@ -50,8 +50,11 @@ const REQUIRED_ATTRIBUTES: RequiredAttribute[] = [
   ...[
     "fit_chest_min", "fit_chest_max",
     "fit_waist_min", "fit_waist_max",
+    "fit_hip_min", "fit_hip_max",
+    "fit_inseam_min", "fit_inseam_max",
     "fit_height_min", "fit_height_max",
     "fit_foot_length_min", "fit_foot_length_max",
+    "fit_age_months_min", "fit_age_months_max",
   ].map((name) => ({
     name,
     purpose: "recall-preserving sizing envelope",

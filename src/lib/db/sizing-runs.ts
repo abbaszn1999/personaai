@@ -164,6 +164,25 @@ export async function getLatestSizingRun(connectionId: string): Promise<SizingRu
   return data ? rowToRun(data) : null;
 }
 
+/** The catalog version currently available in ACS, even while a newer setup run is in progress. */
+export async function getLatestPublishedSizingRun(connectionId: string): Promise<SizingRunRow | null> {
+  const { data, error } = await db
+    .from("sizing_runs")
+    .select("*")
+    .eq("connection_id", connectionId)
+    .not("published_at", "is", null)
+    .order("published_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[db/sizing-runs getLatestPublishedSizingRun]", error);
+    return null;
+  }
+
+  return data ? rowToRun(data) : null;
+}
+
 export interface SizingRunPatch {
   status?: SizingRunStatus;
   stage?: SizingRunStage;
@@ -273,13 +292,17 @@ export async function listActionableSizingRuns(
  * Normally the catalog is still `indexing` when its queue empties. This separate lookup closes the
  * narrow recovery window where the catalog status was already written as `ready` but the process
  * stopped before the sizing run received its matching completion write.
+ *
+ * Only `running` belongs here. `pending` means the resolve stage has handed off to publish but
+ * `startCatalogBackfill` has not run yet. Treating that state as recoverable lets the previous
+ * catalog's `ready` flag falsely complete a republish before a single new product is enqueued.
  */
 export async function listActivePublishingSizingRuns(): Promise<SizingRunRow[]> {
   const { data, error } = await db
     .from("sizing_runs")
     .select("*")
     .eq("stage", "publish")
-    .in("status", ["pending", "running"])
+    .eq("status", "running")
     .order("created_at", { ascending: true });
 
   if (error) {
