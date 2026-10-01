@@ -3,7 +3,7 @@ import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { consumeImageGeneration } from "@/lib/db/image-generations";
 import { canGenerateImage, getAccountBillingContext } from "@/lib/billing/account";
 import { AVATAR_IMAGE_NANOS } from "@/lib/billing/pricing";
-import { generateAvatarVariationsStream, DEFAULT_AVATAR_VARIATION_COUNT } from "@/lib/agents/persona-agent";
+import { generateAvatarVariationsStream, DEFAULT_AVATAR_VARIATION_COUNT } from "@/lib/try-on/image-generation";
 
 export const maxDuration = 300;
 

@@ -26,6 +26,7 @@ vi.mock("@/lib/catalog/acs/sync", () => ({
 const deleteProduct = vi.fn();
 vi.mock("@/lib/catalog/acs/client", () => ({
   deleteProduct: (...args: unknown[]) => deleteProduct(...args),
+  listProducts: vi.fn(),
 }));
 
 const getStoreConnectionById = vi.fn();
@@ -48,6 +49,7 @@ const listActivePublishingSizingRuns = vi.fn(async () => [] as Array<{
   id: string;
   connectionId: string;
   stage: string;
+  status: string;
 }>);
 const updateSizingRun = vi.fn(async (runId: string, patch: unknown) => {
   void runId;
@@ -240,6 +242,7 @@ describe("settleFinishedRuns", () => {
       id: "run-1",
       connectionId: CONNECTION_ID,
       stage: "publish",
+      status: "running",
     }]);
 
     await settleFinishedRuns();
@@ -259,6 +262,7 @@ describe("settleFinishedRuns", () => {
       id: "run-1",
       connectionId: CONNECTION_ID,
       stage: "publish",
+      status: "running",
     }]);
     getStoreConnectionById.mockResolvedValue(stranded({
       catalogSyncStatus: "ready",
@@ -271,6 +275,24 @@ describe("settleFinishedRuns", () => {
       status: "complete",
       publishedAt: expect.any(String),
     }));
+  });
+
+  it("does not complete a pending republish from the previous catalog's ready state", async () => {
+    listConnectionsBySyncStatus.mockResolvedValue([]);
+    listActivePublishingSizingRuns.mockResolvedValue([{
+      id: "run-1",
+      connectionId: CONNECTION_ID,
+      stage: "publish",
+      status: "pending",
+    }]);
+    getStoreConnectionById.mockResolvedValue(stranded({
+      catalogSyncStatus: "ready",
+      catalogSyncProgress: 6026,
+    }));
+
+    await expect(settleFinishedRuns()).resolves.toBe(0);
+    expect(getStoreConnectionById).not.toHaveBeenCalled();
+    expect(updateSizingRun).not.toHaveBeenCalled();
   });
 
   it("leaves the count alone, so the shortfall stays visible", async () => {

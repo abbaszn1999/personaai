@@ -129,7 +129,7 @@ export async function* generateAvatarVariationsStream(
       input.photoMimeType
     );
   } catch (err) {
-    console.error("[persona-agent generateAvatarVariationsStream] photo upload failed", err);
+    console.error("[try-on generateAvatarVariationsStream] photo upload failed", err);
     const message =
       err instanceof PrunaApiError ? err.message : "Couldn't upload your photo. Please try again.";
     for (const style of stylesToUse) {
@@ -180,7 +180,7 @@ export async function* generateAvatarVariationsStream(
       const variation = await slot.promise;
       yield { type: "variation", variation };
     } catch (err) {
-      console.error("[persona-agent generateAvatarVariationsStream] a variation failed", err);
+      console.error("[try-on generateAvatarVariationsStream] a variation failed", err);
       yield {
         type: "variation_error",
         label: slot.label,

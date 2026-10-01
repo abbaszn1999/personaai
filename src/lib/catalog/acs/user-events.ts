@@ -32,8 +32,8 @@ export interface RecordSearchEventInput {
   connectionId: string;
   visitorId: string;
   searchQuery: string;
-  /** Ids of the products actually shown to the shopper for this query — mirrors the
-   *  `search_catalog` tool's `MAX_UI_RESULTS`-truncated list, not the full candidate pool. */
+  /** Ids of the products actually shown to the shopper for this query — the truncated list on
+   *  screen, not the full candidate pool. */
   resultExternalIds: string[];
   attributionToken?: string;
 }

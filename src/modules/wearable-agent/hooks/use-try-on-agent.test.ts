@@ -4,7 +4,9 @@ import {
   isProfileComplete,
   normalizePersistedState,
   resumeOnboardingPhase,
+  wireAttachment,
 } from "./use-try-on-agent";
+import type { Product } from "@/modules/commerce/types";
 import type { TryOnProfile } from "@/modules/wearable-agent/types";
 
 const BASE_PROFILE: TryOnProfile = {
@@ -190,5 +192,41 @@ describe("normalizePersistedState", () => {
 
     const result = normalizePersistedState(payload);
     expect(result!.profiles[0].profile.audience).toBe("woman");
+  });
+
+  it("restores a valid attachment and budget per profile and drops malformed ones", () => {
+    const look = { id: "look-1", label: "Look 1", productIds: ["a"], items: [], anchorId: "a", total: 90, budget: 120, department: "women", slots: [] };
+    const slot = (id: string, attachment: unknown, budget: unknown) => ({
+      id,
+      label: id,
+      profile: { ...BASE_PROFILE },
+      profileSubmitted: true,
+      selectedAvatarId: null,
+      tryOnImages: [],
+      currentImageIndex: 0,
+      messages: [],
+      attachment,
+      budget,
+    });
+    const result = normalizePersistedState({
+      profiles: [
+        slot("look", { kind: "look", look }, 120),
+        slot("plain-bundle", { kind: "look", look: { id: "b", label: "B", productIds: [], items: [] } }, -5),
+        slot("item", { kind: "item", product: { id: "p1", name: "Tee" } }, "80"),
+      ],
+      activeProfileId: "look",
+    })!;
+    expect(result.profiles.map((profile) => profile.attachment?.kind ?? null)).toEqual(["look", null, "item"]);
+    expect(result.profiles.map((profile) => profile.budget)).toEqual([120, null, null]);
+  });
+});
+
+describe("wireAttachment", () => {
+  it("sends an item by id and a look whole", () => {
+    const product = { id: "p1", name: "Tee" } as Product;
+    expect(wireAttachment({ kind: "item", product })).toEqual({ kind: "item", productId: "p1" });
+    const look = { id: "l", label: "L", productIds: [], items: [], anchorId: "a", total: 1, budget: null, department: "men", slots: [] };
+    expect(wireAttachment({ kind: "look", look })).toEqual({ kind: "look", look });
+    expect(wireAttachment(null)).toBeNull();
   });
 });

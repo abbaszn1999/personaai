@@ -20,7 +20,10 @@ import { SOURCE_FIELDS } from "@/lib/catalog/source-fields";
 import { variantFieldDef } from "@/lib/catalog/cms-columns";
 import { buildAcsProductId, merchantAttributeValue, MERCHANT_ID_ATTRIBUTE } from "./isolation";
 import type { AcsAvailability, AcsCustomAttribute, AcsProduct } from "./types";
-import type { AcsSizingPayload } from "@/lib/sizing/acs-payload";
+import {
+  sizingEnvelopesForEntries,
+  type AcsSizingPayload,
+} from "@/lib/sizing/acs-payload";
 import { sizeLabelCandidates } from "@/lib/sizing/size-label-forms";
 
 /**
@@ -125,10 +128,16 @@ export const PIPELINE_ATTRIBUTE_KEYS: ReadonlySet<string> = new Set([
   "fit_chest_max",
   "fit_waist_min",
   "fit_waist_max",
+  "fit_hip_min",
+  "fit_hip_max",
+  "fit_inseam_min",
+  "fit_inseam_max",
   "fit_height_min",
   "fit_height_max",
   "fit_foot_length_min",
   "fit_foot_length_max",
+  "fit_age_months_min",
+  "fit_age_months_max",
   // Written on every VARIANT record (see `buildVariantAcsProducts`) so `catalog-reads.ts` can find
   // and downgrade a product's variant children by a plain filter without knowing their ids —
   // `primaryProductId` alone is not documented as filterable, where a registered custom attribute
@@ -726,7 +735,10 @@ function sizingAttributes(
       indexable: false,
     }),
   };
-  for (const [key, value] of Object.entries(sizing.envelopes)) {
+  // Aggregate only the retained rows. For PRIMARY records this spans every stocked size; for a
+  // VARIANT it is the exact row selected above, never the parent's broad all-sizes envelope.
+  const envelopes = sizingEnvelopesForEntries(entries, sizing.envelopes);
+  for (const [key, value] of Object.entries(envelopes)) {
     if (typeof value === "number") attributes[`fit_${key}`] = numberListAttribute([value]);
   }
   return attributes;
@@ -915,7 +927,12 @@ export function buildVariantAcsProducts(input: MapProductInput, primary: AcsProd
       product.priceInfo = {
         price: variant.price,
         currencyCode: currency,
-        ...(variant.compareAtPrice !== null ? { originalPrice: variant.compareAtPrice } : {}),
+        // Shopify data can carry a stale compare-at value below the current price. ACS rejects the
+        // entire variant in that shape because originalPrice must be >= price; omitting the invalid
+        // reference price preserves the real current price and lets the sizing republish proceed.
+        ...(variant.compareAtPrice !== null && variant.compareAtPrice >= variant.price
+          ? { originalPrice: variant.compareAtPrice }
+          : {}),
       };
     } else if (primary.priceInfo) {
       product.priceInfo = primary.priceInfo;

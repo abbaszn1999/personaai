@@ -34,6 +34,8 @@ export interface Product {
    *  whatever label the mapper gave it. See `CatalogCandidate.attributes`. Descriptive only:
    *  unlike `variants`, these carry no id and are never used for add-to-cart selection. */
   attributes?: Record<string, string[]>;
+  /** In-stock sizes the store's size chart says fit this shopper, best first. */
+  fitSizes?: string[];
 }
 
 export interface ProductVariant {
@@ -63,15 +65,50 @@ export interface BundleSuggestionItem {
   price: number;
 }
 
+/** One slot of a look as the outfit builder searched it. */
+export interface BundleSuggestionSlot {
+  slot: string;
+  path: string;
+  priceMax: number | null;
+  query: string;
+  attributes: Array<{ key: string; values: string[] }>;
+}
+
 /** A curated multi-item look the agent can suggest as a single "complete the outfit" unit.
  *  `productIds` is kept for existing onRenderBundle/onAddBundleToCart callers; `items` carries
- *  the richer per-row shape the bundle card and "discuss this bundle" action need. */
+ *  the richer per-row shape the bundle card and "Ask about this bundle" need. The optional
+ *  fields are set on looks built by the outfit agent, which needs them back on a follow-up. */
 export interface BundleSuggestion {
   id: string;
   label: string;
   productIds: string[];
   items: BundleSuggestionItem[];
   rationale?: string;
+  anchorId?: string;
+  total?: number;
+  budget?: number | null;
+  department?: string;
+  slots?: BundleSuggestionSlot[];
+}
+
+/** The budget card under a "Complete the look" reply: rebuilds the looks around the same anchor
+ *  for the amount the shopper picks. */
+export interface ChatBudgetPrompt {
+  anchorId: string;
+  /** The budget the looks were built for, or null when none was set. */
+  budget: number | null;
+  suggestions: number[];
+}
+
+/** What produced an assistant turn — carried onto add-to-cart events so a cart add can be
+ *  traced to the agent, action, search and look that surfaced the product. */
+export interface TurnAttribution {
+  agent: "persona" | "bundle" | "attribute";
+  /** `filter`, `cosine`, `answer`, `complete_look`, `look_follow_up`, `attribute_answer`. */
+  action: string;
+  path: string | null;
+  query: string | null;
+  lookIds: string[];
 }
 
 export interface ChatMessage {
@@ -92,4 +129,7 @@ export interface ChatMessage {
   quickOptions?: string[];
   /** Complete outfit bundles suggested alongside this message. */
   bundles?: BundleSuggestion[];
+  /** Shown only while this is the latest message — the shopper's next message dismisses it. */
+  budgetPrompt?: ChatBudgetPrompt;
+  attribution?: TurnAttribution;
 }

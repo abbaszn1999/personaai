@@ -1,7 +1,7 @@
 import type { Product } from "@/modules/commerce/types";
 import type { TryOnProfile } from "@/modules/wearable-agent/types";
 import { recommendSize, resolveGarmentSlot } from "@/modules/wearable-agent/utils/fit-metrics";
-import type { WearableChatProfileContext } from "@/lib/agents/wearable/persona/types";
+import type { WearableChatProfileContext } from "./types";
 
 function toFitMetricsProfile(profile: WearableChatProfileContext): TryOnProfile {
   return {
@@ -36,10 +36,12 @@ export function variantMatchesSize(label: string, recommended: string): boolean 
 }
 
 /**
- * Product-aware size recommendation: shoes use EU shoe size when available; everything else
- * uses the shared BMI letter-size heuristic already shown on the Model Stats card.
+ * Product-aware size recommendation: the size the store's chart fits to the shopper's
+ * measurements when search found one; otherwise shoes use EU shoe size and everything else the
+ * shared BMI letter-size heuristic already shown on the Model Stats card.
  */
 export function recommendSizeForProduct(profile: WearableChatProfileContext, product: Product): string {
+  if (product.fitSizes?.length) return product.fitSizes[0];
   const category = resolveGarmentSlot(product);
   if (category === "shoes" && profile.shoeSizeEu) {
     return `EU ${profile.shoeSizeEu}`;

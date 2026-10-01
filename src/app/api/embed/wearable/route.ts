@@ -1,55 +1,31 @@
 import { NextRequest } from "next/server";
 import { getUserById } from "@/lib/db/users";
 import { getPlatformGeminiApiKey } from "@/lib/ai/gemini";
-import { runWearableChatAgent, type WearableChatContext, type IntakeState } from "@/lib/agents/wearable/persona";
-import { buildWearableChatContext } from "@/lib/agents/wearable/persona/context";
-import type { BundleState } from "@/lib/retrieval/types";
-import { getWearableAvatar, rememberWearableAvatar } from "@/lib/agents/wearable/persona/avatar-cache";
+import { dispatchTurn } from "@/lib/agents/dispatch";
+import { buildAgentContext, type AgentRequestState } from "@/lib/agents/shared/context";
+import { agentEventStream, SSE_HEADERS } from "@/lib/agents/sse";
 import { resolveEmbedRequest } from "@/lib/embed/resolve";
 import { embedOptions, EMBED_CORS_HEADERS } from "@/lib/embed/cors";
-import type { ChatMessage, Product } from "@/modules/commerce/types";
+import type { ChatMessage } from "@/modules/commerce/types";
 import { canStartSessionTurn, canUsePaidPlatform, getAccountBillingContext } from "@/lib/billing/account";
 import { flushSessionMeter } from "@/lib/billing/flush-session-meter";
 import { createSessionMeter } from "@/lib/billing/session-meter";
 
 export const maxDuration = 60;
 
-interface EmbedWearableRequestBody {
+interface EmbedAgentRequestBody {
   embedToken?: string;
-  /** Random id the shopper's browser generates once and persists in localStorage — this app
-   *  has no shopper login, so it's the only way to key the ephemeral avatar cache per-shopper
-   *  instead of per-merchant (many concurrent shoppers can share one embed token). */
+  /** Random id the shopper's browser generates once and persists — this app has no shopper
+   *  login, so it is the stable per-shopper id ACS's visitorId wants. */
   sessionId?: string;
-  /** Which of the shopper's (up to 3) local profiles this turn belongs to — folded into the
-   *  avatar cache key alongside sessionId so switching profiles mid-session doesn't leak one
-   *  profile's cached photo/avatar into another's turn. Optional for older widget builds. */
-  profileId?: string;
   messages?: ChatMessage[];
-  profile?: {
-    heightCm?: number | null;
-    weightKg?: number | null;
-    chestCm?: number | null;
-    waistCm?: number | null;
-    shoeSizeEu?: number | null;
-    avatarUrl?: string | null;
-    photoBase64?: string | null;
-    photoMimeType?: string | null;
-    isCustomAvatar?: boolean;
-  };
-  outfitItems?: Product[];
-  /** Ids only — the server rehydrates them from the indexed catalog. */
-  knownProductIds?: string[];
-  intake?: IntakeState;
-  retrievalState?: {
-    anchorId?: string | null;
-    anchorPinned?: boolean;
-    bundleState?: BundleState | null;
-    shownProductIds?: string[];
-  };
-}
-
-function sseLine(payload: unknown): string {
-  return `data: ${JSON.stringify(payload)}\n\n`;
+  audience?: string | null;
+  measurements?: unknown;
+  budget?: number | null;
+  retrievalState?: AgentRequestState;
+  attachment?: unknown;
+  trigger?: unknown;
+  referencedItemId?: unknown;
 }
 
 export async function OPTIONS() {
@@ -57,15 +33,13 @@ export async function OPTIONS() {
 }
 
 export async function POST(req: NextRequest) {
-  const body: EmbedWearableRequestBody = await req.json().catch(() => ({}));
+  const body: EmbedAgentRequestBody = await req.json().catch(() => ({}));
 
   const resolution = await resolveEmbedRequest(body.embedToken);
   if ("error" in resolution) return resolution.error;
   const { workspace } = resolution;
 
   const sessionId = typeof body.sessionId === "string" && body.sessionId ? body.sessionId : "anonymous";
-  const profileId = typeof body.profileId === "string" && body.profileId ? body.profileId : "default";
-  const avatarCacheKey = `embed:${body.embedToken}:${sessionId}:${profileId}`;
 
   const user = await getUserById(workspace.ownerId);
   if (!user) {
@@ -96,128 +70,38 @@ export async function POST(req: NextRequest) {
   }
 
   const history = Array.isArray(body.messages) ? body.messages : [];
-  const profileInput = body.profile ?? {};
-  const outfitItems = Array.isArray(body.outfitItems) ? body.outfitItems : [];
-  const knownProductIds = Array.isArray(body.knownProductIds) ? body.knownProductIds : [];
-  const intake = body.intake ?? {};
-  const retrievalState = body.retrievalState ?? {};
-
-  if (profileInput.avatarUrl || profileInput.photoBase64) {
-    rememberWearableAvatar(avatarCacheKey, {
-      avatarUrl: profileInput.avatarUrl,
-      photoBase64: profileInput.photoBase64,
-      photoMimeType: profileInput.photoMimeType,
-    });
-  }
-  const cached = getWearableAvatar(avatarCacheKey);
-
   const meter = createSessionMeter();
-  const context: WearableChatContext = await buildWearableChatContext({
+  const context = await buildAgentContext({
     ownerId: workspace.ownerId,
-    // The browser-generated session id already used to key the avatar cache — a stable
-    // per-shopper id without requiring shopper login, exactly what ACS's visitorId wants.
     visitorId: sessionId,
     usageSource: "store",
     geminiApiKey,
-    creditsRemaining: billing.user.credits,
-    profile: {
-      heightCm: profileInput.heightCm ?? null,
-      weightKg: profileInput.weightKg ?? null,
-      chestCm: profileInput.chestCm ?? null,
-      waistCm: profileInput.waistCm ?? null,
-      shoeSizeEu: profileInput.shoeSizeEu ?? null,
-      photoBase64: profileInput.photoBase64 ?? cached?.photoBase64 ?? null,
-      photoMimeType: profileInput.photoMimeType ?? cached?.photoMimeType ?? null,
-      avatarUrl: profileInput.avatarUrl ?? cached?.avatarUrl ?? null,
-      isCustomAvatar: profileInput.isCustomAvatar ?? false,
-    },
-    history,
-    outfitItems,
-    knownProductIds,
-    intake,
-    retrievalState,
-  });
-  context.meter = meter;
-
-  const encoder = new TextEncoder();
-
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      let closed = false;
-
-      const safeEnqueue = (chunk: Uint8Array) => {
-        if (closed) return;
-        try {
-          controller.enqueue(chunk);
-        } catch {
-          closed = true;
-        }
-      };
-
-      const safeClose = () => {
-        if (closed) return;
-        closed = true;
-        try {
-          controller.close();
-        } catch {
-          // Already closed by the runtime / cancel().
-        }
-      };
-
-      const onAbort = () => {
-        closed = true;
-        try {
-          controller.close();
-        } catch {
-          // Already closed.
-        }
-      };
-      req.signal.addEventListener("abort", onAbort, { once: true });
-
-      let turnFinished = false;
-      try {
-        for await (const event of runWearableChatAgent(context, history)) {
-          if (closed || req.signal.aborted) break;
-
-          if (event.type === "profile" && typeof event.patch.avatarUrl === "string") {
-            rememberWearableAvatar(avatarCacheKey, { avatarUrl: event.patch.avatarUrl });
-          }
-          safeEnqueue(encoder.encode(sseLine(event)));
-        }
-        turnFinished = !closed && !req.signal.aborted;
-      } catch (err) {
-        if (!closed && !req.signal.aborted) {
-          console.error("[api/embed/wearable POST]", err);
-          safeEnqueue(
-            encoder.encode(sseLine({ type: "error", message: "The style assistant hit an unexpected error." }))
-          );
-          safeEnqueue(encoder.encode(sseLine({ type: "done" })));
-        }
-      } finally {
-        req.signal.removeEventListener("abort", onAbort);
-        safeClose();
-      }
-
-      if (turnFinished) {
-        await flushSessionMeter({
-          meter,
-          ownerId: workspace.ownerId,
-          sessionId,
-          history,
-          cycleStartIso: billing.cycleStartIso,
-          includedAllowance: billing.tier.monthlySessionUnits,
-          source: "store",
-        });
-      }
-    },
+    meter,
+    messages: history,
+    audience: body.audience,
+    measurements: body.measurements,
+    budget: body.budget,
+    retrievalState: body.retrievalState,
+    attachment: body.attachment,
+    trigger: body.trigger,
+    referencedItemId: body.referencedItemId,
   });
 
-  return new Response(stream, {
-    headers: {
-      ...EMBED_CORS_HEADERS,
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-store",
-      "X-Accel-Buffering": "no",
-    },
-  });
+  const stream = agentEventStream(
+    dispatchTurn(context),
+    req.signal,
+    () =>
+      flushSessionMeter({
+        meter,
+        ownerId: workspace.ownerId,
+        sessionId,
+        history,
+        cycleStartIso: billing.cycleStartIso,
+        includedAllowance: billing.tier.monthlySessionUnits,
+        source: "store",
+      }),
+    "api/embed/wearable POST"
+  );
+
+  return new Response(stream, { headers: { ...EMBED_CORS_HEADERS, ...SSE_HEADERS } });
 }

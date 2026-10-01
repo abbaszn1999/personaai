@@ -1,68 +1,34 @@
 import { describe, expect, it } from "vitest";
-import { mergeRetrievalState, type RetrievalState } from "./retrieval-state";
+import { normalizeRetrievalState } from "./retrieval-state";
 
-const pinned: RetrievalState = {
-  anchorId: "p-jacket",
-  anchorPinned: true,
-  bundleState: null,
-  shownProductIds: ["p-jacket"],
-};
-
-const inferred: RetrievalState = { ...pinned, anchorPinned: false };
-
-describe("mergeRetrievalState", () => {
-  it("keeps a pinned anchor through a turn that resolved none", () => {
-    // The reason this is a merge and not an assignment. Plenty of turns — a fresh search, a
-    // question, a bundle step — resolve no anchor and report null, and dropping the pin on each
-    // one would discard a selection the shopper made by clicking and can still see.
-    const next = mergeRetrievalState(pinned, { anchorId: null, bundleState: null, shownProductIds: ["p-jacket"] });
-
-    expect(next.anchorId).toBe("p-jacket");
-    expect(next.anchorPinned).toBe(true);
-  });
-
-  it("drops an unpinned anchor on the same turn", () => {
-    const next = mergeRetrievalState(inferred, { anchorId: null, bundleState: null, shownProductIds: [] });
-
-    expect(next.anchorId).toBeNull();
-    expect(next.anchorPinned).toBe(false);
-  });
-
-  it("moves the pin when the server resolved a different product", () => {
-    // Only happens when the shopper named one outright, which is as explicit as the click was.
-    const next = mergeRetrievalState(pinned, { anchorId: "p-coat", bundleState: null, shownProductIds: [] });
-
-    expect(next.anchorId).toBe("p-coat");
-    expect(next.anchorPinned).toBe(true);
-  });
-
-  it("lets the server overwrite the fields it owns outright", () => {
-    const bundleState = { scope: ["tops"], locked: {} };
-    const next = mergeRetrievalState(pinned, {
-      anchorId: null,
-      bundleState,
-      shownProductIds: ["p-1", "p-2"],
+describe("normalizeRetrievalState", () => {
+  it("keeps shown ids and a well-formed last search", () => {
+    const lastSearch = {
+      action: "filter" as const,
+      path: "women > bottom > trouser",
+      brands: [],
+      priceMin: null,
+      priceMax: 80,
+      attributes: [{ key: "color", values: ["Black"] }],
+      query: "",
+    };
+    expect(normalizeRetrievalState({ shownProductIds: ["a", "b"], lastSearch })).toEqual({
+      shownProductIds: ["a", "b"],
+      lastSearch,
     });
-
-    expect(next.bundleState).toBe(bundleState);
-    expect(next.shownProductIds).toEqual(["p-1", "p-2"]);
   });
 
-  it("does not resurrect a pin after the shopper dismissed it", () => {
-    // clearAnchor leaves the flag off and the id null; the next turn must not re-pin anything.
-    const cleared: RetrievalState = { ...pinned, anchorId: null, anchorPinned: false };
-    const next = mergeRetrievalState(cleared, { anchorId: null, bundleState: null, shownProductIds: [] });
-
-    expect(next.anchorId).toBeNull();
-    expect(next.anchorPinned).toBe(false);
+  it("drops the legacy anchor and bundle fields", () => {
+    expect(
+      normalizeRetrievalState({ anchorId: "x", anchorPinned: true, bundleState: { scope: [] }, shownProductIds: ["a"] })
+    ).toEqual({ shownProductIds: ["a"], lastSearch: null });
   });
 
-  it("never reports itself pinned to nothing", () => {
-    const next = mergeRetrievalState(
-      { ...pinned, anchorId: null },
-      { anchorId: null, bundleState: null, shownProductIds: [] }
-    );
-
-    expect(next.anchorPinned).toBe(false);
+  it("returns an empty state for garbage", () => {
+    expect(normalizeRetrievalState(null)).toEqual({ shownProductIds: [], lastSearch: null });
+    expect(normalizeRetrievalState({ shownProductIds: "nope", lastSearch: 4 })).toEqual({
+      shownProductIds: [],
+      lastSearch: null,
+    });
   });
 });

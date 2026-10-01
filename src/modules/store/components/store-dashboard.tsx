@@ -9,9 +9,10 @@ import { ConnectStoreView } from "./connect-store-view";
 import { CategoryMappingView } from "../mapping/category-mapping-view";
 import { StyleGuideEditor } from "./style-guide-editor";
 import { SetupPipeline } from "../sizing/components/setup-pipeline";
-import { SizingTesterView } from "../../../../Documentation/store_src_demo_frontend/components/SizingTesterView";
+import { SizingTesterView } from "@/modules/store/sizing/tester/sizing-tester-view";
 import { useStoreConnect } from "../hooks/use-store-connect";
 import { useSizingStore } from "../sizing/store";
+import { storeSizingStage } from "../sizing/stage-storage";
 
 /**
  * Connection → Mapping → Setup → Sizing Tester → Style Guide, which is the order the work actually
@@ -90,6 +91,7 @@ function StoreDashboardInner() {
               connection={connection}
               onContinueToSetup={() => {
                 goToSetupStageOne(1);
+                storeSizingStage(connection.id, 1);
                 goToTab("setup");
               }}
             />

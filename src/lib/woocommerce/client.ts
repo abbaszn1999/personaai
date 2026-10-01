@@ -2,6 +2,7 @@ import type { StoreCategory } from "@/modules/store/types";
 import type { Product, ProductVariant } from "@/modules/commerce/types";
 import type { CatalogPageOptions, RawCatalogProduct, RawCatalogVariant, VariantOptionGroups } from "@/lib/catalog/sync-types";
 import { createTimeoutSignal, sleep } from "@/lib/catalog/timeout";
+import { pickSizedVariant } from "@/lib/sizing/cart-variant";
 
 const API_BASE = "/wp-json/wc/v3";
 
@@ -1053,6 +1054,7 @@ interface WooCommerceVariationLookup {
   id: number;
   purchasable: boolean;
   stock_status: "instock" | "outofstock" | "onbackorder";
+  attributes?: Array<{ name: string; option: string }>;
 }
 
 /** A shopper is actively waiting on this (it gates their "Added to cart" click), so it must
@@ -1067,12 +1069,17 @@ const ADD_TO_CART_LOOKUP_TIMEOUT_MS = 12_000;
  * variation ids, never the parent product id. Our internal catalog only tracks the parent id,
  * so this resolves the right one to actually send to the cart, server-side, using the
  * merchant's own admin credentials (never exposed to the shopper's browser).
+ *
+ * With `sizes` (the sizes that fit the shopper, best first), a variable product only resolves to
+ * an in-stock variation in one of them — adding a different size would put a garment that doesn't
+ * fit in the cart.
  */
 export async function resolveAddToCartItemId(
   siteUrl: string,
   username: string,
   appPassword: string,
-  productId: string
+  productId: string,
+  sizes: readonly string[] = []
 ): Promise<number> {
   const productLookup = createTimeoutSignal(ADD_TO_CART_LOOKUP_TIMEOUT_MS);
   let product: WooCommerceProductTypeLookup;
@@ -1112,6 +1119,17 @@ export async function resolveAddToCartItemId(
     throw toStoreLookupError(err);
   } finally {
     variationsLookup.cancel();
+  }
+
+  if (sizes.length > 0) {
+    const sized = pickSizedVariant(
+      variations,
+      sizes,
+      (variation) => (variation.attributes ?? []).map((attribute) => ({ name: attribute.name, value: attribute.option })),
+      (variation) => variation.purchasable && variation.stock_status === "instock"
+    );
+    if (!sized) throw new WooCommerceApiError(`Size ${sizes.join(" / ")} just sold out for this item.`, 409);
+    return sized.id;
   }
 
   // Prefer an in-stock, purchasable variation; fall back to any purchasable one rather than

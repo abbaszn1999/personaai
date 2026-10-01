@@ -9,3 +9,9 @@ export function formatPrice(amount: number, currency = "USD"): string {
   const symbol = CURRENCY_SYMBOLS[currency] ?? currency;
   return `${symbol}${amount.toFixed(2)}`;
 }
+
+/** Whole amounts, for budgets: "$150". */
+export function formatBudget(amount: number, currency = "USD"): string {
+  const symbol = CURRENCY_SYMBOLS[currency] ?? `${currency} `;
+  return `${symbol}${Math.round(amount)}`;
+}

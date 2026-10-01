@@ -3,10 +3,12 @@
 import * as React from "react";
 import type { ChatMessage } from "@/modules/commerce/types";
 import type { AvatarVariation, OnboardingPhase, TryOnAudience, TryOnProfile } from "@/modules/wearable-agent/types";
-import type { BundleSuggestion, Product } from "@/modules/commerce/types";
-import type { IntakeState, WearableAgentEvent } from "@/lib/agents/wearable/persona";
-import type { BundleState } from "@/lib/retrieval/types";
-import { mergeRetrievalState, type RetrievalState } from "../utils/retrieval-state";
+import type { BundleSuggestion, Product, TurnAttribution } from "@/modules/commerce/types";
+import { formatBudget } from "@/modules/commerce/constants";
+import { isLookRecord, type AgentEvent, type LookRecord } from "@/lib/agents/types";
+import { attributionForProduct } from "../utils/cart-attribution";
+import { parseTypedBudget } from "../utils/typed-budget";
+import { EMPTY_RETRIEVAL_STATE, normalizeRetrievalState, type RetrievalState } from "../utils/retrieval-state";
 import { AVATAR_GENERATION_STAGES } from "../constants";
 import { INITIAL_WEARABLE_MESSAGE, SCAN_STAGE_DURATION_MS, SCAN_STAGES } from "../mocks/responses";
 import {
@@ -19,9 +21,9 @@ import type { ShopperProfileDraft } from "@/lib/embed/client/shopper-api";
 import { addItemToWooCommerceCart } from "@/lib/woocommerce/store-api-client";
 import { addItemToShopifyCart } from "@/lib/shopify/ajax-cart-client";
 
-// Mirrors DEFAULT_AVATAR_VARIATION_COUNT in src/lib/agents/persona-agent.ts — kept as a local
+// Mirrors DEFAULT_AVATAR_VARIATION_COUNT in src/lib/try-on/image-generation.ts — kept as a local
 // literal rather than importing that module, since this hook ships in the client widget bundle
-// and persona-agent.ts pulls in server-only deps (sharp, the Pruna client) that must never be
+// and image-generation.ts pulls in server-only deps (sharp, the Pruna client) that must never be
 // bundled for the browser.
 const EXPECTED_AVATAR_VARIATION_COUNT = 4;
 const GENERIC_AVATAR_ERROR = "We couldn't generate your avatar. Please try again.";
@@ -69,6 +71,10 @@ export interface ShopperProfileBridge {
 export const MAX_TRYON_PROFILES = 3;
 const DEFAULT_PROFILE_ID = "default";
 
+/** What the shopper attached with "Ask about this item" or "Ask about this bundle". While set,
+ *  every typed turn is about it; the × on the attachment bar clears it. */
+export type ChatAttachment = { kind: "item"; product: Product } | { kind: "look"; look: LookRecord };
+
 /** Per-profile slice of persisted state — everything that's genuinely "whose this is":
  *  measurements/avatar, the try-on renders made for them, and their own conversation with the
  *  agent. Cart and catalog knowledge stay shared across profiles (same shopping session, same
@@ -86,9 +92,9 @@ interface StoredProfileSlot {
   messages: ChatMessage[];
   input: string;
   outfitItems: Product[];
-  intakeAnswers: IntakeState;
-  selectedAnchor: Product | null;
-  discussedBundle: BundleSuggestion | null;
+  attachment: ChatAttachment | null;
+  /** The optional budget for a full look — a field, never parsed from chat. */
+  budget: number | null;
   retrievalState: RetrievalState;
 }
 
@@ -109,12 +115,10 @@ interface LegacyPersistedEmbedStateV1 {
   messages: ChatMessage[];
   outfitItems: Product[];
   cartItems: Product[];
-  intakeAnswers: IntakeState;
   knownProducts: Record<string, Product>;
   tryOnImages: GeneratedTryOn[];
   currentImageIndex: number;
   selectedAvatarId: string | null;
-  selectedAnchor: Product | null;
 }
 
 function blankProfileSlotData(): Omit<StoredProfileSlot, "id" | "label"> {
@@ -127,11 +131,32 @@ function blankProfileSlotData(): Omit<StoredProfileSlot, "id" | "label"> {
     messages: [],
     input: "",
     outfitItems: [],
-    intakeAnswers: {},
-    selectedAnchor: null,
-    discussedBundle: null,
-    retrievalState: { anchorId: null, anchorPinned: false, bundleState: null, shownProductIds: [] },
+    attachment: null,
+    budget: null,
+    retrievalState: EMPTY_RETRIEVAL_STATE,
   };
+}
+
+function normalizeAttachment(raw: unknown): ChatAttachment | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as { kind?: unknown; product?: Product; look?: BundleSuggestion };
+  if (value.kind === "item" && value.product && typeof value.product.id === "string") {
+    return { kind: "item", product: value.product };
+  }
+  if (value.kind === "look" && value.look && isLookRecord(value.look)) return { kind: "look", look: value.look };
+  return null;
+}
+
+/** The attachment as the server reads it: an item by id, a look whole. */
+export function wireAttachment(attachment: ChatAttachment | null) {
+  if (!attachment) return null;
+  return attachment.kind === "item"
+    ? { kind: "item" as const, productId: attachment.product.id }
+    : { kind: "look" as const, look: attachment.look };
+}
+
+function normalizeBudget(raw: unknown): number | null {
+  return typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : null;
 }
 
 /** Strips the raw body photo before anything touches localStorage. The merchant's own page
@@ -177,10 +202,6 @@ export function normalizePersistedState(raw: unknown): PersistedEmbedState | nul
     const preMigrationOutfit = Array.isArray((obj as { outfitItems?: unknown }).outfitItems)
       ? ((obj as { outfitItems: Product[] }).outfitItems)
       : [];
-    const preMigrationIntake =
-      (obj as { intakeAnswers?: IntakeState }).intakeAnswers ?? {};
-    const preMigrationAnchor =
-      (obj as { selectedAnchor?: Product | null }).selectedAnchor ?? null;
     return {
       ...shaped,
       profiles: shaped.profiles.map((slot) => ({
@@ -197,20 +218,9 @@ export function normalizePersistedState(raw: unknown): PersistedEmbedState | nul
           : slot.id === shaped.activeProfileId
             ? preMigrationOutfit
             : [],
-        intakeAnswers:
-          slot.intakeAnswers ??
-          (slot.id === shaped.activeProfileId ? preMigrationIntake : {}),
-        selectedAnchor:
-          slot.selectedAnchor ??
-          (slot.id === shaped.activeProfileId ? preMigrationAnchor : null),
-        discussedBundle: slot.discussedBundle ?? null,
-        retrievalState:
-          slot.retrievalState ?? {
-            anchorId: slot.id === shaped.activeProfileId ? preMigrationAnchor?.id ?? null : null,
-            anchorPinned: slot.id === shaped.activeProfileId && preMigrationAnchor != null,
-            bundleState: null,
-            shownProductIds: [],
-          },
+        attachment: normalizeAttachment(slot.attachment),
+        budget: normalizeBudget(slot.budget),
+        retrievalState: normalizeRetrievalState(slot.retrievalState),
       })),
     };
   }
@@ -230,15 +240,9 @@ export function normalizePersistedState(raw: unknown): PersistedEmbedState | nul
           messages: legacy.messages ?? [],
           input: "",
           outfitItems: legacy.outfitItems ?? [],
-          intakeAnswers: legacy.intakeAnswers ?? {},
-          selectedAnchor: legacy.selectedAnchor ?? null,
-          discussedBundle: null,
-          retrievalState: {
-            anchorId: legacy.selectedAnchor?.id ?? null,
-            anchorPinned: legacy.selectedAnchor != null,
-            bundleState: null,
-            shownProductIds: [],
-          },
+          attachment: null,
+          budget: null,
+          retrievalState: EMPTY_RETRIEVAL_STATE,
         },
       ],
       activeProfileId: DEFAULT_PROFILE_ID,
@@ -414,28 +418,19 @@ interface TryOnAgentState {
   /** IDs currently mid-flight to the real store cart — surfaced so buttons can show a spinner
    *  instead of looking silently stuck during a slow (but working) sync. */
   pendingCartItemIds: string[];
-  /** Preferences the chat agent has picked up conversationally (occasion/style/budget) — no
-   *  longer driven by a fixed question stepper, just accumulated from record_intake_field
-   *  tool calls as the shopper naturally mentions them. */
-  intakeAnswers: IntakeState;
   isScanning: boolean;
   scanStageIndex: number;
-  /** Real match count from the most recent search_catalog call, shown in place of the last
+  /** Real match count from the most recent catalog search, shown in place of the last
    *  cosmetic scanning stage once it resolves — null while no results have landed yet. */
   scanResultCount: number | null;
-  /** Live products the agent has actually found via search_catalog this session, keyed by
+  /** Live products the agents have actually surfaced this session, keyed by
    *  id — replaces the static mock catalog as the source of truth for anything the chat
    *  references (inline suggestion cards, bundles, "wear it"/"add to cart" resolution). */
   knownProducts: Record<string, Product>;
-  /** The product the shopper picked with Select, shown pinned above the composer. Distinct from
-   *  the server's own inferred anchor, which is never surfaced: this one they chose and can see,
-   *  so it has to survive turns that resolve no anchor of their own. */
-  selectedAnchor: Product | null;
-  /** The outfit the shopper picked with "Discuss this bundle". Held as rendering state, not only
-   *  in `retrievalStateRef`, because pinning a whole outfit has to be as visible as pinning a
-   *  single product is — a control that changes what the next answer is about while leaving the
-   *  screen identical is indistinguishable from a dead button. */
-  discussedBundle: BundleSuggestion | null;
+  /** The item or look attached with an "Ask about…" button, shown above the composer. */
+  attachment: ChatAttachment | null;
+  /** The optional budget for a full look, set from the budget card under "Complete the look". */
+  budget: number | null;
   isUploadingBackdrop: boolean;
   /** Set when a custom backdrop upload fails — cleared on the next attempt. */
   backdropUploadError: string | null;
@@ -510,11 +505,10 @@ function parseSseChunk<T>(buffer: string): { events: T[]; rest: string } {
  * text has already cleared the indicator — they are genuinely visible, and a turn that ever
  * yields one without text should still end the wait.
  */
-const SHOPPER_VISIBLE_EVENTS = new Set<WearableAgentEvent["type"]>([
+const SHOPPER_VISIBLE_EVENTS = new Set<AgentEvent["type"]>([
   "text",
   "bundle",
   "product_recommendations",
-  "try_on",
   "error",
 ]);
 
@@ -546,15 +540,9 @@ function overlayServerProfiles(
       messages: localSlot?.messages ?? [],
       input: localSlot?.input ?? "",
       outfitItems: localSlot?.outfitItems ?? [],
-      intakeAnswers: localSlot?.intakeAnswers ?? {},
-      selectedAnchor: localSlot?.selectedAnchor ?? null,
-      discussedBundle: localSlot?.discussedBundle ?? null,
-      retrievalState: localSlot?.retrievalState ?? {
-        anchorId: null,
-        anchorPinned: false,
-        bundleState: null,
-        shownProductIds: [],
-      },
+      attachment: localSlot?.attachment ?? null,
+      budget: localSlot?.budget ?? null,
+      retrievalState: localSlot?.retrievalState ?? EMPTY_RETRIEVAL_STATE,
     };
   });
 
@@ -603,13 +591,12 @@ export function useTryOnAgent(
     currentImageIndex: activeSlot?.currentImageIndex ?? 0,
     cartItems: persisted?.cartItems ?? [],
     pendingCartItemIds: [],
-    intakeAnswers: activeSlot?.intakeAnswers ?? {},
     isScanning: false,
     scanStageIndex: 0,
     scanResultCount: null,
     knownProducts: persisted?.knownProducts ?? {},
-    selectedAnchor: activeSlot?.selectedAnchor ?? null,
-    discussedBundle: activeSlot?.discussedBundle ?? null,
+    attachment: activeSlot?.attachment ?? null,
+    budget: activeSlot?.budget ?? null,
     isUploadingBackdrop: false,
     backdropUploadError: null,
     cartSyncError: null,
@@ -636,9 +623,8 @@ export function useTryOnAgent(
           messages: slot.messages,
           input: slot.input,
           outfitItems: slot.outfitItems,
-          intakeAnswers: slot.intakeAnswers,
-          selectedAnchor: slot.selectedAnchor,
-          discussedBundle: slot.discussedBundle,
+          attachment: slot.attachment,
+          budget: slot.budget,
           retrievalState: slot.retrievalState,
         };
       }
@@ -675,25 +661,15 @@ export function useTryOnAgent(
         ? crypto.randomUUID()
         : `dash-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
-  /** Last avatarUrl we successfully shipped to the wearable agent — subsequent turns omit the
-   *  (often multi-MB) data URL so the request stays under Next's body size limit. */
-  const lastSentAvatarUrlRef = React.useRef<string | null>(null);
-
   const outfitRef = React.useRef<Product[]>(state.outfitItems);
   const profileRef = React.useRef<TryOnProfile>(state.profile);
-  const intakeAnswersRef = React.useRef<IntakeState>(state.intakeAnswers);
   const knownProductsRef = React.useRef<Record<string, Product>>(state.knownProducts);
   const messagesRef = React.useRef<ChatMessage[]>(state.messages);
+  const attachmentRef = React.useRef<ChatAttachment | null>(state.attachment);
+  const budgetRef = React.useRef<number | null>(state.budget);
   /** Retrieval's cross-turn memory, echoed straight back to the server next turn. A ref rather
    *  than state: nothing renders from it, and it must be current the moment a turn starts. */
-  const retrievalStateRef = React.useRef<RetrievalState>({
-    ...(activeSlot?.retrievalState ?? {
-      anchorId: null,
-      anchorPinned: false,
-      bundleState: null,
-      shownProductIds: [],
-    }),
-  });
+  const retrievalStateRef = React.useRef<RetrievalState>(activeSlot?.retrievalState ?? EMPTY_RETRIEVAL_STATE);
   // Serializes every real-cart mutation (across separate "Add to Cart" clicks, not just
   // products within one click) so they never hit the store's cart endpoint concurrently — see
   // syncProductsToRealCart for why that matters.
@@ -701,10 +677,11 @@ export function useTryOnAgent(
   React.useEffect(() => {
     outfitRef.current = state.outfitItems;
     profileRef.current = state.profile;
-    intakeAnswersRef.current = state.intakeAnswers;
     knownProductsRef.current = state.knownProducts;
     messagesRef.current = state.messages;
-  }, [state.outfitItems, state.profile, state.intakeAnswers, state.knownProducts, state.messages]);
+    attachmentRef.current = state.attachment;
+    budgetRef.current = state.budget;
+  }, [state.outfitItems, state.profile, state.knownProducts, state.messages, state.attachment, state.budget]);
 
   React.useEffect(() => {
     customAvatarUrlRef.current = state.customAvatarUrl;
@@ -753,9 +730,8 @@ export function useTryOnAgent(
         messages: state.messages,
         input: state.input,
         outfitItems: state.outfitItems,
-        intakeAnswers: state.intakeAnswers,
-        selectedAnchor: state.selectedAnchor,
-        discussedBundle: state.discussedBundle,
+        attachment: state.attachment,
+        budget: state.budget,
         retrievalState: retrievalStateRef.current,
       }),
       activeProfileId,
@@ -773,10 +749,9 @@ export function useTryOnAgent(
     state.input,
     state.outfitItems,
     state.cartItems,
-    state.intakeAnswers,
     state.knownProducts,
-    state.selectedAnchor,
-    state.discussedBundle,
+    state.attachment,
+    state.budget,
     state.tryOnImages,
     state.currentImageIndex,
     state.selectedAvatarId,
@@ -802,9 +777,8 @@ export function useTryOnAgent(
         messages: messagesRef.current,
         input: state.input,
         outfitItems: outfitRef.current,
-        intakeAnswers: intakeAnswersRef.current,
-        selectedAnchor: state.selectedAnchor,
-        discussedBundle: state.discussedBundle,
+        attachment: attachmentRef.current,
+        budget: budgetRef.current,
         retrievalState: retrievalStateRef.current,
       }),
       activeProfileId,
@@ -906,9 +880,8 @@ export function useTryOnAgent(
       messages: messagesRef.current,
       input: state.input,
       outfitItems: outfitRef.current,
-      intakeAnswers: intakeAnswersRef.current,
-      selectedAnchor: state.selectedAnchor,
-      discussedBundle: state.discussedBundle,
+      attachment: attachmentRef.current,
+      budget: budgetRef.current,
       retrievalState: retrievalStateRef.current,
     });
   }
@@ -928,25 +901,21 @@ export function useTryOnAgent(
       messages: data.messages,
       input: data.input,
       outfitItems: data.outfitItems,
-      intakeAnswers: data.intakeAnswers,
       avatarVariations: [],
       customAvatarUrl: null,
       avatarGenerationError: null,
       avatarPartialNote: null,
-      // A pinned anchor/bundle and mid-flight typing indicator belong to the conversation
-      // that's being swapped out — carrying them into the incoming profile's fresh chat
-      // would show a "still thinking" bubble or a pinned product nobody there ever discussed.
-      selectedAnchor: data.selectedAnchor,
-      discussedBundle: data.discussedBundle,
+      // The attachment, budget and typing indicator belong to the conversation being swapped
+      // out — each profile carries its own.
+      attachment: data.attachment,
+      budget: data.budget,
       isTyping: false,
       isScanning: false,
     }));
-    // Force the next chat turn to (re-)send this profile's own avatar rather than trusting the
-    // server's cache, which is now keyed per-profile too (see avatarCacheKey in the wearable route).
-    lastSentAvatarUrlRef.current = null;
-    // The retrieval context (pinned anchor/bundle, already-shown product ids) is per-conversation
-    // state that just got reset above — mirror that here too, or the next turn on the incoming
-    // profile's fresh chat would still carry the outgoing one's anchor/history into the prompt.
+    attachmentRef.current = data.attachment;
+    budgetRef.current = data.budget;
+    // The retrieval context (products on screen, the last search) is per-conversation too, or
+    // the next turn on the incoming profile's chat would refine the outgoing one's search.
     retrievalStateRef.current = data.retrievalState;
   }
 
@@ -1176,7 +1145,6 @@ export function useTryOnAgent(
       const selectedVariation = s.avatarVariations.find((v) => v.id === s.selectedAvatarId);
       const avatarUrl = s.selectedAvatarId === "custom" ? s.customAvatarUrl : selectedVariation?.imageUrl ?? null;
       const backdropUrl = s.selectedAvatarId === "custom" ? null : selectedVariation?.backdropUrl ?? null;
-      lastSentAvatarUrlRef.current = null;
 
       const nextProfile = { ...s.profile, avatarUrl, backdropUrl };
       const label = profilesMetaRef.current.find((p) => p.id === activeProfileIdRef.current)?.label ?? "Me";
@@ -1343,8 +1311,6 @@ export function useTryOnAgent(
       }
 
       const nextAvatarUrl = regeneratedVariation?.imageUrl ?? s.profile.avatarUrl;
-      // Force the next chat turn to re-upload the new avatar to the server cache.
-      lastSentAvatarUrlRef.current = null;
       const confirmMsg: ChatMessage = {
         id: `msg-regen-${Date.now()}`,
         role: "assistant",
@@ -1501,13 +1467,13 @@ export function useTryOnAgent(
    *  go through the public `/api/embed/chat-event`; the dashboard's own authenticated preview
    *  goes through `/api/agents/chat-event` instead, keyed by workspaceId rather than an embed
    *  token — silently no-ops if neither is available (e.g. no workspaceId was ever passed in). */
-  function logChatEvent(role: "user" | "assistant", topic?: string | null) {
+  function logChatEvent(role: "user" | "assistant", topic?: string | null, attribution?: TurnAttribution | null) {
     if (embed) {
       const sessionId = getOrCreateEmbedSessionId(embed.embedToken);
       void fetch(`${embed.apiBase}/chat-event`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ embedToken: embed.embedToken, sessionId, role, topic }),
+        body: JSON.stringify({ embedToken: embed.embedToken, sessionId, role, topic, attribution }),
       }).catch(() => {});
       return;
     }
@@ -1515,7 +1481,7 @@ export function useTryOnAgent(
     void fetch("/api/agents/chat-event", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ workspaceId, sessionId: dashboardSessionIdRef.current, role, topic }),
+      body: JSON.stringify({ workspaceId, sessionId: dashboardSessionIdRef.current, role, topic, attribution }),
     }).catch(() => {});
   }
 
@@ -1526,9 +1492,7 @@ export function useTryOnAgent(
     }
   }
 
-  /** Runs only for the server's explicit `activity: "bundle"` signal. Unlike the old behavior,
-   * a generic search_catalog tool start cannot trigger this because that tool also handles
-   * question-only intake turns where no catalog retrieval occurs. */
+  /** Runs only for the server's explicit `activity: "bundle"` signal, never for a plain search. */
   function startBundleProgressTicker() {
     if (scanTimerRef.current) return;
     setState((s) => ({ ...s, isTyping: false, isScanning: true, scanStageIndex: 0, scanResultCount: null }));
@@ -1537,17 +1501,19 @@ export function useTryOnAgent(
     }, SCAN_STAGE_DURATION_MS);
   }
 
-  /** Sends one turn to the real Wearable Chat Agent and streams the response, applying each
-   *  SSE event to local state as it arrives — replaces the old keyword-matched mock reply. */
-  async function streamChatTurn(history: ChatMessage[]) {
+  /** Sends one turn to the agents and streams the response, applying each SSE event to local
+   *  state as it arrives. `trigger` is set only for the "Complete the look" click. */
+  async function streamChatTurn(
+    history: ChatMessage[],
+    trigger?: { type: "complete_look"; productId: string; askBudget?: boolean }
+  ) {
     setState((s) => ({ ...s, isTyping: true, typingStage: "thinking" }));
 
-    const profile = profileRef.current;
     let assistantMessageId: string | null = null;
-    // Retrieval may determine the allowed answers before the persona has written the question.
-    // Hold them until the first text arrives; rendering them immediately creates the empty
-    // assistant bubble seen during intake-only turns.
+    // Quick options can arrive before the reply text; holding them until text lands avoids an
+    // empty assistant bubble with chips under it.
     let pendingQuickOptions: string[] | null = null;
+    let turnAttribution: TurnAttribution | null = null;
     let sawAnyEvent = false;
 
     const ensureAssistantMessage = () => {
@@ -1572,95 +1538,41 @@ export function useTryOnAgent(
       if (products.length === 0) return;
       setState((s) => {
         const next = { ...s.knownProducts };
-        for (const product of products) next[product.id] = product;
-        // Keep the ref in sync immediately so later events in the same SSE turn
-        // (try_on / wearBundle) can resolve products without waiting for a re-render.
+        for (const product of products) {
+          const fitSizes = product.fitSizes ?? s.knownProducts[product.id]?.fitSizes;
+          next[product.id] = fitSizes ? { ...product, fitSizes } : product;
+        }
+        // Keep the ref in sync immediately so later events in the same SSE turn can resolve
+        // products without waiting for a re-render.
         knownProductsRef.current = next;
         return { ...s, knownProducts: next };
       });
     };
 
     try {
-      // Keep the chat payload lean. Sending photoBase64 + avatar data URLs + try-on image
-      // data on every turn exceeded Next.js's default 10MB body limit, which truncated the
-      // JSON mid-parse — the model then saw empty/broken history and replied with generic
-      // "Hi, I'm your Style Assistant" intros as if the conversation had just started.
-      const avatarUrl = profile.avatarUrl;
-      const shouldSendAvatar =
-        !!avatarUrl &&
-        (avatarUrl.startsWith("data:") ? lastSentAvatarUrlRef.current !== avatarUrl : true);
-
-      const slimHistory = history.map((m) => ({
-        id: m.id,
-        role: m.role,
-        content: m.content,
-        timestamp: m.timestamp,
-        productRecommendations: m.productRecommendations,
-        retrievalNote: m.retrievalNote,
-        bundles: m.bundles,
-        quickOptions: m.quickOptions,
-        // Drop try-on image bytes — the model only needs the text; the UI already has the image.
-        ...(m.tryOnImage
-          ? {
-              tryOnImage: {
-                imageUrl: "[try-on-preview]",
-                items: m.tryOnImage.items,
-                recommendedSizes: m.tryOnImage.recommendedSizes,
-                fitNotes: m.tryOnImage.fitNotes,
-              },
-            }
-          : {}),
-      }));
-
-      const slimProducts = (products: Product[]) =>
-        products.map((p) => ({
-          id: p.id,
-          name: p.name,
-          description: p.description.slice(0, 280),
-          price: p.price,
-          currency: p.currency,
-          imageUrl: p.imageUrl,
-          categoryId: p.categoryId,
-          tags: p.tags,
-          variants: p.variants,
-          rating: p.rating,
-          reviewCount: p.reviewCount,
-          inStock: p.inStock,
-          // Carry the AI-classified slot back to the server so already-classified products
-          // don't silently revert to keyword matching on turns where they aren't re-searched.
-          garmentSlot: p.garmentSlot,
-        }));
+      // Text only: the server rehydrates products by id, and the model needs nothing else.
+      const slimHistory = history.map((m) => ({ id: m.id, role: m.role, content: m.content, timestamp: m.timestamp }));
 
       const res = await fetch(embed ? `${embed.apiBase}/wearable` : "/api/agents/wearable", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...(embed
-            ? { embedToken: embed.embedToken, sessionId: embedSessionIdRef.current, profileId: activeProfileId }
-            : {}),
+          ...(embed ? { embedToken: embed.embedToken, sessionId: embedSessionIdRef.current } : {}),
           messages: slimHistory,
-          profile: {
-            heightCm: profile.heightCm,
-            weightKg: profile.weightKg,
-            chestCm: profile.chestCm,
-            waistCm: profile.waistCm,
-            shoeSizeEu: profile.shoeSizeEu,
-            isCustomAvatar: selectedAvatarIdRef.current === "custom",
-            // Only ship the avatar when it changed; the server caches it for try_on.
-            ...(shouldSendAvatar ? { avatarUrl } : {}),
+          audience: profileRef.current.audience,
+          measurements: {
+            heightCm: profileRef.current.heightCm,
+            chestCm: profileRef.current.chestCm,
+            waistCm: profileRef.current.waistCm,
+            hipsCm: profileRef.current.hipsCm,
+            shoeSizeEu: profileRef.current.shoeSizeEu,
           },
-          outfitItems: slimProducts(outfitRef.current),
-          // Ids only. The catalog is indexed server-side now, so echoing whole product objects
-          // back every turn just grows the request body with data the server already holds.
-          knownProductIds: Object.keys(knownProductsRef.current),
-          intake: intakeAnswersRef.current,
+          budget: budgetRef.current,
           retrievalState: retrievalStateRef.current,
+          attachment: trigger ? null : wireAttachment(attachmentRef.current),
+          ...(trigger ? { trigger } : {}),
         }),
       });
-
-      if (res.ok && shouldSendAvatar && avatarUrl) {
-        lastSentAvatarUrlRef.current = avatarUrl;
-      }
 
       if (!res.ok || !res.body) {
         const data = await res.json().catch(() => ({}));
@@ -1676,37 +1588,23 @@ export function useTryOnAgent(
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
 
-        const { events, rest } = parseSseChunk<WearableAgentEvent>(buffer);
+        const { events, rest } = parseSseChunk<AgentEvent>(buffer);
         buffer = rest;
 
         for (const event of events) {
           sawAnyEvent = true;
-          // Only a result the shopper can actually see ends the wait. Most events in a turn —
-          // retrieved products, retrieval state, intake — change nothing on screen, and clearing
-          // the indicator on those left the chat visibly dead from the moment retrieval finished
-          // until the closing copy arrived, which on a product turn is two more model calls and
-          // the longest part of the turn.
+          // Only a result the shopper can actually see ends the wait. Clearing the indicator on
+          // bookkeeping events left the chat looking dead until the reply arrived.
           if (SHOPPER_VISIBLE_EVENTS.has(event.type)) {
             setState((s) => (s.isTyping ? { ...s, isTyping: false } : s));
           }
 
           switch (event.type) {
-            case "tool": {
-              if (event.activity === "bundle" && event.status === "start") {
+            case "status": {
+              if (event.stage === "composing") {
                 startBundleProgressTicker();
-              } else if (event.activity === "bundle" && event.status === "end") {
-                stopScanTicker();
-                setState((s) => ({ ...s, isTyping: true, isScanning: false, typingStage: "composing" }));
-              } else if (event.tool === "try_on" && event.status === "start") {
-                setState((s) => ({ ...s, isGenerating: true }));
-              } else if (event.tool === "update_measurements" && event.status === "start") {
-                setState((s) => ({ ...s, isRegeneratingAvatar: true }));
-              } else if (event.tool === "search_catalog") {
-                // `search_catalog` is the persona's orchestration tool: it can legitimately
-                // resolve to a clarifying question rather than a catalog read, so the label says
-                // what is being done, not what it will find. Once it returns, whatever it
-                // returned, the model is writing the reply.
-                setState((s) => ({ ...s, typingStage: event.status === "start" ? "searching" : "composing" }));
+              } else {
+                setState((s) => ({ ...s, typingStage: event.stage }));
               }
               break;
             }
@@ -1736,28 +1634,33 @@ export function useTryOnAgent(
               break;
             }
             case "product_recommendations": {
-              patchAssistantMessage({
-                // Merge across multiple search buckets (jackets + shoes) instead of letting
-                // the last event overwrite the first — that was why only one category showed.
-                productRecommendations: event.productIds,
-                retrievalNote: event.note,
-              });
+              patchAssistantMessage({ productRecommendations: event.productIds, retrievalNote: event.note });
               break;
             }
             case "quick_options": {
-              pendingQuickOptions = event.options;
+              if (assistantMessageId) patchAssistantMessage({ quickOptions: event.options });
+              else pendingQuickOptions = event.options;
+              break;
+            }
+            case "budget_request": {
+              patchAssistantMessage({
+                budgetPrompt: { anchorId: event.anchorId, budget: event.budget, suggestions: event.suggestions },
+              });
+              break;
+            }
+            case "attachment": {
+              const next: ChatAttachment | null =
+                event.attachment?.kind === "look" ? { kind: "look", look: event.attachment.look } : null;
+              // The server only ever detaches or refreshes an attached look; an item attachment
+              // it drops is simply cleared.
+              if (event.attachment === null || next) {
+                attachmentRef.current = next;
+                setState((s) => ({ ...s, attachment: next }));
+              }
               break;
             }
             case "retrieval_state": {
-              // Cross-turn memory without a server session: what the conversation is about,
-              // how far a bundle has got, and what's already been shown.
-              //
-              // Merged rather than replaced, because of the anchor. A turn that resolves no
-              // anchor of its own reports null, and taking that literally would silently discard
-              // a selection the shopper made by clicking and can still see pinned above the
-              // composer. The pin only moves when the server actually resolved a different
-              // product — which it does when they name one outright.
-              applyRetrievalState(event.anchorId, event.bundleState, event.shownProductIds);
+              retrievalStateRef.current = { shownProductIds: event.shownProductIds, lastSearch: event.lastSearch };
               break;
             }
             case "bundle": {
@@ -1777,80 +1680,20 @@ export function useTryOnAgent(
               }));
               break;
             }
-            case "try_on": {
-              const snapshot: GeneratedTryOn = {
-                id: `tryon-${Date.now()}`,
-                imageUrl: event.imageUrl,
-                outfitProducts: event.items
-                  .map((i) => knownProductsRef.current[i.productId])
-                  .filter((p): p is Product => !!p),
-                recommendedSizes: event.recommendedSizes,
-                fitNotes: event.fitNotes,
-                createdAt: new Date().toISOString(),
-              };
-              setState((s) => ({
-                ...s,
-                isGenerating: false,
-                tryOnImages: [...s.tryOnImages, snapshot],
-                currentImageIndex: s.tryOnImages.length,
-                outfitItems: snapshot.outfitProducts.length > 0 ? snapshot.outfitProducts : s.outfitItems,
-              }));
-              patchAssistantMessage({
-                tryOnImage: { imageUrl: event.imageUrl, items: event.items, recommendedSizes: event.recommendedSizes, fitNotes: event.fitNotes },
-              });
-              logTryOnEvent(snapshot.outfitProducts, event.recommendedSizes);
-              break;
-            }
-            case "add_to_cart": {
-              mergeKnownProducts(event.products);
-              // Computed inside the updater (not from the outer `state` closure, which can be
-              // stale mid-stream) and stashed here so the real-cart sync fires with exactly the
-              // same "actually new" set the optimistic UI update used, in the same tick.
-              let toAdd: Product[] = [];
-              let nextCartItems: Product[] = [];
-              setState((s) => {
-                const existingIds = new Set(s.cartItems.map((p) => p.id));
-                toAdd = event.products.filter((p) => !existingIds.has(p.id));
-                nextCartItems = toAdd.length > 0 ? [...s.cartItems, ...toAdd] : s.cartItems;
-                return toAdd.length > 0 ? { ...s, cartItems: nextCartItems } : s;
-              });
-              if (toAdd.length > 0) {
-                persistCartItemsNow(nextCartItems);
-                syncProductsToRealCart(toAdd);
-              }
-              break;
-            }
-            case "intake": {
-              setState((s) => ({ ...s, intakeAnswers: event.intake }));
-              break;
-            }
-            case "profile": {
-              if (typeof event.patch.avatarUrl === "string") {
-                lastSentAvatarUrlRef.current = event.patch.avatarUrl;
-              }
-              setState((s) => ({
-                ...s,
-                profile: {
-                  ...s.profile,
-                  ...(typeof event.patch.heightCm === "number" ? { heightCm: event.patch.heightCm } : {}),
-                  ...(typeof event.patch.weightKg === "number" ? { weightKg: event.patch.weightKg } : {}),
-                  ...(typeof event.patch.chestCm === "number" ? { chestCm: event.patch.chestCm } : {}),
-                  ...(typeof event.patch.waistCm === "number" ? { waistCm: event.patch.waistCm } : {}),
-                  ...(typeof event.patch.shoeSizeEu === "number" ? { shoeSizeEu: event.patch.shoeSizeEu } : {}),
-                  ...(typeof event.patch.avatarUrl === "string" ? { avatarUrl: event.patch.avatarUrl } : {}),
-                },
-                isRegeneratingAvatar: false,
-              }));
-              break;
-            }
             case "error": {
               stopScanTicker();
               patchAssistantMessage({ content: event.message });
-              setState((s) => ({ ...s, isScanning: false, isGenerating: false, isRegeneratingAvatar: false }));
+              setState((s) => ({ ...s, isScanning: false }));
+              break;
+            }
+            case "attribution": {
+              turnAttribution = event.attribution;
+              patchAssistantMessage({ attribution: event.attribution });
               break;
             }
             case "done": {
-              logChatEvent("assistant", intakeAnswersRef.current.occasion ?? null);
+              if (pendingQuickOptions) patchAssistantMessage({ quickOptions: pendingQuickOptions });
+              logChatEvent("assistant", null, turnAttribution);
               break;
             }
             default:
@@ -1879,23 +1722,44 @@ export function useTryOnAgent(
     }
   }
 
-  async function sendMessage(text?: string) {
-    const content = (text ?? state.input).trim();
-    if (!content) return;
-    setState((s) => ({ ...s, input: "" }));
-
+  function appendUserMessage(content: string): ChatMessage[] {
     const userMsg: ChatMessage = {
       id: `msg-u-${Date.now()}`,
       role: "user",
       content,
       timestamp: new Date().toISOString(),
     };
-
     const nextHistory = [...messagesRef.current, userMsg];
+    messagesRef.current = nextHistory;
     setState((s) => ({ ...s, messages: nextHistory }));
-    logChatEvent("user", intakeAnswersRef.current.occasion ?? null);
+    logChatEvent("user", null);
+    return nextHistory;
+  }
 
-    await streamChatTurn(nextHistory);
+  async function sendMessage(text?: string) {
+    const content = (text ?? state.input).trim();
+    if (!content) return;
+    setState((s) => ({ ...s, input: "" }));
+    const last = state.messages[state.messages.length - 1];
+    const typedBudget = last?.role === "assistant" && last.budgetPrompt ? parseTypedBudget(content) : undefined;
+    if (last?.budgetPrompt && typedBudget !== undefined) {
+      await chooseLookBudget(last.budgetPrompt.anchorId, typedBudget, content);
+      return;
+    }
+    await streamChatTurn(appendUserMessage(content));
+  }
+
+  /** "Complete the look" on a card: that item becomes the anchor of a new outfit. The first turn
+   *  only asks for the budget; the looks are built once the shopper answers. Any attachment is
+   *  cleared — the looks that come back are the new subject. */
+  async function completeLook(product: Product) {
+    attachmentRef.current = null;
+    setState((s) => ({ ...s, attachment: null }));
+    await streamChatTurn(appendUserMessage(`Complete the look with ${product.name}`), {
+      type: "complete_look",
+      productId: product.id,
+      askBudget: true,
+    });
   }
 
   /** Adds or replaces one garment slot in the working outfit, then immediately renders the
@@ -1965,6 +1829,7 @@ export function useTryOnAgent(
                   embedToken: embed.embedToken,
                   productId: product.id,
                   ...(products.length === 1 && variantId ? { variantId } : {}),
+                  ...(product.fitSizes?.length ? { sizes: product.fitSizes } : {}),
                 }),
                 signal: controller.signal,
               });
@@ -2026,6 +1891,7 @@ export function useTryOnAgent(
             ...s,
             pendingCartItemIds: s.pendingCartItemIds.filter((id) => id !== product.id),
           }));
+          const source = attributionForProduct(messagesRef.current, product.id);
           void fetch(`${embed.apiBase}/cart-event`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -2038,6 +1904,8 @@ export function useTryOnAgent(
               currency: product.currency,
               quantity: 1,
               success,
+              attribution: source?.attribution ?? null,
+              lookId: source?.lookId ?? null,
             }),
           }).catch(() => {});
         }
@@ -2148,82 +2016,38 @@ export function useTryOnAgent(
     syncProductsToRealCart([product], variantId);
   }
 
-  /** Applies one turn's retrieval state, keeping the pinned bar in step with it. */
-  function applyRetrievalState(anchorId: string | null, bundleState: BundleState | null, shownProductIds: string[]) {
-    const previous = retrievalStateRef.current;
-    const next = mergeRetrievalState(previous, { anchorId, bundleState, shownProductIds });
-    retrievalStateRef.current = next;
-
-    // The server moved off the pinned product, which it only does when the shopper named a
-    // different one outright. Follow it, so the pinned bar never describes one item while the
-    // conversation is about another. Left alone if the product isn't known yet — a stale label
-    // beats a blank one.
-    if (previous.anchorPinned && next.anchorId !== null && next.anchorId !== previous.anchorId) {
-      const moved = knownProductsRef.current[next.anchorId];
-      if (moved) setState((s) => ({ ...s, selectedAnchor: moved }));
-    }
+  /** "Ask about this item": every typed turn is about this product until detached. */
+  function attachItem(product: Product) {
+    const next: ChatAttachment = { kind: "item", product };
+    attachmentRef.current = next;
+    setState((s) => ({ ...s, attachment: next }));
   }
 
-  /**
-   * Pins a product as what the conversation is about, from the Select control on its card.
-   *
-   * Clears any discussed outfit: one subject at a time. Both pins feed the same next request, so
-   * leaving both set would send an outfit and a single item as competing subjects and put two
-   * "Discussing" bars on screen at once.
-   */
-  function selectItem(product: Product) {
-    retrievalStateRef.current = {
-      ...retrievalStateRef.current,
-      anchorId: product.id,
-      anchorPinned: true,
-      bundleState: clearDiscussed(retrievalStateRef.current.bundleState),
-    };
-    setState((s) => ({ ...s, selectedAnchor: product, discussedBundle: null }));
+  /** "Ask about this bundle": every typed turn is about this look until detached. */
+  function attachLook(bundle: BundleSuggestion) {
+    if (!isLookRecord(bundle)) return;
+    const next: ChatAttachment = { kind: "look", look: bundle };
+    attachmentRef.current = next;
+    setState((s) => ({ ...s, attachment: next }));
   }
 
-  function clearAnchor() {
-    retrievalStateRef.current = {
-      ...retrievalStateRef.current,
-      anchorId: null,
-      anchorPinned: false,
-    };
-    setState((s) => ({ ...s, selectedAnchor: null }));
+  function detach() {
+    attachmentRef.current = null;
+    setState((s) => ({ ...s, attachment: null }));
   }
 
-  /** Drops only the discussed items, leaving the rest of the bundle state (scope, locked) alone —
-   *  un-pinning an outfit is not the same as abandoning the bundle being built. */
-  function clearDiscussed(bundleState: BundleState | null): BundleState | null {
-    return bundleState ? { ...bundleState, discussed: null } : null;
-  }
-
-  /** Pins every item of one presented outfit at once — see "Discuss this bundle". No per-item
-   *  click: the next message can name any item in it ("does the jacket run small?") or ask to
-   *  swap one ("replace the pants"), both resolved server-side against this list. */
-  function discussBundle(bundle: BundleSuggestion) {
-    const current = retrievalStateRef.current.bundleState;
-    const discussed = bundle.items.map((item) => ({
-      externalId: item.productId,
-      category: item.category ?? "other",
-      price: item.price,
-    }));
-    retrievalStateRef.current = {
-      ...retrievalStateRef.current,
-      // The outfit replaces a single pinned product as the subject — see `selectItem`.
-      anchorId: null,
-      anchorPinned: false,
-      bundleState: current
-        ? { ...current, discussed }
-        : { scope: [], locked: {}, discussed },
-    };
-    setState((s) => ({ ...s, discussedBundle: bundle, selectedAnchor: null }));
-  }
-
-  function clearDiscussedBundle() {
-    retrievalStateRef.current = {
-      ...retrievalStateRef.current,
-      bundleState: clearDiscussed(retrievalStateRef.current.bundleState),
-    };
-    setState((s) => ({ ...s, discussedBundle: null }));
+  /** The answer to the budget question (a card tap, or an amount typed in chat): saves the budget
+   *  (null for no limit) and builds the looks around the anchor with it. */
+  async function chooseLookBudget(anchorId: string, value: number | null, typed?: string) {
+    const budget = typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.round(value) : null;
+    const anchor = knownProductsRef.current[anchorId];
+    budgetRef.current = budget;
+    setState((s) => ({ ...s, budget }));
+    if (!anchor) return;
+    attachmentRef.current = null;
+    setState((s) => ({ ...s, attachment: null }));
+    const label = typed ?? (budget === null ? "No budget limit" : `My budget is ${formatBudget(budget, anchor.currency)}`);
+    await streamChatTurn(appendUserMessage(label), { type: "complete_look", productId: anchorId });
   }
 
   const profileComplete = isProfileComplete(state.profile);
@@ -2257,10 +2081,11 @@ export function useTryOnAgent(
     nextImage,
     selectImage,
     addToCart,
-    selectItem,
-    clearAnchor,
-    discussBundle,
-    clearDiscussedBundle,
+    completeLook,
+    attachItem,
+    attachLook,
+    detach,
+    chooseLookBudget,
     profileComplete,
     measurementsComplete,
     // Up to MAX_TRYON_PROFILES per shopper account at this store.

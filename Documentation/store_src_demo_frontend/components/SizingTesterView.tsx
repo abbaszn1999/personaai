@@ -1,21 +1,19 @@
 /* eslint-disable react-hooks/set-state-in-effect */
-import React, { useState, useMemo } from 'react';
+"use client";
+
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import {
   User,
   Users,
   Baby,
   Sparkles,
   CheckCircle2,
-  Ruler,
-  Scale,
   RotateCcw,
   Shirt,
   Scissors,
   Footprints,
   Shield,
-  HelpCircle,
   ArrowRight,
-  SlidersHorizontal,
   Info,
   Globe,
   Building2,
@@ -23,209 +21,36 @@ import {
   Check,
   Layers,
   Tag,
-  ExternalLink,
   Loader2,
   Eye,
   X,
 } from 'lucide-react';
-import { MOCK_PRODUCTS } from '../data/mockData';
-import { MockProduct } from '../types';
-import {
-  TESTER_BRANDS,
-  TesterBrand,
-  SizingSystemMode,
+import type { SuitableProductDto } from '@/lib/catalog/acs/suitable-products';
+import type {
   MultiSystemRow,
-  BrandCategory,
-  BrandSubCategory,
-} from '../data/sizingTesterBrands';
+  SizingTesterOptionsResponse,
+  TesterBrand,
+} from '@/modules/store/sizing/tester/options';
+import { calculateSizingMatch } from '@/modules/store/sizing/tester/matching';
 
 export type PersonaTarget = 'men' | 'women' | 'kid';
 export type UnitSystem = 'metric' | 'imperial';
 export type ParentCategoryKey = 'tops' | 'bottoms' | 'footwear' | 'outerwear' | 'dresses';
+type SizingSystemMode = 'us' | 'eu' | 'uk';
 
-interface SizingRow {
-  size: string;
-  subLabel?: string;
-  chestMin?: number;
-  chestMax?: number;
-  waistMin?: number;
-  waistMax?: number;
-  hipsMin?: number;
-  hipsMax?: number;
-  heightMin?: number;
-  heightMax?: number;
-  weightMin?: number;
-  weightMax?: number;
-  footLengthMin?: number;
-  footLengthMax?: number;
-  ageMin?: number;
-  ageMax?: number;
-  displayColumns: Record<string, string>;
+interface SuitableProductsResponse {
+  products: SuitableProductDto[];
+  totalSize: number;
+  nextPageToken: string | null;
+  error?: string;
 }
-
-interface CategoryTemplate {
-  key: ParentCategoryKey;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  applicablePersonas: PersonaTarget[];
-  headers: string[];
-  rows: Record<PersonaTarget, SizingRow[]>;
-}
-
-// ---------------------------------------------------------------------------
-// Realistic Size Matrix Data (Metric base cm & kg)
-// ---------------------------------------------------------------------------
-const CATEGORY_TEMPLATES: CategoryTemplate[] = [
-  {
-    key: 'tops',
-    label: 'Tops',
-    icon: Shirt,
-    applicablePersonas: ['men', 'women', 'kid'],
-    headers: ['Size', 'Chest (cm)', 'Waist (cm)', 'Length (cm)', 'US Standard', 'EU Standard'],
-    rows: {
-      men: [
-        { size: 'XS', chestMin: 80, chestMax: 87, waistMin: 68, waistMax: 73, displayColumns: { 'Size': 'XS', 'Chest (cm)': '80–87', 'Waist (cm)': '68–73', 'Length (cm)': '68', 'US Standard': '34', 'EU Standard': '44' } },
-        { size: 'S', chestMin: 88, chestMax: 95, waistMin: 74, waistMax: 80, displayColumns: { 'Size': 'S', 'Chest (cm)': '88–95', 'Waist (cm)': '74–80', 'Length (cm)': '70', 'US Standard': '36–38', 'EU Standard': '46–48' } },
-        { size: 'M', chestMin: 96, chestMax: 103, waistMin: 81, waistMax: 88, displayColumns: { 'Size': 'M', 'Chest (cm)': '96–103', 'Waist (cm)': '81–88', 'Length (cm)': '72', 'US Standard': '40', 'EU Standard': '50' } },
-        { size: 'L', chestMin: 104, chestMax: 111, waistMin: 89, waistMax: 96, displayColumns: { 'Size': 'L', 'Chest (cm)': '104–111', 'Waist (cm)': '89–96', 'Length (cm)': '74', 'US Standard': '42–44', 'EU Standard': '52–54' } },
-        { size: 'XL', chestMin: 112, chestMax: 121, waistMin: 97, waistMax: 106, displayColumns: { 'Size': 'XL', 'Chest (cm)': '112–121', 'Waist (cm)': '97–106', 'Length (cm)': '76', 'US Standard': '46', 'EU Standard': '56' } },
-        { size: 'XXL', chestMin: 122, chestMax: 132, waistMin: 107, waistMax: 118, displayColumns: { 'Size': 'XXL', 'Chest (cm)': '122–132', 'Waist (cm)': '107–118', 'Length (cm)': '78', 'US Standard': '48–50', 'EU Standard': '58–60' } },
-      ],
-      women: [
-        { size: 'XS', chestMin: 78, chestMax: 83, waistMin: 60, waistMax: 65, hipsMin: 86, hipsMax: 91, displayColumns: { 'Size': 'XS', 'Chest (cm)': '78–83', 'Waist (cm)': '60–65', 'Length (cm)': '62', 'US Standard': '0–2', 'EU Standard': '32–34' } },
-        { size: 'S', chestMin: 84, chestMax: 89, waistMin: 66, waistMax: 71, hipsMin: 92, hipsMax: 97, displayColumns: { 'Size': 'S', 'Chest (cm)': '84–89', 'Waist (cm)': '66–71', 'Length (cm)': '64', 'US Standard': '4–6', 'EU Standard': '36–38' } },
-        { size: 'M', chestMin: 90, chestMax: 96, waistMin: 72, waistMax: 78, hipsMin: 98, hipsMax: 104, displayColumns: { 'Size': 'M', 'Chest (cm)': '90–96', 'Waist (cm)': '72–78', 'Length (cm)': '66', 'US Standard': '8–10', 'EU Standard': '40–42' } },
-        { size: 'L', chestMin: 97, chestMax: 104, waistMin: 79, waistMax: 86, hipsMin: 105, hipsMax: 112, displayColumns: { 'Size': 'L', 'Chest (cm)': '97–104', 'Waist (cm)': '79–86', 'Length (cm)': '68', 'US Standard': '12–14', 'EU Standard': '44–46' } },
-        { size: 'XL', chestMin: 105, chestMax: 114, waistMin: 87, waistMax: 96, hipsMin: 113, hipsMax: 122, displayColumns: { 'Size': 'XL', 'Chest (cm)': '105–114', 'Waist (cm)': '87–96', 'Length (cm)': '70', 'US Standard': '16–18', 'EU Standard': '48–50' } },
-      ],
-      kid: [
-        { size: '3-4Y (104)', heightMin: 98, heightMax: 104, chestMin: 54, chestMax: 57, waistMin: 50, waistMax: 53, ageMin: 3, ageMax: 4, displayColumns: { 'Size': '3-4Y', 'Chest (cm)': '54–57', 'Waist (cm)': '50–53', 'Length (cm)': '42', 'US Standard': '4T', 'EU Standard': '104' } },
-        { size: '5-6Y (116)', heightMin: 105, heightMax: 116, chestMin: 58, chestMax: 61, waistMin: 54, waistMax: 56, ageMin: 5, ageMax: 6, displayColumns: { 'Size': '5-6Y', 'Chest (cm)': '58–61', 'Waist (cm)': '54–56', 'Length (cm)': '46', 'US Standard': '5-6', 'EU Standard': '116' } },
-        { size: '7-8Y (128)', heightMin: 117, heightMax: 128, chestMin: 62, chestMax: 66, waistMin: 57, waistMax: 60, ageMin: 7, ageMax: 8, displayColumns: { 'Size': '7-8Y', 'Chest (cm)': '62–66', 'Waist (cm)': '57–60', 'Length (cm)': '50', 'US Standard': '7-8', 'EU Standard': '128' } },
-        { size: '9-10Y (140)', heightMin: 129, heightMax: 140, chestMin: 67, chestMax: 72, waistMin: 61, waistMax: 64, ageMin: 9, ageMax: 10, displayColumns: { 'Size': '9-10Y', 'Chest (cm)': '67–72', 'Waist (cm)': '61–64', 'Length (cm)': '54', 'US Standard': '10', 'EU Standard': '140' } },
-        { size: '11-12Y (152)', heightMin: 141, heightMax: 152, chestMin: 73, chestMax: 78, waistMin: 65, waistMax: 68, ageMin: 11, ageMax: 12, displayColumns: { 'Size': '11-12Y', 'Chest (cm)': '73–78', 'Waist (cm)': '65–68', 'Length (cm)': '58', 'US Standard': '12', 'EU Standard': '152' } },
-        { size: '13-14Y (164)', heightMin: 153, heightMax: 164, chestMin: 79, chestMax: 85, waistMin: 69, waistMax: 73, ageMin: 13, ageMax: 14, displayColumns: { 'Size': '13-14Y', 'Chest (cm)': '79–85', 'Waist (cm)': '69–73', 'Length (cm)': '62', 'US Standard': '14', 'EU Standard': '164' } },
-      ],
-    },
-  },
-  {
-    key: 'bottoms',
-    label: 'Bottoms',
-    icon: Scissors,
-    applicablePersonas: ['men', 'women', 'kid'],
-    headers: ['Size', 'Waist (cm)', 'Hips (cm)', 'Inseam (cm)', 'US Size', 'EU Size'],
-    rows: {
-      men: [
-        { size: '28', waistMin: 70, waistMax: 73, hipsMin: 85, hipsMax: 89, displayColumns: { 'Size': '28', 'Waist (cm)': '70–73', 'Hips (cm)': '85–89', 'Inseam (cm)': '78', 'US Size': '28W', 'EU Size': '44' } },
-        { size: '30', waistMin: 74, waistMax: 78, hipsMin: 90, hipsMax: 94, displayColumns: { 'Size': '30', 'Waist (cm)': '74–78', 'Hips (cm)': '90–94', 'Inseam (cm)': '80', 'US Size': '30W', 'EU Size': '46' } },
-        { size: '32', waistMin: 79, waistMax: 84, hipsMin: 95, hipsMax: 100, displayColumns: { 'Size': '32', 'Waist (cm)': '79–84', 'Hips (cm)': '95–100', 'Inseam (cm)': '81', 'US Size': '32W', 'EU Size': '48' } },
-        { size: '34', waistMin: 85, waistMax: 90, hipsMin: 101, hipsMax: 106, displayColumns: { 'Size': '34', 'Waist (cm)': '85–90', 'Hips (cm)': '101–106', 'Inseam (cm)': '82', 'US Size': '34W', 'EU Size': '50' } },
-        { size: '36', waistMin: 91, waistMax: 96, hipsMin: 107, hipsMax: 112, displayColumns: { 'Size': '36', 'Waist (cm)': '91–96', 'Hips (cm)': '107–112', 'Inseam (cm)': '83', 'US Size': '36W', 'EU Size': '52' } },
-        { size: '38', waistMin: 97, waistMax: 103, hipsMin: 113, hipsMax: 118, displayColumns: { 'Size': '38', 'Waist (cm)': '97–103', 'Hips (cm)': '113–118', 'Inseam (cm)': '83', 'US Size': '38W', 'EU Size': '54' } },
-      ],
-      women: [
-        { size: '25 (XS)', waistMin: 62, waistMax: 65, hipsMin: 87, hipsMax: 90, displayColumns: { 'Size': '25', 'Waist (cm)': '62–65', 'Hips (cm)': '87–90', 'Inseam (cm)': '76', 'US Size': '0–2', 'EU Size': '32' } },
-        { size: '27 (S)', waistMin: 66, waistMax: 70, hipsMin: 91, hipsMax: 95, displayColumns: { 'Size': '27', 'Waist (cm)': '66–70', 'Hips (cm)': '91–95', 'Inseam (cm)': '77', 'US Size': '4–6', 'EU Size': '34–36' } },
-        { size: '29 (M)', waistMin: 71, waistMax: 76, hipsMin: 96, hipsMax: 101, displayColumns: { 'Size': '29', 'Waist (cm)': '71–76', 'Hips (cm)': '96–101', 'Inseam (cm)': '78', 'US Size': '8–10', 'EU Size': '38–40' } },
-        { size: '31 (L)', waistMin: 77, waistMax: 83, hipsMin: 102, hipsMax: 108, displayColumns: { 'Size': '31', 'Waist (cm)': '77–83', 'Hips (cm)': '102–108', 'Inseam (cm)': '79', 'US Size': '12', 'EU Size': '42' } },
-        { size: '33 (XL)', waistMin: 84, waistMax: 92, hipsMin: 109, hipsMax: 116, displayColumns: { 'Size': '33', 'Waist (cm)': '84–92', 'Hips (cm)': '109–116', 'Inseam (cm)': '79', 'US Size': '14–16', 'EU Size': '44–46' } },
-      ],
-      kid: [
-        { size: '3-4Y', heightMin: 98, heightMax: 104, waistMin: 50, waistMax: 53, hipsMin: 55, hipsMax: 59, ageMin: 3, ageMax: 4, displayColumns: { 'Size': '3-4Y', 'Waist (cm)': '50–53', 'Hips (cm)': '55–59', 'Inseam (cm)': '40', 'US Size': '4T', 'EU Size': '104' } },
-        { size: '5-6Y', heightMin: 105, heightMax: 116, waistMin: 54, waistMax: 56, hipsMin: 60, hipsMax: 64, ageMin: 5, ageMax: 6, displayColumns: { 'Size': '5-6Y', 'Waist (cm)': '54–56', 'Hips (cm)': '60–64', 'Inseam (cm)': '48', 'US Size': '5-6', 'EU Size': '116' } },
-        { size: '7-8Y', heightMin: 117, heightMax: 128, waistMin: 57, waistMax: 60, hipsMin: 65, hipsMax: 70, ageMin: 7, ageMax: 8, displayColumns: { 'Size': '7-8Y', 'Waist (cm)': '57–60', 'Hips (cm)': '65–70', 'Inseam (cm)': '56', 'US Size': '7-8', 'EU Size': '128' } },
-        { size: '9-10Y', heightMin: 129, heightMax: 140, waistMin: 61, waistMax: 64, hipsMin: 71, hipsMax: 76, ageMin: 9, ageMax: 10, displayColumns: { 'Size': '9-10Y', 'Waist (cm)': '61–64', 'Hips (cm)': '71–76', 'Inseam (cm)': '63', 'US Size': '10', 'EU Size': '140' } },
-        { size: '11-12Y', heightMin: 141, heightMax: 152, waistMin: 65, waistMax: 68, hipsMin: 77, hipsMax: 83, ageMin: 11, ageMax: 12, displayColumns: { 'Size': '11-12Y', 'Waist (cm)': '65–68', 'Hips (cm)': '77–83', 'Inseam (cm)': '69', 'US Size': '12', 'EU Size': '152' } },
-      ],
-    },
-  },
-  {
-    key: 'footwear',
-    label: 'Footwear',
-    icon: Footprints,
-    applicablePersonas: ['men', 'women', 'kid'],
-    headers: ['US Size', 'UK Size', 'EUR Size', 'Foot Length (cm)', 'Fit Width'],
-    rows: {
-      men: [
-        { size: 'US 8.0', footLengthMin: 25.5, footLengthMax: 26.2, displayColumns: { 'US Size': '8.0', 'UK Size': '7.0', 'EUR Size': '41.0', 'Foot Length (cm)': '25.8–26.2', 'Fit Width': 'Standard D' } },
-        { size: 'US 9.0', footLengthMin: 26.3, footLengthMax: 27.0, displayColumns: { 'US Size': '9.0', 'UK Size': '8.0', 'EUR Size': '42.5', 'Foot Length (cm)': '26.3–27.0', 'Fit Width': 'Standard D' } },
-        { size: 'US 10.0', footLengthMin: 27.1, footLengthMax: 27.8, displayColumns: { 'US Size': '10.0', 'UK Size': '9.0', 'EUR Size': '44.0', 'Foot Length (cm)': '27.1–27.8', 'Fit Width': 'Standard D' } },
-        { size: 'US 10.5', footLengthMin: 27.9, footLengthMax: 28.3, displayColumns: { 'US Size': '10.5', 'UK Size': '9.5', 'EUR Size': '44.5', 'Foot Length (cm)': '27.9–28.3', 'Fit Width': 'Standard D' } },
-        { size: 'US 11.0', footLengthMin: 28.4, footLengthMax: 29.0, displayColumns: { 'US Size': '11.0', 'UK Size': '10.0', 'EUR Size': '45.0', 'Foot Length (cm)': '28.4–29.0', 'Fit Width': 'Standard D' } },
-        { size: 'US 12.0', footLengthMin: 29.1, footLengthMax: 29.8, displayColumns: { 'US Size': '12.0', 'UK Size': '11.0', 'EUR Size': '46.5', 'Foot Length (cm)': '29.1–29.8', 'Fit Width': 'Standard D' } },
-      ],
-      women: [
-        { size: 'US 6.0', footLengthMin: 22.2, footLengthMax: 22.8, displayColumns: { 'US Size': '6.0', 'UK Size': '3.5', 'EUR Size': '36.5', 'Foot Length (cm)': '22.2–22.8', 'Fit Width': 'Standard B' } },
-        { size: 'US 7.0', footLengthMin: 22.9, footLengthMax: 23.6, displayColumns: { 'US Size': '7.0', 'UK Size': '4.5', 'EUR Size': '37.5', 'Foot Length (cm)': '22.9–23.6', 'Fit Width': 'Standard B' } },
-        { size: 'US 8.0', footLengthMin: 23.7, footLengthMax: 24.5, displayColumns: { 'US Size': '8.0', 'UK Size': '5.5', 'EUR Size': '39.0', 'Foot Length (cm)': '23.7–24.5', 'Fit Width': 'Standard B' } },
-        { size: 'US 8.5', footLengthMin: 24.6, footLengthMax: 25.0, displayColumns: { 'US Size': '8.5', 'UK Size': '6.0', 'EUR Size': '39.5', 'Foot Length (cm)': '24.6–25.0', 'Fit Width': 'Standard B' } },
-        { size: 'US 9.0', footLengthMin: 25.1, footLengthMax: 25.7, displayColumns: { 'US Size': '9.0', 'UK Size': '6.5', 'EUR Size': '40.5', 'Foot Length (cm)': '25.1–25.7', 'Fit Width': 'Standard B' } },
-        { size: 'US 10.0', footLengthMin: 25.8, footLengthMax: 26.5, displayColumns: { 'US Size': '10.0', 'UK Size': '7.5', 'EUR Size': '41.5', 'Foot Length (cm)': '25.8–26.5', 'Fit Width': 'Standard B' } },
-      ],
-      kid: [
-        { size: 'US 10C', footLengthMin: 15.5, footLengthMax: 16.5, displayColumns: { 'US Size': '10C', 'UK Size': '9.5', 'EUR Size': '27.0', 'Foot Length (cm)': '15.5–16.5', 'Fit Width': 'Kids Standard' } },
-        { size: 'US 12C', footLengthMin: 16.6, footLengthMax: 18.0, displayColumns: { 'US Size': '12C', 'UK Size': '11.5', 'EUR Size': '29.5', 'Foot Length (cm)': '16.6–18.0', 'Fit Width': 'Kids Standard' } },
-        { size: 'US 1Y', footLengthMin: 18.1, footLengthMax: 19.5, displayColumns: { 'US Size': '1Y', 'UK Size': '13.5', 'EUR Size': '32.0', 'Foot Length (cm)': '18.1–19.5', 'Fit Width': 'Youth Standard' } },
-        { size: 'US 2.5Y', footLengthMin: 19.6, footLengthMax: 21.0, displayColumns: { 'US Size': '2.5Y', 'UK Size': '2.0', 'EUR Size': '34.0', 'Foot Length (cm)': '19.6–21.0', 'Fit Width': 'Youth Standard' } },
-        { size: 'US 4Y', footLengthMin: 21.1, footLengthMax: 22.5, displayColumns: { 'US Size': '4Y', 'UK Size': '3.5', 'EUR Size': '36.0', 'Foot Length (cm)': '21.1–22.5', 'Fit Width': 'Youth Standard' } },
-      ],
-    },
-  },
-  {
-    key: 'outerwear',
-    label: 'Outerwear',
-    icon: Shield,
-    applicablePersonas: ['men', 'women', 'kid'],
-    headers: ['Size', 'Chest (cm)', 'Torso Length (cm)', 'Sleeve (cm)', 'Layering Allowance'],
-    rows: {
-      men: [
-        { size: 'S', chestMin: 88, chestMax: 95, displayColumns: { 'Size': 'S', 'Chest (cm)': '90–97', 'Torso Length (cm)': '71', 'Sleeve (cm)': '84', 'Layering Allowance': '+4 cm Relaxed' } },
-        { size: 'M', chestMin: 96, chestMax: 103, displayColumns: { 'Size': 'M', 'Chest (cm)': '98–105', 'Torso Length (cm)': '73', 'Sleeve (cm)': '86', 'Layering Allowance': '+4 cm Relaxed' } },
-        { size: 'L', chestMin: 104, chestMax: 111, displayColumns: { 'Size': 'L', 'Chest (cm)': '106–113', 'Torso Length (cm)': '75', 'Sleeve (cm)': '88', 'Layering Allowance': '+4 cm Relaxed' } },
-        { size: 'XL', chestMin: 112, chestMax: 121, displayColumns: { 'Size': 'XL', 'Chest (cm)': '114–123', 'Torso Length (cm)': '77', 'Sleeve (cm)': '90', 'Layering Allowance': '+4 cm Relaxed' } },
-        { size: 'XXL', chestMin: 122, chestMax: 132, displayColumns: { 'Size': 'XXL', 'Chest (cm)': '124–134', 'Torso Length (cm)': '79', 'Sleeve (cm)': '92', 'Layering Allowance': '+5 cm Relaxed' } },
-      ],
-      women: [
-        { size: 'XS', chestMin: 78, chestMax: 83, displayColumns: { 'Size': 'XS', 'Chest (cm)': '82–87', 'Torso Length (cm)': '64', 'Sleeve (cm)': '79', 'Layering Allowance': '+3 cm Tailored' } },
-        { size: 'S', chestMin: 84, chestMax: 89, displayColumns: { 'Size': 'S', 'Chest (cm)': '88–93', 'Torso Length (cm)': '66', 'Sleeve (cm)': '81', 'Layering Allowance': '+3 cm Tailored' } },
-        { size: 'M', chestMin: 90, chestMax: 96, displayColumns: { 'Size': 'M', 'Chest (cm)': '94–100', 'Torso Length (cm)': '68', 'Sleeve (cm)': '83', 'Layering Allowance': '+4 cm Relaxed' } },
-        { size: 'L', chestMin: 97, chestMax: 104, displayColumns: { 'Size': 'L', 'Chest (cm)': '101–108', 'Torso Length (cm)': '70', 'Sleeve (cm)': '85', 'Layering Allowance': '+4 cm Relaxed' } },
-        { size: 'XL', chestMin: 105, chestMax: 114, displayColumns: { 'Size': 'XL', 'Chest (cm)': '109–118', 'Torso Length (cm)': '72', 'Sleeve (cm)': '87', 'Layering Allowance': '+4 cm Relaxed' } },
-      ],
-      kid: [
-        { size: '3-4Y', heightMin: 98, heightMax: 104, chestMin: 54, chestMax: 57, displayColumns: { 'Size': '3-4Y', 'Chest (cm)': '58–62', 'Torso Length (cm)': '45', 'Sleeve (cm)': '41', 'Layering Allowance': '+4 cm Warmth' } },
-        { size: '5-6Y', heightMin: 105, heightMax: 116, chestMin: 58, chestMax: 61, displayColumns: { 'Size': '5-6Y', 'Chest (cm)': '62–66', 'Torso Length (cm)': '49', 'Sleeve (cm)': '46', 'Layering Allowance': '+4 cm Warmth' } },
-        { size: '7-8Y', heightMin: 117, heightMax: 128, chestMin: 62, chestMax: 66, displayColumns: { 'Size': '7-8Y', 'Chest (cm)': '67–71', 'Torso Length (cm)': '54', 'Sleeve (cm)': '51', 'Layering Allowance': '+5 cm Warmth' } },
-        { size: '9-10Y', heightMin: 129, heightMax: 140, chestMin: 67, chestMax: 72, displayColumns: { 'Size': '9-10Y', 'Chest (cm)': '72–77', 'Torso Length (cm)': '58', 'Sleeve (cm)': '56', 'Layering Allowance': '+5 cm Warmth' } },
-      ],
-    },
-  },
-  {
-    key: 'dresses',
-    label: 'Dresses',
-    icon: Sparkles,
-    applicablePersonas: ['women', 'kid'],
-    headers: ['Size', 'Bust (cm)', 'Waist (cm)', 'Hips (cm)', 'Dress Length (cm)', 'US Size'],
-    rows: {
-      men: [],
-      women: [
-        { size: 'XS (US 0-2)', chestMin: 78, chestMax: 83, waistMin: 60, waistMax: 65, hipsMin: 86, hipsMax: 91, displayColumns: { 'Size': 'XS', 'Bust (cm)': '78–83', 'Waist (cm)': '60–65', 'Hips (cm)': '86–91', 'Dress Length (cm)': '92', 'US Size': '0–2' } },
-        { size: 'S (US 4-6)', chestMin: 84, chestMax: 89, waistMin: 66, waistMax: 71, hipsMin: 92, hipsMax: 97, displayColumns: { 'Size': 'S', 'Bust (cm)': '84–89', 'Waist (cm)': '66–71', 'Hips (cm)': '92–97', 'Dress Length (cm)': '94', 'US Size': '4–6' } },
-        { size: 'M (US 8-10)', chestMin: 90, chestMax: 96, waistMin: 72, waistMax: 78, hipsMin: 98, hipsMax: 104, displayColumns: { 'Size': 'M', 'Bust (cm)': '90–96', 'Waist (cm)': '72–78', 'Hips (cm)': '98–104', 'Dress Length (cm)': '96', 'US Size': '8–10' } },
-        { size: 'L (US 12-14)', chestMin: 97, chestMax: 104, waistMin: 79, waistMax: 86, hipsMin: 105, hipsMax: 112, displayColumns: { 'Size': 'L', 'Bust (cm)': '97–104', 'Waist (cm)': '79–86', 'Hips (cm)': '105–112', 'Dress Length (cm)': '98', 'US Size': '12–14' } },
-        { size: 'XL (US 16)', chestMin: 105, chestMax: 114, waistMin: 87, waistMax: 96, hipsMin: 113, hipsMax: 122, displayColumns: { 'Size': 'XL', 'Bust (cm)': '105–114', 'Waist (cm)': '87–96', 'Hips (cm)': '113–122', 'Dress Length (cm)': '100', 'US Size': '16' } },
-      ],
-      kid: [
-        { size: '3-4Y', heightMin: 98, heightMax: 104, chestMin: 54, chestMax: 57, waistMin: 50, waistMax: 53, hipsMin: 55, hipsMax: 59, ageMin: 3, ageMax: 4, displayColumns: { 'Size': '3-4Y', 'Bust (cm)': '54–57', 'Waist (cm)': '50–53', 'Hips (cm)': '55–59', 'Dress Length (cm)': '54', 'US Size': '4T' } },
-        { size: '5-6Y', heightMin: 105, heightMax: 116, chestMin: 58, chestMax: 61, waistMin: 54, waistMax: 56, hipsMin: 60, hipsMax: 64, ageMin: 5, ageMax: 6, displayColumns: { 'Size': '5-6Y', 'Bust (cm)': '58–61', 'Waist (cm)': '54–56', 'Hips (cm)': '60–64', 'Dress Length (cm)': '62', 'US Size': '5-6' } },
-        { size: '7-8Y', heightMin: 117, heightMax: 128, chestMin: 62, chestMax: 66, waistMin: 57, waistMax: 60, hipsMin: 65, hipsMax: 70, ageMin: 7, ageMax: 8, displayColumns: { 'Size': '7-8Y', 'Bust (cm)': '62–66', 'Waist (cm)': '57–60', 'Hips (cm)': '65–70', 'Dress Length (cm)': '70', 'US Size': '7-8' } },
-        { size: '9-10Y', heightMin: 129, heightMax: 140, chestMin: 67, chestMax: 72, waistMin: 61, waistMax: 64, hipsMin: 71, hipsMax: 76, ageMin: 9, ageMax: 10, displayColumns: { 'Size': '9-10Y', 'Bust (cm)': '67–72', 'Waist (cm)': '61–64', 'Hips (cm)': '71–76', 'Dress Length (cm)': '78', 'US Size': '10' } },
-      ],
-    },
-  },
-];
 
 export function SizingTesterView() {
+  const productsRequestId = useRef(0);
+  const [testerBrands, setTesterBrands] = useState<TesterBrand[]>([]);
+  const [optionsLoading, setOptionsLoading] = useState(true);
+  const [optionsError, setOptionsError] = useState<string | null>(null);
+
   // Target Persona
   const [persona, setPersona] = useState<PersonaTarget>('men');
 
@@ -249,13 +74,13 @@ export function SizingTesterView() {
   const [kidFootLength, setKidFootLength] = useState<number>(19.8);
 
   // Selected Brand on right
-  const [selectedBrandId, setSelectedBrandId] = useState<string>('nike');
+  const [selectedBrandId, setSelectedBrandId] = useState<string>('');
 
   // Selected Category on right
   const [selectedCategoryKey, setSelectedCategoryKey] = useState<ParentCategoryKey>('tops');
 
   // Selected Subcategory on right
-  const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<string>('nike-tops-tees');
+  const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<string>('');
 
   // Sizing standard mode: US, EU, UK
   const [sizingMode, setSizingMode] = useState<SizingSystemMode>('us');
@@ -271,24 +96,49 @@ export function SizingTesterView() {
     formattedSize: string;
     row: MultiSystemRow;
   } | null>(null);
+  const [suitableProducts, setSuitableProducts] = useState<SuitableProductDto[]>([]);
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [productsError, setProductsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadOptions() {
+      setOptionsLoading(true);
+      setOptionsError(null);
+      try {
+        const response = await fetch('/api/store-connection/sizing/tester/options', {
+          signal: controller.signal,
+        });
+        const body = await response.json() as SizingTesterOptionsResponse & { error?: string };
+        if (!response.ok) throw new Error(body.error || 'Could not load Sizing Tester options.');
+        if (!Array.isArray(body.brands)) throw new Error('Sizing Tester options were invalid.');
+        setTesterBrands(body.brands);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setOptionsError(error instanceof Error ? error.message : 'Could not load Sizing Tester options.');
+      } finally {
+        if (!controller.signal.aborted) setOptionsLoading(false);
+      }
+    }
+
+    void loadOptions();
+    return () => controller.abort();
+  }, []);
 
   // Filter brands that support the current persona (or all brands if they have at least 1 category)
   const availableBrands = useMemo(() => {
-    return TESTER_BRANDS.filter((brand) =>
+    return testerBrands.filter((brand) =>
       brand.categories.some((cat) =>
         cat.subcategories.some((sub) => (sub.rowsByPersona[persona]?.length ?? 0) > 0)
       )
     );
-  }, [persona]);
+  }, [persona, testerBrands]);
 
   // Current active brand
   const currentBrand = useMemo(() => {
-    return (
-      availableBrands.find((b) => b.id === selectedBrandId) ||
-      availableBrands[0] ||
-      TESTER_BRANDS[0]
-    );
-  }, [availableBrands, selectedBrandId]);
+    return availableBrands.find((b) => b.id === selectedBrandId) || availableBrands[0] || testerBrands[0];
+  }, [availableBrands, selectedBrandId, testerBrands]);
 
   // Ensure selected brand is in available brands
   React.useEffect(() => {
@@ -301,6 +151,7 @@ export function SizingTesterView() {
 
   // Available categories for current brand and persona
   const brandCategories = useMemo(() => {
+    if (!currentBrand) return [];
     return currentBrand.categories.filter((cat) =>
       cat.subcategories.some((sub) => (sub.rowsByPersona[persona]?.length ?? 0) > 0)
     );
@@ -387,155 +238,10 @@ export function SizingTesterView() {
     return row.sizeLabel;
   };
 
-  // Matching Engine: finds best row in a given row array
-  const calculateBestMatch = (
-    rows: MultiSystemRow[],
-    catKey: ParentCategoryKey,
-    brandName: string,
-    subcatName: string
-  ): { bestRowIndex: number; bestRow: MultiSystemRow | null; matchScore: number; reason: string } => {
-    if (!rows || rows.length === 0) {
-      return { bestRowIndex: -1, bestRow: null, matchScore: 0, reason: '' };
-    }
-
-    let bestIndex = 0;
-    let minDistance = Number.MAX_VALUE;
-
-    rows.forEach((row, index) => {
-      let currentDistance = 0;
-      let factorCount = 0;
-
-      if (persona === 'kid') {
-        if (row.heightMin && row.heightMax) {
-          const mid = (row.heightMin + row.heightMax) / 2;
-          currentDistance += Math.abs(kidHeight - mid) * 1.5;
-          factorCount++;
-        }
-        if (row.ageMin && row.ageMax) {
-          const mid = (row.ageMin + row.ageMax) / 2;
-          currentDistance += Math.abs(kidAge - mid) * 3.8;
-          factorCount++;
-        }
-        if (row.chestMin && row.chestMax) {
-          const mid = (row.chestMin + row.chestMax) / 2;
-          currentDistance += Math.abs(kidChest - mid) * 2.0;
-          factorCount++;
-        }
-        if (row.waistMin && row.waistMax) {
-          const mid = (row.waistMin + row.waistMax) / 2;
-          currentDistance += Math.abs(kidWaist - mid) * 1.8;
-          factorCount++;
-        }
-        if (catKey === 'footwear' && row.footLengthMin && row.footLengthMax) {
-          const mid = (row.footLengthMin + row.footLengthMax) / 2;
-          currentDistance = Math.abs(kidFootLength - mid) * 10;
-          factorCount = 1;
-        }
-      } else {
-        // Adult Men or Women
-        if (catKey === 'footwear') {
-          if (row.footLengthMin && row.footLengthMax) {
-            const mid = (row.footLengthMin + row.footLengthMax) / 2;
-            currentDistance = Math.abs(adultFootLength - mid) * 8.5;
-            factorCount = 1;
-          }
-        } else if (catKey === 'bottoms') {
-          if (row.waistMin && row.waistMax) {
-            const mid = (row.waistMin + row.waistMax) / 2;
-            currentDistance += Math.abs(adultWaist - mid) * 2.6;
-            factorCount++;
-          }
-          if (row.hipsMin && row.hipsMax) {
-            const mid = (row.hipsMin + row.hipsMax) / 2;
-            currentDistance += Math.abs(adultHips - mid) * 1.6;
-            factorCount++;
-          }
-        } else if (catKey === 'dresses') {
-          if (row.chestMin && row.chestMax) {
-            const mid = (row.chestMin + row.chestMax) / 2;
-            currentDistance += Math.abs(adultChest - mid) * 2.2;
-            factorCount++;
-          }
-          if (row.waistMin && row.waistMax) {
-            const mid = (row.waistMin + row.waistMax) / 2;
-            currentDistance += Math.abs(adultWaist - mid) * 2.0;
-            factorCount++;
-          }
-          if (row.hipsMin && row.hipsMax) {
-            const mid = (row.hipsMin + row.hipsMax) / 2;
-            currentDistance += Math.abs(adultHips - mid) * 1.5;
-            factorCount++;
-          }
-        } else {
-          // Tops or Outerwear
-          if (row.chestMin && row.chestMax) {
-            const mid = (row.chestMin + row.chestMax) / 2;
-            currentDistance += Math.abs(adultChest - mid) * 2.5;
-            factorCount++;
-          }
-          if (row.waistMin && row.waistMax) {
-            const mid = (row.waistMin + row.waistMax) / 2;
-            currentDistance += Math.abs(adultWaist - mid) * 1.2;
-            factorCount++;
-          }
-        }
-      }
-
-      const normalizedDist = factorCount > 0 ? currentDistance / factorCount : currentDistance;
-      if (normalizedDist < minDistance) {
-        minDistance = normalizedDist;
-        bestIndex = index;
-      }
-    });
-
-    const chosenRow = rows[bestIndex];
-    if (!chosenRow) return { bestRowIndex: 0, bestRow: null, matchScore: 92, reason: '' };
-
-    let bestReason = '';
-    if (persona === 'kid') {
-      bestReason =
-        catKey === 'footwear'
-          ? `Foot length ${kidFootLength} cm precisely matches ${brandName} ${chosenRow.sizeLabel}`
-          : `Height ${kidHeight} cm & Age ${kidAge} align directly with ${brandName} ${chosenRow.sizeLabel}`;
-    } else {
-      if (catKey === 'footwear') {
-        bestReason = `Foot length ${adultFootLength} cm aligns directly with ${brandName} ${chosenRow.sizeLabel}`;
-      } else if (catKey === 'bottoms') {
-        bestReason = `Waist ${adultWaist} cm & Hips ${adultHips} cm align with ${brandName} ${chosenRow.sizeLabel}`;
-      } else {
-        bestReason = `Chest ${adultChest} cm & Waist ${adultWaist} cm fit ${brandName} ${chosenRow.sizeLabel}`;
-      }
-    }
-
-    const calculatedScore = Math.max(92, Math.min(99.5, Math.round((100 - minDistance * 1.1) * 10) / 10));
-
-    return {
-      bestRowIndex: bestIndex,
-      bestRow: chosenRow,
-      matchScore: calculatedScore,
-      reason: bestReason,
-    };
-  };
-
-  // Active subcategory recommendation
-  const activeRecommendation = useMemo(() => {
-    return calculateBestMatch(
-      activeRows,
-      selectedCategoryKey,
-      currentBrand.name,
-      currentSubcategory?.name || 'Selected Garment'
-    );
-  }, [
-    activeRows,
-    selectedCategoryKey,
-    currentBrand.name,
-    currentSubcategory?.name,
-    persona,
+  const testerMeasurements = useMemo(() => ({
     adultChest,
     adultWaist,
     adultHips,
-    adultLength,
-    adultWeight,
     adultFootLength,
     kidAge,
     kidHeight,
@@ -543,6 +249,34 @@ export function SizingTesterView() {
     kidWaist,
     kidHips,
     kidFootLength,
+  }), [
+    adultChest,
+    adultWaist,
+    adultHips,
+    adultFootLength,
+    kidAge,
+    kidHeight,
+    kidChest,
+    kidWaist,
+    kidHips,
+    kidFootLength,
+  ]);
+
+  // Active subcategory recommendation
+  const activeRecommendation = useMemo(() => {
+    return calculateSizingMatch(
+      activeRows,
+      selectedCategoryKey,
+      persona,
+      currentBrand?.name || '',
+      testerMeasurements,
+    );
+  }, [
+    activeRows,
+    selectedCategoryKey,
+    currentBrand?.name,
+    persona,
+    testerMeasurements,
   ]);
 
   // Precompute recommendations for all categories of the active brand
@@ -556,7 +290,13 @@ export function SizingTesterView() {
       const firstSub = cat.subcategories.find((s) => (s.rowsByPersona[persona]?.length ?? 0) > 0);
       if (firstSub) {
         const rows = firstSub.rowsByPersona[persona] || [];
-        const result = calculateBestMatch(rows, cat.key, currentBrand.name, firstSub.name);
+        const result = calculateSizingMatch(
+          rows,
+          cat.key,
+          persona,
+          currentBrand?.name || '',
+          testerMeasurements,
+        );
         map[cat.key] = {
           bestSizeLabel: result.bestRow?.sizeLabel || '—',
           formattedBestSize: result.bestRow ? formatSizeForMode(result.bestRow, sizingMode) : '—',
@@ -576,21 +316,10 @@ export function SizingTesterView() {
     return map;
   }, [
     brandCategories,
-    currentBrand.name,
+    currentBrand?.name,
     persona,
     sizingMode,
-    adultChest,
-    adultWaist,
-    adultHips,
-    adultLength,
-    adultWeight,
-    adultFootLength,
-    kidAge,
-    kidHeight,
-    kidChest,
-    kidWaist,
-    kidHips,
-    kidFootLength,
+    testerMeasurements,
   ]);
 
   const handleRunTest = () => {
@@ -628,72 +357,74 @@ export function SizingTesterView() {
     setHasCalculated(true);
   };
 
-  // Helper to find suitable items from catalog for a clicked row's size
-  const getSuitableItemsForSize = (row: MultiSystemRow, formattedSize: string): MockProduct[] => {
-    // Collect possible size tokens to match against
-    const sizeTokens = new Set<string>();
-    if (row.sizeLabel) sizeTokens.add(row.sizeLabel.toUpperCase().trim());
-    if (formattedSize) sizeTokens.add(formattedSize.toUpperCase().trim());
-    if (row.usSize) sizeTokens.add(row.usSize.toUpperCase().trim());
-    if (row.euSize) sizeTokens.add(row.euSize.toUpperCase().trim());
-    if (row.ukSize) sizeTokens.add(row.ukSize.toUpperCase().trim());
+  const loadSuitableProducts = async (row: MultiSystemRow) => {
+    if (!currentBrand || !currentCategory || !currentSubcategory) return;
+    const requestId = ++productsRequestId.current;
 
-    // Normalize category keywords
-    const catMap: Record<ParentCategoryKey, string[]> = {
-      tops: ['tops', 'shirts', 'activewear', 'hoodies', 'sweatshirts', 'tees'],
-      bottoms: ['bottoms', 'pants', 'jeans', 'denim', 'trousers', 'shorts'],
-      footwear: ['footwear', 'sneakers', 'shoes', 'runners'],
-      outerwear: ['outerwear', 'jackets', 'blazers', 'coats'],
-      dresses: ['dresses', 'dress', 'full-body'],
-    };
-    const targetKeywords = catMap[selectedCategoryKey] || [];
-
-    // Filter MOCK_PRODUCTS
-    const matchingProducts = MOCK_PRODUCTS.filter((prod) => {
-      // Check category match
-      const pCat = (prod.parentCategory || '').toLowerCase();
-      const pSub = (prod.subCategory || '').toLowerCase();
-      const pFullCat = (prod.category || '').toLowerCase();
-      const matchesCat =
-        targetKeywords.some((kw) => pCat.includes(kw) || pSub.includes(kw) || pFullCat.includes(kw)) ||
-        pCat === selectedCategoryKey.toLowerCase();
-
-      // Check size match
-      const productSizes = (prod.sizes || []).concat(prod.canonicalSizes || []).map((s) => s.toUpperCase());
-      const hasSizeMatch = Array.from(sizeTokens).some((token) =>
-        productSizes.some((ps) => {
-          if (ps === token) return true;
-          if (ps.includes(token) || token.includes(ps)) return true;
-          // numeric match e.g. "32" in "32x32"
-          const cleanPs = ps.replace(/[^a-zA-Z0-9]/g, ' ');
-          const cleanTok = token.replace(/[^a-zA-Z0-9]/g, ' ');
-          return cleanPs.split(' ').includes(token) || cleanTok.split(' ').includes(ps);
-        })
-      );
-
-      // Prioritize brand match if possible, but allow catalog products in same category
-      return matchesCat && hasSizeMatch;
+    const params = new URLSearchParams({
+      fitGroup: currentCategory.key,
+      fitAudience: currentSubcategory.audience,
+      chartVariant: currentSubcategory.name,
+      canonicalSize: row.sizeLabel,
     });
-
-    // If exact category + size has results, return them
-    if (matchingProducts.length > 0) {
-      // Sort brand matches first
-      return matchingProducts.sort((a, b) => {
-        const aBrandMatch = a.brand.toLowerCase() === currentBrand.name.toLowerCase() ? -1 : 1;
-        const bBrandMatch = b.brand.toLowerCase() === currentBrand.name.toLowerCase() ? -1 : 1;
-        return aBrandMatch - bBrandMatch;
-      });
+    if (currentBrand.coverageType === 'none') params.append('brand', '__none__');
+    else {
+      for (const brandName of currentBrand.sourceBrandNames) params.append('brand', brandName);
+    }
+    if (currentCategory.key === 'footwear') {
+      params.set('footLength', String(persona === 'kid' ? kidFootLength : adultFootLength));
+    } else if (persona === 'kid') {
+      params.set('height', String(kidHeight));
+      if (row.ageMin !== undefined || row.ageMax !== undefined) {
+        params.set('ageMonths', String(Math.round(kidAge * 12)));
+      }
+      if (currentCategory.key !== 'bottoms' || kidWaist > 0) params.set('waist', String(kidWaist));
+      if (currentCategory.key !== 'tops' && currentCategory.key !== 'outerwear') {
+        params.set('hip', String(kidHips));
+      }
+      if (currentCategory.key !== 'bottoms') params.set('chest', String(kidChest));
+    } else if (currentCategory.key === 'bottoms') {
+      params.set('waist', String(adultWaist));
+      params.set('hip', String(adultHips));
+    } else {
+      params.set('chest', String(adultChest));
+      params.set('waist', String(adultWaist));
+      if (currentCategory.key === 'dresses') params.set('hip', String(adultHips));
     }
 
-    // Fallback: any product in same parent category
-    const catFallback = MOCK_PRODUCTS.filter((prod) => {
-      const pCat = (prod.parentCategory || '').toLowerCase();
-      const pSub = (prod.subCategory || '').toLowerCase();
-      return targetKeywords.some((kw) => pCat.includes(kw) || pSub.includes(kw));
-    });
-
-    return catFallback.length > 0 ? catFallback : MOCK_PRODUCTS.slice(0, 4);
+    setSuitableProducts([]);
+    setProductsError(null);
+    setProductsLoading(true);
+    try {
+      const response = await fetch(`/api/store-connection/sizing/tester/products?${params}`);
+      const body = await response.json() as SuitableProductsResponse;
+      if (!response.ok) throw new Error(body.error || 'Could not load suitable products.');
+      if (!Array.isArray(body.products)) throw new Error('Suitable product results were invalid.');
+      if (requestId === productsRequestId.current) setSuitableProducts(body.products);
+    } catch (error) {
+      if (requestId === productsRequestId.current) {
+        setProductsError(error instanceof Error ? error.message : 'Could not load suitable products.');
+      }
+    } finally {
+      if (requestId === productsRequestId.current) setProductsLoading(false);
+    }
   };
+
+  if (optionsLoading || optionsError || !currentBrand) {
+    const message = optionsLoading
+      ? 'Loading available size charts...'
+      : optionsError || 'No published size charts are available for this sizing target.';
+    return (
+      <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6 max-w-7xl mx-auto">
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs min-h-[620px] flex items-center justify-center p-8 text-center">
+          <div>
+            {optionsLoading && <Loader2 className="w-7 h-7 animate-spin text-purple-600 mx-auto mb-3" />}
+            <p className="text-sm font-semibold text-slate-700">{message}</p>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6 max-w-7xl mx-auto">
@@ -1440,26 +1171,42 @@ export function SizingTesterView() {
                   </div>
 
                   {/* Recommendation Callout Badge */}
-                  <div className="flex items-center gap-3 bg-emerald-50/95 border border-emerald-200/90 rounded-xl px-4 py-2.5 shadow-2xs self-stretch md:self-auto">
-                    <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs flex-shrink-0">
-                      <CheckCircle2 className="w-5 h-5 text-white" />
+                  <div className={`flex items-center gap-3 border rounded-xl px-4 py-2.5 shadow-2xs self-stretch md:self-auto ${
+                    activeRecommendation.bestRow
+                      ? 'bg-emerald-50/95 border-emerald-200/90'
+                      : 'bg-amber-50/95 border-amber-200/90'
+                  }`}>
+                    <div className={`w-9 h-9 rounded-xl text-white flex items-center justify-center shadow-xs flex-shrink-0 ${
+                      activeRecommendation.bestRow ? 'bg-emerald-600' : 'bg-amber-600'
+                    }`}>
+                      {activeRecommendation.bestRow
+                        ? <CheckCircle2 className="w-5 h-5 text-white" />
+                        : <Info className="w-5 h-5 text-white" />}
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs font-extrabold text-emerald-950">
-                          Best Fit:
+                        <span className={`text-xs font-extrabold ${
+                          activeRecommendation.bestRow ? 'text-emerald-950' : 'text-amber-950'
+                        }`}>
+                          {activeRecommendation.bestRow ? 'Best Fit:' : 'No matching size'}
                         </span>
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-700 text-white text-xs font-black tracking-wide shadow-2xs">
-                          {activeRecommendation.bestRow
-                            ? formatSizeForMode(activeRecommendation.bestRow, sizingMode)
-                            : '—'}
-                        </span>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-200/90 text-emerald-950 border border-emerald-300">
-                          {activeRecommendation.matchScore}% Match
-                        </span>
+                        {activeRecommendation.bestRow && (
+                          <>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-700 text-white text-xs font-black tracking-wide shadow-2xs">
+                              {formatSizeForMode(activeRecommendation.bestRow, sizingMode)}
+                            </span>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-200/90 text-emerald-950 border border-emerald-300">
+                              {activeRecommendation.matchScore}% Match
+                            </span>
+                          </>
+                        )}
                       </div>
-                      <p className="text-[11px] text-emerald-800 font-medium truncate max-w-sm mt-0.5">
-                        {activeRecommendation.reason}
+                      <p className={`text-[11px] font-medium truncate max-w-sm mt-0.5 ${
+                        activeRecommendation.bestRow ? 'text-emerald-800' : 'text-amber-800'
+                      }`}>
+                        {activeRecommendation.bestRow
+                          ? activeRecommendation.reason
+                          : 'No chart row contains all entered measurements.'}
                       </p>
                     </div>
                   </div>
@@ -1517,9 +1264,6 @@ export function SizingTesterView() {
                         <th className="px-4 py-3 whitespace-nowrap">Garment Length</th>
                       </>
                     )}
-
-                    {/* Fit Silhouette Note */}
-                    <th className="px-4 py-3 whitespace-nowrap">Fit Profile</th>
 
                     {/* Status Badge */}
                     <th className="px-4 py-3 text-right">Status</th>
@@ -1627,17 +1371,6 @@ export function SizingTesterView() {
                           </>
                         )}
 
-                        {/* Fit Profile Note */}
-                        <td className="px-4 py-3.5 whitespace-nowrap">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${
-                            isHighlighted
-                              ? 'bg-emerald-200/80 text-emerald-950 font-black'
-                              : 'bg-slate-100 text-slate-600'
-                          }`}>
-                            {row.fitNote || 'Standard Fit'}
-                          </span>
-                        </td>
-
                         {/* Status Column */}
                         <td className="px-4 py-3.5 text-right whitespace-nowrap">
                           {isHighlighted ? (
@@ -1647,7 +1380,11 @@ export function SizingTesterView() {
                             </span>
                           ) : (
                             <span className="text-[11px] text-slate-400 font-medium">
-                              {idx < activeRecommendation.bestRowIndex ? 'Smaller' : 'Larger'}
+                              {activeRecommendation.bestRowIndex < 0
+                                ? 'Does not fit'
+                                : idx < activeRecommendation.bestRowIndex
+                                  ? 'Smaller'
+                                  : 'Larger'}
                             </span>
                           )}
                         </td>
@@ -1663,6 +1400,7 @@ export function SizingTesterView() {
                                 formattedSize: formatSizeForMode(row, sizingMode),
                                 row: row,
                               });
+                              void loadSuitableProducts(row);
                             }}
                             title={`View items available in size ${formatSizeForMode(row, sizingMode)}`}
                             className={`inline-flex items-center justify-center gap-1.5 p-1.5 sm:px-2.5 sm:py-1 rounded-md border text-xs font-semibold transition-all duration-200 cursor-pointer ${
@@ -1692,9 +1430,15 @@ export function SizingTesterView() {
                   </span>
                 </div>
                 <div className="flex items-center gap-3 self-end sm:self-auto font-mono text-[11px] whitespace-nowrap">
-                  <span className="flex items-center gap-1 text-emerald-700 font-bold">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
-                    Best Fit ({activeRecommendation.matchScore}%)
+                  <span className={`flex items-center gap-1 font-bold ${
+                    activeRecommendation.bestRow ? 'text-emerald-700' : 'text-amber-700'
+                  }`}>
+                    <span className={`w-2.5 h-2.5 rounded-full inline-block ${
+                      activeRecommendation.bestRow ? 'bg-emerald-500' : 'bg-amber-500'
+                    }`}></span>
+                    {activeRecommendation.bestRow
+                      ? `Best Fit (${activeRecommendation.matchScore}%)`
+                      : 'No matching size'}
                   </span>
                   <span className="flex items-center gap-1 text-slate-400">
                     <span className="w-2.5 h-2.5 rounded-full bg-slate-300 inline-block"></span>
@@ -1787,15 +1531,29 @@ export function SizingTesterView() {
                 )}
               </div>
               <span className="text-[11px] text-purple-700 font-medium">
-                {getSuitableItemsForSize(activeSizeItemsModal.row, activeSizeItemsModal.formattedSize).length} matching items found
+                {productsLoading ? 'Loading matching items...' : `${suitableProducts.length} matching items found`}
               </span>
             </div>
 
             {/* Modal Body: List of Suitable Items */}
             <div className="p-6 overflow-y-auto space-y-3 divide-y divide-slate-100">
               {(() => {
-                const items = getSuitableItemsForSize(activeSizeItemsModal.row, activeSizeItemsModal.formattedSize);
-                if (items.length === 0) {
+                if (productsLoading) {
+                  return (
+                    <div className="text-center py-10">
+                      <Loader2 className="w-6 h-6 animate-spin text-purple-600 mx-auto" />
+                      <p className="text-xs text-slate-500 mt-2">Searching the published catalog...</p>
+                    </div>
+                  );
+                }
+                if (productsError) {
+                  return (
+                    <div className="text-center py-10">
+                      <p className="text-sm font-semibold text-rose-700">{productsError}</p>
+                    </div>
+                  );
+                }
+                if (suitableProducts.length === 0) {
                   return (
                     <div className="text-center py-10">
                       <p className="text-sm font-semibold text-slate-700">No matching items currently stocked for size {activeSizeItemsModal.formattedSize}.</p>
@@ -1804,20 +1562,30 @@ export function SizingTesterView() {
                   );
                 }
 
-                return items.map((product) => {
-                  const isCurrentBrand = product.brand.toLowerCase() === currentBrand.name.toLowerCase();
+                return suitableProducts.map((product) => {
+                  const isCurrentBrand = currentBrand.coverageType === 'none'
+                    ? product.brand === null
+                    : product.brand?.toLowerCase() === currentBrand.name.toLowerCase();
+                  const price = product.price === null
+                    ? 'Price unavailable'
+                    : `${product.currency ? `${product.currency} ` : ''}${product.price.toFixed(2)}`;
+                  const availability = product.availability.replaceAll('_', ' ').toLowerCase();
                   return (
                     <div
                       key={product.id}
                       className="pt-3 first:pt-0 flex items-center justify-between gap-4 group hover:bg-slate-50/80 p-2.5 rounded-xl transition-colors"
                     >
                       <div className="flex items-center gap-3.5 min-w-0">
-                        <img
-                          src={product.imageUrl}
-                          alt={product.title}
-                          className="w-14 h-14 object-cover rounded-lg border border-slate-200 shrink-0 bg-slate-100"
-                          loading="lazy"
-                        />
+                        {product.image ? (
+                          <img
+                            src={product.image}
+                            alt={product.title}
+                            className="w-14 h-14 object-cover rounded-lg border border-slate-200 shrink-0 bg-slate-100"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className="w-14 h-14 rounded-lg border border-slate-200 shrink-0 bg-slate-100" />
+                        )}
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
@@ -1825,21 +1593,21 @@ export function SizingTesterView() {
                                 ? 'bg-purple-100 text-purple-800 font-extrabold'
                                 : 'bg-slate-100 text-slate-600'
                             }`}>
-                              {product.brand || 'Store Brand'}
+                              {product.brand || 'No brand'}
                             </span>
-                            <span className="text-[11px] font-mono text-slate-400">{product.sku}</span>
+                            <span className="text-[11px] font-mono text-slate-400">{product.sku || 'SKU unavailable'}</span>
                           </div>
                           <h4 className="text-sm font-semibold text-slate-900 truncate mt-0.5 group-hover:text-purple-700 transition-colors">
                             {product.title}
                           </h4>
                           <p className="text-xs text-slate-500 truncate mt-0.5">
-                            {product.subCategory || product.category}
+                            {product.category || 'Category unavailable'}
                           </p>
                           <div className="flex items-center gap-2 mt-1">
-                            <span className="text-xs font-black text-slate-900">{product.price}</span>
+                            <span className="text-xs font-black text-slate-900">{price}</span>
                             <span className="text-slate-300">•</span>
                             <span className="text-[11px] text-slate-500">
-                              Available Sizes: {product.sizes?.join(', ')}
+                              Available Sizes: {product.sizes.length > 0 ? product.sizes.join(', ') : 'Not listed'}
                             </span>
                           </div>
                         </div>
@@ -1851,7 +1619,7 @@ export function SizingTesterView() {
                           Size {activeSizeItemsModal.formattedSize} Fits
                         </span>
                         <span className="text-[11px] text-slate-400 font-mono">
-                          {product.stockQty} in stock
+                          {availability}
                         </span>
                       </div>
                     </div>

@@ -54,6 +54,25 @@ describe("mapShopifyWebhookProduct", () => {
 });
 
 describe("Shopify Admin GraphQL 2026-07 compatibility", () => {
+  it("computes throttle recovery from the rejected query's requested cost", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      errors: [{ message: "Throttled", extensions: { code: "THROTTLED" } }],
+      extensions: {
+        cost: {
+          requestedQueryCost: 100,
+          throttleStatus: { currentlyAvailable: 50, maximumAvailable: 1000, restoreRate: 50 },
+        },
+      },
+    })));
+
+    await expect(
+      listShopifyCatalogPage("store.myshopify.com", "token", { pageSize: 5 }),
+    ).rejects.toMatchObject({
+      throttled: true,
+      retryAfterMs: 1000,
+    });
+  });
+
   it("loads collection counts in paginated GraphQL responses without per-collection REST calls", async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as {

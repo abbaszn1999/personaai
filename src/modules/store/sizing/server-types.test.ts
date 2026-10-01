@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isScanIncomplete, stageForRun } from "./server-types";
+import { isRunWorking, isScanIncomplete, stageForRun } from "./server-types";
 import type { SizingRun, SizingRunStage, SizingRunStatus } from "./server-types";
 
 function run(stage: SizingRunStage, status: SizingRunStatus): SizingRun {
@@ -61,5 +61,14 @@ describe("stageForRun", () => {
   it("lands a finished run on the overview", () => {
     expect(stageForRun(run("resolve", "running"))).toBe(5);
     expect(stageForRun(run("publish", "complete"))).toBe(5);
+  });
+});
+
+describe("isRunWorking", () => {
+  it("keeps publish controls locked until pending and running work reaches a terminal state", () => {
+    expect(isRunWorking(run("resolve", "pending"))).toBe(true);
+    expect(isRunWorking(run("publish", "running"))).toBe(true);
+    expect(isRunWorking(run("publish", "complete"))).toBe(false);
+    expect(isRunWorking(run("publish", "failed"))).toBe(false);
   });
 });

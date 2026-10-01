@@ -2,6 +2,7 @@ import type { StoreCategory } from "@/modules/store/types";
 import type { Product, ProductVariant } from "@/modules/commerce/types";
 import type { CatalogPageOptions, RawCatalogProduct, RawCatalogVariant, VariantOptionGroups } from "@/lib/catalog/sync-types";
 import { isCacheDisabled } from "@/lib/utils/disable-cache";
+import { pickSizedVariant } from "@/lib/sizing/cart-variant";
 
 // Bumped from the now-unsupported `2024-10` (retired; Shopify falls forward to its oldest
 // accessible stable version for a retired target rather than erroring, which would have made this
@@ -289,7 +290,12 @@ interface ShopifyGraphqlErrorExtensions {
 interface ShopifyGraphqlResponse<T> {
   data?: T;
   errors?: Array<{ message: string; extensions?: ShopifyGraphqlErrorExtensions }>;
-  extensions?: { cost?: { throttleStatus?: ShopifyThrottleStatus } };
+  extensions?: {
+    cost?: {
+      requestedQueryCost?: number;
+      throttleStatus?: ShopifyThrottleStatus;
+    };
+  };
 }
 
 /** Low-level GraphQL POST. Surfaces `THROTTLED` cost-limit errors (HTTP 200 with a
@@ -318,9 +324,14 @@ async function shopifyGraphqlFetch<T>(
 
   if (body?.errors?.some((e) => e.extensions?.code === "THROTTLED")) {
     // Shopify's GraphQL cost bucket recovers at `restoreRate` points/sec — estimate the wait
-    // from however far under water the bucket is, falling back to a safe default.
-    const deficit = throttleStatus ? Math.max(0, 50 - throttleStatus.currentlyAvailable) : 50;
-    const retryAfterMs = throttleStatus ? Math.ceil((deficit / throttleStatus.restoreRate) * 1000) : 2000;
+    // against this query's requested cost, not a fixed guess. A fixed 50 produced zero-millisecond
+    // retries for larger collection queries that Shopify had already rejected.
+    const requestedCost = body.extensions?.cost?.requestedQueryCost ?? 50;
+    const deficit = throttleStatus ? Math.max(0, requestedCost - throttleStatus.currentlyAvailable) : requestedCost;
+    const estimatedMs = throttleStatus && throttleStatus.restoreRate > 0
+      ? Math.ceil((deficit / throttleStatus.restoreRate) * 1000)
+      : 2000;
+    const retryAfterMs = Math.max(estimatedMs, 500);
     throw new ShopifyApiError("Shopify's API rate limit was reached — retrying shortly.", 200, true, retryAfterMs);
   }
 
@@ -1479,23 +1490,35 @@ interface ShopifyRestVariant {
   id: number;
   available?: boolean;
   inventory_quantity?: number;
+  option1?: string | null;
+  option2?: string | null;
+  option3?: string | null;
 }
 
 interface ShopifyRestProduct {
   id: number;
+  options?: Array<{ name: string; position: number }>;
   variants: ShopifyRestVariant[];
+}
+
+function shopifyVariantInStock(variant: ShopifyRestVariant): boolean {
+  return variant.available !== false && (variant.inventory_quantity == null || variant.inventory_quantity > 0);
 }
 
 /**
  * Shopify's Ajax `/cart/add.js` only accepts a *variant* id (never the parent product id).
  * Our catalog stores GraphQL product GIDs (`gid://shopify/Product/123`), so this resolves
  * a purchasable variant's numeric id server-side with the merchant's Admin credentials.
- * Picks the first available variant; falls back to any variant rather than failing empty.
+ *
+ * With `sizes` (the sizes that fit the shopper, best first), only an in-stock variant in one of
+ * them is acceptable — adding a different size would put a garment that doesn't fit in the cart.
+ * Without, picks the first available variant, falling back to any variant.
  */
 export async function resolveShopifyCartVariantId(
   domain: string,
   accessToken: string,
-  productId: string
+  productId: string,
+  sizes: readonly string[] = []
 ): Promise<number> {
   const bareId = bareShopifyId(productId);
   const controller = new AbortController();
@@ -1525,9 +1548,22 @@ export async function resolveShopifyCartVariantId(
 
     const data = (await res.json()) as { product?: ShopifyRestProduct };
     const variants = data.product?.variants ?? [];
-    const best =
-      variants.find((v) => v.available !== false && (v.inventory_quantity == null || v.inventory_quantity > 0)) ??
-      variants[0];
+    if (sizes.length > 0) {
+      const options = data.product?.options ?? [];
+      const sized = pickSizedVariant(
+        variants,
+        sizes,
+        (variant) =>
+          options.flatMap((option) => {
+            const value = variant[`option${option.position}` as "option1" | "option2" | "option3"];
+            return value ? [{ name: option.name, value }] : [];
+          }),
+        shopifyVariantInStock
+      );
+      if (!sized) throw new ShopifyApiError(`Size ${sizes.join(" / ")} just sold out for this item.`, 409);
+      return sized.id;
+    }
+    const best = variants.find(shopifyVariantInStock) ?? variants[0];
 
     if (!best?.id) {
       throw new ShopifyApiError("This product has no purchasable options right now.", 400);

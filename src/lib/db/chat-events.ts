@@ -1,4 +1,5 @@
 import { db } from "@/lib/supabase/server";
+import type { TurnAttribution } from "@/modules/commerce/types";
 
 export type ChatEventRole = "user" | "assistant";
 
@@ -7,6 +8,8 @@ export interface RecordChatEventInput {
   sessionId: string;
   role: ChatEventRole;
   topic?: string | null;
+  /** Assistant turns only: which agent and action produced the reply. */
+  attribution?: TurnAttribution | null;
 }
 
 /** Logs one chat turn (a shopper message or an assistant reply) — see logChatEvent in
@@ -20,6 +23,7 @@ export async function recordChatEvent(input: RecordChatEventInput): Promise<void
     session_id: input.sessionId,
     role: input.role,
     topic: input.topic ?? null,
+    attribution: input.attribution ?? null,
   });
 
   if (error) {

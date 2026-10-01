@@ -187,8 +187,11 @@ export function StageConfirmation() {
   const [total, setTotal] = React.useState(0);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const [notice, setNotice] = React.useState<string | null>(null);
   const [publishing, setPublishing] = React.useState(false);
   const [preview, setPreview] = React.useState<SizingSampleRow | null>(null);
+  const publishRunId = React.useRef<string | null>(null);
+  const publishObservedWorking = React.useRef(false);
 
   const loadOverview = React.useCallback(async () => {
     setLoading(true);
@@ -232,16 +235,49 @@ export function StageConfirmation() {
     return () => window.clearInterval(timer);
   }, [loadRun, run]);
 
+  React.useEffect(() => {
+    if (!publishing || !publishObservedWorking.current || run?.id !== publishRunId.current) return;
+    if (isRunWorking(run)) return;
+
+    const timer = window.setTimeout(() => {
+      setPublishing(false);
+      publishRunId.current = null;
+      publishObservedWorking.current = false;
+      if (run.status === "complete") {
+        setNotice("Sizing products were republished to ACS successfully.");
+        void loadOverview();
+      } else if (run.status === "failed") {
+        setError(run.error ?? "Sizing publish failed.");
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadOverview, publishing, run]);
+
   async function startPublish() {
     setPublishing(true);
     setError(null);
+    setNotice(null);
     try {
       const response = await fetch("/api/store-connection/sizing/publish", { method: "POST" });
-      const body = await response.json() as { error?: string };
+      const body = await response.json() as {
+        run?: NonNullable<typeof run>;
+        error?: string;
+        message?: string;
+        rescanning?: boolean;
+      };
       if (!response.ok) throw new Error(body.error ?? "Could not publish sizing");
+      if (body.run) {
+        publishRunId.current = body.run.id;
+        publishObservedWorking.current = isRunWorking(body.run);
+      }
+      if (body.rescanning) {
+        setNotice(body.message ?? "A fresh catalog scan has started.");
+      }
       await loadRun();
     } catch (caught) {
       setPublishing(false);
+      publishRunId.current = null;
+      publishObservedWorking.current = false;
       setError(caught instanceof Error ? caught.message : "Could not publish sizing");
     }
   }
@@ -249,7 +285,20 @@ export function StageConfirmation() {
   const matched = summary?.matched ?? 0;
   const percentage = summary?.matchPercent ?? 0;
   const maxPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const publishWorking = publishing || (run?.stage === "publish" && isRunWorking(run));
+  const publishWorking = publishing || isRunWorking(run);
+  const publishProgress =
+    publishWorking && run?.phaseTotal && run.phaseDone !== null
+      ? ` ${Math.min(run.phaseDone, run.phaseTotal).toLocaleString()}/${run.phaseTotal.toLocaleString()}`
+      : "";
+  const publishLabel = publishWorking
+    ? run?.stage === "resolve"
+      ? `Preparing sizing data…${publishProgress}`
+      : run?.stage === "publish"
+        ? `Publishing to ACS…${publishProgress}`
+        : `Preparing catalog…${publishProgress}`
+    : run?.publishedAt
+      ? "Republish sizing"
+      : "Finish & publish sizing";
 
   return (
     <div className="space-y-5">
@@ -336,6 +385,11 @@ export function StageConfirmation() {
         {error && (
           <div className="m-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
         )}
+        {notice && (
+          <div className="m-4 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-800">
+            {notice}
+          </div>
+        )}
 
         <div className="overflow-x-auto">
           <table className="min-w-[1180px] w-full text-left text-xs">
@@ -389,11 +443,21 @@ export function StageConfirmation() {
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button type="button" onClick={prevStage} className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700"><ArrowLeft className="h-4 w-4" /> Back to Size Chart Research</button>
-        {run?.publishedAt ? (
-          <button type="button" onClick={() => router.push(`${pathname}?section=sizingtester`)} className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-pink-500 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-violet-500/20">Open Sizing Tester <ArrowRight className="h-4 w-4" /></button>
-        ) : (
-          <button type="button" disabled={publishWorking || loading} onClick={() => void startPublish()} className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-pink-500 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-violet-500/20 disabled:opacity-50">{publishWorking ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />} Finish &amp; publish sizing</button>
-        )}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {run?.publishedAt && !publishWorking && (
+            <button type="button" onClick={() => router.push(`${pathname}?section=sizingtester`)} className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-white px-5 py-2.5 text-sm font-bold text-violet-700 shadow-sm">Open Sizing Tester <ArrowRight className="h-4 w-4" /></button>
+          )}
+          <button
+            type="button"
+            disabled={publishWorking || loading}
+            aria-busy={publishWorking}
+            onClick={() => void startPublish()}
+            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-pink-500 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-violet-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {publishWorking ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+            {publishLabel}
+          </button>
+        </div>
       </div>
 
       {preview && (

@@ -101,6 +101,18 @@ describe("draftColumnsFor", () => {
     expect(adult.find((c) => c.measurement === "foot_length")?.required).toBe(true);
     expect(kids.find((c) => c.measurement === "foot_length")?.required).toBe(true);
   });
+
+  it("uses the complete fixed child field set for each parent", () => {
+    expect(draftColumnsFor("bottoms", "girls").map((column) => column.measurement)).toEqual([
+      "waist", "hip", "inseam", "height",
+    ]);
+    expect(draftColumnsFor("dresses", "boys").map((column) => column.measurement)).toEqual([
+      "chest", "waist", "hip", "height",
+    ]);
+    expect(draftColumnsFor("footwear", "kids").map((column) => column.measurement)).toEqual([
+      "foot_length",
+    ]);
+  });
 });
 
 describe("parseDraft", () => {
@@ -181,5 +193,35 @@ describe("parseDraft", () => {
     ];
 
     expect(parseDraft(draftRowsFrom(stored, "tops"), "tops").rows).toEqual(stored);
+  });
+
+  it("requires and stores Age as a kids-only alias", () => {
+    const missing = parseDraft(
+      [{ size: "128", values: { height: "128", chest: "65", waist: "58" } }],
+      "tops",
+      "kids",
+    );
+    expect(missing.problems).toContainEqual(
+      expect.objectContaining({ rowIndex: 0, alias: "age" }),
+    );
+
+    const complete = parseDraft(
+      [{ size: "128", age: "7-8y", values: { height: "128", chest: "65", waist: "58" } }],
+      "tops",
+      "kids",
+    );
+    expect(complete.problems).toEqual([]);
+    expect(complete.rows[0]).toMatchObject({ size: "128", aliases: { age: "7-8y" }, height_min: 128 });
+  });
+
+  it("round-trips a stored kids Age alias through the editor", () => {
+    const stored = [{
+      size: "128",
+      aliases: { age: "7-8y" },
+      foot_length_min: 20,
+      foot_length_max: 20.5,
+    }];
+
+    expect(parseDraft(draftRowsFrom(stored, "footwear", "kids"), "footwear", "kids").rows).toEqual(stored);
   });
 });

@@ -14,14 +14,9 @@ export class OpenAiApiError extends Error {
 }
 
 /**
- * The platform's own key, mirroring `getPlatformGeminiClient()` in `lib/ai/gemini.ts`: index-time
- * enrichment and embedding pay on the platform's account rather than a merchant's, and so does
- * Phase 4's chart research (`src/lib/sizing/research.ts`) — a merchant should not need their own
+ * The platform's own key, mirroring `getPlatformGeminiClient()` in `lib/ai/gemini.ts`. Its only
+ * caller is chart research (`src/lib/sizing/research.ts`) — a merchant should not need their own
  * OpenAI key just for Persona to look up a public Nike size guide.
- *
- * Every function in this module still takes `apiKey` as an explicit parameter rather than reading
- * an env var itself, so the BYO chat path and this platform path share one implementation with no
- * branching inside it; callers simply pass whichever key belongs to their use case.
  */
 export function getPlatformOpenAiKey(): string {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -185,7 +180,7 @@ function buildRequestBody(
   const { instructions, input } = toResponsesInput(messages);
 
   const body: Record<string, unknown> = {
-    model: opts?.model ?? process.env.OPENAI_CHAT_MODEL ?? DEFAULT_MODEL,
+    model: opts?.model ?? DEFAULT_MODEL,
     input,
     // Stateless by design — this app resends the full turn history itself on every request
     // and never persists conversations server-side, so there's nothing for OpenAI to retain.

@@ -8,6 +8,8 @@ import {
 import { syncProductsToAcs } from "@/lib/catalog/acs/sync";
 import { deleteProduct } from "@/lib/catalog/acs/client";
 import { buildAcsProductId } from "@/lib/catalog/acs/isolation";
+import { clearAcsStageFiveCache } from "@/lib/catalog/acs/stage-five-listing";
+import { scheduleRebuildPersonaPathConfig } from "@/lib/catalog/path-config/rebuild";
 import type { MapProductInput } from "@/lib/catalog/acs/map-product";
 import {
   getStoreConnectionById,
@@ -123,14 +125,17 @@ export async function settleFinishedRuns(): Promise<number> {
     listConnectionsBySyncStatus("indexing"),
     listActivePublishingSizingRuns(),
   ]);
-  const publishingByConnection = new Map(publishingRuns.map((run) => [run.connectionId, run]));
+  // Defensive even though the DB reader already returns only `running`: a `pending` publish has
+  // not called startCatalogBackfill yet and must never inherit an earlier catalog's `ready` state.
+  const startedPublishingRuns = publishingRuns.filter((run) => run.status === "running");
+  const publishingByConnection = new Map(startedPublishingRuns.map((run) => [run.connectionId, run]));
   const connectionsById = new Map(running.map((connection) => [connection.id, connection]));
 
   // Recovery path: a process can stop after writing the catalog's `ready` state but before writing
   // the sizing run's completion. Do not scan every ready connection on every idle tick — only fetch
   // connections that currently have an active publish run and were not already found as indexing.
   await Promise.all(
-    publishingRuns.map(async (run) => {
+    startedPublishingRuns.map(async (run) => {
       if (connectionsById.has(run.connectionId)) return;
       const connection = await getStoreConnectionById(run.connectionId);
       if (connection?.catalogSyncStatus === "ready") connectionsById.set(connection.id, connection);
@@ -176,7 +181,9 @@ export async function settleFinishedRuns(): Promise<number> {
             phaseTotal: connection.catalogSyncTotal,
             error: "The sizing-aware catalog publish indexed no products.",
           });
+      if (status === "ready") clearAcsStageFiveCache(connection.id);
     }
+    if (statusWritten && status === "ready") scheduleRebuildPersonaPathConfig(connection.id);
 
     const summary =
       `[catalog process-queue] settled ${connection.id} as ${status}: ` +

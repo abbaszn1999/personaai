@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeOutfitGarments, type TryOnGarmentRef } from "./persona-agent";
+import { mergeOutfitGarments, type TryOnGarmentRef } from "./image-generation";
 
 function ref(name: string, slot: TryOnGarmentRef["slot"]): TryOnGarmentRef {
   return { name, slot, imageUrl: `https://example.com/${name}.jpg` };

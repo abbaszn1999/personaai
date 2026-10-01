@@ -50,7 +50,6 @@ straight from your `.env.local`; values marked "→ update" need a new productio
 ```bash
 # Supabase — same as local
 NEXT_PUBLIC_SUPABASE_URL=...
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=...
 SUPABASE_SECRET_KEY=...
 
 # Auth
@@ -61,17 +60,32 @@ RESEND_FROM_EMAIL=...           # same as local
 SESSION_SECRET=...              # → generate a new random 32+ char string, don't reuse the dev one
 APP_URL=https://your-app.onrender.com   # → update once Render assigns your URL (Step 4)
 
-# Secrets encryption
-OPENAI_KEY_ENCRYPTION_SECRET=...   # same as local
+# Secrets encryption (stored store credentials — the name is historical)
+OPENAI_KEY_ENCRYPTION_SECRET=...   # same as local — a different value makes saved store credentials unreadable
 
 # Avatar + try-on rendering (Pruna)
 PRUNA_API_KEY=...               # same as local — required for avatars and try-on renders
 
-# AI agents (catalog enrichment, embeddings, chat)
+# AI agents (Persona, Bundle, Attribute; sizing and catalog mapping)
 GEMINI_API_KEY=...              # same as local
-OPENAI_CHAT_MODEL=...           # same as local
-DECART_API_KEY=...              # same as local
-CATALOG_SEARCH_POOL_SIZE=100    # same as local
+GEMINI_CHAT_MODEL=...           # optional — Persona and Bundle model, defaults to gemini-3.6-flash
+GEMINI_ATTRIBUTE_MODEL=...      # optional — Attribute model, defaults to GEMINI_CHAT_MODEL
+DECART_API_KEY=...              # same as local — live try-on
+
+# Sizing chart research (OpenAI)
+OPENAI_API_KEY=...              # same as local
+SIZING_RESEARCH_MODEL=...       # same as local
+
+# Catalog search (Google Retail API)
+ACS_CLIENT_EMAIL=...            # same as local
+ACS_PRIVATE_KEY=...             # same as local
+ACS_PROJECT_ID=...              # same as local
+ACS_LOCATION=global
+ACS_CATALOG_ID=default_catalog
+ACS_BRANCH_ID=0
+
+# Internal jobs (pg_cron catalog routes, WooCommerce webhook signing)
+INTERNAL_JOB_SECRET=...         # same as local
 
 # Stripe — see STRIPE_SETUP.md Step 8 for where these values come from
 STRIPE_SECRET_KEY=...
@@ -79,11 +93,10 @@ STRIPE_WEBHOOK_SECRET=...       # → you'll set this in Step 5, after the servi
 STRIPE_PORTAL_CONFIGURATION_ID=...
 STRIPE_AUTOMATIC_TAX_ENABLED=false
 STRIPE_PAST_DUE_GRACE_DAYS=3
-STRIPE_PRICE_WEARABLE_FIXED=...
-STRIPE_PRICE_UNWEARABLE_FIXED=...
-STRIPE_PRICE_CREDITS_STARTER=...
-STRIPE_PRICE_CREDITS_GROWTH=...
-STRIPE_PRICE_CREDITS_SCALE=...
+STRIPE_PRICE_PLAN_TRIAL=...
+STRIPE_PRICE_PLAN_MAIN=...
+STRIPE_PRICE_GARMENT_UNITS=...
+STRIPE_PRICE_SESSION_UNITS=...
 STRIPE_PRICE_LIVE_MINUTE=...
 ```
 

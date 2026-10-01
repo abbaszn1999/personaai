@@ -64,6 +64,7 @@ export function toProduct(candidate: CatalogCandidate, variantOptions?: VariantO
     inStock: candidate.inStock,
     garmentSlot: categoryToGarmentSlot(candidate.garmentCategory, candidate.garmentSubcategory),
     attributes: candidate.attributes,
+    ...(candidate.fitSizes?.length ? { fitSizes: candidate.fitSizes } : {}),
   };
 }
 

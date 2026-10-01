@@ -1,6 +1,7 @@
 import { parseSizeChartRow, type SizeChartRow } from "./chart-schema";
 import type { Audience } from "./keys";
 import {
+  isChildAudience,
   MEASUREMENTS,
   measurementsFor,
   requiredMeasurementsFor,
@@ -32,6 +33,8 @@ export interface ChartDraftColumn {
 /** One row as the merchant is editing it: raw text per measurement, keyed by measurement. */
 export interface ChartDraftRow {
   size: string;
+  /** Child audience label (`3M`, `8-9y`). Required for kids charts and stored as `aliases.age`. */
+  age?: string;
   /** Free text as typed — `96-104`, `96`, `120+`, or empty. Parsed only on save. */
   values: Partial<Record<Measurement, string>>;
 }
@@ -83,7 +86,7 @@ export function draftRowsFrom(rows: SizeChartRow[], group: SizingGroup, audience
       const text = formatDraftBound(min, max);
       if (text) values[measurement] = text;
     }
-    return { size: row.size, values };
+    return { size: row.size, age: row.aliases?.age, values };
   });
 }
 
@@ -142,6 +145,7 @@ export interface DraftProblem {
   rowIndex: number;
   /** Absent when the problem is the size label itself. */
   measurement?: Measurement;
+  alias?: "age";
   message: string;
 }
 
@@ -163,15 +167,17 @@ export interface ParsedDraft {
  */
 export function parseDraft(rows: ChartDraftRow[], group: SizingGroup, audience?: Audience): ParsedDraft {
   const columns = draftColumnsFor(group, audience);
+  const needsAge = audience !== undefined && isChildAudience(audience);
   const problems: DraftProblem[] = [];
   const parsed: SizeChartRow[] = [];
   const seen = new Set<string>();
 
   rows.forEach((row, rowIndex) => {
     const size = row.size.trim();
+    const age = row.age?.trim() ?? "";
     const filled = columns.filter(({ measurement }) => (row.values[measurement] ?? "").trim());
 
-    if (!size && filled.length === 0) return;
+    if (!size && !age && filled.length === 0) return;
 
     if (!size) {
       problems.push({ rowIndex, message: "This row has measurements but no size label." });
@@ -188,6 +194,13 @@ export function parseDraft(rows: ChartDraftRow[], group: SizingGroup, audience?:
     seen.add(key);
 
     const record: Record<string, unknown> = { size };
+    if (needsAge) {
+      if (!age) {
+        problems.push({ rowIndex, alias: "age", message: "Age is needed for every kids size." });
+      } else {
+        record.aliases = { age };
+      }
+    }
 
     for (const { measurement, label, required } of columns) {
       const text = (row.values[measurement] ?? "").trim();

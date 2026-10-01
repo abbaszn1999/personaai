@@ -1,5 +1,8 @@
 import { getStoreConnectionById, updateCatalogSyncState } from "@/lib/db/store-connections";
-import { listSizingProductRecordsPage } from "@/lib/db/sizing-product-records";
+import {
+  getSizingProductSnapshotHealth,
+  listSizingProductRecordsPage,
+} from "@/lib/db/sizing-product-records";
 import { startCatalogBackfill } from "@/lib/catalog/enqueue-sync";
 import {
   claimSizingRun,
@@ -236,6 +239,20 @@ async function advanceRun(run: SizingRunRow): Promise<SizingPassResult> {
 
       case "assign":
       case "resolve": {
+        const snapshot = await getSizingProductSnapshotHealth(connection.id);
+        if (!snapshot) {
+          throw new Error("The saved sizing product data could not be validated before publishing.");
+        }
+        const legacySnapshot =
+          snapshot.total > 0 &&
+          snapshot.missingPrimaryLeaf === snapshot.total &&
+          snapshot.missingRawSizeFormat === snapshot.total;
+        if (legacySnapshot) {
+          throw new Error(
+            "The saved sizing product data is incomplete. Run a fresh catalog scan before publishing.",
+          );
+        }
+
         const context = await loadSizingResolutionContext(connection);
         if (!context.brandMappingCurrent) {
           throw new Error("The canonical brand mapping changed. Confirm it again before publishing.");
