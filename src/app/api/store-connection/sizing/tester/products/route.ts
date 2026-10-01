@@ -6,6 +6,7 @@ import {
   fitSearchTolerances,
   parseFitSearchQuery,
   toFitSearchProducts,
+  unsupportedFitField,
 } from "@/lib/catalog/acs/fit-search";
 import type { AcsSearchResultItem } from "@/lib/catalog/acs/types";
 import { mappedSourceCategoryIds } from "@/lib/catalog/persona-mapping";
@@ -92,6 +93,17 @@ export async function GET(request: Request) {
       tolerances,
     });
   } catch (error) {
+    const field = unsupportedFitField(error);
+    if (field) {
+      return Response.json(
+        {
+          error: `ACS has no ${field} field yet: no synced product carries that sizing, so it cannot be filtered on.`,
+          reason: "unsupported_field",
+          field,
+        },
+        { status: 422 },
+      );
+    }
     console.error("[store-connection sizing/tester/products GET]", error);
     return Response.json({ error: "Could not load suitable products." }, { status: 500 });
   }

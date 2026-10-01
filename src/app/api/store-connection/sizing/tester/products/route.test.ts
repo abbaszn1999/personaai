@@ -144,6 +144,22 @@ describe("GET /api/store-connection/sizing/tester/products", () => {
     ]);
   });
 
+  it("says so when ACS does not index the fit field yet, instead of failing", async () => {
+    vi.mocked(searchProducts).mockRejectedValue(
+      Object.assign(new Error("ACS API error 400"), {
+        status: 400,
+        body: 'Unsupported field \\"attributes.fit_foot_length_min\\" on \\":\\" operator.',
+      }),
+    );
+
+    const params = new URLSearchParams({
+      brand: "Acme", fitGroup: "footwear", fitAudience: "mens", chartVariant: "Shoes", footLength: "27",
+    });
+    const shoes = await GET(new Request(`http://localhost/api/store-connection/sizing/tester/products?${params}`));
+    expect(shoes.status).toBe(422);
+    expect(await shoes.json()).toMatchObject({ reason: "unsupported_field", field: "attributes.fit_foot_length_min" });
+  });
+
   it("reads further pages until ACS has no more, up to a limit", async () => {
     vi.mocked(searchProducts)
       .mockResolvedValueOnce({ results: [hit("p1", [{ s: "M", chest: [94, 98] }])], nextPageToken: "page-2" })

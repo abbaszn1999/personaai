@@ -176,6 +176,18 @@ export function fitSearchTolerances(query: FitSearchQuery): Array<{ measurement:
   });
 }
 
+/**
+ * The fit field ACS rejected as unknown, if that is why a search failed. ACS only knows a custom
+ * attribute once some product carries it, so a measurement no published chart has reached the
+ * catalog with (e.g. foot length before any footwear chart is synced) is a 400, not an empty answer.
+ */
+export function unsupportedFitField(error: unknown): string | null {
+  if (!error || typeof error !== "object") return null;
+  const { status, body } = error as { status?: unknown; body?: unknown };
+  if (status !== 400 || typeof body !== "string") return null;
+  return body.match(/Unsupported field \\?"(attributes\.fit_[a-z_]+)\\?"/)?.[1] ?? null;
+}
+
 function bareAcsId(value: string): string {
   const slash = value.lastIndexOf("/");
   return slash === -1 ? value : value.slice(slash + 1);
