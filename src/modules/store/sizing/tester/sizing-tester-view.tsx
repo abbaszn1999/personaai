@@ -31,6 +31,7 @@ import type {
   TesterBrand,
 } from '@/modules/store/sizing/tester/options';
 import {
+  chartRowFits,
   productFitsSize,
   summarizeSearch,
   testerSearchParams,
@@ -42,11 +43,15 @@ export type UnitSystem = 'metric' | 'imperial';
 export type ParentCategoryKey = 'tops' | 'bottoms' | 'footwear' | 'outerwear' | 'dresses';
 type SizingSystemMode = 'us' | 'eu' | 'uk';
 
-/** One Found Sizes run: the request it was for and ACS's answer to it. */
-interface SearchRun {
+/** What Found Sizes got back for one chart: the request it was for and ACS's answer (or failure). */
+interface ChartRun {
   key: string;
-  data: TesterSearchResponse;
+  data?: TesterSearchResponse;
+  error?: string;
 }
+
+/** How many charts are asked at the same time. */
+const SEARCH_CONCURRENCY = 4;
 
 export function SizingTesterView() {
   const searchRequestId = useRef(0);
@@ -88,10 +93,10 @@ export function SizingTesterView() {
   // Sizing standard mode: US, EU, UK
   const [sizingMode, setSizingMode] = useState<SizingSystemMode>('us');
 
-  // The last Found Sizes run: the request it sent and what ACS answered
-  const [searchRun, setSearchRun] = useState<SearchRun | null>(null);
+  // The last Found Sizes run: one answer per chart (subcategory id) of the brand and persona
+  const [chartRuns, setChartRuns] = useState<Record<string, ChartRun>>({});
   const [isSearching, setIsSearching] = useState<boolean>(false);
-  const [searchError, setSearchError] = useState<{ key: string; message: string } | null>(null);
+  const [searchProgress, setSearchProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
 
   // Popup Modal for the ACS products of one size (row) or of the whole answer (row = null)
   const [activeSizeItemsModal, setActiveSizeItemsModal] = useState<{
@@ -262,55 +267,125 @@ export function SizingTesterView() {
 
   // The request Found Sizes sends for the inputs on screen. It holds exactly what reaches ACS, so
   // a slider that does not change it (weight, an adult's height) never makes an answer stale.
-  const searchParams = useMemo(() => {
-    if (!currentBrand || !currentCategory || !currentSubcategory) return null;
-    return testerSearchParams({
-      brand: currentBrand,
-      group: currentCategory.key,
-      audience: currentSubcategory.audience,
-      chartVariant: currentSubcategory.name,
-      persona,
-      measurements: testerMeasurements,
-    });
-  }, [currentBrand, currentCategory, currentSubcategory, persona, testerMeasurements]);
-  const searchKey = searchParams?.toString() ?? '';
+  // Every chart of the selected brand and persona: Found Sizes asks ACS about all of them, so
+  // switching category or subcategory afterwards shows that chart's own answer.
+  const chartTargets = useMemo(() => {
+    if (!currentBrand) return [];
+    return brandCategories.flatMap((category) =>
+      category.subcategories
+        .filter((subcategory) => (subcategory.rowsByPersona[persona]?.length ?? 0) > 0)
+        .map((subcategory) => ({
+          category,
+          subcategory,
+          key: testerSearchParams({
+            brand: currentBrand,
+            group: category.key,
+            audience: subcategory.audience,
+            chartVariant: subcategory.name,
+            persona,
+            measurements: testerMeasurements,
+          }).toString(),
+        })),
+    );
+  }, [currentBrand, brandCategories, persona, testerMeasurements]);
 
-  // Only ACS's answer to the request currently on screen is shown.
-  const freshRun = searchRun && searchRun.key === searchKey ? searchRun : null;
-  const shownSearchError = searchError && searchError.key === searchKey ? searchError.message : null;
+  // The answer to a chart counts only while its request is still what the inputs on screen would send.
+  const chartResults = useMemo(() => {
+    const results = new Map<string, {
+      run: ChartRun;
+      counts: number[];
+      bestLabel: string | null;
+      productCount: number;
+    }>();
+    for (const target of chartTargets) {
+      const run = chartRuns[target.subcategory.id];
+      if (!run || run.key !== target.key) continue;
+      const rows = target.subcategory.rowsByPersona[persona] ?? [];
+      if (!run.data) {
+        results.set(target.subcategory.id, { run, counts: rows.map(() => 0), bestLabel: null, productCount: 0 });
+        continue;
+      }
+      const deciding = Object.fromEntries(run.data.tolerances.map((entry) => [entry.measurement, entry.value]));
+      const summary = summarizeSearch(rows, target.category.key, target.subcategory.audience, deciding, run.data.products);
+      results.set(target.subcategory.id, {
+        run,
+        counts: summary.counts,
+        bestLabel: summary.bestIndex >= 0 ? rows[summary.bestIndex]?.sizeLabel ?? null : null,
+        productCount: run.data.products.length,
+      });
+    }
+    return results;
+  }, [chartTargets, chartRuns, persona]);
+
+  const currentResult = currentSubcategory ? chartResults.get(currentSubcategory.id) ?? null : null;
+  const freshRun = useMemo(
+    () => (currentResult?.run.data ? { data: currentResult.run.data } : null),
+    [currentResult],
+  );
+  const shownSearchError = currentResult?.run.error ?? null;
+  const searchParamsReady = chartTargets.length > 0;
   const acsProducts = useMemo(() => freshRun?.data.products ?? [], [freshRun]);
 
   const searchSummary = useMemo(() => {
-    if (!freshRun || !currentCategory || !currentSubcategory) {
-      return { counts: activeRows.map(() => 0), bestIndex: -1 };
-    }
-    const deciding = Object.fromEntries(freshRun.data.tolerances.map((entry) => [entry.measurement, entry.value]));
-    return summarizeSearch(activeRows, currentCategory.key, currentSubcategory.audience, deciding, acsProducts);
-  }, [freshRun, currentCategory, currentSubcategory, activeRows, acsProducts]);
+    return {
+      counts: currentResult?.counts ?? activeRows.map(() => 0),
+      bestIndex: currentResult?.bestLabel
+        ? activeRows.findIndex((row) => row.sizeLabel === currentResult.bestLabel)
+        : -1,
+    };
+  }, [currentResult, activeRows]);
+
+  const rowFits = useMemo(() => {
+    if (!freshRun || !currentCategory || !currentSubcategory) return activeRows.map(() => null);
+    return chartRowFits(activeRows, currentCategory.key, currentSubcategory.audience, freshRun.data.tolerances);
+  }, [freshRun, currentCategory, currentSubcategory, activeRows]);
 
   const bestRow = searchSummary.bestIndex >= 0 ? activeRows[searchSummary.bestIndex] ?? null : null;
   const productsWithFit = acsProducts.filter((product) => product.fitSizes.length > 0).length;
 
+  /** The badge a category chip shows once Found Sizes ran: how many of its charts got a best size. */
+  const categoryBadge = (category: (typeof brandCategories)[number]) => {
+    const targets = chartTargets.filter((target) => target.category.key === category.key);
+    const answered = targets.map((target) => chartResults.get(target.subcategory.id)).filter((result) => result !== undefined);
+    if (answered.length === 0) return null;
+    const matched = answered.filter((result) => result.bestLabel !== null).length;
+    const failed = answered.filter((result) => result.run.error !== undefined).length;
+    return { matched, total: targets.length, failed };
+  };
+
   const handleRunTest = async () => {
-    if (!searchParams) return;
-    const key = searchKey;
+    if (chartTargets.length === 0) return;
+    const targets = chartTargets;
     const requestId = ++searchRequestId.current;
     setIsSearching(true);
-    setSearchError(null);
-    try {
-      const response = await fetch(`/api/store-connection/sizing/tester/products?${key}`);
-      const body = await response.json() as TesterSearchResponse;
-      if (!response.ok) throw new Error(body.error || 'ACS did not answer the fit search.');
-      if (!Array.isArray(body.products)) throw new Error('The ACS answer was invalid.');
-      if (requestId === searchRequestId.current) setSearchRun({ key, data: body });
-    } catch (error) {
-      if (requestId === searchRequestId.current) {
-        setSearchRun(null);
-        setSearchError({ key, message: error instanceof Error ? error.message : 'ACS did not answer the fit search.' });
+    setChartRuns({});
+    setSearchProgress({ done: 0, total: targets.length });
+
+    let next = 0;
+    let done = 0;
+    const worker = async () => {
+      while (next < targets.length) {
+        const target = targets[next++];
+        let run: ChartRun;
+        try {
+          const response = await fetch(`/api/store-connection/sizing/tester/products?${target.key}`);
+          const body = await response.json() as TesterSearchResponse;
+          if (!response.ok) throw new Error(body.error || 'ACS did not answer the fit search.');
+          if (!Array.isArray(body.products)) throw new Error('The ACS answer was invalid.');
+          run = { key: target.key, data: body };
+        } catch (error) {
+          run = { key: target.key, error: error instanceof Error ? error.message : 'ACS did not answer the fit search.' };
+        }
+        // A newer run replaced this one: drop its answers.
+        if (requestId !== searchRequestId.current) return;
+        done += 1;
+        setChartRuns((current) => ({ ...current, [target.subcategory.id]: run }));
+        setSearchProgress({ done, total: targets.length });
       }
-    } finally {
-      if (requestId === searchRequestId.current) setIsSearching(false);
-    }
+    };
+
+    await Promise.all(Array.from({ length: Math.min(SEARCH_CONCURRENCY, targets.length) }, worker));
+    if (requestId === searchRequestId.current) setIsSearching(false);
   };
 
   const handleResetDefaults = () => {
@@ -875,13 +950,13 @@ export function SizingTesterView() {
                 <button
                   type="button"
                   onClick={() => void handleRunTest()}
-                  disabled={isSearching || !searchParams}
+                  disabled={isSearching || !searchParamsReady}
                   className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold text-sm shadow-md shadow-purple-600/20 transition-all cursor-pointer transform active:scale-[0.99] disabled:opacity-85"
                 >
                   {isSearching ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin text-purple-200" />
-                      <span>Asking ACS...</span>
+                      <span>Asking ACS... {searchProgress.done}/{searchProgress.total}</span>
                     </>
                   ) : (
                     <>
@@ -916,12 +991,18 @@ export function SizingTesterView() {
                   </h3>
                 </div>
                 <p className="text-xs text-slate-500 max-w-md mb-6 leading-relaxed">
-                  Searching the published catalog for <strong className="text-purple-700">{currentCategory?.label}</strong> from {currentBrand.name} ({currentSubcategory?.name}) that fit your measurements. The answer below is exactly what ACS returns.
+                  Searching the published catalog for every size chart of {currentBrand.name} ({searchProgress.total} charts across {brandCategories.length} categories) that fit your measurements. The answers are exactly what ACS returns.
                 </p>
-                {/* Animated progress bar */}
-                <div className="w-72 h-2.5 bg-slate-100 rounded-full overflow-hidden p-0.5 border border-slate-200 mb-4">
-                  <div className="h-full bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-600 rounded-full animate-pulse w-5/6" />
+                {/* Progress bar: charts answered so far */}
+                <div className="w-72 h-2.5 bg-slate-100 rounded-full overflow-hidden p-0.5 border border-slate-200 mb-2">
+                  <div
+                    className="h-full bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-600 rounded-full transition-all"
+                    style={{ width: `${searchProgress.total > 0 ? Math.max(6, (searchProgress.done / searchProgress.total) * 100) : 6}%` }}
+                  />
                 </div>
+                <p className="text-[11px] font-semibold text-slate-500 mb-4">
+                  {searchProgress.done} of {searchProgress.total} charts answered
+                </p>
                 <div className="flex items-center gap-3 text-[11px] font-semibold text-slate-400">
                   <span className="flex items-center gap-1 text-purple-700 font-bold"><CheckCircle2 className="w-3.5 h-3.5 text-purple-600" /> Fit filter</span>
                   <span>•</span>
@@ -1034,6 +1115,7 @@ export function SizingTesterView() {
                     {brandCategories.map((cat) => {
                       const Icon = getCategoryIcon(cat.key);
                       const isSelected = selectedCategoryKey === cat.key;
+                      const badge = categoryBadge(cat);
 
                       return (
                         <button
@@ -1048,7 +1130,20 @@ export function SizingTesterView() {
                         >
                           <Icon className={`w-4 h-4 flex-shrink-0 ${isSelected ? 'text-purple-600' : 'text-slate-400'}`} />
                           <span className="font-semibold">{cat.label}</span>
-
+                          {badge && (
+                            <span
+                              title={`${badge.matched} of ${badge.total} charts got a best size from ACS${badge.failed > 0 ? `; ${badge.failed} failed` : ''}`}
+                              className={`px-1.5 py-0.5 rounded-full text-[10px] font-black border ${
+                                badge.failed > 0 && badge.matched === 0
+                                  ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                  : badge.matched > 0
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                    : 'bg-amber-50 text-amber-700 border-amber-200'
+                              }`}
+                            >
+                              {badge.matched}/{badge.total}
+                            </span>
+                          )}
                         </button>
                       );
                     })}
@@ -1070,11 +1165,21 @@ export function SizingTesterView() {
                           onChange={(e) => setSelectedSubcategoryId(e.target.value)}
                           className="w-full appearance-none bg-white border border-slate-300 hover:border-purple-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 rounded-xl px-3.5 py-2 pr-8 text-xs font-bold text-slate-800 shadow-2xs transition-all cursor-pointer"
                         >
-                          {availableSubcategories.map((sub) => (
-                            <option key={sub.id} value={sub.id}>
-                              {sub.name} ({sub.fitType})
-                            </option>
-                          ))}
+                          {availableSubcategories.map((sub) => {
+                            const result = chartResults.get(sub.id);
+                            const note = !result
+                              ? ''
+                              : result.run.error
+                                ? ' — failed'
+                                : result.bestLabel
+                                  ? ` — Best ${result.bestLabel}`
+                                  : ' — no match';
+                            return (
+                              <option key={sub.id} value={sub.id}>
+                                {sub.name} ({sub.fitType}){note}
+                              </option>
+                            );
+                          })}
                         </select>
                         <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                       </div>
@@ -1114,7 +1219,9 @@ export function SizingTesterView() {
                                   ? 'Not sent to ACS yet'
                                   : bestRow
                                     ? 'Best Fit:'
-                                    : 'No fitting size in stock'}
+                                    : freshRun.data.chartProducts === 0
+                                      ? 'No products on this chart'
+                                      : 'No fitting size in stock'}
                             </span>
                             {bestRow && (
                               <>
@@ -1127,7 +1234,7 @@ export function SizingTesterView() {
                               </>
                             )}
                           </div>
-                          <p className={`text-[11px] font-medium truncate max-w-sm mt-0.5 ${toneClasses.text}`}>
+                          <p className={`text-[11px] font-medium max-w-sm mt-0.5 ${toneClasses.text}`}>
                             {shownSearchError
                               ? shownSearchError
                               : !freshRun
@@ -1135,7 +1242,13 @@ export function SizingTesterView() {
                                 : bestRow
                                   ? `ACS returned ${acsProducts.length} products; ${productsWithFit} have a fitting size in stock.`
                                   : acsProducts.length === 0
-                                    ? 'ACS returned no products for this filter.'
+                                    ? freshRun.data.chartProducts === 0
+                                      ? `No in-stock product of this store is matched to this chart, with or without your measurements.${
+                                          rowFits.includes('inside')
+                                            ? ` By the chart your size is ${formatSizeForMode(activeRows[rowFits.indexOf('inside')], sizingMode)}.`
+                                            : ''
+                                        }`
+                                      : `ACS has ${freshRun.data.chartProducts ?? 'some'} in-stock products on this chart, none within tolerance.`
                                     : `ACS returned ${acsProducts.length} products but none has a stocked size within tolerance.`}
                           </p>
                         </div>
@@ -1261,6 +1374,8 @@ export function SizingTesterView() {
                 <tbody className="divide-y divide-slate-100">
                   {activeRows.map((row, idx) => {
                     const isHighlighted = idx === searchSummary.bestIndex;
+                    // The chart says this is the shopper's size, but ACS has no stocked product in it.
+                    const chartOnly = !isHighlighted && searchSummary.counts[idx] === 0 ? rowFits[idx] : null;
 
                     // Formatted age label for kids
                     const ageDisplay = row.ageLabel
@@ -1279,7 +1394,9 @@ export function SizingTesterView() {
                         className={`transition-all duration-300 ${
                           isHighlighted
                             ? 'bg-emerald-50/95 hover:bg-emerald-100/90 font-semibold ring-2 ring-emerald-500 ring-inset shadow-xs'
-                            : 'hover:bg-slate-50/70 text-slate-700'
+                            : chartOnly === 'inside'
+                              ? 'bg-amber-50/70 hover:bg-amber-50 text-slate-800 ring-1 ring-amber-300 ring-inset'
+                              : 'hover:bg-slate-50/70 text-slate-700'
                         }`}
                       >
                         {/* Primary Size Column (Formatted strictly for selected sizingMode) */}
@@ -1363,6 +1480,17 @@ export function SizingTesterView() {
                             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-black bg-emerald-600 text-white shadow-2xs">
                               <Sparkles className="w-3 h-3" />
                               Best Fit
+                            </span>
+                          ) : chartOnly ? (
+                            <span
+                              title="This chart row fits your measurement, but ACS returned no in-stock product in this size."
+                              className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold border ${
+                                chartOnly === 'inside'
+                                  ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                  : 'bg-white text-amber-700 border-amber-200'
+                              }`}
+                            >
+                              {chartOnly === 'inside' ? 'Your size · no stock' : 'Near · no stock'}
                             </span>
                           ) : (
                             <span className={`text-[11px] font-medium ${

@@ -36,6 +36,9 @@ export interface TesterSearchResponse {
   /** The caller-controlled half of the ACS filter that was sent. */
   filter: string;
   tolerances: Array<{ measurement: Measurement; value: number; tolerance: number }>;
+  /** Set only when ACS answered with nothing: how many in-stock products are matched to this
+   *  chart at all (same filter without the measurements). 0 = the chart has no products. */
+  chartProducts?: number | null;
   error?: string;
 }
 
@@ -114,6 +117,32 @@ function decidingBounds(row: MultiSystemRow, measurement: Measurement): Bounds {
     default:
       return [undefined, undefined];
   }
+}
+
+export type ChartRowFit = "inside" | "near" | null;
+
+/**
+ * How each row of the chart itself relates to the shopper on the group's deciding measurement,
+ * using the same tolerance ACS was sent: "inside" the range, "near" (within tolerance), or null.
+ * It says which size the chart points to even when ACS has no stocked product in it.
+ */
+export function chartRowFits(
+  rows: readonly MultiSystemRow[],
+  group: SizingGroup,
+  audience: Audience,
+  tolerances: TesterSearchResponse["tolerances"],
+): ChartRowFit[] {
+  const [measurement] = requiredMeasurementsFor(group, audience);
+  const entry = tolerances.find((item) => item.measurement === measurement);
+  if (measurement === undefined || !entry) return rows.map(() => null);
+  return rows.map((row) => {
+    const [min, max] = decidingBounds(row, measurement);
+    if (min === undefined && max === undefined) return null;
+    const low = min ?? max!;
+    const high = max ?? min!;
+    if (entry.value >= low && entry.value <= high) return "inside";
+    return low <= entry.value + entry.tolerance && high >= entry.value - entry.tolerance ? "near" : null;
+  });
 }
 
 /** Whether ACS's product has this chart size in stock and within tolerance of the shopper. */

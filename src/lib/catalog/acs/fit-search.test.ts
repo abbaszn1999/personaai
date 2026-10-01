@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AcsSearchResultItem } from "./types";
 import {
+  buildChartScopeFilter,
   buildFitSearchFilter,
   fitSearchTolerances,
   parseFitSearchQuery,
@@ -95,6 +96,13 @@ describe("buildFitSearchFilter", () => {
     );
     expect(filter).not.toContain("fit_waist");
     expect(filter).not.toContain("fit_size_labels");
+  });
+
+  it("builds the chart scope without any body measurement", () => {
+    expect(buildChartScopeFilter(query())).toBe(
+      '(brands: ANY("Acme")) AND (attributes.fit_audience: ANY("mens")) AND ' +
+        `(attributes.fit_chart_variant: ANY("Men's Core")) AND (availability: ANY("IN_STOCK"))`,
+    );
   });
 
   it("cannot scope no-brand in ACS", () => {

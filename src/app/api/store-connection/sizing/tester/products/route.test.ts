@@ -160,6 +160,31 @@ describe("GET /api/store-connection/sizing/tester/products", () => {
     expect(await shoes.json()).toMatchObject({ reason: "unsupported_field", field: "attributes.fit_foot_length_min" });
   });
 
+  it("tells an empty chart from an empty fit by asking again without the measurements", async () => {
+    vi.mocked(searchProducts)
+      .mockResolvedValueOnce({ results: [], totalSize: 0 })
+      .mockResolvedValueOnce({ results: [], totalSize: 0 });
+    const emptyChart = await (await GET(request())).json();
+    expect(emptyChart.chartProducts).toBe(0);
+    const scope = vi.mocked(searchProducts).mock.calls[1][0];
+    expect(scope.extraFilter).toContain('attributes.fit_chart_variant: ANY("Men\'s Core")');
+    expect(scope.extraFilter).not.toContain("fit_chest");
+
+    vi.mocked(searchProducts)
+      .mockResolvedValueOnce({ results: [], totalSize: 0 })
+      .mockResolvedValueOnce({ results: [hit("p1", [{ s: "M", chest: [94, 98] }])], totalSize: 12 });
+    const emptyFit = await (await GET(request())).json();
+    expect(emptyFit.chartProducts).toBe(12);
+
+    vi.mocked(searchProducts).mockResolvedValueOnce({
+      results: [hit("p1", [{ s: "M", chest: [94, 98] }])],
+      totalSize: 1,
+    });
+    vi.mocked(searchProducts).mockClear();
+    expect((await (await GET(request())).json()).chartProducts).toBeNull();
+    expect(searchProducts).toHaveBeenCalledTimes(1);
+  });
+
   it("reads further pages until ACS has no more, up to a limit", async () => {
     vi.mocked(searchProducts)
       .mockResolvedValueOnce({ results: [hit("p1", [{ s: "M", chest: [94, 98] }])], nextPageToken: "page-2" })

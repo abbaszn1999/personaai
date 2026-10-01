@@ -2,6 +2,7 @@ import { searchProducts } from "@/lib/catalog/acs/client";
 import { isAcsConfigured } from "@/lib/catalog/acs/config";
 import { buildAcsVisitorId } from "@/lib/catalog/acs/isolation";
 import {
+  buildChartScopeFilter,
   buildFitSearchFilter,
   fitSearchTolerances,
   parseFitSearchQuery,
@@ -56,6 +57,7 @@ export async function GET(request: Request) {
     if (categoryScope.length === 0) {
       return Response.json({
         products: [], hitCount: 0, totalSize: 0, pages: 0, truncated: false, outOfScope: 0, filter, tolerances,
+        chartProducts: 0,
       });
     }
 
@@ -82,6 +84,21 @@ export async function GET(request: Request) {
 
     const { products, outOfScope } = toFitSearchProducts(items, parsed.value, connection.id);
 
+    // An empty answer means one of two things: nobody fits, or no catalog product is matched to
+    // this chart at all. The same filter without the measurements tells them apart.
+    let chartProducts: number | null = null;
+    if (items.length === 0) {
+      const scope = await searchProducts({
+        connectionId: connection.id,
+        categoryScope,
+        visitorId,
+        query: "",
+        pageSize: 1,
+        extraFilter: buildChartScopeFilter(parsed.value),
+      });
+      chartProducts = scope.totalSize ?? scope.results?.length ?? 0;
+    }
+
     return Response.json({
       products,
       hitCount: items.length,
@@ -91,6 +108,7 @@ export async function GET(request: Request) {
       outOfScope,
       filter,
       tolerances,
+      chartProducts,
     });
   } catch (error) {
     const field = unsupportedFitField(error);

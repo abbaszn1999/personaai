@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FitSearchProductDto } from "@/lib/catalog/acs/fit-search";
-import { summarizeSearch, testerSearchParams, type TesterMeasurements } from "./acs-result";
+import { chartRowFits, summarizeSearch, testerSearchParams, type TesterMeasurements } from "./acs-result";
 import type { MultiSystemRow, TesterBrand } from "./options";
 
 const measurements: TesterMeasurements = {
@@ -27,6 +27,15 @@ function product(id: string, fitSizes: string[]): FitSearchProductDto {
     sizes: fitSizes, fitSizes, availability: "IN_STOCK", uri: null, category: null,
   };
 }
+
+describe("chartRowFits", () => {
+  it("marks the chart row containing the value and the rows within tolerance, stock or not", () => {
+    const blazers = [row("50", [98, 101]), row("52", [102, 105]), row("54", [106, 109]), row("56", [110, 113])];
+    const tolerances = [{ measurement: "chest" as const, value: 104, tolerance: 2 }];
+    expect(chartRowFits(blazers, "outerwear", "mens", tolerances)).toEqual([null, "inside", "near", null]);
+    expect(chartRowFits(blazers, "outerwear", "mens", [])).toEqual([null, null, null, null]);
+  });
+});
 
 describe("testerSearchParams", () => {
   it("sends only the measurements that apply to the garment group", () => {

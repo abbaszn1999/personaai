@@ -181,3 +181,11 @@ Against the test store (`5dd08b5c-cfaa-4c55-b502-677e895dc99d`):
 - **Unisex and kids-unisex shoppers** stay strict: only unisex-tagged products.
 - **Pagination:** the tester reads at most 5 pages; `truncated` says when more exist, and the
   per-size counts are then partial.
+
+## Follow-up: Found Sizes runs for every chart
+
+- **One click, every chart.** Found Sizes now sends one request per category x subcategory chart of the selected brand and persona (4 at a time). Each answer is stored per chart, so switching category or subcategory shows that chart's own result without pressing the button again. Category chips show `matched/total` charts that got a best size; the subcategory dropdown shows `Best <size>`, `no match` or `failed`.
+- **Stale answers.** An answer only counts while its request string still equals what the inputs on screen would send (brand, persona, measurements that apply to that group). Changing a slider hides outdated answers.
+- **Per-chart failures** (for example footwear before foot-length charts are indexed) show on that chart only and do not stop the others.
+- **"0 products" explained.** When ACS returns nothing, the route sends the same scope filter (brand, audience, chart variant, in stock) without the measurements and returns `chartProducts`. `0` means no product in the store is matched to that chart (the case for Tom Tailor "Men Blazers": its variant has 0 products even with no measurement filter, while "Men Jackets" has 26). A positive number means products exist on the chart but none is within tolerance.
+- `buildChartScopeFilter` in `src/lib/catalog/acs/fit-search.ts` builds that measurement-free filter.

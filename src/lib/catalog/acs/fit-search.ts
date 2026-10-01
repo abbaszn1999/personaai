@@ -153,19 +153,34 @@ function anyTextClause(field: string, value: string): string {
 export function buildFitSearchFilter(query: FitSearchQuery): string | null {
   const fit = fitGroupClause(query.fitGroup, query.measurements, isChildAudience(query.fitAudience));
   if (!fit) return null;
-  const clauses = [
-    fit,
+  const brand = brandClause(query);
+  return [...(brand ? [brand] : []), fit, chartClauses(query).join(" AND ")].join(" AND ");
+}
+
+function brandClause(query: FitSearchQuery): string | null {
+  // ACS has exact textual equality but no documented "predefined field is absent" predicate, so
+  // "No brand" cannot be sent; `toFitSearchProducts` scopes it from the retrievable `brands`.
+  if (query.brand === null) return null;
+  const names = query.brandAliases?.length ? query.brandAliases : [query.brand];
+  return `(${names.map((name) => `brands: ANY("${escapeFilterLiteral(name)}")`).join(" OR ")})`;
+}
+
+function chartClauses(query: FitSearchQuery): string[] {
+  return [
     anyTextClause("attributes.fit_audience", query.fitAudience),
     anyTextClause("attributes.fit_chart_variant", query.chartVariant),
     anyTextClause("availability", "IN_STOCK"),
   ];
-  // ACS has exact textual equality but no documented "predefined field is absent" predicate, so
-  // "No brand" cannot be sent; `toFitSearchProducts` scopes it from the retrievable `brands`.
-  if (query.brand !== null) {
-    const names = query.brandAliases?.length ? query.brandAliases : [query.brand];
-    clauses.unshift(`(${names.map((name) => `brands: ANY("${escapeFilterLiteral(name)}")`).join(" OR ")})`);
-  }
-  return clauses.join(" AND ");
+}
+
+/**
+ * The half of the filter that only says which chart's products are wanted (brand, audience,
+ * chart variant, in stock) without any body measurement. The tester sends it alone to tell
+ * "no product fits" apart from "no product in the catalog is matched to this chart".
+ */
+export function buildChartScopeFilter(query: FitSearchQuery): string {
+  const brand = brandClause(query);
+  return [...(brand ? [brand] : []), ...chartClauses(query)].join(" AND ");
 }
 
 /** The tolerance each measurement of this request is widened by, for display next to the filter. */
