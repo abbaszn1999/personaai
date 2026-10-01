@@ -122,6 +122,8 @@ async function route(req: NextRequest, pathname: string): Promise<NextResponse> 
   const session = await getIronSession<SessionData>(req, res, sessionOptions);
 
   if (!session.userId) {
+    const siteUrl = process.env.MARKETING_SITE_URL;
+    if (pathname === "/" && siteUrl) return NextResponse.redirect(siteUrl);
     const signIn = new URL("/sign-in", req.url);
     signIn.searchParams.set("from", pathname);
     return NextResponse.redirect(signIn);
