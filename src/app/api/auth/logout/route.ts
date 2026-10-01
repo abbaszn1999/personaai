@@ -1,6 +1,8 @@
 import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { sessionOptions, type SessionData } from "@/modules/auth/lib/session";
+import { applySessionHint } from "@/modules/auth/lib/session-hint";
 import { deleteSessionBySid } from "@/lib/db/sessions";
 
 export async function POST() {
@@ -13,9 +15,11 @@ export async function POST() {
     }
 
     session.destroy();
-    return Response.json({ success: true });
+    const res = NextResponse.json({ success: true });
+    applySessionHint(res, false);
+    return res;
   } catch (err) {
     console.error("[logout]", err);
-    return Response.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

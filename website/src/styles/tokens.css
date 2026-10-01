@@ -1,0 +1,74 @@
+:root {
+  /* Raw palette */
+  --orange-500: #f76d01;
+  --red-600: #c40000;
+  --wine-800: #79081d;
+  --purple-900: #400095;
+  --purple-600: #6b358d;
+  --lavender-300: #c8a8d2;
+  --ink-1000: #050407;
+  --ink-950: #0a080d;
+  --ink-900: #121017;
+  --ink-800: #1c1822;
+  --bone-50: #f3eee6;
+
+  /* Theme-adaptive variables (defaults = dark) */
+  --bg: #050407;
+  --surface: #121017;
+  --surface-raised: #1c1822;
+  --surface-card: rgba(255, 255, 255, 0.035);
+  --surface-card-hover: rgba(255, 255, 255, 0.06);
+  --surface-well: rgba(0, 0, 0, 0.45);
+  --surface-input: rgba(0, 0, 0, 0.4);
+  --surface-phone: rgba(13, 11, 16, 0.92);
+  --text: #f3eee6;
+  --text-muted: rgba(243, 238, 230, 0.62);
+  --text-faint: rgba(243, 238, 230, 0.32);
+  --hairline: rgba(243, 238, 230, 0.12);
+  --hairline-strong: rgba(243, 238, 230, 0.22);
+  --grid-line: rgba(243, 238, 230, 0.06);
+
+  --brand: var(--orange-500);
+  --brand-strong: var(--red-600);
+  --accent: var(--purple-600);
+  --grad-brand: linear-gradient(120deg, var(--orange-500) 0%, var(--red-600) 100%);
+  --grad-dusk: linear-gradient(160deg, var(--orange-500) 0%, var(--wine-800) 45%, var(--purple-900) 100%);
+
+  --ease-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --gutter: clamp(1.25rem, 3.5vw, 3.5rem);
+
+  /* Vertical rhythm between sections: fixed on phones, proportional to the screen on desktop. */
+  --section-y: 4rem;
+  --section-y-lg: 5rem;
+}
+
+@media (min-width: 900px) {
+  :root {
+    --section-y: 12vh;
+    --section-y-lg: 16vh;
+  }
+}
+
+[data-theme="light"] {
+  /* High-end warm alabaster / editorial paper palette */
+  --bg: #f8f7f4;
+  --surface: #ffffff;
+  --surface-raised: #f1efe9;
+  --surface-card: rgba(14, 12, 19, 0.025);
+  --surface-card-hover: rgba(14, 12, 19, 0.05);
+  --surface-well: #faf9f6;
+  --surface-input: #ffffff;
+  --surface-phone: rgba(255, 255, 255, 0.95);
+  --text: #0e0c13;
+  --text-muted: rgba(14, 12, 19, 0.68);
+  --text-faint: rgba(14, 12, 19, 0.42);
+  --hairline: rgba(14, 12, 19, 0.1);
+  --hairline-strong: rgba(14, 12, 19, 0.22);
+  --grid-line: rgba(14, 12, 19, 0.06);
+
+  --brand: #f26800;
+  --brand-strong: #c40000;
+  --accent: #5d257a;
+  --grad-brand: linear-gradient(120deg, #f76d01 0%, #db2a0a 100%);
+  --grad-dusk: linear-gradient(160deg, #f76d01 0%, #79081d 45%, #400095 100%);
+}

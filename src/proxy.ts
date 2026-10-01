@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getIronSession } from "iron-session";
+import { getIronSession, unsealData } from "iron-session";
 import { adminSessionOptions, type AdminSessionData } from "@/modules/auth/lib/admin-session-options";
 import { sessionOptions, type SessionData } from "@/modules/auth/lib/session";
+import { SESSION_HINT_COOKIE, applySessionHint } from "@/modules/auth/lib/session-hint";
 
 const PUBLIC_PATHS = [
   "/lamp",
@@ -43,6 +44,7 @@ const APP_ROOTS = new Set([
   "analytics",
   "settings",
   "store",
+  "dashboard",
   "admin",
   "embed",
   "api",
@@ -53,6 +55,20 @@ function isUnknownPage(pathname: string): boolean {
   if (pathname === "/") return false;
   const root = pathname.split("/").filter(Boolean)[0];
   return Boolean(root) && !APP_ROOTS.has(root);
+}
+
+async function hasMerchantSession(req: NextRequest): Promise<boolean> {
+  const sealed = req.cookies.get(sessionOptions.cookieName)?.value;
+  if (!sealed) return false;
+  try {
+    const data = await unsealData<SessionData>(sealed, {
+      password: sessionOptions.password,
+      ttl: sessionOptions.ttl,
+    });
+    return Boolean(data.userId);
+  } catch {
+    return false;
+  }
 }
 
 export async function proxy(req: NextRequest) {
@@ -66,6 +82,17 @@ export async function proxy(req: NextRequest) {
     return NextResponse.next();
   }
 
+  const res = await route(req, pathname);
+  if (pathname.startsWith("/admin") || pathname.startsWith("/api/admin")) return res;
+
+  // Keep the marketing site's signed-in flag in step with the real session.
+  const signedIn = await hasMerchantSession(req);
+  const flagged = req.cookies.get(SESSION_HINT_COOKIE)?.value === "1";
+  if (signedIn !== flagged) applySessionHint(res, signedIn);
+  return res;
+}
+
+async function route(req: NextRequest, pathname: string): Promise<NextResponse> {
   if (pathname.startsWith("/admin") || pathname.startsWith("/api/admin")) {
     const open =
       pathname === "/admin/sign-in" ||
@@ -81,6 +108,10 @@ export async function proxy(req: NextRequest) {
       return NextResponse.redirect(new URL("/admin/sign-in", req.url));
     }
     return adminRes;
+  }
+
+  if ((pathname === "/sign-in" || pathname === "/sign-up") && (await hasMerchantSession(req))) {
+    return NextResponse.redirect(new URL("/dashboard", req.url));
   }
 
   if (isPublicPath(pathname) || isUnknownPage(pathname)) {

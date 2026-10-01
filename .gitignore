@@ -16,6 +16,10 @@
 # next.js
 /.next/
 /out/
+website/.next/
+website/node_modules/
+website/out/
+website/.shots/
 
 # production
 /build

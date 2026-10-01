@@ -36,7 +36,7 @@ export function SignInForm() {
       const data = await res.json();
 
       if (res.ok) {
-        const dest = data.user?.hasCompletedOnboarding ? "/" : "/onboarding";
+        const dest = data.user?.hasCompletedOnboarding ? "/dashboard" : "/onboarding";
         router.push(dest);
         return;
       }
