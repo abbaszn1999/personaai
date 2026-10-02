@@ -5,6 +5,7 @@ import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { useGSAP } from "@gsap/react";
 import { Callouts } from "@/components/fitting-room/callouts";
+import { MirrorOverlays } from "@/components/fitting-room/overlays";
 import { createMirrorStage, type MirrorStage } from "@/components/fitting-room/stage";
 import { hero, looks } from "@/lib/content";
 
@@ -171,6 +172,7 @@ export function FittingRoom() {
               />
             ))
           ) : null}
+          <MirrorOverlays active={active} />
 
           <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-3 whitespace-nowrap p-4 font-mono text-[10px] uppercase tracking-[0.2em] text-white/90">
             <span>
@@ -181,7 +183,10 @@ export function FittingRoom() {
               {look.tag}
             </span>
           </div>
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-4 pt-16 light:from-black/60 light:via-black/20">
+          <div
+            className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-4 pt-16 transition-opacity duration-300 light:from-black/60 light:via-black/20"
+            style={{ opacity: active === looks.length - 1 ? 0 : 1 }}
+          >
             <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-white/60">Rendered on avatar</p>
             <p className="mt-1 font-serif text-2xl italic leading-none text-white">{look.garment}</p>
           </div>
@@ -191,27 +196,67 @@ export function FittingRoom() {
         <div data-story className="invisible absolute inset-y-0 left-0 z-30 flex w-full items-end px-[var(--gutter)] pb-10 min-[900px]:w-1/2 min-[900px]:items-center min-[900px]:pb-0">
           <div className="w-full max-w-lg">
             <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-brand">{hero.room}</p>
-            <div className="relative mt-5 h-[12rem] min-[900px]:mt-12 min-[900px]:h-[24rem]">
-              {looks.map((item, index) => (
-                <article
-                  key={item.code}
-                  aria-hidden={index !== active}
-                  className="absolute inset-0 transition-[opacity,transform,filter] duration-700 ease-[var(--ease-expo)]"
-                  style={{
-                    opacity: index === active ? 1 : 0,
-                    transform: `translateY(${(index - active) * 28}px)`,
-                    filter: index === active ? "blur(0)" : "blur(8px)",
-                  }}
-                >
-                  <p className="hidden font-display text-[5.5rem] font-semibold min-[900px]:block leading-none tracking-[-0.06em] text-transparent [-webkit-text-stroke:1px_var(--hairline-strong)] min-[900px]:text-[8rem]">
-                    {item.code}
-                  </p>
-                  <h2 className="font-display text-3xl font-semibold leading-[1.08] tracking-[-0.035em] text-bone min-[900px]:mt-6 min-[900px]:text-5xl">
-                    {item.title}
-                  </h2>
-                  <p className="mt-5 max-w-md text-sm leading-[1.75] text-muted min-[900px]:mt-7 min-[900px]:text-base">{item.body}</p>
-                </article>
-              ))}
+            <div className="relative mt-5 h-[13rem] min-[900px]:mt-10 min-[900px]:h-[27rem]">
+              {looks.map((item, index) => {
+                const on = index === active;
+                const lift = (delay: number): React.CSSProperties => ({
+                  opacity: on ? 1 : 0,
+                  transform: on ? "none" : `translateY(${index < active ? -18 : 18}px)`,
+                  transitionDelay: on ? `${delay}ms` : "0ms",
+                });
+                return (
+                  <article key={item.code} aria-hidden={!on} className="absolute inset-0" style={{ pointerEvents: on ? "auto" : "none" }}>
+                    <div className="flex items-end gap-4">
+                      <span
+                        className="hidden font-display text-[6.5rem] font-semibold leading-[0.8] tracking-[-0.06em] text-transparent transition-[opacity,transform] duration-700 ease-[var(--ease-expo)] [-webkit-text-stroke:1px_var(--hairline-strong)] min-[900px]:block"
+                        style={lift(0)}
+                      >
+                        {item.code}
+                      </span>
+                      <span
+                        className="flex items-center gap-2 pb-1 font-mono text-[10px] uppercase tracking-[0.22em] text-muted transition-[opacity,transform] duration-700 ease-[var(--ease-expo)]"
+                        style={lift(60)}
+                      >
+                        <span className="h-1.5 w-1.5 rounded-full bg-brand shadow-[0_0_8px_var(--brand)]" />
+                        {item.label}
+                        <span className="text-faint">/ 0{looks.length}</span>
+                      </span>
+                    </div>
+                    <h2 className="mt-4 font-display text-[2.1rem] font-semibold leading-[0.98] tracking-[-0.045em] text-bone min-[900px]:mt-7 min-[900px]:text-[clamp(3rem,4.4vw,4.4rem)]">
+                      <span className="block transition-[opacity,transform] duration-700 ease-[var(--ease-expo)]" style={lift(90)}>
+                        {item.title}
+                      </span>
+                      <span
+                        className="block font-serif font-normal italic tracking-[-0.025em] text-muted transition-[opacity,transform] duration-700 ease-[var(--ease-expo)]"
+                        style={lift(170)}
+                      >
+                        {item.accent}
+                      </span>
+                    </h2>
+                    <p
+                      className="mt-4 max-w-md text-sm leading-[1.7] text-muted transition-[opacity,transform] duration-700 ease-[var(--ease-expo)] min-[900px]:mt-6 min-[900px]:text-base"
+                      style={lift(240)}
+                    >
+                      {item.body}
+                    </p>
+                    <dl
+                      className="mt-7 hidden max-w-md grid-cols-3 border-t border-hairline transition-opacity duration-500 min-[900px]:grid"
+                      style={{ opacity: on ? 1 : 0, transitionDelay: on ? "280ms" : "0ms" }}
+                    >
+                      {item.facts.map(([value, text], factIndex) => (
+                        <div
+                          key={text}
+                          className="border-r border-hairline pr-3 pt-4 transition-[opacity,transform] duration-700 ease-[var(--ease-expo)] last:border-r-0 [&:not(:first-child)]:pl-4"
+                          style={lift(320 + factIndex * 70)}
+                        >
+                          <dt className="font-display text-2xl font-semibold tracking-[-0.03em] text-bone">{value}</dt>
+                          <dd className="mt-1 font-mono text-[9.5px] uppercase leading-snug tracking-[0.14em] text-faint">{text}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </article>
+                );
+              })}
             </div>
             <ol className="mt-8 flex gap-2 min-[900px]:mt-10" aria-label="Looks">
               {looks.map((item, index) => (

@@ -4,7 +4,8 @@ import { useRef, useState } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { useGSAP } from "@gsap/react";
-import { chapters } from "@/lib/features";
+import { chapters, chaptersIntro } from "@/lib/features";
+import { stylist } from "@/lib/content";
 import { cn } from "@/lib/cn";
 import { AvatarVisual, CartVisual, LiveVisual, SizingVisual, StylistVisual, TryOnVisual } from "@/components/features/visuals";
 
@@ -21,61 +22,110 @@ const visuals = {
 
 type Q = (selector: string) => HTMLElement[];
 
-function counter(q: Q, selector: string, to: number, format = (v: number) => String(Math.round(v))) {
-  const state = { v: 0 };
-  return gsap.to(state, {
-    v: to,
-    duration: 1,
-    onUpdate: () => q(selector).forEach((el) => (el.textContent = format(state.v))),
-  });
-}
+const total = stylist.catalog.filter((item) => item.match).reduce((sum, item) => sum + item.price, 0);
+
+const count = (q: Q, selector: string, to: number, duration: number, format = (v: number) => String(Math.round(v))) =>
+  gsap.fromTo(q(selector), { textContent: 0 }, { textContent: to, duration, modifiers: { textContent: (v: string) => format(Number(v)) } });
+
+const press = (tl: gsap.core.Timeline, target: HTMLElement[], at?: string | number) =>
+  tl.to(target, { scale: 0.94, duration: 0.08, ease: "power1.in" }, at).to(target, { scale: 1, duration: 0.2, ease: "back.out(3)" });
+
+const clock = (v: number) => `${String(Math.floor(v / 60)).padStart(2, "0")}:${String(Math.floor(v % 60)).padStart(2, "0")}`;
 
 function build(id: string, q: Q, tl: gsap.core.Timeline) {
   if (id === "avatar") {
-    tl.from(q("[data-row]"), { autoAlpha: 0, x: -12, stagger: 0.12, duration: 0.3 })
-      .from(q("[data-fill]"), { scaleX: 0, stagger: 0.12, duration: 0.4 }, "<")
-      .to(q("[data-scan]"), { top: "100%", duration: 0.8 }, 0.1)
-      .from(q("[data-avatar]"), { clipPath: "inset(100% 0 0 0)", duration: 0.9 }, ">-0.2")
-      .to(q("[data-discard]"), { opacity: 1, duration: 0.3 });
+    const steps = q("[data-ostep]");
+    tl.from(q("[data-field]"), { autoAlpha: 0, y: 6, stagger: 0.06, duration: 0.2, ease: "power2.out" })
+      .to(steps[0], { scaleX: 1, duration: 0.3 }, "<")
+      .from(q("[data-selfie]"), { scale: 0, autoAlpha: 0, duration: 0.3, ease: "back.out(2)" })
+      .from(q("[data-photo-ok]"), { autoAlpha: 0, duration: 0.15 })
+      .to(steps[1], { scaleX: 1, duration: 0.3 }, "<");
+    press(tl, q("[data-create]"));
+    tl.to(q("[data-gen]"), { opacity: 1, duration: 0.15 })
+      .add(count(q, "[data-pct]", 100, 0.8))
+      .to(q("[data-gen-bar]"), { scaleX: 1, duration: 0.8 }, "<")
+      .to(q("[data-scan]"), { opacity: 1, duration: 0.05 }, "<")
+      .to(q("[data-scan]"), { top: "100%", duration: 0.8, ease: "sine.inOut" }, "<")
+      .fromTo(q("[data-reveal]"), { clipPath: "inset(0% 0% 0% 0%)" }, { clipPath: "inset(100% 0% 0% 0%)", duration: 0.8, ease: "sine.inOut" }, "<")
+      .to(q("[data-gen]"), { opacity: 0, duration: 0.2 }, ">-0.35")
+      .to(q("[data-scan]"), { opacity: 0, duration: 0.1 })
+      .to(steps[2], { scaleX: 1, duration: 0.3 }, "<")
+      .to(q("[data-done]"), { opacity: 1, duration: 0.2 })
+      .to(q("[data-note]"), { opacity: 1, duration: 0.2 }, "<");
   }
   if (id === "try-on") {
-    tl.from(q("[data-garment]"), { autoAlpha: 0, x: 16, stagger: 0.18, duration: 0.3 })
-      .add(counter(q, "[data-garment-count]", 4), 0)
-      .to(q("[data-slot='on']"), { backgroundColor: "#f76d01", stagger: 0.18, duration: 0.1 }, 0)
-      .to(q("[data-dressed]"), { clipPath: "inset(0 0 0% 0)", duration: 1 }, 0.3)
-      .to(q("[data-wipe]"), { top: "100%", duration: 1 }, "<")
-      .to(q("[data-wipe]"), { opacity: 0, duration: 0.1 });
+    tl.from(q("[data-garment]"), { autoAlpha: 0, x: 16, stagger: 0.15, duration: 0.3, ease: "power2.out" })
+      .to(q("[data-check]"), { backgroundColor: "#f76d01", borderColor: "#f76d01", color: "#fff", stagger: 0.15, duration: 0.1 }, 0.15)
+      .to(q("[data-slot='on']"), { backgroundColor: "#f76d01", stagger: 0.15, duration: 0.1 }, 0.15)
+      .add(count(q, "[data-gcount]", 3, 0.45), 0.15);
+    press(tl, q("[data-wear]"));
+    tl.to(q("[data-scanov]"), { opacity: 1, duration: 0.15 })
+      .to(q("[data-beam]"), { opacity: 1, duration: 0.05 }, "<")
+      .to(q("[data-beam]"), { top: "100%", duration: 1, ease: "sine.inOut" })
+      .to(q("[data-next]"), { clipPath: "inset(0% 0% 0% 0%)", duration: 1, ease: "sine.inOut" }, "<")
+      .to(q("[data-scanov], [data-beam]"), { opacity: 0, duration: 0.2 })
+      .from(q("[data-hot]"), { autoAlpha: 0, scale: 0.3, stagger: 0.1, duration: 0.25, ease: "back.out(2.5)" })
+      .to(q("[data-note]"), { opacity: 1, duration: 0.2 }, "<");
   }
   if (id === "live") {
-    tl.to(q("[data-loaded]"), { opacity: 1, duration: 0.2 })
-      .to(q("[data-session]"), { scaleX: 1, duration: 1.5 }, 0.1)
-      .add(
-        counter(q, "[data-timer]", 90, (v) => `${String(Math.floor(v / 60)).padStart(2, "0")}:${String(Math.floor(v % 60)).padStart(2, "0")}`).duration(1.5),
-        0.1,
-      )
-      .to(q("[data-track]"), { x: 14, y: 6, duration: 0.5, ease: "sine.inOut" }, 0.1)
-      .to(q("[data-track]"), { x: -8, y: 2, duration: 0.5, ease: "sine.inOut" })
-      .to(q("[data-track]"), { x: 0, y: 0, duration: 0.5, ease: "sine.inOut" });
+    const rings = q("[data-ring]");
+    const tap = (i: number) =>
+      tl.fromTo(q(`[data-tapfx="${i}"]`), { scale: 0, opacity: 0.9 }, { scale: 1.6, opacity: 0, duration: 0.35, ease: "power2.out" });
+    const wear = (from: number, to: number, img: string) =>
+      tl
+        .to(rings[from], { opacity: 0, duration: 0.1 }, "<")
+        .to(rings[to], { opacity: 1, duration: 0.1 }, "<")
+        .to(q(img), { opacity: 1, duration: 0.25 }, "<")
+        .to(q(`[data-wearing="${from}"]`), { opacity: 0, y: -8, duration: 0.15 }, "<")
+        .fromTo(q(`[data-wearing="${to}"]`), { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.2 }, "<");
+    press(tl, q("[data-cam-btn]"), 0.1);
+    tl.to(q("[data-cam-off]"), { opacity: 0, duration: 0.3 })
+      .to(q("[data-live-ui]"), { opacity: 1, duration: 0.25 }, "<")
+      .to(q("[data-track]"), { opacity: 1, duration: 0.25 }, "<0.1")
+      .to(q("[data-session]"), { scaleX: 1, duration: 2.4, ease: "none" }, "<")
+      .add(count(q, "[data-timer]", 90, 2.4, clock), "<")
+      .to(q("[data-track]"), { x: 8, y: 4, duration: 0.4, ease: "sine.inOut" }, "<0.1")
+      .to(q("[data-track]"), { x: -4, y: 2, duration: 0.4, ease: "sine.inOut" });
+    tap(1);
+    wear(0, 1, "[data-live-next]");
+    tl.to(q("[data-track]"), { x: 6, y: 0, duration: 0.4, ease: "sine.inOut" }, "<0.2");
+    tap(2);
+    wear(1, 2, "[data-live-next2]");
+    tl.to(q("[data-track]"), { x: 0, y: 0, duration: 0.4, ease: "sine.inOut" }, "<0.2");
   }
   if (id === "stylist") {
     const msgs = q("[data-msg]");
-    tl.from(msgs[0], { autoAlpha: 0, y: 14, duration: 0.3 })
-      .from(msgs[1], { autoAlpha: 0, y: 14, duration: 0.3 })
-      .add(counter(q, "[data-found-n]", 3).duration(0.4))
-      .from(q("[data-result]"), { autoAlpha: 0, y: 18, scale: 0.95, stagger: 0.12, duration: 0.3 }, "<")
-      .from(msgs[2], { autoAlpha: 0, y: 14, duration: 0.3 })
-      .from(msgs[3], { autoAlpha: 0, duration: 0.3 });
+    tl.from(msgs[0], { autoAlpha: 0, y: 14, duration: 0.3, ease: "power2.out" })
+      .from(msgs[1], { autoAlpha: 0, y: 14, duration: 0.3, ease: "power2.out" })
+      .from(q("[data-tag]"), { autoAlpha: 0, x: -6, stagger: 0.08, duration: 0.15 })
+      .add(count(q, "[data-found]", 3, 0.3))
+      .from(q("[data-result]"), { autoAlpha: 0, y: 18, scale: 0.95, stagger: 0.12, duration: 0.3, ease: "power2.out" }, "<")
+      .from(msgs[2], { autoAlpha: 0, y: 14, duration: 0.3, ease: "power2.out" })
+      .from(msgs[3], { autoAlpha: 0, duration: 0.3 })
+      .to(q("[data-budget]"), { scaleX: total / stylist.budget, duration: 0.4 }, "<");
+    press(tl, q("[data-wear]"));
+    tl.to(q("[data-beam]"), { opacity: 1, duration: 0.05 })
+      .to(q("[data-beam]"), { top: "100%", duration: 0.9, ease: "sine.inOut" })
+      .to(q("[data-next]"), { clipPath: "inset(0% 0% 0% 0%)", duration: 0.9, ease: "sine.inOut" }, "<")
+      .to(q("[data-beam]"), { opacity: 0, duration: 0.1 })
+      .from(q("[data-hot]"), { autoAlpha: 0, scale: 0.3, stagger: 0.1, duration: 0.25, ease: "back.out(2.5)" });
   }
   if (id === "sizing") {
-    tl.from(q("[data-size]"), { autoAlpha: 0, stagger: 0.1, duration: 0.25 })
-      .from(q("[data-marker]"), { left: "0%", stagger: 0.1, duration: 0.6 })
+    tl.from(q("[data-measure]"), { autoAlpha: 0, stagger: 0.2, duration: 0.2 })
+      .from(q("[data-measure-line]"), { scaleX: 0, stagger: 0.2, duration: 0.4, ease: "power2.out" }, "<")
+      .from(q("[data-size]"), { autoAlpha: 0, x: -8, stagger: 0.08, duration: 0.2 }, 0.1)
       .to(q("[data-hit]"), { opacity: 1, duration: 0.25 })
-      .to(q("[data-rec]"), { opacity: 1, duration: 0.25 }, "<");
+      .to(q("[data-ring]"), { "--p": 94, duration: 0.7, ease: "power2.out" })
+      .add(count(q, "[data-fit]", 94, 0.7), "<")
+      .to(q("[data-rec]"), { opacity: 1, duration: 0.25 }, ">-0.2");
   }
   if (id === "cart") {
-    tl.from(q("[data-item]"), { autoAlpha: 0, x: 30, stagger: 0.2, duration: 0.35 })
-      .add(counter(q, "[data-cart-n]", 3, (v) => `(${Math.round(v)})`).duration(0.6), 0)
-      .to(q("[data-toast]"), { opacity: 1, duration: 0.25 });
+    press(tl, q("[data-add]"), 0.1);
+    tl.to(q("[data-add-a]"), { opacity: 0, duration: 0.1 })
+      .to(q("[data-add-b]"), { opacity: 1, duration: 0.1 }, "<")
+      .from(q("[data-item]"), { autoAlpha: 0, x: 30, stagger: 0.18, duration: 0.35, ease: "power2.out" })
+      .add(count(q, "[data-cart-n]", 3, 0.54, (v) => `(${Math.round(v)})`), "<")
+      .add(count(q, "[data-cart]", 3, 0.54), "<");
   }
 }
 
@@ -92,7 +142,7 @@ export function Chapters() {
         const q = gsap.utils.selector(panel) as Q;
         const tl = gsap.timeline({
           defaults: { ease: "none" },
-          scrollTrigger: { trigger: panel, start: "top 75%", end: "center 45%", scrub: 0.6 },
+          scrollTrigger: { trigger: panel, start: "top 80%", end: "center 58%", scrub: 0.6 },
         });
         build(panel.dataset.panel ?? "", q, tl);
 
@@ -122,12 +172,26 @@ export function Chapters() {
   return (
     <section ref={root} className="relative px-[var(--gutter)] py-[var(--section-y)]">
       <div className="mx-auto max-w-[1400px]">
-        <div className="max-w-3xl">
-          <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-brand">The shopper&apos;s side</p>
-          <h2 className="mt-6 font-display text-[clamp(2.4rem,5vw,5.2rem)] font-semibold leading-[0.92] tracking-[-0.05em] text-bone">
-            Six things happen
-            <span className="block font-serif font-normal italic text-muted">between browse and buy.</span>
-          </h2>
+        <div className="grid gap-8 min-[1100px]:grid-cols-[1.3fr_0.7fr] min-[1100px]:items-end min-[1100px]:gap-20">
+          <div>
+            <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-brand">{chaptersIntro.kicker}</p>
+            <h2 className="mt-6 max-w-[16ch] font-display text-[clamp(2.4rem,5vw,5.2rem)] font-semibold leading-[0.92] tracking-[-0.05em] text-bone">
+              {chaptersIntro.title}{" "}
+              <span className="font-serif font-normal italic tracking-[-0.03em] text-muted">{chaptersIntro.accent}</span>
+            </h2>
+          </div>
+          <div>
+            <p className="max-w-md leading-relaxed text-muted">{chaptersIntro.body}</p>
+            <ol className="mt-6 grid max-w-md grid-cols-3 gap-x-4 gap-y-2 border-t border-hairline pt-4 font-mono text-[10px] uppercase tracking-[0.16em] text-faint">
+              {chapters.map((chapter) => (
+                <li key={chapter.id}>
+                  <a href={`#${chapter.id}`} className="transition-colors hover:text-bone">
+                    <span className="text-brand">{chapter.n}</span> {chapter.label}
+                  </a>
+                </li>
+              ))}
+            </ol>
+          </div>
         </div>
 
         <div className="mt-12 min-[900px]:mt-[10vh] grid gap-16 min-[1100px]:grid-cols-[0.85fr_1.15fr] min-[1100px]:gap-20">
@@ -148,7 +212,7 @@ export function Chapters() {
                     ))}
                   </ol>
 
-                  <div className="relative mt-12 min-h-[26rem]">
+                  <div className="relative mt-10 min-h-[36rem]">
                     {chapters.map((chapter, index) => (
                       <div
                         key={chapter.id}
@@ -158,13 +222,19 @@ export function Chapters() {
                           index === active ? "translate-y-0 opacity-100" : index < active ? "-translate-y-6 opacity-0" : "translate-y-6 opacity-0",
                         )}
                       >
-                        <span className="font-display text-[7rem] font-semibold leading-none tracking-[-0.06em] text-transparent [-webkit-text-stroke:1px_rgba(243,238,230,0.18)]">
+                        <span className="font-display text-[6rem] font-semibold leading-none tracking-[-0.06em] text-transparent [-webkit-text-stroke:1px_var(--hairline-strong)]">
                           {chapter.n}
                         </span>
-                        <h3 className="mt-2 font-display text-[clamp(2rem,3vw,3.2rem)] font-semibold leading-[1] tracking-[-0.045em] text-bone">
+                        <p className="mt-4 font-mono text-[10px] uppercase tracking-[0.2em] text-faint">The problem</p>
+                        <p className="mt-2 max-w-md font-serif text-[1.35rem] italic leading-snug text-muted">{chapter.problem}</p>
+                        <p className="mt-7 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-brand">
+                          <span className="h-1.5 w-1.5 rounded-full bg-brand shadow-[0_0_8px_var(--brand)]" />
+                          What Persona does
+                        </p>
+                        <h3 className="mt-2 font-display text-[clamp(2rem,2.8vw,3rem)] font-semibold leading-[1] tracking-[-0.045em] text-bone">
                           {chapter.title}
                         </h3>
-                        <p className="mt-6 max-w-md text-[15px] leading-relaxed text-muted">{chapter.body}</p>
+                        <p className="mt-5 max-w-md text-[15px] leading-relaxed text-muted">{chapter.body}</p>
                         <ul className="mt-8 space-y-2.5">
                           {chapter.facts.map((fact) => (
                             <li key={fact} className="flex items-center gap-3 text-sm text-bone">
@@ -199,6 +269,7 @@ export function Chapters() {
                       <span className="font-mono text-xs text-brand">
                         {chapter.n} · {chapter.label}
                       </span>
+                      <p className="mt-3 font-serif text-lg italic leading-snug text-muted">{chapter.problem}</p>
                       <h3 className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-bone">{chapter.title}</h3>
                       <p className="mt-3 text-sm leading-relaxed text-muted">{chapter.body}</p>
                       <ul className="mt-5 space-y-2">

@@ -23,7 +23,16 @@ export function Hero() {
 
       document.fonts.ready.then(() => {
         const split = SplitText.create(q("[data-line]"), { type: "chars", mask: "chars" });
-        gsap.set(split.masks, { paddingTop: "0.16em", marginTop: "-0.16em", paddingBottom: "0.16em", marginBottom: "-0.16em" });
+        gsap.set(split.masks, {
+          paddingTop: "0.16em",
+          marginTop: "-0.16em",
+          paddingBottom: "0.16em",
+          marginBottom: "-0.16em",
+          paddingLeft: "0.14em",
+          marginLeft: "-0.14em",
+          paddingRight: "0.14em",
+          marginRight: "-0.14em",
+        });
         gsap.set(q(".reveal-pending"), { visibility: "visible" });
         gsap.from(split.chars, { yPercent: 110, duration: 1.2, ease: "expo.out", stagger: 0.026, delay: 0.1 });
       });
@@ -82,7 +91,7 @@ export function Hero() {
             <span data-line className="block">
               {hero.lineA}
             </span>
-            <span data-line className="block font-serif font-normal italic tracking-[-0.03em] text-muted">
+            <span data-line className="block pb-[0.08em] pt-[0.16em] font-serif font-normal italic tracking-[-0.01em] text-muted">
               {hero.lineB}
             </span>
             <span data-line className="block">

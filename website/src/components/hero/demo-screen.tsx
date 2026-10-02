@@ -474,6 +474,93 @@ function Onboarding({ variant }: { variant: Variant }) {
   );
 }
 
+const themeLines: Array<[string, boolean?]> = [
+  ["<!doctype html>"],
+  ['<html lang="en">'],
+  ["<head>"],
+  ["  {{ content_for_header }}"],
+  ["</head>"],
+  ["<body>"],
+  ["  {{ content_for_layout }}"],
+  ["", true],
+  ["</body>"],
+  ["</html>"],
+];
+
+const files = ["layout", "  theme.liquid", "  password.liquid", "sections", "  header.liquid", "  product.liquid", "snippets", "templates"];
+
+function Install({ variant }: { variant: Variant }) {
+  const desktop = variant === "desktop";
+  return (
+    <div data-d="install" className={cn("absolute inset-0 z-30 flex flex-col bg-bg", !desktop && "pt-[26px]")}>
+      <div className={cn("flex shrink-0 items-center justify-between border-b border-hairline", desktop ? "h-[46px] px-5" : "h-[40px] px-4")}>
+        <span className="flex min-w-0 items-center gap-2">
+          <span className={cn("font-display font-semibold tracking-[0.3em] text-bone", desktop ? "text-[13px]" : "text-[11px]")}>{heroDemo.store}</span>
+          <span className="truncate font-mono text-[9px] text-faint">/ Edit code</span>
+        </span>
+        <span data-d="save" className={cn("relative grid overflow-hidden rounded-full font-semibold", desktop ? "text-[10px]" : "text-[9px]")}>
+          <span className="col-start-1 row-start-1 bg-hairline" />
+          <span data-d="save-on" className="col-start-1 row-start-1 bg-[image:var(--grad-brand)]" />
+          <span className={cn("relative col-start-1 row-start-1 py-1.5 text-center text-bone", desktop ? "px-4" : "px-3.5")}>Save</span>
+        </span>
+      </div>
+
+      <div className="flex min-h-0 flex-1">
+        {desktop ? (
+          <div className="w-[26%] shrink-0 border-r border-hairline py-3 font-mono text-[9.5px] leading-[1.9]">
+            {files.map((file) => (
+              <p
+                key={file}
+                className={cn(
+                  "whitespace-pre px-4",
+                  file.startsWith("  ") ? "text-faint" : "text-muted",
+                  file.trim() === heroDemo.file && "border-l-2 border-brand bg-brand/10 text-bone",
+                )}
+              >
+                {file}
+              </p>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex shrink-0 border-b border-hairline font-mono text-[9px]">
+            <span className="border-b-2 border-brand px-4 py-2 text-bone">{heroDemo.file}</span>
+          </div>
+          <div className={cn("flex-1 py-3 font-mono", desktop ? "text-[11px] leading-[2]" : "text-[8.5px] leading-[2.1]")}>
+            {themeLines.map(([line, insert], index) =>
+              insert ? (
+                <div key={index} className="relative flex pr-3">
+                  <span data-d="ins-bg" className="absolute inset-0 border-l-2 border-brand bg-brand/10" />
+                  <span className="relative w-8 shrink-0 pr-3 text-right text-brand">{index + 1}</span>
+                  <span className="relative whitespace-pre text-bone">
+                    {"  "}
+                    <span data-d="ins" className="inline-block">
+                      {heroDemo.script}
+                    </span>
+                  </span>
+                </div>
+              ) : (
+                <div key={index} className="flex pr-3 text-faint">
+                  <span className="w-8 shrink-0 pr-3 text-right opacity-50">{index + 1}</span>
+                  <span className="whitespace-pre">{line}</span>
+                </div>
+              ),
+            )}
+          </div>
+          <div className="flex h-8 shrink-0 items-center justify-between border-t border-hairline px-4 font-mono text-[8.5px] uppercase tracking-[0.14em] text-faint">
+            <span>Theme · Dawn</span>
+            <span data-d="saved" className="flex items-center gap-1.5 text-[#10b981]">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#10b981]" />
+              {heroDemo.saved}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Cursor({ variant }: { variant: Variant }) {
   return (
     <span data-d="cursor" className="pointer-events-none absolute left-0 top-0 z-50">
@@ -519,7 +606,14 @@ export function DemoScreen({ variant }: { variant: Variant }) {
               <rect x="5" y="11" width="14" height="9" rx="2" />
               <path d="M8 11V8a4 4 0 018 0v3" />
             </svg>
-            {heroDemo.url}
+            <span className="grid">
+              <span data-d="url-admin" className="col-start-1 row-start-1">
+                {heroDemo.adminUrl}
+              </span>
+              <span data-d="url-store" className="col-start-1 row-start-1">
+                {heroDemo.url}
+              </span>
+            </span>
           </span>
           <span className="w-[42px]" />
         </div>
@@ -534,6 +628,7 @@ export function DemoScreen({ variant }: { variant: Variant }) {
             <AvatarStage compact={false} />
             <Onboarding variant="desktop" />
           </div>
+          <Install variant="desktop" />
           <Toast variant="desktop" />
           <Cursor variant="desktop" />
         </div>
@@ -557,6 +652,7 @@ export function DemoScreen({ variant }: { variant: Variant }) {
           </div>
           <Onboarding variant="mobile" />
         </div>
+        <Install variant="mobile" />
         <Toast variant="mobile" />
         <Cursor variant="mobile" />
       </div>
@@ -566,7 +662,7 @@ export function DemoScreen({ variant }: { variant: Variant }) {
 
 export function DemoSteps() {
   return (
-    <ol className="mt-5 grid grid-cols-2 gap-x-3 gap-y-4 min-[560px]:grid-cols-4" aria-label="How Persona works">
+    <ol className="mt-5 grid grid-cols-3 gap-x-3 gap-y-4" aria-label="How Persona works">
       {heroDemo.steps.map((step, index) => (
         <li key={step} data-d="step">
           <div className="h-[2px] overflow-hidden rounded-full bg-hairline">

@@ -27,7 +27,16 @@ export function ContactHero() {
     () => {
       const q = gsap.utils.selector(root);
       const split = SplitText.create(q("[data-line]"), { type: "chars", mask: "chars" });
-      gsap.set(split.masks, { paddingBottom: "0.14em", marginBottom: "-0.14em" });
+      gsap.set(split.masks, {
+        paddingTop: "0.16em",
+        marginTop: "-0.16em",
+        paddingBottom: "0.16em",
+        marginBottom: "-0.16em",
+        paddingLeft: "0.14em",
+        marginLeft: "-0.14em",
+        paddingRight: "0.14em",
+        marginRight: "-0.14em",
+      });
       gsap.set(q(".reveal-pending"), { visibility: "visible" });
 
       gsap
@@ -89,7 +98,7 @@ export function ContactHero() {
           <h1 className="reveal-pending mt-7 font-display text-[clamp(3rem,6.2vw,7rem)] font-semibold leading-[0.9] tracking-[-0.055em] text-bone">
             <span data-line className="block">Let&apos;s dress</span>
             <span data-line className="block">your store.</span>
-            <span data-line className="block font-serif font-normal italic tracking-[-0.03em] text-muted">
+            <span data-line className="block pb-[0.08em] pt-[0.16em] font-serif font-normal italic tracking-[-0.01em] text-muted">
               Say hello.
             </span>
           </h1>

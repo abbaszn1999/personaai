@@ -20,6 +20,10 @@ export const hero = {
 export const heroDemo = {
   store: "MAISON",
   url: "maison-store.com/products/navy-suit",
+  adminUrl: "admin.shopify.com/store/maison/themes",
+  file: "theme.liquid",
+  script: `<script src="…/widget.js?w=…" async></script>`,
+  saved: "Saved · Persona is live",
   product: "Navy two-piece suit",
   price: "$189",
   sizes: ["S", "M", "L", "XL"],
@@ -55,15 +59,22 @@ export const heroDemo = {
   wear: "Wear the full look",
   scanStages: ["Mapping body silhouette…", "Draping garment mesh…", "Rendering on avatar…"],
   added: "3 items added to your cart",
-  steps: ["Measurements + photo", "Stylist finds it", "Rendered on them", "Into your cart"],
+  steps: ["Stylist finds it", "Rendered on them", "Into your cart"],
 } as const;
 
 export const looks = [
   {
     src: "/media/look-1.webp",
     code: "01",
-    title: "One selfie. Their avatar.",
-    body: "A photo and their measurements become an avatar. The same face carries through every outfit after it.",
+    label: "The avatar",
+    title: "One photo.",
+    accent: "Their body.",
+    body: "They upload one selfie and their measurements. Persona builds the avatar once, and that same face carries through every outfit after it.",
+    facts: [
+      ["1", "photo"],
+      ["Body", "accurate model"],
+      ["Same", "face, every look"],
+    ],
     garment: "Base avatar · black tee",
     tag: "Avatar ready",
     word: "Avatar",
@@ -72,8 +83,15 @@ export const looks = [
   {
     src: "/media/look-2.webp",
     code: "02",
-    title: "Your garments, rendered on them.",
-    body: "Each outfit is rendered in one pass on the stored avatar, so the face does not drift from look to look.",
+    label: "Your catalog",
+    title: "Your catalog,",
+    accent: "worn by them.",
+    body: "Pieces from your store are rendered together in one pass on the stored avatar, so the face never drifts from look to look.",
+    facts: [
+      ["Only", "your products"],
+      ["1", "pass per outfit"],
+      ["Full", "looks, not items"],
+    ],
     garment: "Navy two-piece suit",
     tag: "From your catalog",
     word: "Catalog",
@@ -82,8 +100,15 @@ export const looks = [
   {
     src: "/media/look-3.webp",
     code: "03",
-    title: "Sized from your charts.",
-    body: "Recommendations use their measurements and your size charts. Charts for global brands are researched once and reused.",
+    label: "The fit",
+    title: "The right size,",
+    accent: "before checkout.",
+    body: "Their measurements are read against your own size charts. Charts for global brands are researched once and reused.",
+    facts: [
+      ["Your", "size charts"],
+      ["Once", "per global brand"],
+      ["M", "for this shopper"],
+    ],
     garment: "Camel overcoat · turtleneck",
     tag: "Size M · recommended",
     word: "Sized",
@@ -92,8 +117,15 @@ export const looks = [
   {
     src: "/media/look-4.webp",
     code: "04",
-    title: "Live, on their own camera.",
-    body: "Turn on live try-on and the garment follows them in real time. Photo try-on stays available when live is off.",
+    label: "Live mirror",
+    title: "Live, in their",
+    accent: "own mirror.",
+    body: "They switch on their camera and see themselves live. Tap any garment on the rack and it is on them instantly, following every move.",
+    facts: [
+      ["Live", "on their camera"],
+      ["Real", "time tracking"],
+      ["Photo", "try-on fallback"],
+    ],
     garment: "Bomber · cargo trouser",
     tag: "Live mirror",
     word: "Live",
@@ -109,12 +141,14 @@ export const stylist = {
   title: "It only sells what you stock.",
   body: "The assistant searches the catalog you indexed. No invented products, prices, or stock. When the shopper says yes, the item goes into your store's own Shopify or WooCommerce cart.",
   ask: "A sharp look for a dinner. Under $300.",
-  answer: "Navy suit, white shirt, brown loafers. All in stock, all in your size.",
+  answer: "Here's a dinner look under $300. All three are in stock in your size.",
+  try: "Try it on me",
   budget: 300,
   steps: [
     "Understands the ask",
     "Searches only your catalog",
     "Builds a look within budget",
+    "Shows it on their avatar",
     "Adds it to your own cart",
   ],
   catalog: [
@@ -132,17 +166,38 @@ export const steps = [
   {
     n: "01",
     title: "Connect",
+    accent: "your store.",
+    label: "Read-only",
     body: "Link Shopify with a custom app, or WooCommerce with an application password. Read-only. Persona indexes the catalog and maps your categories.",
+    facts: [
+      ["Platforms", "Shopify · WooCommerce"],
+      ["Access", "Read-only"],
+      ["Indexes", "Products + categories"],
+    ],
   },
   {
     n: "02",
     title: "Brand it",
+    accent: "as yours.",
+    label: "Live preview",
     body: "Name, logo, color, font, corner radius, welcome line, and one of four studio backdrops. The widget stays dark until the catalog is ready.",
+    facts: [
+      ["Identity", "Name · logo · font"],
+      ["Look", "Color · radius · backdrop"],
+      ["Goes live", "When the catalog is ready"],
+    ],
   },
   {
     n: "03",
     title: "Paste",
+    accent: "one tag.",
+    label: "One tag",
     body: "One async script before </body>. The token in the URL is the only credential. A kill switch turns every live snippet off at once.",
+    facts: [
+      ["Where", "Before </body>"],
+      ["Credential", "Token in the URL"],
+      ["Control", "Kill switch"],
+    ],
   },
 ] as const;
 
