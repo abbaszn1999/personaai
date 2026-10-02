@@ -9,10 +9,54 @@ export const hero = {
   lineA: "Try it on",
   lineB: "before",
   lineC: "you buy it.",
-  lede: "One script tag gives every shopper on your store an avatar, your real garments on it, and a stylist that adds to your cart.",
+  lede: "Persona is a widget for your store. Shoppers get an avatar from their measurements and one photo, a stylist that searches your catalog, your garments rendered on them, and checkout in your own cart.",
   cta: "Start the trial",
-  scroll: "Scroll to dress",
+  dashboard: "Open your dashboard",
+  scroll: "See how it works",
+  room: "Inside the fitting room",
+  platforms: ["Shopify", "WooCommerce", "One script tag"],
 };
+
+export const heroDemo = {
+  store: "MAISON",
+  url: "maison-store.com/products/navy-suit",
+  product: "Navy two-piece suit",
+  price: "$189",
+  sizes: ["S", "M", "L", "XL"],
+  launch: "Try it on with Persona",
+  agent: "Style Assistant",
+  status: "Online — personalised for your profile",
+  welcome: "Hi, I'm your Style Assistant. Tell me what you're shopping for and I'll find it in this store.",
+  fields: [
+    ["Height (cm)", "178", "168"],
+    ["Weight (kg)", "74", "65"],
+    ["Chest (cm)", "98", "90"],
+    ["Waist (cm)", "82", "70"],
+    ["Shoe Size (EU)", "43", "42"],
+  ],
+  create: "Create my avatar",
+  creating: "We're building a personalized mannequin from your face photo and measurements.",
+  stats: [
+    ["Height", "178 cm"],
+    ["Weight", "74 kg"],
+    ["Chest", "98 cm"],
+    ["Waist", "82 cm"],
+  ],
+  avatarStages: [
+    ["Analyzing your face photo", 18],
+    ["Mapping body measurements", 42],
+    ["Building your body model", 68],
+    ["Generating avatar variations", 88],
+    ["Almost ready…", 100],
+  ],
+  ask: "A sharp look for a dinner. Under $300.",
+  searching: "Checking the catalog…",
+  answer: "Navy suit, white shirt, brown loafers. All in stock, all in your size.",
+  wear: "Wear the full look",
+  scanStages: ["Mapping body silhouette…", "Draping garment mesh…", "Rendering on avatar…"],
+  added: "3 items added to your cart",
+  steps: ["Measurements + photo", "Stylist finds it", "Rendered on them", "Into your cart"],
+} as const;
 
 export const looks = [
   {

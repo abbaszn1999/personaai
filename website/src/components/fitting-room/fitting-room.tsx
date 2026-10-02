@@ -3,14 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import { SplitText } from "gsap/SplitText";
 import { useGSAP } from "@gsap/react";
 import { Callouts } from "@/components/fitting-room/callouts";
 import { createMirrorStage, type MirrorStage } from "@/components/fitting-room/stage";
 import { hero, looks } from "@/lib/content";
-import { appPath } from "@/lib/site";
 
-gsap.registerPlugin(ScrollTrigger, SplitText, useGSAP);
+gsap.registerPlugin(ScrollTrigger, useGSAP);
 
 const sources = looks.map((look) => look.src);
 
@@ -39,29 +37,15 @@ export function FittingRoom() {
   useGSAP(
     () => {
       const q = gsap.utils.selector(root);
-      const lines = q("[data-hero-line]");
-
-      document.fonts.ready.then(() => {
-        const split = SplitText.create(lines, { type: "chars", mask: "chars" });
-        gsap.set(split.masks, { paddingTop: "0.16em", marginTop: "-0.16em", paddingBottom: "0.16em", marginBottom: "-0.16em" });
-        gsap.set(lines, { visibility: "visible" });
-        gsap.from(split.chars, {
-          yPercent: 110,
-          duration: 1.3,
-          ease: "expo.out",
-          stagger: 0.028,
-          delay: 0.15,
-        });
-      });
-
-      gsap.from(mirror.current, { clipPath: "inset(50% 0% 50% 0%)", duration: 1.6, ease: "expo.inOut" });
-      gsap.from(q("[data-hero-fade]"), { autoAlpha: 0, y: 16, duration: 1, ease: "expo.out", delay: 0.9, stagger: 0.08 });
 
       const mm = gsap.matchMedia();
       mm.add(
         { desktop: "(min-width: 900px)", mobile: "(max-width: 899px)" },
         (ctx) => {
           const desktop = Boolean(ctx.conditions?.desktop);
+          gsap.set(frame.current, desktop ? { xPercent: 58 } : { yPercent: -14, scale: 0.72 });
+          gsap.set(q("[data-story], [data-callouts], [data-words]"), { autoAlpha: 1 });
+
           const tl = gsap.timeline({
             defaults: { ease: "none" },
             scrollTrigger: {
@@ -70,25 +54,17 @@ export function FittingRoom() {
               end: "bottom bottom",
               scrub: 1.1,
               onUpdate(self) {
-                const storyT = gsap.utils.clamp(0, 1, (self.progress - 0.14) / 0.82);
-                const progress = storyT * (looks.length - 1);
+                const progress = gsap.utils.clamp(0, 1, self.progress / 0.9) * (looks.length - 1);
                 stage.current?.setProgress(progress);
-                stage.current?.setIdle(self.progress < 0.08 ? 1 : 0);
+                stage.current?.setIdle(self.progress < 0.04 ? 1 : 0);
                 setActive(Math.round(progress));
               },
             },
           });
 
-          tl.to(q("[data-hero-left]"), { xPercent: -30, autoAlpha: 0, duration: 0.14 }, 0)
-            .to(q("[data-hero-right]"), { xPercent: 30, autoAlpha: 0, duration: 0.14 }, 0)
-            .to(q("[data-hero-fade]"), { autoAlpha: 0, duration: 0.08 }, 0)
-            .to(frame.current, desktop ? { xPercent: 58, duration: 0.14 } : { yPercent: -14, scale: 0.72, duration: 0.14 }, 0)
-            .fromTo(q("[data-story]"), { autoAlpha: 0, y: 40 }, { autoAlpha: 1, y: 0, duration: 0.06 }, 0.1)
-            .fromTo(q("[data-callouts]"), { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.06 }, 0.12)
-            .fromTo(q("[data-words]"), { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.08 }, 0.08)
-            .fromTo(q("[data-words]"), { xPercent: 6 }, { xPercent: -10, duration: 0.96 }, 0)
-            .fromTo(q("[data-grid]"), { yPercent: 0 }, { yPercent: -18, duration: 0.96 }, 0)
-            .to({}, { duration: 0.82 });
+          tl.fromTo(q("[data-words]"), { xPercent: 6 }, { xPercent: -10, duration: 1 }, 0)
+            .fromTo(q("[data-grid]"), { yPercent: 0 }, { yPercent: -18, duration: 1 }, 0)
+            .fromTo(q("[data-story]"), { y: 40 }, { y: 0, duration: 0.08 }, 0);
         },
       );
 
@@ -105,7 +81,7 @@ export function FittingRoom() {
   const look = looks[active];
 
   return (
-    <section ref={root} id="fitting-room" className="relative h-[560vh]">
+    <section ref={root} id="fitting-room" className="relative h-[440vh]">
       <div className="sticky top-0 flex h-svh items-start justify-center overflow-hidden bg-bg pt-[5.25rem] min-[900px]:items-center min-[900px]:pt-0">
         <div
           aria-hidden
@@ -212,44 +188,9 @@ export function FittingRoom() {
         </div>
         </div>
 
-        <h1 className="hero-headline pointer-events-none absolute inset-0 z-20 flex flex-col justify-center px-[var(--gutter)] font-display text-[clamp(3.4rem,11.5vw,12.5rem)] font-semibold leading-[0.82] tracking-[-0.055em] text-bone mix-blend-difference">
-          <span data-hero-left className="block">
-            <span data-hero-line className="reveal-pending block">
-              {hero.lineA}
-            </span>
-          </span>
-          <span data-hero-right className="block self-end text-right">
-            <span data-hero-line className="reveal-pending block font-serif font-normal italic tracking-[-0.03em]">
-              {hero.lineB}
-            </span>
-            <span data-hero-line className="reveal-pending block">
-              {hero.lineC}
-            </span>
-          </span>
-        </h1>
-
-        <div className="absolute inset-x-0 bottom-0 z-30 flex flex-col gap-5 px-[var(--gutter)] pb-8 min-[900px]:flex-row min-[900px]:items-end min-[900px]:justify-between">
-          <p data-hero-fade className="max-w-sm text-sm leading-relaxed text-muted">
-            {hero.lede}
-          </p>
-          <div data-hero-fade className="flex items-center gap-6">
-            <span className="hidden font-mono text-[10px] uppercase tracking-[0.24em] text-faint min-[900px]:block">
-              {hero.scroll} ↓
-            </span>
-            <a
-              href={appPath("/sign-up")}
-              className="auth-out group relative inline-flex items-center gap-3 overflow-hidden rounded-full bg-bone px-6 py-3.5 text-sm font-semibold text-[var(--bg)] shadow-md transition hover:brightness-105"
-            >
-              <span className="absolute inset-0 translate-y-full bg-[image:var(--grad-brand)] transition-transform duration-500 ease-[var(--ease-expo)] group-hover:translate-y-0" />
-              <span className="relative transition-colors duration-300 group-hover:text-white">{hero.cta}</span>
-              <span className="relative transition-transform duration-500 group-hover:translate-x-1 group-hover:text-white">→</span>
-            </a>
-          </div>
-        </div>
-
         <div data-story className="invisible absolute inset-y-0 left-0 z-30 flex w-full items-end px-[var(--gutter)] pb-10 min-[900px]:w-1/2 min-[900px]:items-center min-[900px]:pb-0">
           <div className="w-full max-w-lg">
-            <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-brand">{hero.kicker}</p>
+            <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-brand">{hero.room}</p>
             <div className="relative mt-5 h-[12rem] min-[900px]:mt-12 min-[900px]:h-[24rem]">
               {looks.map((item, index) => (
                 <article

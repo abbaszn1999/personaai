@@ -1,5 +1,6 @@
 import { FittingRoom } from "@/components/fitting-room/fitting-room";
 import { Header } from "@/components/header";
+import { Hero } from "@/components/hero/hero";
 import { Closing } from "@/components/sections/closing";
 import { GoLive } from "@/components/sections/go-live";
 import { Manifesto } from "@/components/sections/manifesto";
@@ -11,6 +12,7 @@ export default function HomePage() {
     <>
       <Header />
       <main id="top">
+        <Hero />
         <FittingRoom />
         <Manifesto />
         <Stylist />
