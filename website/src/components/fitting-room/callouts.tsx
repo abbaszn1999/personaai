@@ -60,7 +60,7 @@ export function Callouts({ active }: { active: number }) {
           </div>
         </div>
       </div>
-      <div className={cn(card, right, "top-[40%]")} style={state(active === 0, "right")}>
+      <div className={cn(card, right, "bottom-[4%]")} style={state(active === 0, "right")}>
         <p className={label}>Measurements</p>
         <dl className="mt-3 space-y-2 text-sm">
           {[
@@ -78,7 +78,7 @@ export function Callouts({ active }: { active: number }) {
       </div>
 
       {/* 02 — catalog */}
-      <div className={cn(card, right, "top-[18%] w-[16.5rem]")} style={state(active === 1, "right")}>
+      <div className={cn(card, right, "bottom-[5%] w-[16.5rem]")} style={state(active === 1, "right")}>
         <p className={label}>Synced from your store</p>
         <div className="mt-3 flex gap-3">
           <div
@@ -94,7 +94,7 @@ export function Callouts({ active }: { active: number }) {
           </div>
         </div>
       </div>
-      <div className={cn(card, left, "bottom-[20%]")} style={state(active === 1, "left")}>
+      <div className={cn(card, left, "top-[5%]")} style={state(active === 1, "left")}>
         <p className={label}>Render</p>
         <p className="mt-2 text-sm text-bone">One pass per outfit</p>
         <div className="mt-3 flex items-center gap-2">
@@ -108,7 +108,7 @@ export function Callouts({ active }: { active: number }) {
       </div>
 
       {/* 03 — sizing */}
-      <div className={cn(card, right, "top-[26%] w-[16.5rem]")} style={state(active === 2, "right")}>
+      <div className={cn(card, right, "bottom-[4%] w-[16.5rem]")} style={state(active === 2, "right")}>
         <p className={label}>Recommended size</p>
         <div className="mt-3 grid grid-cols-5 gap-1.5">
           {["XS", "S", "M", "L", "XL"].map((size) => (
@@ -143,7 +143,7 @@ export function Callouts({ active }: { active: number }) {
         </div>
         <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.16em] text-faint">Tight · True · Loose</p>
       </div>
-      <div className={cn(card, left, "top-[16%] w-[14rem]")} style={state(active === 2, "left")}>
+      <div className={cn(card, left, "top-[5%] w-[14rem]")} style={state(active === 2, "left")}>
         <p className={label}>Size chart</p>
         <p className="mt-2 text-sm leading-snug text-bone">Your brand&apos;s own chart, read once and reused.</p>
       </div>

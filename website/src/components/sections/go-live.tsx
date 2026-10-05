@@ -23,6 +23,7 @@ const thumbs: Array<[string, string, string]> = [
   ["/media/look-3.webp", "50% 20%", "520%"],
   ["/media/look-2.webp", "50% 92%", "300%"],
 ];
+const categories = ["Suits", "Shirts", "Knitwear", "Shoes", "Outerwear"];
 
 function Chars({ text, className }: { text: string; className?: string }) {
   return (
@@ -94,6 +95,18 @@ function ConnectVisual() {
               />
             ))}
           </div>
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            <span className="mr-1 font-mono text-[9px] uppercase tracking-[0.14em] text-faint">Mapped</span>
+            {categories.map((name) => (
+              <span
+                key={name}
+                data-cat
+                className="rounded-full border border-hairline bg-surface px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-muted opacity-0"
+              >
+                {name}
+              </span>
+            ))}
+          </div>
         </div>
       </div>
     </Window>
@@ -155,7 +168,9 @@ function BrandVisual() {
             <span className="text-[11px] font-medium text-white">Atelier North</span>
           </div>
           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-3 pt-10">
-            <p className="text-[11px] leading-snug text-white/85">Welcome in. Try anything on.</p>
+            <p className="min-h-[1.4em] text-[11px] leading-snug text-white/85">
+              <Chars text="Welcome in. Try anything on." />
+            </p>
             <span
               className="mt-2 block py-2 text-center text-[11px] font-semibold text-white"
               style={{ background: "var(--accent)", borderRadius: "calc(var(--r) - 12px)" }}
@@ -196,13 +211,33 @@ function PasteVisual() {
           <span className="ml-4">&lt;/body&gt;</span>
         </div>
       </div>
-      <div className="relative flex items-center justify-between border-t border-hairline px-4 py-3">
-        <span data-live className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-brand opacity-0">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand shadow-[0_0_10px_var(--brand)]" /> Widget live on your store
-        </span>
+      <div className="relative border-t border-hairline bg-[var(--surface-well)] p-3">
+        <div className="flex items-center justify-between">
+          <span className="flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 font-mono text-[9px] text-muted">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden className="h-2.5 w-2.5">
+              <rect x="5" y="11" width="14" height="10" rx="2" />
+              <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+            </svg>
+            atelier-north.com
+          </span>
+          <span data-live className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.16em] text-brand opacity-0">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand shadow-[0_0_10px_var(--brand)]" /> Widget live
+          </span>
+        </div>
+        <div data-store className="mt-2.5 grid grid-cols-4 gap-1.5 opacity-50 grayscale">
+          {thumbs.slice(0, 4).map(([src, pos, size], index) => (
+            <span key={index} className="block">
+              <span
+                className="block aspect-[4/5] rounded-md bg-cover bg-no-repeat"
+                style={{ backgroundImage: `url(${src})`, backgroundPosition: pos, backgroundSize: size }}
+              />
+              <span className="mt-1 block h-1 w-3/4 rounded-full bg-hairline" />
+            </span>
+          ))}
+        </div>
         <span
           data-launcher
-          className="inline-flex scale-0 items-center gap-1.5 rounded-full bg-[image:var(--grad-brand)] px-3.5 py-1.5 text-[11px] font-semibold text-white shadow-[0_10px_30px_-5px_rgba(247,109,1,0.6)]"
+          className="absolute bottom-5 right-5 inline-flex scale-0 items-center gap-1.5 rounded-full bg-[image:var(--grad-brand)] px-3.5 py-2 text-[11px] font-semibold text-white shadow-[0_10px_30px_-5px_rgba(247,109,1,0.75)]"
         >
           ✦ Try it on
         </span>
@@ -218,25 +253,25 @@ function animateCard(card: HTMLElement, scrollTrigger: ScrollTrigger.Vars) {
   const tl = gsap.timeline({ defaults: { ease: "none" }, scrollTrigger });
   const kind = card.dataset.step;
 
+  tl.from(q("[data-reveal]"), { autoAlpha: 0, y: 18, duration: 0.25, stagger: 0.06, ease: "power2.out" }, 0);
+
   if (kind === "01") {
-    const counter = { v: 0 };
     tl.from(q("[data-c]"), { autoAlpha: 0, stagger: 0.04, duration: 0.01 })
       .to(q("[data-caret]"), { autoAlpha: 0, duration: 0.1 })
       .to(q("[data-btn-done]"), { opacity: 1, duration: 0.2 }, "+=0.1")
       .to(q("[data-bar]"), { scaleX: 1, duration: 1.2 }, "+=0.1")
-      .to(
-        counter,
+      .fromTo(
+        q("[data-count]"),
+        { textContent: 0 },
         {
-          v: 1284,
+          textContent: 1284,
           duration: 1.2,
-          onUpdate: () => {
-            const el = q("[data-count]")[0];
-            if (el) el.textContent = Math.round(counter.v).toLocaleString("en-US");
-          },
+          modifiers: { textContent: (value: string) => Math.round(Number(value)).toLocaleString("en-US") },
         },
         "<",
       )
-      .to(q("[data-thumb]"), { opacity: 1, duration: 0.12, stagger: 0.13 }, "<");
+      .to(q("[data-thumb]"), { opacity: 1, duration: 0.12, stagger: 0.13 }, "<")
+      .to(q("[data-cat]"), { opacity: 1, duration: 0.1, stagger: 0.12 }, ">-0.3");
   }
 
   if (kind === "02") {
@@ -247,6 +282,7 @@ function animateCard(card: HTMLElement, scrollTrigger: ScrollTrigger.Vars) {
       brand?.style.setProperty("--r", `${radius.v.toFixed(1)}px`);
       if (label) label.textContent = `${Math.round(radius.v)}px`;
     };
+    tl.from(q("[data-c]"), { autoAlpha: 0, stagger: 0.025, duration: 0.01 });
     [1, 2].forEach((i) => {
       const r = i === 1 ? 10 : 20;
       tl.to(q("[data-ring]"), { x: i * 42, duration: 0.4, ease: "power2.inOut" })
@@ -264,6 +300,7 @@ function animateCard(card: HTMLElement, scrollTrigger: ScrollTrigger.Vars) {
     tl.to(q("[data-line-bg]"), { opacity: 1, duration: 0.15 })
       .from(q("[data-c]"), { autoAlpha: 0, stagger: 0.03, duration: 0.01 })
       .to(q("[data-live]"), { opacity: 1, duration: 0.2 }, "+=0.1")
+      .to(q("[data-store]"), { opacity: 1, filter: "grayscale(0)", duration: 0.3 }, "<")
       .to(q("[data-launcher]"), { scale: 1, duration: 0.35, ease: "back.out(2.5)" });
   }
 }
@@ -272,6 +309,7 @@ export function GoLive() {
   const root = useRef<HTMLElement>(null);
   const track = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
+  const [active, setActive] = useState(-1);
 
   useGSAP(
     () => {
@@ -293,8 +331,15 @@ export function GoLive() {
             invalidateOnRefresh: true,
           },
         });
-        cards.forEach((card) =>
-          animateCard(card, { trigger: card, containerAnimation: scroller, start: "left 80%", end: "center 62%", scrub: 0.6 }),
+        cards.forEach((card, index) =>
+          animateCard(card, {
+            ...(index === 0
+              ? { trigger: root.current, start: "top 55%", end: "top -35%" }
+              : { trigger: card, containerAnimation: scroller, start: "left 80%", end: "center 62%" }),
+            scrub: 0.6,
+            onEnter: () => setActive(index),
+            onLeaveBack: () => setActive(index - 1),
+          }),
         );
       });
 
@@ -332,6 +377,24 @@ export function GoLive() {
           <p className="mt-8 max-w-sm text-sm leading-relaxed text-muted">
             From an empty store to a live fitting room without a developer. Keep scrolling and watch it happen.
           </p>
+          <ol className="mt-10 hidden max-w-sm border-t border-hairline min-[900px]:block">
+            {steps.map((step, index) => (
+              <li key={step.n} className="flex items-center gap-4 border-b border-hairline py-3">
+                <span className={cn("font-mono text-[11px] transition-colors duration-500", index <= active ? "text-brand" : "text-faint")}>
+                  {step.n}
+                </span>
+                <span className={cn("text-sm transition-colors duration-500", index <= active ? "text-bone" : "text-faint")}>
+                  {step.title} <span className="font-serif italic">{step.accent}</span>
+                </span>
+                <span className="relative ml-auto h-px w-14 overflow-hidden bg-hairline">
+                  <span
+                    className="absolute inset-0 origin-left bg-brand transition-transform duration-700 ease-[var(--ease-expo)]"
+                    style={{ transform: `scaleX(${index <= active ? 1 : 0})` }}
+                  />
+                </span>
+              </li>
+            ))}
+          </ol>
         </div>
 
         {steps.map((step) => {
@@ -347,18 +410,38 @@ export function GoLive() {
                 className="pointer-events-none absolute inset-0 opacity-60"
                 style={{ background: "radial-gradient(80% 50% at 50% 0%, rgba(247,109,1,0.07), transparent 70%)" }}
               />
-              <div className="relative flex items-center justify-between">
-                <span className="font-mono text-xs text-brand">Step {step.n}</span>
-                <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-faint">
-                  {step.n === "01" ? "Read-only" : step.n === "02" ? "Live preview" : "One tag"}
-                </span>
+              <span
+                aria-hidden
+                className="pointer-events-none absolute -top-5 right-4 select-none font-display text-[9rem] font-semibold leading-none tracking-[-0.06em] text-transparent [-webkit-text-stroke:1px_var(--hairline-strong)]"
+              >
+                {step.n}
+              </span>
+              <div className="relative flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em]">
+                <span className="h-1.5 w-1.5 rounded-full bg-brand shadow-[0_0_8px_var(--brand)]" />
+                <span className="text-brand">Step {step.n}</span>
+                <span className="text-faint">/ 0{steps.length} · {step.label}</span>
               </div>
-              <div className="relative my-7 flex flex-1 flex-col justify-center">
+              <div className="relative my-6 flex flex-1 flex-col justify-center">
                 <Visual />
               </div>
               <div className="relative">
-                <h3 className="font-display text-4xl font-semibold tracking-[-0.04em] text-bone">{step.title}</h3>
-                <p className="mt-3 max-w-md text-sm leading-relaxed text-muted">{step.body}</p>
+                <h3 className="font-display text-[clamp(2rem,2.7vw,2.75rem)] font-semibold leading-[0.98] tracking-[-0.045em] text-bone">
+                  <span data-reveal className="inline-block">{step.title}</span>{" "}
+                  <span data-reveal className="inline-block font-serif font-normal italic tracking-[-0.02em] text-muted">
+                    {step.accent}
+                  </span>
+                </h3>
+                <p data-reveal className="mt-3 max-w-md text-sm leading-relaxed text-muted">
+                  {step.body}
+                </p>
+                <dl className="mt-5 grid grid-cols-3 border-t border-hairline">
+                  {step.facts.map(([label, value]) => (
+                    <div key={label} data-reveal className="border-r border-hairline pr-3 pt-3.5 last:border-r-0 [&:not(:first-child)]:pl-4">
+                      <dt className="font-mono text-[9px] uppercase tracking-[0.16em] text-faint">{label}</dt>
+                      <dd className="mt-1 text-[12.5px] leading-snug text-bone">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
               </div>
             </article>
           );

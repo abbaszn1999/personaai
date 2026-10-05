@@ -3,14 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import { SplitText } from "gsap/SplitText";
 import { useGSAP } from "@gsap/react";
 import { Callouts } from "@/components/fitting-room/callouts";
+import { MirrorOverlays } from "@/components/fitting-room/overlays";
 import { createMirrorStage, type MirrorStage } from "@/components/fitting-room/stage";
 import { hero, looks } from "@/lib/content";
-import { appPath } from "@/lib/site";
 
-gsap.registerPlugin(ScrollTrigger, SplitText, useGSAP);
+gsap.registerPlugin(ScrollTrigger, useGSAP);
 
 const sources = looks.map((look) => look.src);
 
@@ -22,6 +21,22 @@ export function FittingRoom() {
   const stage = useRef<MirrorStage | null>(null);
   const [webgl, setWebgl] = useState(true);
   const [active, setActive] = useState(0);
+  const [phoneScale, setPhoneScale] = useState(1);
+
+  // On phones the mirror is shorter than the 640px design the overlays are laid out for, so scale them together.
+  useEffect(() => {
+    const el = mirror.current;
+    if (!el) return;
+    const measure = () => setPhoneScale(window.innerWidth < 900 ? el.offsetHeight / 640 : 1);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, []);
 
   useEffect(() => {
     if (!canvas.current) return;
@@ -39,29 +54,15 @@ export function FittingRoom() {
   useGSAP(
     () => {
       const q = gsap.utils.selector(root);
-      const lines = q("[data-hero-line]");
-
-      document.fonts.ready.then(() => {
-        const split = SplitText.create(lines, { type: "chars", mask: "chars" });
-        gsap.set(split.masks, { paddingTop: "0.16em", marginTop: "-0.16em", paddingBottom: "0.16em", marginBottom: "-0.16em" });
-        gsap.set(lines, { visibility: "visible" });
-        gsap.from(split.chars, {
-          yPercent: 110,
-          duration: 1.3,
-          ease: "expo.out",
-          stagger: 0.028,
-          delay: 0.15,
-        });
-      });
-
-      gsap.from(mirror.current, { clipPath: "inset(50% 0% 50% 0%)", duration: 1.6, ease: "expo.inOut" });
-      gsap.from(q("[data-hero-fade]"), { autoAlpha: 0, y: 16, duration: 1, ease: "expo.out", delay: 0.9, stagger: 0.08 });
 
       const mm = gsap.matchMedia();
       mm.add(
         { desktop: "(min-width: 900px)", mobile: "(max-width: 899px)" },
         (ctx) => {
           const desktop = Boolean(ctx.conditions?.desktop);
+          gsap.set(frame.current, desktop ? { xPercent: 58 } : { xPercent: 0, yPercent: 0, scale: 1 });
+          gsap.set(q("[data-story], [data-callouts], [data-words]"), { autoAlpha: 1 });
+
           const tl = gsap.timeline({
             defaults: { ease: "none" },
             scrollTrigger: {
@@ -70,25 +71,17 @@ export function FittingRoom() {
               end: "bottom bottom",
               scrub: 1.1,
               onUpdate(self) {
-                const storyT = gsap.utils.clamp(0, 1, (self.progress - 0.14) / 0.82);
-                const progress = storyT * (looks.length - 1);
+                const progress = gsap.utils.clamp(0, 1, self.progress / 0.9) * (looks.length - 1);
                 stage.current?.setProgress(progress);
-                stage.current?.setIdle(self.progress < 0.08 ? 1 : 0);
+                stage.current?.setIdle(self.progress < 0.04 ? 1 : 0);
                 setActive(Math.round(progress));
               },
             },
           });
 
-          tl.to(q("[data-hero-left]"), { xPercent: -30, autoAlpha: 0, duration: 0.14 }, 0)
-            .to(q("[data-hero-right]"), { xPercent: 30, autoAlpha: 0, duration: 0.14 }, 0)
-            .to(q("[data-hero-fade]"), { autoAlpha: 0, duration: 0.08 }, 0)
-            .to(frame.current, desktop ? { xPercent: 58, duration: 0.14 } : { yPercent: -14, scale: 0.72, duration: 0.14 }, 0)
-            .fromTo(q("[data-story]"), { autoAlpha: 0, y: 40 }, { autoAlpha: 1, y: 0, duration: 0.06 }, 0.1)
-            .fromTo(q("[data-callouts]"), { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.06 }, 0.12)
-            .fromTo(q("[data-words]"), { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.08 }, 0.08)
-            .fromTo(q("[data-words]"), { xPercent: 6 }, { xPercent: -10, duration: 0.96 }, 0)
-            .fromTo(q("[data-grid]"), { yPercent: 0 }, { yPercent: -18, duration: 0.96 }, 0)
-            .to({}, { duration: 0.82 });
+          tl.fromTo(q("[data-words]"), { xPercent: 6 }, { xPercent: -10, duration: 1 }, 0)
+            .fromTo(q("[data-grid]"), { yPercent: 0 }, { yPercent: -18, duration: 1 }, 0)
+            .fromTo(q("[data-story]"), { y: 40 }, { y: 0, duration: 0.08 }, 0);
         },
       );
 
@@ -105,7 +98,7 @@ export function FittingRoom() {
   const look = looks[active];
 
   return (
-    <section ref={root} id="fitting-room" className="relative h-[560vh]">
+    <section ref={root} id="fitting-room" className="relative h-[440vh]">
       <div className="sticky top-0 flex h-svh items-start justify-center overflow-hidden bg-bg pt-[5.25rem] min-[900px]:items-center min-[900px]:pt-0">
         <div
           aria-hidden
@@ -176,7 +169,7 @@ export function FittingRoom() {
         <div
           ref={mirror}
           onPointerMove={onPointer}
-          className="relative h-[calc(100svh-17rem)] w-[min(88vw,calc((100svh-17rem)*0.5625))] overflow-hidden rounded-[28px] border border-hairline bg-[#0d0b10] shadow-[0_40px_120px_-20px_rgba(247,109,1,0.25)] light:shadow-[0_24px_70px_-15px_rgba(247,109,1,0.2),0_12px_32px_-8px_rgba(0,0,0,0.1)] min-[900px]:h-[82svh] min-[900px]:w-[calc(82svh*0.5625)]"
+          className="relative h-[max(17rem,calc(100svh-24.5rem))] w-[calc(max(17rem,calc(100svh-24.5rem))*0.5625)] overflow-hidden rounded-[28px] border border-hairline bg-[#0d0b10] shadow-[0_40px_120px_-20px_rgba(247,109,1,0.25)] light:shadow-[0_24px_70px_-15px_rgba(247,109,1,0.2),0_12px_32px_-8px_rgba(0,0,0,0.1)] min-[900px]:h-[82svh] min-[900px]:w-[calc(82svh*0.5625)]"
         >
           <canvas
             ref={canvas}
@@ -195,6 +188,15 @@ export function FittingRoom() {
               />
             ))
           ) : null}
+          <div
+            className="absolute left-0 top-0 origin-top-left"
+            style={
+              phoneScale === 1
+                ? { width: "100%", height: "100%" }
+                : { width: 360, height: 640, transform: `scale(${phoneScale})` }
+            }
+          >
+          <MirrorOverlays active={active} />
 
           <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-3 whitespace-nowrap p-4 font-mono text-[10px] uppercase tracking-[0.2em] text-white/90">
             <span>
@@ -205,74 +207,83 @@ export function FittingRoom() {
               {look.tag}
             </span>
           </div>
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-4 pt-16 light:from-black/60 light:via-black/20">
+          <div
+            className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-4 pt-16 transition-opacity duration-300 light:from-black/60 light:via-black/20"
+            style={{ opacity: active === looks.length - 1 ? 0 : 1 }}
+          >
             <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-white/60">Rendered on avatar</p>
             <p className="mt-1 font-serif text-2xl italic leading-none text-white">{look.garment}</p>
           </div>
-        </div>
-        </div>
-
-        <h1 className="hero-headline pointer-events-none absolute inset-0 z-20 flex flex-col justify-center px-[var(--gutter)] font-display text-[clamp(3.4rem,11.5vw,12.5rem)] font-semibold leading-[0.82] tracking-[-0.055em] text-bone mix-blend-difference">
-          <span data-hero-left className="block">
-            <span data-hero-line className="reveal-pending block">
-              {hero.lineA}
-            </span>
-          </span>
-          <span data-hero-right className="block self-end text-right">
-            <span data-hero-line className="reveal-pending block font-serif font-normal italic tracking-[-0.03em]">
-              {hero.lineB}
-            </span>
-            <span data-hero-line className="reveal-pending block">
-              {hero.lineC}
-            </span>
-          </span>
-        </h1>
-
-        <div className="absolute inset-x-0 bottom-0 z-30 flex flex-col gap-5 px-[var(--gutter)] pb-8 min-[900px]:flex-row min-[900px]:items-end min-[900px]:justify-between">
-          <p data-hero-fade className="max-w-sm text-sm leading-relaxed text-muted">
-            {hero.lede}
-          </p>
-          <div data-hero-fade className="flex items-center gap-6">
-            <span className="hidden font-mono text-[10px] uppercase tracking-[0.24em] text-faint min-[900px]:block">
-              {hero.scroll} ↓
-            </span>
-            <a
-              href={appPath("/sign-up")}
-              className="auth-out group relative inline-flex items-center gap-3 overflow-hidden rounded-full bg-bone px-6 py-3.5 text-sm font-semibold text-[var(--bg)] shadow-md transition hover:brightness-105"
-            >
-              <span className="absolute inset-0 translate-y-full bg-[image:var(--grad-brand)] transition-transform duration-500 ease-[var(--ease-expo)] group-hover:translate-y-0" />
-              <span className="relative transition-colors duration-300 group-hover:text-white">{hero.cta}</span>
-              <span className="relative transition-transform duration-500 group-hover:translate-x-1 group-hover:text-white">→</span>
-            </a>
           </div>
         </div>
+        </div>
 
-        <div data-story className="invisible absolute inset-y-0 left-0 z-30 flex w-full items-end px-[var(--gutter)] pb-10 min-[900px]:w-1/2 min-[900px]:items-center min-[900px]:pb-0">
+        <div data-story className="invisible absolute inset-y-0 left-0 z-30 flex w-full items-end px-[var(--gutter)] pb-6 min-[900px]:w-1/2 min-[900px]:items-center min-[900px]:pb-0">
           <div className="w-full max-w-lg">
-            <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-brand">{hero.kicker}</p>
-            <div className="relative mt-5 h-[12rem] min-[900px]:mt-12 min-[900px]:h-[24rem]">
-              {looks.map((item, index) => (
-                <article
-                  key={item.code}
-                  aria-hidden={index !== active}
-                  className="absolute inset-0 transition-[opacity,transform,filter] duration-700 ease-[var(--ease-expo)]"
-                  style={{
-                    opacity: index === active ? 1 : 0,
-                    transform: `translateY(${(index - active) * 28}px)`,
-                    filter: index === active ? "blur(0)" : "blur(8px)",
-                  }}
-                >
-                  <p className="hidden font-display text-[5.5rem] font-semibold min-[900px]:block leading-none tracking-[-0.06em] text-transparent [-webkit-text-stroke:1px_var(--hairline-strong)] min-[900px]:text-[8rem]">
-                    {item.code}
-                  </p>
-                  <h2 className="font-display text-3xl font-semibold leading-[1.08] tracking-[-0.035em] text-bone min-[900px]:mt-6 min-[900px]:text-5xl">
-                    {item.title}
-                  </h2>
-                  <p className="mt-5 max-w-md text-sm leading-[1.75] text-muted min-[900px]:mt-7 min-[900px]:text-base">{item.body}</p>
-                </article>
-              ))}
+            <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-brand">{hero.room}</p>
+            <div className="relative mt-4 h-[12.5rem] min-[900px]:mt-10 min-[900px]:h-[27rem]">
+              {looks.map((item, index) => {
+                const on = index === active;
+                const lift = (delay: number): React.CSSProperties => ({
+                  opacity: on ? 1 : 0,
+                  transform: on ? "none" : `translateY(${index < active ? -18 : 18}px)`,
+                  transitionDelay: on ? `${delay}ms` : "0ms",
+                });
+                return (
+                  <article key={item.code} aria-hidden={!on} className="absolute inset-0" style={{ pointerEvents: on ? "auto" : "none" }}>
+                    <div className="flex items-end gap-4">
+                      <span
+                        className="hidden font-display text-[6.5rem] font-semibold leading-[0.8] tracking-[-0.06em] text-transparent transition-[opacity,transform] duration-700 ease-[var(--ease-expo)] [-webkit-text-stroke:1px_var(--hairline-strong)] min-[900px]:block"
+                        style={lift(0)}
+                      >
+                        {item.code}
+                      </span>
+                      <span
+                        className="flex items-center gap-2 pb-1 font-mono text-[10px] uppercase tracking-[0.22em] text-muted transition-[opacity,transform] duration-700 ease-[var(--ease-expo)]"
+                        style={lift(60)}
+                      >
+                        <span className="h-1.5 w-1.5 rounded-full bg-brand shadow-[0_0_8px_var(--brand)]" />
+                        {item.label}
+                        <span className="text-faint">/ 0{looks.length}</span>
+                      </span>
+                    </div>
+                    <h2 className="mt-4 font-display text-[2.1rem] font-semibold leading-[0.98] tracking-[-0.045em] text-bone min-[900px]:mt-7 min-[900px]:text-[clamp(3rem,4.4vw,4.4rem)]">
+                      <span className="block transition-[opacity,transform] duration-700 ease-[var(--ease-expo)]" style={lift(90)}>
+                        {item.title}
+                      </span>
+                      <span
+                        className="block font-serif font-normal italic tracking-[-0.025em] text-muted transition-[opacity,transform] duration-700 ease-[var(--ease-expo)]"
+                        style={lift(170)}
+                      >
+                        {item.accent}
+                      </span>
+                    </h2>
+                    <p
+                      className="mt-4 max-w-md text-sm leading-[1.7] text-muted transition-[opacity,transform] duration-700 ease-[var(--ease-expo)] min-[900px]:mt-6 min-[900px]:text-base"
+                      style={lift(240)}
+                    >
+                      {item.body}
+                    </p>
+                    <dl
+                      className="mt-7 hidden max-w-md grid-cols-3 border-t border-hairline transition-opacity duration-500 min-[900px]:grid"
+                      style={{ opacity: on ? 1 : 0, transitionDelay: on ? "280ms" : "0ms" }}
+                    >
+                      {item.facts.map(([value, text], factIndex) => (
+                        <div
+                          key={text}
+                          className="border-r border-hairline pr-3 pt-4 transition-[opacity,transform] duration-700 ease-[var(--ease-expo)] last:border-r-0 [&:not(:first-child)]:pl-4"
+                          style={lift(320 + factIndex * 70)}
+                        >
+                          <dt className="font-display text-2xl font-semibold tracking-[-0.03em] text-bone">{value}</dt>
+                          <dd className="mt-1 font-mono text-[9.5px] uppercase leading-snug tracking-[0.14em] text-faint">{text}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </article>
+                );
+              })}
             </div>
-            <ol className="mt-8 flex gap-2 min-[900px]:mt-10" aria-label="Looks">
+            <ol className="mt-5 flex gap-2 min-[900px]:mt-10" aria-label="Looks">
               {looks.map((item, index) => (
                 <li key={item.code} className="h-[3px] flex-1 overflow-hidden rounded-full bg-hairline">
                   <span

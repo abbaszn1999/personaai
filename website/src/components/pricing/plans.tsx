@@ -26,7 +26,16 @@ export function PricingHero() {
     () => {
       const q = gsap.utils.selector(root);
       const split = SplitText.create(q("[data-line]"), { type: "chars", mask: "chars" });
-      gsap.set(split.masks, { paddingBottom: "0.14em", marginBottom: "-0.14em" });
+      gsap.set(split.masks, {
+        paddingTop: "0.16em",
+        marginTop: "-0.16em",
+        paddingBottom: "0.16em",
+        marginBottom: "-0.16em",
+        paddingLeft: "0.14em",
+        marginLeft: "-0.14em",
+        paddingRight: "0.14em",
+        marginRight: "-0.14em",
+      });
       gsap.set(q(".reveal-pending"), { visibility: "visible" });
 
       gsap
@@ -81,7 +90,7 @@ export function PricingHero() {
             </p>
             <h1 className="reveal-pending mt-7 font-display text-[clamp(3rem,7.4vw,8rem)] font-semibold leading-[0.9] tracking-[-0.055em] text-bone">
               <span data-line className="block">{pricingHero.lineA}</span>
-              <span data-line className="block font-serif font-normal italic tracking-[-0.03em] text-muted">
+              <span data-line className="block pb-[0.08em] pt-[0.16em] font-serif font-normal italic tracking-[-0.01em] text-muted">
                 {pricingHero.lineB}
               </span>
             </h1>

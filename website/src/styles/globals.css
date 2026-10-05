@@ -160,9 +160,25 @@ body {
   background: linear-gradient(170deg, rgba(247, 109, 1, 0.85), rgba(0, 0, 0, 0.08) 35%, rgba(0, 0, 0, 0.03) 70%, rgba(247, 109, 1, 0.35));
 }
 
-/* White + difference renders near-black on paper and flips to light where it crosses the mirror. */
-[data-theme="light"] .hero-headline {
-  color: #ffffff !important;
+/* Surface tokens of the real Persona widget, used by the hero demo. */
+.pw {
+  --pw-base: #100a16;
+  --pw-card: #191122;
+  --pw-border: #2c2140;
+  --pw-text: #f4f0f8;
+  --pw-muted: #8d82a0;
+  --pw-bubble: #22182e;
+  --pw-stage: #0d0b14;
+}
+
+[data-theme="light"] .pw {
+  --pw-base: #f7f6f9;
+  --pw-card: #ffffff;
+  --pw-border: #e9e6ef;
+  --pw-text: #17121d;
+  --pw-muted: #7d7589;
+  --pw-bubble: #f1eff4;
+  --pw-stage: #f2f0f5;
 }
 
 .range {
@@ -204,6 +220,11 @@ body {
 @keyframes eq {
   0%, 100% { transform: scaleY(0.35); }
   50% { transform: scaleY(1); }
+}
+
+@keyframes scanY {
+  0%, 100% { top: 0%; }
+  50% { top: 100%; }
 }
 
 @keyframes marquee {
