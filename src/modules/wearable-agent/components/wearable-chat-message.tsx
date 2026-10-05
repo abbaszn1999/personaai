@@ -105,6 +105,10 @@ export function WearableChatMessage({
   );
   const isUser = message.role === "user";
   const branding = useWearableBranding();
+  // Old sessions may still contain a revoked `blob:` URL from the former onboarding uploader.
+  // Remember only the URL that failed: a newly uploaded URL automatically gets another chance.
+  const [failedUserPhotoUrl, setFailedUserPhotoUrl] = React.useState<string | null>(null);
+  const showUserPhoto = Boolean(userPhotoUrl && userPhotoUrl !== failedUserPhotoUrl);
 
   return (
     <div className={cn("flex items-start gap-2.5 animate-fade-in", isUser ? "flex-row-reverse" : "flex-row")}>
@@ -120,9 +124,16 @@ export function WearableChatMessage({
             <Shirt className="h-4 w-4 text-white" />
           </div>
         )
-      ) : userPhotoUrl ? (
+      ) : showUserPhoto ? (
         <div className="relative h-8 w-8 rounded-full overflow-hidden shrink-0 mt-0.5 border-2 border-[var(--color-violet-from)]/40">
-          <Image src={userPhotoUrl} alt="You" fill className="object-cover" unoptimized />
+          <Image
+            src={userPhotoUrl!}
+            alt="You"
+            fill
+            className="object-cover"
+            unoptimized
+            onError={() => setFailedUserPhotoUrl(userPhotoUrl!)}
+          />
         </div>
       ) : (
         <div className="h-8 w-8 rounded-full bg-[var(--color-accent-light)] flex items-center justify-center shrink-0 mt-0.5">

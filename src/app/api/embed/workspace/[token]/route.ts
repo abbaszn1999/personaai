@@ -1,4 +1,6 @@
 import { getWorkspaceByEmbedToken } from "@/lib/db/workspaces";
+import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
+import { onboardingAudiencesForScope } from "@/modules/wearable-agent/audiences";
 import { embedJson, embedOptions } from "@/lib/embed/cors";
 import { canUsePaidPlatform, getAccountBillingContext } from "@/lib/billing/account";
 
@@ -24,8 +26,19 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return embedJson({ error: "This assistant subscription is inactive" }, { status: 402 });
     }
 
+    // Which "Who's trying this on?" choices to offer. A lookup failure must not take the whole
+    // widget down — null simply means "show every choice", which is the pre-scope behaviour.
+    let audiences: ReturnType<typeof onboardingAudiencesForScope> = null;
+    try {
+      const connection = await getStoreConnectionByOwner(workspace.ownerId);
+      audiences = onboardingAudiencesForScope(connection?.personaTaxonomyScope);
+    } catch (err) {
+      console.error("[api/embed/workspace GET audiences]", err);
+    }
+
     return embedJson({
       branding: workspace.branding,
+      audiences,
     });
   } catch (err) {
     console.error("[api/embed/workspace GET]", err);

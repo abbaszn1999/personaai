@@ -23,6 +23,7 @@ import type { PreviewViewportMode } from "./preview-viewport-toggle";
 import { useWearableTheme, type WearableTheme } from "../theme-context";
 import { useWearableBranding } from "../branding-context";
 import type { EmbedRuntimeConfig } from "../hooks/use-try-on-agent";
+import type { TryOnProfile } from "../types";
 
 const CHAT_PANEL_BG_BY_THEME: Record<WearableTheme, string> = { dark: "#0d0b14", light: "#f2f0f5" };
 
@@ -236,6 +237,13 @@ interface StyleChatPanelProps {
   embed?: EmbedRuntimeConfig;
 }
 
+/** Prefer in-memory bytes over an older revoked blob URL retained by a pre-fix session. */
+function profilePhotoUrl(profile: TryOnProfile): string | null {
+  return profile.photoBase64 && profile.photoMimeType
+    ? `data:${profile.photoMimeType};base64,${profile.photoBase64}`
+    : profile.photoUrl;
+}
+
 function ChatProfileSwitcher({ agent }: { agent: UseTryOnAgentReturn }) {
   const shopper = useEmbedShopperSession();
   return (
@@ -312,7 +320,7 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
               key={msg.id}
               message={msg}
               isLast={idx === agent.messages.length - 1}
-              userPhotoUrl={agent.profile.photoUrl}
+              userPhotoUrl={profilePhotoUrl(agent.profile)}
               inlineProducts={msgProducts.length > 0 ? msgProducts : undefined}
               outfitItemIds={outfitItemIds}
               cartItemIds={cartItemIds}
@@ -619,7 +627,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
                     key={msg.id}
                     message={msg}
                     isLast={idx === agent.messages.length - 1}
-                    userPhotoUrl={agent.profile.photoUrl}
+                    userPhotoUrl={profilePhotoUrl(agent.profile)}
                     inlineProducts={msgProducts.length > 0 ? msgProducts : undefined}
                     outfitItemIds={outfitItemIds}
                     cartItemIds={cartItemIds}

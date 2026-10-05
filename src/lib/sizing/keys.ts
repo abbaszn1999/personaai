@@ -53,13 +53,13 @@ export function normalizeSizeLabel(label: string): string {
 /**
  * Splits a merchant's raw "available sizes" string into individual labels.
  *
- * Only splits on separators that unambiguously delimit a list. Hyphens are left alone on purpose:
- * `"XS-S"` is one label for a garment that spans two sizes, and splitting it would invent stock
- * the store never listed.
+ * Only splits on separators that unambiguously delimit a list. Hyphens and slashes are left alone
+ * on purpose: `"XS/S"` and `"W32/L34"` are official compound labels, and splitting either would
+ * invent stock the store never listed.
  */
 export function splitRawSizeValue(raw: string): string[] {
   const seen = new Set<string>();
-  for (const part of raw.split(/[,;/|\n]+/)) {
+  for (const part of raw.split(/[,;|\n]+/)) {
     const label = normalizeSizeLabel(part);
     if (label) seen.add(label);
   }
@@ -130,6 +130,27 @@ export function audienceFor(input: {
   }
 
   return "unisex";
+}
+
+/**
+ * Boys/girls evidence for a product filed under a kids-unisex path. Only an unambiguous single
+ * signal counts ("Kids Boys ..." -> boys); a title naming both, or neither, yields null.
+ */
+export function audienceHintFor(input: {
+  genders?: readonly string[] | null;
+  title?: string | null;
+}): "boys" | "girls" | null {
+  for (const values of [
+    (input.genders ?? []).filter(Boolean),
+    input.title ? [input.title] : [],
+  ]) {
+    if (values.length === 0) continue;
+    const girls = matchesAny(values, /\b(?:girls?|female|filles?|ni[nñ]as?)\b/i);
+    const boys = matchesAny(values, /\b(?:boys?|male|gar[cç]ons?|ni[nñ]os?)\b/i);
+    if (girls && !boys) return "girls";
+    if (boys && !girls) return "boys";
+  }
+  return null;
 }
 
 /**

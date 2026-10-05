@@ -7,12 +7,14 @@ import {
   PreviewViewportToggle,
   type PreviewViewportMode,
 } from "@/modules/wearable-agent/components/preview-viewport-toggle";
+import { useOnboardingAudiences } from "@/modules/wearable-agent/hooks/use-onboarding-audiences";
 import { useWorkspaceStore } from "@/modules/workspaces/store";
 import { toWearableBranding } from "@/modules/workspaces/branding-schema";
 import { CatalogReadyGate } from "@/modules/store/components/catalog-ready-gate";
 
 export default function TryOnPage() {
   const ws = useWorkspaceStore((s) => s.workspace);
+  const audiences = useOnboardingAudiences();
   const [viewportMode, setViewportMode] = useState<PreviewViewportMode>("desktop");
 
   return (
@@ -33,6 +35,7 @@ export default function TryOnPage() {
             workspaceId={ws?.id}
             theme={ws?.branding.theme}
             branding={ws ? toWearableBranding(ws.branding) : undefined}
+            audiences={audiences}
           />
         </CatalogReadyGate>
       </div>

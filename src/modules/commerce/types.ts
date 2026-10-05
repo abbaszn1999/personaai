@@ -57,6 +57,37 @@ export interface TryOnImageMessage {
   fitNotes: string;
 }
 
+export type FitDirection = "inside" | "size_up" | "size_down";
+
+export interface FitMeasurementAnalysis {
+  measurement: string;
+  label: string;
+  unit: "cm" | "kg";
+  shopperValue: number | null;
+  min: number | null;
+  max: number | null;
+  outside: number | null;
+  direction: FitDirection | null;
+  score: number | null;
+}
+
+export interface ItemFitAnalysis {
+  productId: string;
+  productName: string;
+  size: string;
+  group: string | null;
+  score: number | null;
+  label: string;
+  metrics: FitMeasurementAnalysis[];
+  reason?: "no_chart" | "size_not_found" | "no_measurements";
+}
+
+export interface LookFitAnalysis {
+  score: number | null;
+  label: string;
+  items: ItemFitAnalysis[];
+}
+
 /** One item within a suggested bundle, with the category and price shown per-row. */
 export interface BundleSuggestionItem {
   productId: string;

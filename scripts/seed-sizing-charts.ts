@@ -14,10 +14,20 @@
  *   npm run sizing:seed -- tommy_hilfiger     one brand
  *   npm run sizing:seed                       every seeded brand
  */
-import { CHART_SEEDS, type SeedChart } from "@/lib/sizing/seeds";
+import {
+  CHART_SEEDS,
+  GLOBAL_BRAND_MANIFESTS,
+  type SeedChart,
+} from "@/lib/sizing/seeds";
 import { upsertSharedChart } from "@/lib/db/sizing-charts";
 import { assessChart } from "@/lib/sizing/chart-review";
-import { chartHasBounds } from "@/lib/sizing/chart-schema";
+import { chartHasDecidingBounds } from "@/lib/sizing/chart-schema";
+import {
+  decidingMeasurementsFor,
+  sourceTableIdFor,
+  sourceVerificationFor,
+  validateManifestParity,
+} from "@/lib/sizing/seeds/manifest";
 
 /** Confidence 1, because a human read these off the brand's own page. Above
  *  `CHART_CONFIDENCE_THRESHOLD`, so the research short-circuit treats a seeded category as covered
@@ -42,6 +52,10 @@ async function writeChart(chart: SeedChart): Promise<boolean> {
     coversLeaves: chart.coversLeaves,
     audience: chart.audience,
     sourceTitle: chart.sourceTitle,
+    sourceTableId: sourceTableIdFor(chart),
+    applicability: chart.applicability,
+    decidingMeasurements: decidingMeasurementsFor(chart),
+    sourceVerification: sourceVerificationFor(chart),
     chartRows,
     confidence: SEED_CONFIDENCE,
     sourceUrl: chart.sourceUrl,
@@ -60,6 +74,13 @@ async function main() {
     if (!CHART_SEEDS[brand]) {
       throw new Error(`No seed for "${brand}". Seeded brands: ${Object.keys(CHART_SEEDS).join(", ")}`);
     }
+    const manifestErrors = validateManifestParity(
+      GLOBAL_BRAND_MANIFESTS[brand],
+      CHART_SEEDS[brand],
+    );
+    if (manifestErrors.length > 0) {
+      throw new Error(`Manifest validation failed:\n${manifestErrors.join("\n")}`);
+    }
   }
 
   console.log(dryRun ? "DRY RUN — nothing will be written\n" : "Writing global charts (connection_id = null)\n");
@@ -76,7 +97,7 @@ async function main() {
       const chartRows = rowsForWrite(chart);
       // Re-checked at write time rather than trusted from the test run: this is the last point before
       // a row every merchant reads, and a chart carrying no usable measurement is worse than absent.
-      if (!chartHasBounds(chartRows, chart.sizingCategory, chart.audience)) {
+      if (!chartHasDecidingBounds(chartRows, decidingMeasurementsFor(chart))) {
         console.error(`  SKIP  ${chart.variantName} (${chart.sizingCategory}) — no required measurement`);
         failed += 1;
         continue;

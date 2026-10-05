@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Loader2, Sparkles, Store as StoreIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useStoreConnectionStore } from "@/modules/store/store";
+import { catalogProgressView } from "./catalog-progress";
 import { cn } from "@/lib/utils/cn";
 
 const POLL_INTERVAL_MS = 5000;
@@ -78,10 +79,7 @@ export function CatalogReadyGate({
   // Render nothing rather than a gate we might immediately retract.
   if (state === "loading") return null;
 
-  const pct =
-    catalogSync.total > 0
-      ? Math.min(100, Math.round((catalogSync.progress / catalogSync.total) * 100))
-      : 0;
+  const { percent: pct, finalizing } = catalogProgressView(catalogSync.progress, catalogSync.total);
 
   return (
     <div
@@ -120,7 +118,9 @@ export function CatalogReadyGate({
       <p className="mt-1.5 text-sm text-[var(--color-text-muted)] max-w-sm">
         {state === "no-store" && `${label} needs a connected store before your agent has anything to recommend.`}
         {state === "indexing" &&
-          (catalogSync.total > 0
+          (finalizing
+            ? `All ${catalogSync.total.toLocaleString()} products are processed — finishing up the last writes. ${label} unlocks automatically in a moment.`
+            : catalogSync.total > 0
             ? `${catalogSync.progress.toLocaleString()} of ${catalogSync.total.toLocaleString()} products ready. ${label.toLowerCase()} unlocks automatically when this finishes — you can close this page and come back.`
             : `Counting your catalog. ${label} unlocks automatically when indexing finishes.`)}
         {state === "not-indexed" &&
@@ -135,7 +135,7 @@ export function CatalogReadyGate({
               style={{ width: `${pct}%` }}
             />
           </div>
-          <p className="mt-1.5 text-xs text-[var(--color-text-muted)]">{pct}% complete</p>
+          <p className="mt-1.5 text-xs text-[var(--color-text-muted)]">{finalizing ? "Finishing up…" : `${pct}% complete`}</p>
         </div>
       )}
 

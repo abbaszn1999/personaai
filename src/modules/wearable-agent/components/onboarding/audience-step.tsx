@@ -23,6 +23,9 @@ const AUDIENCE_OPTIONS: AudienceOption[] = [
 
 interface AudienceStepProps {
   value: TryOnAudience | null;
+  /** Which choices to offer — the departments the merchant enabled. Omitted (or empty) shows
+   *  every choice, so a store that hasn't set its scope up yet still onboards normally. */
+  audiences?: readonly TryOnAudience[];
   /** Selecting a card advances immediately (Typeform-style, one question per screen) — this
    *  step never has its own footer button. */
   onSelect: (audience: TryOnAudience) => void;
@@ -36,6 +39,7 @@ interface AudienceStepProps {
 
 export function AudienceStep({
   value,
+  audiences,
   onSelect,
   showNameField = false,
   name = "",
@@ -46,6 +50,10 @@ export function AudienceStep({
   // straight into the input would snap the last saved name right back on backspace.
   const [draft, setDraft] = React.useState(name);
   const nameComplete = !showNameField || draft.trim() !== "";
+  const options =
+    audiences && audiences.length > 0
+      ? AUDIENCE_OPTIONS.filter((option) => audiences.includes(option.id))
+      : AUDIENCE_OPTIONS;
 
   return (
     <div className="flex flex-col gap-5">
@@ -73,11 +81,11 @@ export function AudienceStep({
       </div>
       <div
         className={cn(
-          "grid grid-cols-2 gap-3 sm:grid-cols-3 transition-opacity",
+          "grid grid-cols-2 gap-3 @xl:grid-cols-3 transition-opacity",
           !nameComplete && "pointer-events-none opacity-40"
         )}
       >
-        {AUDIENCE_OPTIONS.map(({ id, label, icon: Icon }, i) => (
+        {options.map(({ id, label, icon: Icon }, i) => (
           <button
             key={id}
             type="button"

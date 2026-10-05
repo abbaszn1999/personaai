@@ -14,7 +14,7 @@ import type {
   SerializedTaxonomyScope,
 } from "@/modules/store/mapping/persona-taxonomy";
 import type { SkuParentOverrides } from "@/modules/store/types";
-import { normalizeBrandKey } from "@/lib/sizing/keys";
+import { audienceHintFor, normalizeBrandKey } from "@/lib/sizing/keys";
 import { isSizingGroup } from "@/lib/sizing/measurements";
 
 export interface ProductSizingConnection {
@@ -44,6 +44,7 @@ export function sizingForRawProduct(
     sizingCategory: isSizingGroup(parentOverride) ? parentOverride : primary?.sizingGroup ?? "",
     primaryPersonaLeafKey: primary?.key ?? null,
     rawSizeFormat: toRawFormat(labels),
+    audienceHint: audienceHintFor({ genders: routed.genders, title: raw.title }),
   }, context);
   return resolution.status === "matched" ? buildAcsSizingPayload(resolution) : null;
 }

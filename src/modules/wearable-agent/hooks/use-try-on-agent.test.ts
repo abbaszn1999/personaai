@@ -17,6 +17,7 @@ const BASE_PROFILE: TryOnProfile = {
   heightCm: null,
   weightKg: null,
   shoeSizeEu: null,
+  ageYears: null,
   chestCm: null,
   waistCm: null,
   hipsCm: null,
@@ -38,11 +39,43 @@ describe("isMeasurementsComplete", () => {
     expect(isMeasurementsComplete({ ...BASE_PROFILE, ...COMPLETE_MEASUREMENTS, waistCm: 0 })).toBe(false);
   });
 
-  it("is true once height/weight/chest/waist/shoe size are all set, regardless of audience or photo", () => {
+  it("is true once height/weight/chest/waist/shoe size are all set for an adult audience", () => {
     expect(isMeasurementsComplete({ ...BASE_PROFILE, ...COMPLETE_MEASUREMENTS })).toBe(true);
     expect(
-      isMeasurementsComplete({ ...BASE_PROFILE, ...COMPLETE_MEASUREMENTS, audience: "kids-boy" })
+      isMeasurementsComplete({ ...BASE_PROFILE, ...COMPLETE_MEASUREMENTS, audience: "woman" })
     ).toBe(true);
+  });
+
+  describe("kids departments", () => {
+    const KIDS = ["kids-boy", "kids-girl", "kids-unisex"] as const;
+    const KID_MEASUREMENTS: Partial<TryOnProfile> = { heightCm: 120, weightKg: 25, shoeSizeEu: 32, ageYears: 6 };
+
+    it("asks for age instead of chest and waist", () => {
+      for (const audience of KIDS) {
+        expect(isMeasurementsComplete({ ...BASE_PROFILE, ...KID_MEASUREMENTS, audience })).toBe(true);
+      }
+    });
+
+    it("is not complete without an age, even with chest and waist filled in", () => {
+      expect(
+        isMeasurementsComplete({ ...BASE_PROFILE, ...COMPLETE_MEASUREMENTS, audience: "kids-boy" })
+      ).toBe(false);
+    });
+
+    it("accepts 0 (under one year) but rejects out-of-range ages", () => {
+      const kid = { ...BASE_PROFILE, ...KID_MEASUREMENTS, audience: "kids-girl" as const };
+      expect(isMeasurementsComplete({ ...kid, ageYears: 0 })).toBe(true);
+      expect(isMeasurementsComplete({ ...kid, ageYears: 17 })).toBe(true);
+      expect(isMeasurementsComplete({ ...kid, ageYears: 18 })).toBe(false);
+      expect(isMeasurementsComplete({ ...kid, ageYears: -1 })).toBe(false);
+    });
+
+    it("still needs height, weight and shoe size", () => {
+      const kid = { ...BASE_PROFILE, ...KID_MEASUREMENTS, audience: "kids-unisex" as const };
+      expect(isMeasurementsComplete({ ...kid, heightCm: null })).toBe(false);
+      expect(isMeasurementsComplete({ ...kid, weightKg: null })).toBe(false);
+      expect(isMeasurementsComplete({ ...kid, shoeSizeEu: null })).toBe(false);
+    });
   });
 });
 

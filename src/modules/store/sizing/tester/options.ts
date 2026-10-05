@@ -1,6 +1,10 @@
 import type { SizingChartRow } from "@/lib/db/sizing-charts";
 import type { SizingCoverageRow } from "@/lib/db/sizing-coverage";
-import type { SizeAliases, SizeChartRow } from "@/lib/sizing/chart-schema";
+import {
+  preferredAliasLabel,
+  type SizeAliases,
+  type SizeChartRow,
+} from "@/lib/sizing/chart-schema";
 import type { CanonicalBrandMember } from "@/lib/sizing/brand-mapping-view";
 import {
   isSizingGroup,
@@ -140,13 +144,14 @@ export function chartRowToMultiSystemRow(
   const aliases = row.aliases ? { ...row.aliases } : undefined;
   const lengthMin = row.body_length_min ?? row.dress_length_min;
   const lengthMax = row.body_length_max ?? row.dress_length_max;
-  const ages = ageRange(row.aliases?.age);
+  const ageLabel = preferredAliasLabel(row.aliases?.age);
+  const ages = ageRange(ageLabel);
 
   return {
     sizeLabel: row.size,
-    usSize: row.aliases?.us ?? row.size,
-    euSize: row.aliases?.eu ?? row.size,
-    ukSize: row.aliases?.uk ?? row.size,
+    usSize: preferredAliasLabel(row.aliases?.us) ?? row.size,
+    euSize: preferredAliasLabel(row.aliases?.eu) ?? row.size,
+    ukSize: preferredAliasLabel(row.aliases?.uk) ?? row.size,
     chestMin: row.chest_min,
     chestMax: row.chest_max,
     waistMin: row.waist_min,
@@ -157,7 +162,7 @@ export function chartRowToMultiSystemRow(
     heightMax: row.height_max,
     footLengthMin: row.foot_length_min,
     footLengthMax: row.foot_length_max,
-    ageLabel: row.aliases?.age,
+    ageLabel,
     ...ages,
     chestCm: displayRange(row.chest_min, row.chest_max),
     chestIn: inchesRange(row.chest_min, row.chest_max),

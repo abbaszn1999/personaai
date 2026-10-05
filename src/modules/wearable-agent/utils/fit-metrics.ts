@@ -1,28 +1,6 @@
 import type { TryOnProfile } from "../types";
 import type { Product } from "@/modules/commerce/types";
 
-export interface FitMetric {
-  label: string;
-  value: number;
-}
-
-export interface ProfileFitSummary {
-  fitScore: number;
-  fitLabel: string;
-  metrics: FitMetric[];
-  buildLabel: string;
-}
-
-/** Derives a "Build" descriptor straight from the chest/waist ratio instead of a
- *  self-picked body-shape category — higher ratio reads broader/athletic, lower
- *  ratio reads leaner/balanced. */
-function getBuildLabel(chestWaistRatio: number): string {
-  if (chestWaistRatio >= 1.35) return "Broad";
-  if (chestWaistRatio >= 1.2) return "Athletic";
-  if (chestWaistRatio >= 1.08) return "Balanced";
-  return "Lean";
-}
-
 /** Realistic human ranges — values outside this fall back to a demo default
  *  so the panel always reads as polished, even with placeholder/bad test data. */
 const MIN_HEIGHT_CM = 120;
@@ -39,12 +17,22 @@ const MAX_WAIST_CM = 150;
 const MIN_SHOE_SIZE_EU = 30;
 const MAX_SHOE_SIZE_EU = 52;
 
-function isRealisticHeight(cm: number | null): cm is number {
-  return !!cm && cm >= MIN_HEIGHT_CM && cm <= MAX_HEIGHT_CM;
+// A child sits well below the adult floors above (a 6-year-old is ~115 cm and ~20 kg and wears
+// around EU 28), so the three kids departments are judged against their own ranges — otherwise
+// every real answer would be replaced by the adult demo value.
+const KIDS_MIN_HEIGHT_CM = 40;
+const KIDS_MAX_HEIGHT_CM = 200;
+const KIDS_MIN_WEIGHT_KG = 2;
+const KIDS_MAX_WEIGHT_KG = 120;
+const KIDS_MIN_SHOE_SIZE_EU = 15;
+const KIDS_MAX_SHOE_SIZE_EU = 46;
+
+function isRealisticHeight(cm: number | null, kids = false): cm is number {
+  return !!cm && cm >= (kids ? KIDS_MIN_HEIGHT_CM : MIN_HEIGHT_CM) && cm <= (kids ? KIDS_MAX_HEIGHT_CM : MAX_HEIGHT_CM);
 }
 
-function isRealisticWeight(kg: number | null): kg is number {
-  return !!kg && kg >= MIN_WEIGHT_KG && kg <= MAX_WEIGHT_KG;
+function isRealisticWeight(kg: number | null, kids = false): kg is number {
+  return !!kg && kg >= (kids ? KIDS_MIN_WEIGHT_KG : MIN_WEIGHT_KG) && kg <= (kids ? KIDS_MAX_WEIGHT_KG : MAX_WEIGHT_KG);
 }
 
 function isRealisticChest(cm: number | null): cm is number {
@@ -55,19 +43,19 @@ function isRealisticWaist(cm: number | null): cm is number {
   return !!cm && cm >= MIN_WAIST_CM && cm <= MAX_WAIST_CM;
 }
 
-function isRealisticShoeSize(eu: number | null): eu is number {
-  return !!eu && eu >= MIN_SHOE_SIZE_EU && eu <= MAX_SHOE_SIZE_EU;
+function isRealisticShoeSize(eu: number | null, kids = false): eu is number {
+  return !!eu && eu >= (kids ? KIDS_MIN_SHOE_SIZE_EU : MIN_SHOE_SIZE_EU) && eu <= (kids ? KIDS_MAX_SHOE_SIZE_EU : MAX_SHOE_SIZE_EU);
 }
 
 /** Height/weight are shown in the same cm/kg units the profile is actually entered in,
  *  matching Chest/Waist/Shoe Size instead of converting to ft/in and lbs. */
-export function formatHeightCm(cm: number | null): string {
-  const value = isRealisticHeight(cm) ? cm : DEMO_HEIGHT_CM;
+export function formatHeightCm(cm: number | null, kids = false): string {
+  const value = isRealisticHeight(cm, kids) ? cm : DEMO_HEIGHT_CM;
   return `${Math.round(value)} cm`;
 }
 
-export function formatWeightKg(kg: number | null): string {
-  const value = isRealisticWeight(kg) ? kg : DEMO_WEIGHT_KG;
+export function formatWeightKg(kg: number | null, kids = false): string {
+  const value = isRealisticWeight(kg, kids) ? kg : DEMO_WEIGHT_KG;
   return `${Math.round(value)} kg`;
 }
 
@@ -83,37 +71,15 @@ export function formatWaistCm(cm: number | null): string {
 
 /** Shoe size is a garment-independent stat (EU sizing, as entered), distinct from the
  *  XS–XL letter size recommended per-garment below it. */
-export function formatShoeSizeEu(eu: number | null): string {
-  return isRealisticShoeSize(eu) ? `EU ${eu}` : "—";
+export function formatShoeSizeEu(eu: number | null, kids = false): string {
+  return isRealisticShoeSize(eu, kids) ? `EU ${eu}` : "—";
 }
 
-export function getProfileFitSummary(profile: TryOnProfile): ProfileFitSummary {
-  const hasFullProfile =
-    profile.heightCm &&
-    profile.weightKg &&
-    profile.chestCm &&
-    profile.waistCm;
-
-  const chestWaistRatio =
-    profile.chestCm && profile.waistCm ? profile.chestCm / profile.waistCm : 1.2;
-
-  const metrics: FitMetric[] = [
-    { label: "Shoulders", value: hasFullProfile ? 94 : 94 },
-    { label: "Chest", value: hasFullProfile ? Math.min(98, Math.round(85 + chestWaistRatio * 4)) : 91 },
-    { label: "Waist", value: hasFullProfile ? Math.min(96, Math.round(88 + (profile.waistCm! / profile.heightCm!) * 20)) : 89 },
-    { label: "Length", value: hasFullProfile ? 93 : 93 },
-  ];
-
-  const fitScore = Math.round(metrics.reduce((sum, m) => sum + m.value, 0) / metrics.length);
-
-  const buildLabel = getBuildLabel(chestWaistRatio);
-
-  return {
-    fitScore,
-    fitLabel: fitScore >= 90 ? "Excellent Fit" : fitScore >= 80 ? "Great Fit" : "Good Fit",
-    metrics,
-    buildLabel,
-  };
+/** A kids profile's age; 0 is a real answer (under one year). */
+export function formatAgeYears(years: number | null): string {
+  if (years === null || !Number.isFinite(years) || years < 0) return "—";
+  if (years < 1) return "Under 1 yr";
+  return years === 1 ? "1 yr" : `${Math.round(years)} yrs`;
 }
 
 export function recommendSize(profile: TryOnProfile): string {

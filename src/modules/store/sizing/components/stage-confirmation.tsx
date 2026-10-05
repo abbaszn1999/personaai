@@ -27,6 +27,7 @@ import {
   type Measurement,
 } from "@/lib/sizing/measurements";
 import { audienceForPersonaPath } from "@/lib/sizing/variant-match";
+import { rowLabels } from "@/lib/sizing/chart-schema";
 import type {
   ServerBrandType,
   SizingResolutionSummary,
@@ -48,6 +49,7 @@ const STATUS_LABELS: Record<string, string> = {
   "fit-only": "Fit-specific chart only",
   "parent-mismatch": "Leaf and parent disagree",
   "sizes-unresolved": "Size labels do not match",
+  "unsupported-source": "Official source does not publish required data",
 };
 
 function money(row: SizingSampleRow): string {
@@ -70,7 +72,7 @@ type PreviewChartRow = NonNullable<SizingSampleRow["chartRows"]>[number];
 
 function stockedChartRows(preview: SizingSampleRow): PreviewChartRow[] {
   return (preview.chartRows ?? []).filter((chartRow) => {
-    const labels = [chartRow.size, ...Object.values(chartRow.aliases ?? {})];
+    const labels = rowLabels(chartRow);
     return preview.canonicalSizes?.some((size) => labels.includes(size));
   });
 }
@@ -152,7 +154,7 @@ function StageFiveChartPreview({
                   {chartRow.size}
                 </td>
                 <td className="whitespace-nowrap px-4 py-3 text-[var(--color-text-secondary)]">
-                  {Object.values(chartRow.aliases ?? {}).join(" · ") || "—"}
+                  {rowLabels(chartRow).filter((label) => label !== chartRow.size).join(" · ") || "—"}
                 </td>
                 {measurements.map((measurement) => (
                   <td

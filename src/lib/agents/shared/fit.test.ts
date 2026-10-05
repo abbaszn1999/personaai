@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CatalogCandidate } from "@/lib/retrieval/types";
 import {
+  analyzeFit,
   bodyMeasurements,
   fitFilterClause,
   fitGroupClause,
@@ -8,6 +9,8 @@ import {
   fittingSizes,
   footLengthFromEu,
   parseShopperMeasurements,
+  sizingGroupOfRows,
+  summarizeLookFit,
 } from "./fit";
 
 function candidate(rows: object[], group = "tops"): CatalogCandidate {
@@ -204,14 +207,109 @@ describe("fittingSizes", () => {
     expect(fittingSizes(candidate(wide), { chest: 100 }, ["XL"])).toEqual([]);
   });
 
-  it("has nothing to confirm without a chart or a sizing group", () => {
+  it("has nothing to confirm without a chart", () => {
     expect(fittingSizes({ ...candidate([]), attributes: {} }, { chest: 100 })).toEqual([]);
-    expect(fittingSizes({ ...candidate(ranged), attributes: { fit_rows: [JSON.stringify(ranged[0])] } }, { chest: 90 })).toEqual([]);
+    expect(fittingSizes({ ...candidate([{ s: "M" }]), attributes: {} }, { chest: 100 })).toEqual([]);
+  });
+
+  // ACS does not return `fit_group` on search results, so the group comes from the rows.
+  it("reads the sizing group off the rows when the search result does not carry it", () => {
+    const rows = (list: object[]) => ({ fit_rows: list.map((row) => JSON.stringify(row)) });
+    const bare = (list: object[]): CatalogCandidate => ({ ...candidate([]), attributes: rows(list) });
+    expect(fittingSizes(bare(ranged), { chest: 100 })).toEqual(["L", "M"]);
+    expect(fittingSizes(bare(ranged), { chest: 120 })).toEqual([]);
+    const trousers = [
+      { s: "32", waist: [80, 84], hip: [96, 100] },
+      { s: "34", waist: [85, 89], hip: [101, 105] },
+    ];
+    expect(fittingSizes(bare(trousers), { waist: 85 })).toEqual(["34", "32"]);
+    expect(fittingSizes(bare(trousers), { chest: 85 })).toEqual([]);
+    const shoes = [{ s: "42", foot_length: [26.5, 27.1] }];
+    expect(fittingSizes(bare(shoes), { foot_length: 27 })).toEqual(["42"]);
+    const kids = [{ s: "6-7Y", height: [120, 130], chest: [60, 64] }];
+    expect(fittingSizes(bare(kids), { height: 126 }, [], true)).toEqual(["6-7Y"]);
+  });
+});
+
+describe("sizingGroupOfRows", () => {
+  const toRows = (list: object[]) => list.map((row) => JSON.stringify(row));
+
+  it("prefers an explicit group", () => {
+    expect(sizingGroupOfRows(toRows(ranged), false, "outerwear")).toBe("outerwear");
+    expect(sizingGroupOfRows(toRows(ranged), false, "nonsense")).toBe("tops");
+  });
+
+  it("infers the deciding measurement's group and gives up on rows with no measurements", () => {
+    expect(sizingGroupOfRows(toRows(ranged))).toBe("tops");
+    expect(sizingGroupOfRows(toRows([{ s: "32", waist: [80, 84], inseam: [80, 82] }]))).toBe("bottoms");
+    expect(sizingGroupOfRows(toRows([{ s: "42", foot_length: [26, 27] }]))).toBe("footwear");
+    expect(sizingGroupOfRows(toRows([{ s: "6Y", height: [120, 126] }]), true)).toBe("tops");
+    expect(sizingGroupOfRows(toRows([{ s: "M" }]))).toBeNull();
+    expect(sizingGroupOfRows([])).toBeNull();
+    expect(sizingGroupOfRows(["not json"])).toBeNull();
   });
 });
 
 describe("fitRowSizes", () => {
   it("is the same rule on raw rows, for callers that have no candidate", () => {
     expect(fitRowSizes(ranged.map((row) => JSON.stringify(row)), "tops", { chest: 95 })).toEqual(["M"]);
+  });
+});
+
+describe("analyzeFit", () => {
+  const rows = ranged.map((row) => JSON.stringify(row));
+
+  it("scores published measurements from the exact recommended size row", () => {
+    const result = analyzeFit(rows, "tops", "M", { chest: 95, waist: 84 });
+    expect(result.score).toBe(100);
+    expect(result.label).toBe("Excellent Fit");
+    expect(result.metrics).toEqual([
+      expect.objectContaining({ measurement: "chest", shopperValue: 95, min: 93, max: 98, direction: "inside", score: 100 }),
+      expect.objectContaining({ measurement: "waist", shopperValue: 84, min: 81, max: 86, direction: "inside", score: 100 }),
+    ]);
+  });
+
+  it("scores distance outside the range and gives an actionable direction", () => {
+    const result = analyzeFit(rows, "tops", "M", { chest: 101, waist: 79 });
+    expect(result.metrics).toEqual([
+      expect.objectContaining({ measurement: "chest", outside: 3, direction: "size_up", score: 50 }),
+      expect.objectContaining({ measurement: "waist", outside: 2, direction: "size_down", score: 67 }),
+    ]);
+    expect(result.score).toBe(59);
+    expect(result.label).toBe("Check fit · mixed measurements");
+  });
+
+  it("shows published measurements the shopper did not provide without scoring them", () => {
+    const result = analyzeFit(rows, "tops", "M", { chest: 95 });
+    expect(result.score).toBe(100);
+    expect(result.metrics[1]).toEqual(expect.objectContaining({ measurement: "waist", shopperValue: null, score: null }));
+  });
+
+  it("returns honest empty states for no chart, missing size, and no comparable measurements", () => {
+    expect(analyzeFit([], "tops", "M", { chest: 95 }).reason).toBe("no_chart");
+    expect(analyzeFit(rows, "tops", "XL", { chest: 95 }).reason).toBe("size_not_found");
+    expect(analyzeFit(rows, "tops", "M", {}).reason).toBe("no_measurements");
+  });
+
+  it("uses height rather than chest for a kids chart", () => {
+    const result = analyzeFit(
+      [JSON.stringify({ s: "6-7Y", height: [116, 122], chest: [60, 60] })],
+      "tops",
+      "6-7Y",
+      { height: 124, chest: 60 },
+      true
+    );
+    expect(result.metrics.map((metric) => metric.measurement)).toEqual(["height"]);
+    expect(result.metrics.find((metric) => metric.measurement === "height")).toEqual(
+      expect.objectContaining({ outside: 2, direction: "size_up", score: 83 })
+    );
+  });
+
+  it("averages only items that have real chart scores", () => {
+    const complete = { productId: "a", productName: "Tee", ...analyzeFit(rows, "tops", "M", { chest: 95 }) };
+    const missing = { productId: "b", productName: "Coat", ...analyzeFit([], "outerwear", "M", { chest: 95 }) };
+    expect(summarizeLookFit([complete, missing])).toEqual(
+      expect.objectContaining({ score: 100, label: "Excellent Fit", items: [complete, missing] })
+    );
   });
 });

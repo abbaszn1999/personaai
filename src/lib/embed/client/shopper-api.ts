@@ -19,6 +19,7 @@ export interface ShopperProfileDraft {
   audience?: TryOnAudience | null;
   heightCm?: number | null;
   weightKg?: number | null;
+  ageYears?: number | null;
   chestCm?: number | null;
   waistCm?: number | null;
   hipsCm?: number | null;

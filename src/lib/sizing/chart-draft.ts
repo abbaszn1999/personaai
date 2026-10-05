@@ -1,4 +1,8 @@
-import { parseSizeChartRow, type SizeChartRow } from "./chart-schema";
+import {
+  parseSizeChartRow,
+  preferredAliasLabel,
+  type SizeChartRow,
+} from "./chart-schema";
 import type { Audience } from "./keys";
 import {
   isChildAudience,
@@ -86,7 +90,7 @@ export function draftRowsFrom(rows: SizeChartRow[], group: SizingGroup, audience
       const text = formatDraftBound(min, max);
       if (text) values[measurement] = text;
     }
-    return { size: row.size, age: row.aliases?.age, values };
+    return { size: row.size, age: preferredAliasLabel(row.aliases?.age), values };
   });
 }
 

@@ -13,6 +13,7 @@ export interface ShopperProfileRow {
   audience: TryOnAudience | null;
   heightCm: number | null;
   weightKg: number | null;
+  ageYears: number | null;
   chestCm: number | null;
   waistCm: number | null;
   hipsCm: number | null;
@@ -29,6 +30,7 @@ export type ShopperProfileDraft = {
   audience?: TryOnAudience | null;
   heightCm?: number | null;
   weightKg?: number | null;
+  ageYears?: number | null;
   chestCm?: number | null;
   waistCm?: number | null;
   hipsCm?: number | null;
@@ -56,6 +58,7 @@ function rowToProfile(row: Record<string, unknown>): ShopperProfileRow {
     audience: asAudience(row.audience),
     heightCm: asNumber(row.height_cm),
     weightKg: asNumber(row.weight_kg),
+    ageYears: asNumber(row.age_years),
     chestCm: asNumber(row.chest_cm),
     waistCm: asNumber(row.waist_cm),
     hipsCm: asNumber(row.hips_cm),
@@ -77,6 +80,7 @@ export function shopperProfileToTryOn(row: ShopperProfileRow): TryOnProfile {
     heightCm: row.heightCm,
     weightKg: row.weightKg,
     shoeSizeEu: row.shoeSizeEu,
+    ageYears: row.ageYears,
     chestCm: row.chestCm,
     waistCm: row.waistCm,
     hipsCm: row.hipsCm,
@@ -132,6 +136,7 @@ function draftToColumns(draft: ShopperProfileDraft): Record<string, unknown> {
   if (draft.audience !== undefined) columns.audience = draft.audience;
   if (draft.heightCm !== undefined) columns.height_cm = draft.heightCm;
   if (draft.weightKg !== undefined) columns.weight_kg = draft.weightKg;
+  if (draft.ageYears !== undefined) columns.age_years = draft.ageYears;
   if (draft.chestCm !== undefined) columns.chest_cm = draft.chestCm;
   if (draft.waistCm !== undefined) columns.waist_cm = draft.waistCm;
   if (draft.hipsCm !== undefined) columns.hips_cm = draft.hipsCm;
@@ -157,6 +162,7 @@ export async function createShopperProfile(
         audience: draft.audience ?? null,
         heightCm: draft.heightCm ?? null,
         weightKg: draft.weightKg ?? null,
+        ageYears: draft.ageYears ?? null,
         chestCm: draft.chestCm ?? null,
         waistCm: draft.waistCm ?? null,
         hipsCm: draft.hipsCm ?? null,
@@ -244,6 +250,7 @@ export function parseShopperProfileDraft(body: unknown): ShopperProfileDraft | {
   for (const [key, column] of [
     ["heightCm", "heightCm"],
     ["weightKg", "weightKg"],
+    ["ageYears", "ageYears"],
     ["chestCm", "chestCm"],
     ["waistCm", "waistCm"],
     ["hipsCm", "hipsCm"],

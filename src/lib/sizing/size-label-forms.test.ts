@@ -58,6 +58,26 @@ describe("matchLabel with equivalent forms", () => {
     expect(match.matchedVia).toBe("alpha");
   });
 
+  it("treats a backslash pair like a slash or hyphen pair of ages", () => {
+    expect(sizeLabelCandidates("3\\\\4")).toContain("3-4");
+    expect(sizeLabelCandidates("11\\12")).toContain("11-12");
+    expect(sizeLabelCandidates("3-4")).toContain("3-4");
+    expect(sizeLabelCandidates("XXLARGE")).toContain("XXL");
+  });
+
+  it("matches a stocked age pair against the chart's hyphenated age row", () => {
+    const rows = [{ size: "3-4", aliases: { age: "3-4" } }, { size: "4-5", aliases: { age: "4-5" } }];
+    expect(matchLabel("4\\\\5", rows, "EU").row?.size).toBe("4-5");
+  });
+
+  it("expands a chart cell like 31-32 to both sizes, but never a stocked label or an age row", () => {
+    const denim = [{ size: "S", aliases: { numeric: "31-32" } }, { size: "M", aliases: { numeric: "33-34" } }];
+    expect(matchLabel("32", denim, "Numeric").row?.size).toBe("S");
+    expect(matchLabel("34", denim, "Numeric").row?.size).toBe("M");
+    const ages = [{ size: "3-4", aliases: { age: "3-4" } }, { size: "4-5", aliases: { age: "4-5" } }];
+    expect(matchLabel("4", ages, "Age").row).toBeNull();
+  });
+
   it("does not strip a conflicting regional prefix", () => {
     const match = matchLabel("EU 38", [{ size: "8", aliases: { us: "8", eu: "38" } }], "US");
     expect(match.row).toBeNull();

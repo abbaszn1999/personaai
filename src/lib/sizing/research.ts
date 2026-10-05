@@ -5,18 +5,27 @@ import {
   setResearchOutcomes,
   type SizingCoverageRow,
 } from "@/lib/db/sizing-coverage";
-import { listSharedChartsForBrands, upsertSharedChart } from "@/lib/db/sizing-charts";
+import {
+  listSharedChartsForBrands,
+  upsertSharedChart,
+  type SizingChartRow,
+} from "@/lib/db/sizing-charts";
 import {
   SIZE_ALIAS_KEYS,
   allowedAliasKeys,
   chartHasBounds,
+  chartHasDecidingBounds,
   isSizeAliasKey,
   parseSizeChart,
   universalRowJsonSchema,
   type CoverageRequest,
+  type ChartApplicability,
   type SizeChartRow,
+  type SourceVerification,
 } from "./chart-schema";
 import { CHART_CONFIDENCE_THRESHOLD } from "./chart-review";
+import { matchRawFormat } from "./canonical";
+import { sizeTypeFor } from "./size-types";
 import {
   isMeasurement,
   isSizingGroup,
@@ -171,15 +180,15 @@ export async function runChartResearch(
   };
   if (needed.size === 0) return result;
 
-  const covered = new Map<string, Set<string>>();
+  const covered = new Map<string, SizingChartRow[]>();
   // Skipped entirely on a forced pass. Regenerate exists precisely because the stored chart is the
   // problem, and consulting it would make the button skip the brand it was pressed for.
   if (!options.force) {
     const existing = await listSharedChartsForBrands([...needed.keys()]);
     for (const chart of existing) {
       if ((chart.confidence ?? 0) < CHART_CONFIDENCE_THRESHOLD) continue;
-      if (!covered.has(chart.brandKey)) covered.set(chart.brandKey, new Set());
-      covered.get(chart.brandKey)!.add(chart.sizingCategory);
+      if (!covered.has(chart.brandKey)) covered.set(chart.brandKey, []);
+      covered.get(chart.brandKey)!.push(chart);
     }
   }
 
@@ -194,8 +203,19 @@ export async function runChartResearch(
 
   for (const [brandKey, { brandName, searchName, requests }] of needed) {
     index += 1;
-    const already = covered.get(brandKey) ?? new Set<string>();
-    const reused = requests.filter((req) => already.has(req.sizingCategory));
+    const already = covered.get(brandKey) ?? [];
+    const sizeType = sizeTypeFor(brandKey, connection.storeSizeSettings);
+    const requestIsCovered = (request: CoverageRequest) => {
+      const candidates = already.filter(
+        (chart) =>
+          chart.sizingCategory === request.sizingCategory &&
+          chart.coversLeaves.length > 0,
+      );
+      return candidates.length > 0 && request.rawLabels.every((rawLabel) =>
+        candidates.some((chart) => matchRawFormat(rawLabel, chart.chartRows, sizeType).fullyMatched),
+      );
+    };
+    const reused = requests.filter(requestIsCovered);
     // Only pairs nothing has concluded on yet. A chart is not the only way a pair finishes: a brand
     // whose guide simply has no swimwear leaves that pair `not_covered` forever, and filtering on
     // stored charts alone would put the brand back in the queue on the next tick and re-pay for the
@@ -206,7 +226,7 @@ export async function runChartResearch(
     // saying the recorded conclusion is wrong, so respecting it would make the button do nothing.
     const remaining = options.force
       ? requests
-      : requests.filter((req) => !already.has(req.sizingCategory) && req.researchStatus === "pending");
+      : requests.filter((req) => !requestIsCovered(req) && req.researchStatus === "pending");
     result.reused += reused.length;
 
     // Recorded even though no search was spent: from the review screen's point of view a reused
@@ -420,7 +440,11 @@ async function researchOneBrand(
     // Everything else is stored with its defects flagged — a chart with a suspicious column is
     // still most of a chart, and `assessChart` says so on the review screen where a merchant can
     // act on it. Silently dropping those would show a gap where the real problem is a bad column.
-    if (!chartHasBounds(chart.rows, chart.group, chart.table.audience)) {
+    const decidingMeasurements = chart.table.decidingMeasurements ?? [];
+    const hasDecidingBounds = decidingMeasurements.length > 0
+      ? chartHasDecidingBounds(chart.rows, decidingMeasurements)
+      : chartHasBounds(chart.rows, chart.group, chart.table.audience);
+    if (!hasDecidingBounds) {
       console.warn(`[sizing research] ${brandName}: "${chart.table.title}" has no usable measurements`);
       continue;
     }
@@ -432,6 +456,10 @@ async function researchOneBrand(
       coversLeaves: chart.table.coversLeaves,
       audience: chart.table.audience,
       sourceTitle: chartTitleFor(chart.table),
+      sourceTableId: chart.table.sourceTableId,
+      applicability: chart.table.applicability,
+      decidingMeasurements: chart.table.decidingMeasurements,
+      sourceVerification: chart.table.sourceVerification,
       chartRows: chart.rows,
       confidence: chart.confidence,
       sourceUrl: chart.table.sourceUrl,
@@ -641,6 +669,10 @@ export interface ExtractedTable {
   measurementKind: "body" | "garment";
   unit: "cm" | "inch";
   sourceUrl: string;
+  sourceTableId?: string;
+  applicability?: ChartApplicability;
+  decidingMeasurements?: Measurement[];
+  sourceVerification?: SourceVerification | null;
   columns: string[];
   rows: string[][];
 }
@@ -807,6 +839,10 @@ function parseExtractedTable(value: unknown): ExtractedTable | null {
     measurementKind: record.measurement_kind === "garment" ? "garment" : "body",
     unit: record.unit === "inch" ? "inch" : "cm",
     sourceUrl,
+    sourceTableId: "",
+    applicability: {},
+    decidingMeasurements: [],
+    sourceVerification: null,
     columns,
     rows,
   };
@@ -1026,6 +1062,21 @@ const SINGLE_REQUEST_SCHEMA = {
           },
           garment_group: { type: "string", enum: [...SIZING_GROUP_KEYS] },
           source_url: { type: "string", description: "Exact URL from which this chart was read." },
+          source_table_id: {
+            type: "string",
+            description: "Stable slug for this exact source table, distinct across line/fit/age variants.",
+          },
+          product_line: { type: ["string", "null"] },
+          fit_class: { type: ["string", "null"] },
+          age_min_months: { type: ["number", "null"] },
+          age_max_months: { type: ["number", "null"] },
+          market: { type: ["string", "null"] },
+          source_locale: { type: ["string", "null"] },
+          verified_at: { type: "string", description: "ISO date on which the source was read." },
+          deciding_measurements: {
+            type: "array",
+            items: { type: "string", enum: [...MEASUREMENT_KEYS] },
+          },
           confidence: { type: "number", description: "0-1 confidence in this chart's extraction." },
           rows: {
             type: "array",
@@ -1076,6 +1127,15 @@ const SINGLE_REQUEST_SCHEMA = {
           "covers_leaves",
           "garment_group",
           "source_url",
+          "source_table_id",
+          "product_line",
+          "fit_class",
+          "age_min_months",
+          "age_max_months",
+          "market",
+          "source_locale",
+          "verified_at",
+          "deciding_measurements",
           "confidence",
           "rows",
         ],
@@ -1101,17 +1161,22 @@ const SINGLE_REQUEST_INSTRUCTIONS = [
   "  guide exists. Every chart must carry the exact page URL it came from.",
   "",
   "COMPLETE COVERAGE",
-  "- Return every distinct body-measurement table for men, women, kids, fit lines and sub-brands.",
+  "- Inventory and return every distinct body-measurement table for men, women, explicit adult",
+  "  unisex, kids, infant/toddler/teen age bands, fit lines, product lines, markets and sub-brands.",
   "- Supported garment groups are:",
   ...SIZING_GROUP_KEYS.map((group) => `  · ${group}: ${SIZING_GROUP_SCOPES[group]}`),
-  "- Ignore accessories and tables that contain garment dimensions only. When one general clothing",
+  "- Include footwear, socks, underwear, swim, sleep and sized accessories when the supported",
+  "  measurement vocabulary can represent their official deciding measurement. Do not silently",
+  "  treat an omitted specialist family as covered by general apparel.",
+  "- Ignore tables that contain garment dimensions only. When one general clothing",
   "  table applies to several supported groups, return one chart per applicable garment group.",
   "- Never merge distinct source tables. Variant names must be short, merchant-readable and unique",
   "  within a garment group: Men, Women, Men Tall, Women Petite, Tommy Jeans Men, and so on.",
   "- Where the brand's own heading states a fit class — Regular, Tall, Petite, Slim, Big & Tall,",
   "  Plus, Curve, Maternity, Short, Husky — or a garment-type word — Denim, Tailored, Wired — put it",
-  "  in `variant_name` itself: 'Men Tailored Long', 'Women Bras (Wired)'. There is nowhere else for",
-  "  either to go, and the LEAF COVERAGE rules below read a fit class straight off this name.",
+  "  in `variant_name` and also populate product_line/fit_class/age bounds explicitly.",
+  "- Give every table a stable source_table_id and list the exact deciding_measurements the source",
+  "  uses. Record market, locale and today's verified_at date.",
   "",
   "LEAF COVERAGE — covers_leaves",
   "- Persona (the merchant's catalog taxonomy) is fixed and closed. Every leaf below is written as",
@@ -1122,23 +1187,21 @@ const SINGLE_REQUEST_INSTRUCTIONS = [
   "  exact table is the correct chart for — never a leaf from a different row. Most charts claim",
   "  several leaves; a chart specialized for one narrow leaf (a bra table, a denim table) claims only",
   "  that one.",
-  "- If a brand publishes only one ordinary table for an audience+garment_group, that table claims",
-  "  every leaf in that row — there is nothing to split.",
+  "- A general table claims only garment families justified by its official heading or accompanying",
+  "  brand text. Never assign every leaf merely because it is the only table found.",
   "- If a brand publishes several tables for the same audience+garment_group (a base line plus a",
   "  denim line, a shirts line, a swim line), split the row's leaves between them: give each leaf to",
   "  the ONE table that is actually the right chart for it, and leave it off every other table for",
   "  that same audience+garment_group. A leaf whose specialization the brand never published (no",
-  "  denim table exists) goes to whichever table has no specialization of its own — the base line —",
-  "  rather than being left off every table.",
+  "  denim table exists) remains uncovered unless the source explicitly says the base table applies.",
   "- Never put an ordinary leaf on a table whose own variant_name states a fit class (Big & Tall,",
   "  Long, Petite, Tall, Slim, Plus, Curve, Maternity, Short, Husky). Which fit a shopper needs is a",
-  "  fact about their body, not their garment, so a fit-class table's covers_leaves is empty — a",
-  "  merchant picks it explicitly, it is never auto-matched.",
+  "  fact about their body, not their garment. Preserve its real garment leaves, set fit_class, and",
+  "  rely on deterministic applicability routing; never make it the unqualified default.",
   "- If two of the brand's own tables for the same audience+garment_group genuinely both answer to",
   "  one leaf and only the merchant's own catalog could say which (most often an infant table and a",
   "  bigger-kid table both plausibly sizing a 'kids' department leaf with no age signal), put that",
-  "  leaf on BOTH tables rather than guessing one — this tells the merchant to choose instead of",
-  "  silently sizing the wrong age band.",
+  "  leaf on both tables only when age/product applicability metadata makes the choice deterministic.",
   "- Every leaf in the vocabulary above belongs to exactly one audience+garment_group row. Never put",
   "  a leaf under a table whose own garment_group doesn't match that row, even if the table's heading",
   "  happens to use the same English word — a one-piece swimsuit chart claims the `full-body`",
@@ -1147,13 +1210,13 @@ const SINGLE_REQUEST_INSTRUCTIONS = [
   "FINAL ROW NORMALIZATION",
   "- Output one row per SIZE, even when the source prints sizes across columns.",
   "- `size` is the primary label printed on the garment. Put every other published label for that",
-  "  same row into aliases; never invent an alias.",
-  "- Each alias names one system: `eu`/`uk`/`us` for that country's own sizing, `alpha` for S/M/L,",
+  "  same row into aliases; repeat an alias system entry when one system has multiple official labels.",
+  "- Each alias names one system: regional keys (eu/uk/us/fr/it/de/es/au/jp/cn/kr/ru), `alpha` for S/M/L,",
   "  `neck` for a collar size, `waist_inseam` for a waist/inseam pair like 34/31. Use `numeric` only",
   "  for a numeric scale that is NOT a country's own EU/US/UK size — a denim waist inch or a dress",
   "  size printed alongside a regional column. A table's only regional numeric column still goes in",
   "  `eu`, `uk` or `us`, never in `numeric`. Use `age` for a child's age band ('NB', '3M', '8-9y') —",
-  "  it is not `alpha` even though it can look like a short label.",
+  "  it is not `alpha` even though it can look like a short label. Use band_cup for lingerie labels.",
   "- Measurements describe the wearer's BODY. Convert inches to centimetres using 1in = 2.54cm;",
   "  convert pounds to kilograms using 1lb = 0.453592kg. Preserve sensible decimal precision.",
   "- A source range gives min and max. A single published body value sets both to that value. For",
@@ -1250,6 +1313,40 @@ function parseSingleRequestChart(value: unknown): NormalizedChart | null {
       measurementKind: "body",
       unit: "cm",
       sourceUrl,
+      sourceTableId:
+        typeof record.source_table_id === "string" ? record.source_table_id.trim() : "",
+      applicability: {
+        ...(typeof record.product_line === "string" && record.product_line.trim()
+          ? { productLine: record.product_line.trim() }
+          : {}),
+        ...(typeof record.fit_class === "string" && record.fit_class.trim()
+          ? { fitClass: record.fit_class.trim() }
+          : {}),
+        ...(typeof record.market === "string" && record.market.trim()
+          ? { market: record.market.trim() }
+          : {}),
+        ...(typeof record.age_min_months === "number" || typeof record.age_max_months === "number"
+          ? {
+              ageBand: {
+                ...(typeof record.age_min_months === "number" ? { minMonths: record.age_min_months } : {}),
+                ...(typeof record.age_max_months === "number" ? { maxMonths: record.age_max_months } : {}),
+              },
+            }
+          : {}),
+      },
+      decidingMeasurements: Array.isArray(record.deciding_measurements)
+        ? record.deciding_measurements.filter(isMeasurement)
+        : [],
+      sourceVerification:
+        typeof record.verified_at === "string" && record.verified_at.trim()
+          ? {
+              verifiedAt: record.verified_at.trim(),
+              status: "verified",
+              ...(typeof record.source_locale === "string" && record.source_locale.trim()
+                ? { locale: record.source_locale.trim() }
+                : {}),
+            }
+          : null,
       // The one-call response is already normalized. These raw-transcription fields stay empty and
       // are never consulted after this point; retaining them keeps one metadata type for storage,
       // chart titles and variant naming.
@@ -1273,12 +1370,16 @@ function parseCompactRow(
   const flat: Record<string, unknown> = { size: record.size };
 
   if (Array.isArray(record.aliases)) {
-    const aliases: Record<string, string> = {};
+    const aliases: Record<string, string | string[]> = {};
     for (const item of record.aliases) {
       if (!item || typeof item !== "object") continue;
       const alias = item as Record<string, unknown>;
       if (!isSizeAliasKey(alias.system) || typeof alias.value !== "string" || !alias.value.trim()) continue;
-      aliases[alias.system] = alias.value.trim();
+      const label = alias.value.trim();
+      const existing = aliases[alias.system];
+      if (!existing) aliases[alias.system] = label;
+      else if (typeof existing === "string") aliases[alias.system] = [existing, label];
+      else if (!existing.includes(label)) existing.push(label);
     }
     flat.aliases = aliases;
   }

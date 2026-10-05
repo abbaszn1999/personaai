@@ -1,4 +1,4 @@
-import { boundsFor } from "./chart-schema";
+import { boundsFor, preferredAliasLabel } from "./chart-schema";
 import {
   isBodyMeasurement,
   isChildAudience,
@@ -69,7 +69,7 @@ function rowJson(
 }
 
 function ageRowKey(row: SizeChartRow): string {
-  return `${row.size}\u0000${row.aliases?.age ?? ""}`;
+  return `${row.size}\u0000${preferredAliasLabel(row.aliases?.age) ?? ""}`;
 }
 
 /**
@@ -84,7 +84,7 @@ function ageBoundsForRows(rows: readonly SizeChartRow[]): Map<string, { min: num
   let previousInfantMonth = 0;
 
   for (const row of rows) {
-    const raw = row.aliases?.age?.trim().toLowerCase();
+    const raw = preferredAliasLabel(row.aliases?.age)?.trim().toLowerCase();
     if (!raw) continue;
 
     let bounds: { min: number; max: number } | null = null;

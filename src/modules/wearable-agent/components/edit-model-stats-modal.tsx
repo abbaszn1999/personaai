@@ -5,6 +5,7 @@ import { Check, Loader2, Sparkles, X } from "lucide-react";
 import type { TryOnProfile } from "../types";
 import { cn } from "@/lib/utils/cn";
 import { useWearableTheme } from "../theme-context";
+import { isKidsAudience } from "../audiences";
 
 interface EditModelStatsModalProps {
   profile: TryOnProfile;
@@ -95,6 +96,7 @@ export function EditModelStatsModal({
     onSave({
       heightCm: draft.heightCm,
       weightKg: draft.weightKg,
+      ageYears: draft.ageYears,
       chestCm: draft.chestCm,
       waistCm: draft.waistCm,
       hipsCm: draft.hipsCm,
@@ -145,8 +147,14 @@ export function EditModelStatsModal({
           <div className="grid grid-cols-2 gap-3">
             <FieldInput styles={styles} label="Height" unit="cm" value={draft.heightCm} onChange={(v) => patch({ heightCm: v })} />
             <FieldInput styles={styles} label="Weight" unit="kg" value={draft.weightKg} onChange={(v) => patch({ weightKg: v })} />
-            <FieldInput styles={styles} label="Chest" unit="cm" value={draft.chestCm} onChange={(v) => patch({ chestCm: v })} />
-            <FieldInput styles={styles} label="Waist" unit="cm" value={draft.waistCm} onChange={(v) => patch({ waistCm: v })} />
+            {isKidsAudience(draft.audience) ? (
+              <FieldInput styles={styles} label="Age" unit="yrs" value={draft.ageYears} onChange={(v) => patch({ ageYears: v })} />
+            ) : (
+              <>
+                <FieldInput styles={styles} label="Chest" unit="cm" value={draft.chestCm} onChange={(v) => patch({ chestCm: v })} />
+                <FieldInput styles={styles} label="Waist" unit="cm" value={draft.waistCm} onChange={(v) => patch({ waistCm: v })} />
+              </>
+            )}
             <FieldInput styles={styles} label="Shoe Size" unit="EU" value={draft.shoeSizeEu} onChange={(v) => patch({ shoeSizeEu: v })} />
           </div>
         </div>

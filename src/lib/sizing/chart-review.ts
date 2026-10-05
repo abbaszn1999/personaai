@@ -1,5 +1,6 @@
 import {
   allowedAliasKeys,
+  aliasLabels,
   boundsFor,
   type MeasurementBounds,
   type SizeAliasKey,
@@ -70,10 +71,20 @@ const ALIAS_HEADERS: Record<SizeAliasKey, string> = {
   eu: "EU",
   uk: "UK",
   us: "US",
+  fr: "FR",
+  it: "IT",
+  de: "DE",
+  es: "ES",
+  au: "AU",
+  jp: "JP",
+  cn: "CN",
+  kr: "KR",
+  ru: "RU",
   numeric: "Numeric",
   age: "Age",
   neck: "Collar",
   waist_inseam: "W/L",
+  band_cup: "Band/Cup",
 };
 
 /**
@@ -97,7 +108,7 @@ export function chartTable(rows: SizeChartRow[], group: SizingGroup, audience?: 
   const tableRows = rows.map((row) => {
     const record: Record<string, string> = { Size: row.size };
     for (const key of aliases) {
-      record[ALIAS_HEADERS[key]] = row.aliases?.[key] ?? "—";
+      record[ALIAS_HEADERS[key]] = aliasLabels(row.aliases?.[key]).join(" / ") || "—";
     }
     for (const measurement of present) {
       record[headerFor(measurement)] = formatBounds(boundsFor(row, measurement));

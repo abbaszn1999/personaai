@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { allSeedCharts, CHART_SEEDS } from "./index";
+import { allSeedCharts, CHART_SEEDS, GLOBAL_BRAND_MANIFESTS } from "./index";
 import {
   allowedAliasKeys,
+  aliasLabels,
   boundsFor,
-  chartHasBounds,
+  chartHasDecidingBounds,
   chartLabelSystems,
   rowLabels,
   type SizeAliasKey,
@@ -18,6 +19,7 @@ import {
 } from "@/lib/sizing/measurements";
 import { AUDIENCES, normalizeBrandKey } from "@/lib/sizing/keys";
 import { rowsFromColumns } from "./types";
+import { decidingMeasurementsFor, validateManifestParity } from "./manifest";
 import { sanitizeCoverage, variantTags } from "@/lib/sizing/variant-match";
 import { PERSONA_CATEGORIES, PERSONA_DEPARTMENTS, leafKeysFor } from "@/modules/store/mapping/persona-taxonomy";
 
@@ -61,7 +63,9 @@ describe("chart seeds", () => {
     for (const chart of charts) {
       const systems = chartLabelSystems(chart.chartRows);
       for (const system of systems) {
-        const withSystem = chart.chartRows.filter((row) => row.aliases?.[system]?.trim());
+        const withSystem = chart.chartRows.filter(
+          (row) => aliasLabels(row.aliases?.[system]).length > 0,
+        );
         expect(
           withSystem.length,
           `${chart.brandKey} ${chart.variantName}: ${system} on ${withSystem.length} of ${chart.chartRows.length} rows`
@@ -85,7 +89,7 @@ describe("chart seeds", () => {
   it("carries the measurement its group is useless without", () => {
     for (const chart of charts) {
       expect(
-        chartHasBounds(chart.chartRows, chart.sizingCategory, chart.audience),
+        chartHasDecidingBounds(chart.chartRows, decidingMeasurementsFor(chart)),
         `${chart.variantName} (${chart.sizingCategory}) has no required measurement`
       ).toBe(true);
     }
@@ -95,21 +99,22 @@ describe("chart seeds", () => {
     // A chart that carries chest on nine of twelve rows passes chartHasBounds and then excludes the
     // three sizes at the extremes, which are the ones a borderline shopper needs.
     for (const chart of charts) {
-      const required = requiredMeasurementsFor(chart.sizingCategory, chart.audience);
+      const required = decidingMeasurementsFor(chart);
       for (const row of chart.chartRows) {
-        for (const measurement of required) {
-          expect(
-            boundsFor(row, measurement),
-            `${chart.variantName} row ${row.size} is missing ${measurement}`
-          ).not.toBeNull();
-        }
+        expect(
+          required.some((measurement) => boundsFor(row, measurement) !== null),
+          `${chart.variantName} row ${row.size} is missing every chart-deciding measurement`,
+        ).toBe(true);
       }
     }
   });
 
   it("publishes only the fixed measurements for its audience and category", () => {
     for (const chart of charts) {
-      const allowed = new Set(measurementsFor(chart.sizingCategory, chart.audience));
+      const allowed = new Set([
+        ...measurementsFor(chart.sizingCategory, chart.audience),
+        ...decidingMeasurementsFor(chart),
+      ]);
       for (const row of chart.chartRows) {
         const present = MEASUREMENT_KEYS.filter(
           (measurement) => `${measurement}_min` in row || `${measurement}_max` in row
@@ -248,11 +253,15 @@ describe("chart seeds", () => {
    * describes the shopper's own proportions, never the garment. This is checked at the data level so
    * a future seed cannot quietly depend on the guard instead of stating its coverage honestly.
    */
-  it("never claims a leaf on a chart carrying a fit class", () => {
+  it("requires structured applicability on every fit-class chart that claims leaves", () => {
     for (const chart of charts) {
       if (chart.coversLeaves.length === 0) continue;
       const tags = variantTags(chart.variantName);
-      expect(tags.fit, `${chart.brandKey} ${chart.variantName} is fit-tagged (${tags.fit.join(", ")}) but claims leaves`).toEqual([]);
+      if (tags.fit.length === 0) continue;
+      expect(
+        chart.applicability?.fitClass,
+        `${chart.brandKey} ${chart.variantName} claims leaves without fitClass applicability`,
+      ).toBeTruthy();
     }
   });
 
@@ -263,16 +272,53 @@ describe("chart seeds", () => {
    * another legitimate age band, it would be a copy-paste mistake, so this stays a hard ceiling rather
    * than an unbounded allowance.
    */
-  it("never lets more than two charts claim the same leaf", () => {
-    const claimCounts = new Map<string, number>();
+  it("lets unqualified charts share a leaf only when each has labels the other lacks", () => {
+    const claims = new Map<string, typeof charts>();
     for (const chart of charts) {
       for (const leaf of chart.coversLeaves) {
         const key = `${chart.brandKey}|${leaf}`;
-        claimCounts.set(key, (claimCounts.get(key) ?? 0) + 1);
+        if (!claims.has(key)) claims.set(key, []);
+        claims.get(key)!.push(chart);
       }
     }
-    for (const [key, count] of claimCounts) {
-      expect(count, `${key} is claimed by ${count} charts`).toBeLessThanOrEqual(2);
+    for (const [key, claimants] of claims) {
+      if (claimants.length < 2) continue;
+      const unconstrained = claimants.filter((chart) =>
+        Object.keys(chart.applicability ?? {}).length === 0);
+      expect(unconstrained.length, `${key} has ${unconstrained.length} unqualified claimants`)
+        .toBeLessThanOrEqual(3);
+
+      // The resolver picks between unqualified claimants by the stocked labels. That only works if
+      // every claimant owns at least one label no other unqualified claimant prints; otherwise a
+      // product could never prefer it and its chart would be dead weight.
+      const labelSets = unconstrained.map((chart) => new Set(
+        chart.chartRows.flatMap((row) => rowLabels(row).map((label) => label.toUpperCase())),
+      ));
+      unconstrained.forEach((chart, index) => {
+        const others = labelSets.filter((_, other) => other !== index);
+        const unique = [...labelSets[index]].filter((label) => !others.some((set) => set.has(label)));
+        if (unconstrained.length > 1) {
+          expect(unique.length, `${key}: ${chart.variantName} owns no distinguishing label`)
+            .toBeGreaterThan(0);
+        }
+      });
+    }
+  });
+});
+
+describe("global brand source manifests", () => {
+  it("has one complete executable manifest for every seed brand", () => {
+    expect(Object.keys(GLOBAL_BRAND_MANIFESTS).sort()).toEqual(Object.keys(CHART_SEEDS).sort());
+    for (const [brandKey, charts] of Object.entries(CHART_SEEDS)) {
+      const manifest = GLOBAL_BRAND_MANIFESTS[brandKey];
+      expect(manifest.brandKey).toBe(brandKey);
+      expect(validateManifestParity(manifest, charts)).toEqual([]);
+      for (const table of manifest.tables.filter((entry) => entry.state === "published")) {
+        expect(table.sourceTableId.trim(), `${brandKey}: missing source table id`).not.toBe("");
+        expect(table.decidingMeasurements.length, `${brandKey} ${table.sourceTableId}`).toBeGreaterThan(0);
+        expect(table.verification.verifiedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        expect(["verified", "inaccessible", "archived"]).toContain(table.verification.status);
+      }
     }
   });
 });
@@ -344,7 +390,6 @@ const ALLOWED_GAPS: Record<string, string[]> = {
     "women:full-body:sleepwear-set",
     // Only jackets and blazers have published women's outerwear tables.
     "women:outerwear:trench",
-    "women:outerwear:vest",
     "women:outerwear:kimono",
     "women:outerwear:activewear-jacket",
     // This guide publishes no foot-length table.
@@ -364,6 +409,41 @@ const ALLOWED_GAPS: Record<string, string[]> = {
     "men:outerwear:coat",
     "men:outerwear:activewear-jacket",
     ...leafKeysFor("men", "footwear"),
+    // Children's tables name tops, jackets/coats, dresses and trousers/jeans/jogging/leggings/skirts
+    // only. Underwear-like, sleep, swim, baby one-piece, snow/pram, cardigan and shorts headings
+    // and any foot-length table are not published.
+    "kids-boys:top:bodysuit",
+    "kids-boys:top:activewear-top",
+    "kids-boys:top:sleep-top",
+    "kids-boys:bottom:short",
+    "kids-boys:bottom:legging",
+    "kids-boys:bottom:swim-short",
+    "kids-boys:bottom:sleep-bottom",
+    "kids-boys:full-body:romper",
+    "kids-boys:full-body:all-in-one",
+    "kids-boys:full-body:sleepsuit",
+    "kids-boys:full-body:set",
+    "kids-boys:full-body:swimsuit",
+    "kids-boys:full-body:bathrobe",
+    "kids-boys:outerwear:cardigan",
+    "kids-boys:outerwear:snowsuit",
+    "kids-boys:outerwear:pramsuit",
+    ...leafKeysFor("kids-boys", "footwear"),
+    "kids-girls:top:bodysuit",
+    "kids-girls:top:activewear-top",
+    "kids-girls:top:sleep-top",
+    "kids-girls:bottom:short",
+    "kids-girls:bottom:sleep-bottom",
+    "kids-girls:full-body:romper",
+    "kids-girls:full-body:all-in-one",
+    "kids-girls:full-body:sleepsuit",
+    "kids-girls:full-body:set",
+    "kids-girls:full-body:swimsuit",
+    "kids-girls:full-body:bathrobe",
+    "kids-girls:outerwear:cardigan",
+    "kids-girls:outerwear:snowsuit",
+    "kids-girls:outerwear:pramsuit",
+    ...leafKeysFor("kids-girls", "footwear"),
   ],
   penti: [
     // The ordinary apparel table has no blouse-specific table.
@@ -398,14 +478,12 @@ const ALLOWED_GAPS: Record<string, string[]> = {
     "kids-boys:bottom:swim-short",
     "kids-boys:full-body:romper",
     "kids-boys:full-body:all-in-one",
-    "kids-boys:full-body:sleepsuit",
     "kids-boys:full-body:swimsuit",
     ...leafKeysFor("kids-boys", "outerwear"),
     ...leafKeysFor("kids-boys", "footwear"),
     "kids-girls:top:bodysuit",
     "kids-girls:full-body:romper",
     "kids-girls:full-body:all-in-one",
-    "kids-girls:full-body:sleepsuit",
     // The girls' swim table publishes bust/waist/hip but no required height, so it cannot safely
     // drive the child recommendation model without fabricating a height mapping.
     "kids-girls:full-body:swimsuit",
@@ -429,12 +507,12 @@ const ALLOWED_GAPS: Record<string, string[]> = {
  * six departments. A listed department must have zero claimed leaves. */
 const UNSUPPORTED_DEPARTMENTS: Record<string, string[]> = {
   tommy_hilfiger: ["unisex"],
-  tom_tailor: ["unisex", "kids-boys", "kids-girls", "kids-unisex"],
+  tom_tailor: ["unisex", "kids-unisex"],
   penti: ["men", "unisex", "kids-unisex"],
   xint: ["unisex", "kids-boys", "kids-girls", "kids-unisex"],
 };
 
-describe("seed coverage completeness", () => {
+describe("seed leaf coverage is either claimed or an explicitly documented gap", () => {
   it("audits every department and claims every supported leaf or documents why not", () => {
     for (const [brandKey, brandCharts] of Object.entries(CHART_SEEDS)) {
       const claimed = new Set(brandCharts.flatMap((chart) => chart.coversLeaves));

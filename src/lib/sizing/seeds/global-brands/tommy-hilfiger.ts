@@ -33,6 +33,18 @@ import { exact, rowsFromColumns, type SeedChart } from "../types";
  * Source columns outside the fixed category measurement table are intentionally omitted.
  */
 
+/**
+ * Tommy's own store variants write waist and leg length as ONE four-digit label, length first:
+ * `3431` is leg 34 / waist 31, `3226` is leg 32 / waist 26 (the stocked sets 3430-3438 and
+ * 3225-3230 are consecutive waists on a fixed leg). Read as waist-first they would be waists
+ * 34 and 32 with legs 31 and 26, which are not Tommy lengths.
+ */
+function lengthWaistLabels(waistRows: readonly (readonly number[])[], lengths: readonly number[]): string[][] {
+  return waistRows.map((waists) => waists.flatMap((waist) => lengths.map((length) => `${length}${waist}`)));
+}
+const LENGTH_WAIST_NOTE =
+  "`waist_inseam` holds Tommy's compact leg+waist variant labels (e.g. 3431 = leg 34 / waist 31) for the printed leg lengths; they resolve to the same waist row as the Denim inch size.";
+
 const MEN_URL = "https://en-om.tommy.com/mens-size-guide";
 const WOMEN_URL = "https://ie.tommy.com/womens-size-guide";
 
@@ -194,6 +206,7 @@ const MEN: SeedChart[] = [
         // The source's own `Denim inch size` column — a second, market-neutral numeric scale
         // printed alongside US SIZE on the same row, e.g. a merchant stocking jeans labelled `32`.
         numeric: ["28", "29-30", "31-32", "33-34", "35-36", "38", "40"],
+        waist_inseam: lengthWaistLabels([[28], [29, 30], [31, 32], [33, 34], [35, 36], [38], [40]], [30, 32, 34, 36]),
       },
       bounds: {
         waist: [
@@ -218,6 +231,7 @@ const MEN: SeedChart[] = [
     }),
     notes: [
       "The source's `Denim inch size` column is a second, market-neutral numeric scale printed alongside the printed US SIZE on the same row; recorded as the `numeric` alias so merchants stocking jeans labelled `32` still match this table.",
+      LENGTH_WAIST_NOTE,
     ],
   },
   {
@@ -794,6 +808,10 @@ const WOMEN: SeedChart[] = [
         // TOMMY JEANS SIZE — the waist-in-inches denim scale, a market-neutral numeric label
         // rather than a US garment size. The source prints no US SIZE row on this table.
         numeric: ["24", "25-26", "27-28", "29-30", "31", "33", "34", "36", "38", "40", "42"],
+        waist_inseam: lengthWaistLabels(
+          [[24], [25, 26], [27, 28], [29, 30], [31], [33], [34], [36], [38], [40], [42]],
+          [30, 32, 34],
+        ),
       },
       bounds: {
         waist: [
@@ -826,6 +844,7 @@ const WOMEN: SeedChart[] = [
     }),
     notes: [
       "`numeric` holds the TOMMY JEANS SIZE column (the waist-in-inches denim scale), because that is what women's denim stock is actually labelled with, and it is not a US garment size — the source prints no US SIZE row on this table.",
+      LENGTH_WAIST_NOTE,
       "There is a gap in the source between L (waist 77-78.5) and XL (82-86): bodies measuring 79-81.5cm fall between two sizes. Transcribed as published rather than closed, since widening a bound invents coverage the brand never claimed.",
     ],
   },

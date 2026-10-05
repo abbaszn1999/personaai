@@ -115,6 +115,15 @@ describe("buildFitSearchFilter", () => {
 });
 
 describe("toFitSearchProducts", () => {
+  it("matches a body value between inclusive source bounds, not only exact endpoints", () => {
+    const { products } = toFitSearchProducts(
+      [result(`${CONNECTION_ID}_p52`, [{ s: "52", chest: [102, 105] }])],
+      query({ measurements: { chest: 103 } }),
+      CONNECTION_ID,
+    );
+    expect(products[0]?.fitSizes).toEqual(["52"]);
+  });
+
   it("groups a variant under its parent and lists the stocked sizes that fit, best first", () => {
     const parentId = `${CONNECTION_ID}_p1`;
     const { products, outOfScope } = toFitSearchProducts([

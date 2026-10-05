@@ -27,6 +27,9 @@ export interface TryOnProfile {
   heightCm: number | null;
   weightKg: number | null;
   shoeSizeEu: number | null;
+  /** Asked instead of chest and waist for the three kids departments — a child's size is set by
+   *  height and age, and nobody measures a toddler's chest. Null for adult profiles. */
+  ageYears: number | null;
   chestCm: number | null;
   waistCm: number | null;
   hipsCm: number | null;

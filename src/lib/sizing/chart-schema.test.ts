@@ -7,6 +7,21 @@ import { chartLabelSystems, formatLabelSystems, parseSizeChartRow, rowLabels, ty
  * `Men Big & Tall` table filed as `INTL` that published nothing but US sizes.
  */
 describe("chartLabelSystems", () => {
+  it("preserves multiple official labels in one sizing system", () => {
+    const row = parseSizeChartRow(
+      {
+        size: "3–6M",
+        aliases: { age: ["3-6M", "3 / 6 months"] },
+        height_min: 62,
+        height_max: 68,
+      },
+      "tops",
+      "kids",
+    );
+    expect(row?.aliases?.age).toEqual(["3-6M", "3 / 6 months"]);
+    expect(row ? rowLabels(row) : []).toEqual(["3–6M", "3-6M", "3 / 6 months"]);
+  });
+
   const shoeRows: SizeChartRow[] = [
     { size: "39", aliases: { eu: "39", uk: "6", us: "6.5" }, foot_length_min: 24.5, foot_length_max: 25 },
     { size: "40", aliases: { eu: "40", uk: "6.5", us: "7" }, foot_length_min: 25, foot_length_max: 25.5 },
@@ -54,7 +69,7 @@ describe("chartLabelSystems", () => {
     expect(chartLabelSystems([row])).toEqual([]);
   });
 
-  it("no longer recognises fr/it/de/jp as alias keys", () => {
+  it("retains every official regional alias system", () => {
     // A row arriving from stale stored jsonb (written before these keys were dropped) or from a
     // model that ignores the enum must have the foreign keys silently discarded, the same
     // leniency parseSizeChartRow already applies to any other unknown key.
@@ -62,7 +77,7 @@ describe("chartLabelSystems", () => {
       { size: "M", aliases: { eu: "38", fr: "40", it: "44", de: "38", jp: "9" }, chest_min: 96, chest_max: 104 },
       "tops"
     );
-    expect(parsed?.aliases).toEqual({ eu: "38" });
+    expect(parsed?.aliases).toEqual({ eu: "38", fr: "40", it: "44", de: "38", jp: "9" });
   });
 
   it("preserves the marker when an official guide publishes reference points", () => {

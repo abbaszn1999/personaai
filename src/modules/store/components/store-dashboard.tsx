@@ -10,6 +10,7 @@ import { CategoryMappingView } from "../mapping/category-mapping-view";
 import { StyleGuideEditor } from "./style-guide-editor";
 import { SetupPipeline } from "../sizing/components/setup-pipeline";
 import { SizingTesterView } from "@/modules/store/sizing/tester/sizing-tester-view";
+import { SyncTab } from "../sync/sync-tab";
 import { useStoreConnect } from "../hooks/use-store-connect";
 import { useSizingStore } from "../sizing/store";
 import { storeSizingStage } from "../sizing/stage-storage";
@@ -20,12 +21,19 @@ import { storeSizingStage } from "../sizing/stage-storage";
  *
  * The old "Catalog Sync" tab is gone: it sat before Setup and could start an index, so a merchant
  * could produce a searchable-but-unsizable catalog by using it and never opening Setup. Its index
- * control is now Setup's final step. "Sync" (daily delta) is hidden until it is built, rather than
- * shipping a tab backed entirely by mocks.
+ * control is now Setup's final step. "Sync" (daily delta) is an interface-only copy of the demo
+ * that runs on its own mock data (see `../sync`); it is not connected to the real pipeline yet.
  */
-type StoreTab = "connection" | "mapping" | "setup" | "sizingtester" | "style";
+type StoreTab = "connection" | "mapping" | "setup" | "sizingtester" | "sync" | "style";
 
-const VALID_TABS = new Set<StoreTab>(["connection", "mapping", "setup", "sizingtester", "style"]);
+const VALID_TABS = new Set<StoreTab>([
+  "connection",
+  "mapping",
+  "setup",
+  "sizingtester",
+  "sync",
+  "style",
+]);
 
 /** `catalog` was the retired Catalog Sync tab. Anything still linking to it — a bookmark, the
  *  catalog-ready CTA — lands on Setup, which is where indexing lives now, rather than silently
@@ -33,7 +41,6 @@ const VALID_TABS = new Set<StoreTab>(["connection", "mapping", "setup", "sizingt
 const RETIRED_TABS: Record<string, StoreTab> = {
   categories: "mapping",
   catalog: "setup",
-  sync: "setup",
   sizefilter: "sizingtester",
 };
 
@@ -107,6 +114,8 @@ function StoreDashboardInner() {
               <SizingTesterView />
             </div>
           )}
+
+          {activeTab === "sync" && connection && <SyncTab onGoToSetup={() => goToTab("setup")} />}
 
           {activeTab === "style" && connection && (
             <SettingsSection

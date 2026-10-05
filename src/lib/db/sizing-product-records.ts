@@ -1,4 +1,5 @@
 import { db } from "@/lib/supabase/server";
+import { audienceHintFor } from "@/lib/sizing/keys";
 
 export interface SizingProductRecordInput {
   externalId: string;
@@ -13,6 +14,8 @@ export interface SizingProductRecordInput {
 export interface SizingProductRecordRow extends SizingProductRecordInput {
   id: string;
   connectionId: string;
+  /** Derived from the title; lets a kids-unisex product reach Boys/Girls charts. */
+  audienceHint: "boys" | "girls" | null;
 }
 
 const INSERT_CHUNK = 500;
@@ -73,6 +76,7 @@ function rowToProduct(row: Record<string, unknown>): SizingProductRecordRow {
     sizingCategory: row.sizing_category as string,
     primaryPersonaLeafKey: (row.primary_persona_leaf_key as string | null) ?? null,
     rawSizeFormat: (row.raw_size_format as string | null) ?? null,
+    audienceHint: audienceHintFor({ title: row.title as string }),
   };
 }
 

@@ -19,14 +19,6 @@ const MAX_BYTES = 10 * 1024 * 1024;
 export function PhotoStep({ profile, error, onChange }: PhotoStepProps) {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [localError, setLocalError] = React.useState<string | null>(null);
-  const objectUrlRef = React.useRef<string | null>(null);
-
-  React.useEffect(
-    () => () => {
-      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
-    },
-    []
-  );
 
   function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -44,16 +36,18 @@ export function PhotoStep({ profile, error, onChange }: PhotoStepProps) {
       return;
     }
 
-    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
-    const url = URL.createObjectURL(file);
-    objectUrlRef.current = url;
-    onChange({ photoUrl: url });
-
+    // Keep one data URL for both the preview and the later chat avatar. A blob URL belongs to
+    // this component; revoking it when onboarding unmounted used to leave profile.photoUrl
+    // pointing at a dead resource, which rendered as a broken image beside every user message.
     const reader = new FileReader();
     reader.onload = () => {
       const result = typeof reader.result === "string" ? reader.result : null;
       const photoBase64 = result?.includes(",") ? result.split(",")[1] : result;
-      onChange({ photoBase64: photoBase64 ?? null, photoMimeType: file.type });
+      onChange({
+        photoUrl: result,
+        photoBase64: photoBase64 ?? null,
+        photoMimeType: file.type,
+      });
     };
     reader.onerror = () => {
       setLocalError("Couldn't read that photo — please try a different file.");

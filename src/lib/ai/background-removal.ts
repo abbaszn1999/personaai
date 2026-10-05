@@ -28,6 +28,12 @@ const INNER_THRESHOLD = 60;
 const OUTER_THRESHOLD = 20;
 /** Softens the per-pixel threshold boundary into a natural-looking anti-aliased edge. */
 const FEATHER_BLUR_SIGMA = 1;
+/** How far (px) the backdrop's colour cast is assumed to reach into the subject. */
+const SPILL_BLUR_SIGMA = 8;
+/** Share of the blurred matte that must be missing before a pixel counts as fully "at the edge". */
+const SPILL_FALLOFF = 0.35;
+/** Below this key coverage a pixel is almost pure backdrop; un-mixing it would only amplify noise. */
+const MIN_UNMIX_COVERAGE = 0.15;
 
 export class BackgroundRemovalError extends Error {
   constructor(message: string) {
@@ -110,8 +116,45 @@ export async function stripBackgroundToTransparent(
       .raw()
       .toBuffer();
 
+    // A wide blur of the same matte tells each pixel how close it is to the backdrop: ~0 deep
+    // inside the subject, rising towards the silhouette. It sets how hard to scrub colour below.
+    const proximityAlpha = await sharp(alphaMask, { raw: { width, height, channels: 1 } })
+      .blur(SPILL_BLUR_SIGMA)
+      .toColourspace("b-w")
+      .raw()
+      .toBuffer();
+
+    const keyChannels = [CHROMA_KEY_COLOR.r, CHROMA_KEY_COLOR.g, CHROMA_KEY_COLOR.b];
     for (let i = 0, p = 0; i < pixels.length; i += channels, p++) {
-      pixels[i + 3] = Math.min(pixels[i + 3], featheredAlpha[p]);
+      // Never more opaque than the key said: the feather blur alone would spread alpha outwards
+      // onto pure-magenta pixels, which is exactly the halo this pass exists to remove.
+      pixels[i + 3] = Math.min(alphaMask[p], featheredAlpha[p]);
+      if (pixels[i + 3] === 0) continue;
+
+      // 1. Un-mix. A silhouette pixel is part subject, part backdrop: C = a·F + (1−a)·M. Keeping
+      //    C as the subject colour is what leaves a pink/purple outline once the backdrop is
+      //    gone, so solve for F — the colour the subject itself had at that pixel.
+      const coverage = alphaMask[p] / 255;
+      if (coverage < 1 && coverage > MIN_UNMIX_COVERAGE) {
+        for (let c = 0; c < 3; c++) {
+          const subject = (pixels[i + c] - (1 - coverage) * keyChannels[c]) / coverage;
+          pixels[i + c] = Math.max(0, Math.min(255, Math.round(subject)));
+        }
+      }
+
+      // 2. De-spill. The backdrop also bounces light onto the subject, tinting light fabric and
+      //    white shoes near the silhouette. Pull red and blue back down to green only as far as
+      //    they exceed it, fading to nothing by the time we are well inside the subject — skin
+      //    and dark clothing never trip it (their blue is below green), and a genuinely pink
+      //    garment keeps its colour away from the edge.
+      const nearEdge = Math.max(0, Math.min(1, (255 - proximityAlpha[p]) / (255 * SPILL_FALLOFF)));
+      if (nearEdge > 0) {
+        const excess = Math.min(pixels[i], pixels[i + 2]) - pixels[i + 1];
+        if (excess > 0) {
+          pixels[i] = Math.round(pixels[i] - excess * nearEdge);
+          pixels[i + 2] = Math.round(pixels[i + 2] - excess * nearEdge);
+        }
+      }
     }
 
     const outputBuffer = await sharp(pixels, { raw: { width, height, channels } })

@@ -14,7 +14,10 @@ import { normalizeBrandKey } from "./keys";
  * two merchants selling the same brand in different label systems resolve to different charts
  * rather than quietly sharing one.
  */
-export const SIZE_TYPES = ["US", "UK", "EU", "Alpha", "Numeric"] as const;
+export const SIZE_TYPES = [
+  "US", "UK", "EU", "FR", "IT", "DE", "ES", "AU", "JP", "CN", "KR", "RU",
+  "Alpha", "Numeric", "Age", "Neck", "Waist/Inseam", "Band/Cup",
+] as const;
 
 export type SizeType = (typeof SIZE_TYPES)[number];
 
@@ -32,8 +35,21 @@ export const SIZE_TYPE_LABELS: Record<SizeType, string> = {
   US: "US sizing",
   UK: "UK sizing",
   EU: "EU sizing",
+  FR: "French sizing",
+  IT: "Italian sizing",
+  DE: "German sizing",
+  ES: "Spanish sizing",
+  AU: "Australian sizing",
+  JP: "Japanese sizing",
+  CN: "Chinese sizing",
+  KR: "Korean sizing",
+  RU: "Russian sizing",
   Alpha: "Alpha (S / M / L)",
   Numeric: "Numeric (28–38)",
+  Age: "Age sizing",
+  Neck: "Collar / neck sizing",
+  "Waist/Inseam": "Waist / inseam sizing",
+  "Band/Cup": "Band / cup sizing",
 };
 
 /** What each one looks like in a catalog, so the merchant recognises their own labels rather than
@@ -42,8 +58,21 @@ export const SIZE_TYPE_EXAMPLES: Record<SizeType, string> = {
   US: "US 4, US 6, US 8 — US numeric and US footwear",
   UK: "UK 8, UK 10, UK 12 — UK numeric and UK footwear",
   EU: "EU 36, EU 38, EU 40 — continental numeric and EU footwear",
+  FR: "FR 36, FR 38, FR 40",
+  IT: "IT 40, IT 42, IT 44",
+  DE: "DE 36, DE 38, DE 40",
+  ES: "ES 36, ES 38, ES 40",
+  AU: "AU 8, AU 10, AU 12",
+  JP: "JP 7, JP 9, JP 11",
+  CN: "CN 165/88A, CN 170/92A",
+  KR: "KR 55, KR 66, KR 77",
+  RU: "RU 42, RU 44, RU 46",
   Alpha: "XS, S, M, L, XL, XXL",
   Numeric: "28, 30, 32 — waist, dress or plain numeric grading",
+  Age: "3–6M, 2–3Y, 8–9Y",
+  Neck: "38, 39, 40 — collar sizes",
+  "Waist/Inseam": "W32/L34, 32/34",
+  "Band/Cup": "85B, 34DD",
 };
 
 /** Brand key to the system that brand is labelled in, for the brands that differ from the store
@@ -83,8 +112,21 @@ export const SIZE_TYPE_ALIAS_KEYS: Record<SizeType, SizeAliasKey> = {
   US: "us",
   UK: "uk",
   EU: "eu",
+  FR: "fr",
+  IT: "it",
+  DE: "de",
+  ES: "es",
+  AU: "au",
+  JP: "jp",
+  CN: "cn",
+  KR: "kr",
+  RU: "ru",
   Alpha: "alpha",
   Numeric: "numeric",
+  Age: "age",
+  Neck: "neck",
+  "Waist/Inseam": "waist_inseam",
+  "Band/Cup": "band_cup",
 };
 
 export function sizeTypeAliasKey(type: SizeType): SizeAliasKey {

@@ -1,6 +1,12 @@
-import { rowLabels, type SizeAliasKey, type SizeChartRow } from "./chart-schema";
+import {
+  aliasLabels,
+  preferredAliasLabel,
+  rowLabels,
+  type SizeAliasKey,
+  type SizeChartRow,
+} from "./chart-schema";
 import { normalizeSizeLabel, splitRawSizeValue } from "./keys";
-import { sizeLabelCandidates } from "./size-label-forms";
+import { expandedRangeLabels, sizeLabelCandidates } from "./size-label-forms";
 import { sizeTypeAliasKey, type SizeType } from "./size-types";
 
 /**
@@ -49,7 +55,7 @@ export interface LabelMatch {
 function primaryClaimedByOtherKey(row: SizeChartRow, key: SizeAliasKey, sizeNormalized: string): boolean {
   for (const [otherKey, value] of Object.entries(row.aliases ?? {})) {
     if (otherKey === key) continue;
-    if (value && normalizeSizeLabel(value) === sizeNormalized) return true;
+    if (aliasLabels(value).some((label) => normalizeSizeLabel(label) === sizeNormalized)) return true;
   }
   return false;
 }
@@ -61,12 +67,16 @@ function labelsOverlap(
   rightKey: SizeAliasKey,
 ): boolean {
   const rightForms = new Set(sizeLabelCandidates(right, rightKey));
+  // A chart cell like `31-32` stands for both sizes; the stock label is never expanded.
+  for (const value of expandedRangeLabels(right, rightKey)) rightForms.add(value);
   return sizeLabelCandidates(left, leftKey).some((form) => rightForms.has(form));
 }
 
 function matchesKey(row: SizeChartRow, key: SizeAliasKey, rawLabel: string, rawKey: SizeAliasKey): boolean {
   const aliasValue = row.aliases?.[key];
-  if (aliasValue !== undefined) return labelsOverlap(rawLabel, rawKey, aliasValue, key);
+  if (aliasValue !== undefined) {
+    return aliasLabels(aliasValue).some((label) => labelsOverlap(rawLabel, rawKey, label, key));
+  }
 
   const sizeNormalized = normalizeSizeLabel(row.size);
   if (primaryClaimedByOtherKey(row, key, sizeNormalized)) return false;
@@ -113,7 +123,7 @@ export interface RawFormatMatch {
 
 /** The label from the merchant's declared system that should be published back for this row. */
 export function canonicalLabelForRow(row: SizeChartRow, sizeType: SizeType): string {
-  return row.aliases?.[sizeTypeAliasKey(sizeType)] ?? row.size;
+  return preferredAliasLabel(row.aliases?.[sizeTypeAliasKey(sizeType)]) ?? row.size;
 }
 
 export function matchRawFormat(raw: string, rows: readonly SizeChartRow[], sizeType: SizeType): RawFormatMatch {

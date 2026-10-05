@@ -16,7 +16,7 @@ import { PreviewViewportShell } from "./preview-viewport-shell";
 import { TryOnAgentChat } from "./try-on-agent-chat";
 import { ProfileSwitcher } from "./profile-switcher";
 import type { PreviewViewportMode } from "./preview-viewport-toggle";
-import type { OnboardingPhase } from "@/modules/wearable-agent/types";
+import type { OnboardingPhase, TryOnAudience } from "@/modules/wearable-agent/types";
 import { WearableThemeProvider, type WearableTheme } from "../theme-context";
 import { WearableBrandingProvider, type WearableBrandingInput } from "../branding-context";
 import { Button } from "@/components/ui/button";
@@ -39,6 +39,9 @@ interface TryOnLayoutProps {
    *  pages that aren't previewing a specific merchant's branding). */
   branding?: WearableBrandingInput & { welcomeMessage?: string; borderRadius?: string };
   workspaceId?: string;
+  /** The "Who's trying this on?" choices to offer — the departments the merchant enabled in
+   *  "Select What You Sell". Omitted means no restriction (every choice is shown). */
+  audiences?: TryOnAudience[];
   /** Real embeds use this to shrink the host box during sign-in / onboarding, then grow it
    *  back to a full viewport once the avatar is ready and chat needs the height. The
    *  dashboard preview ignores this. */
@@ -61,6 +64,7 @@ export function TryOnLayout({
   theme = "dark",
   branding,
   workspaceId,
+  audiences,
   onFillViewportChange,
 }: TryOnLayoutProps) {
   const [fillViewport, setFillViewport] = React.useState(!embed);
@@ -91,10 +95,16 @@ export function TryOnLayout({
               embed={embed}
               branding={branding}
               workspaceId={workspaceId}
+              audiences={audiences}
               onFillViewportChange={setFillViewport}
             />
           ) : (
-            <TryOnExperience viewportMode={viewportMode} branding={branding} workspaceId={workspaceId} />
+            <TryOnExperience
+              viewportMode={viewportMode}
+              branding={branding}
+              workspaceId={workspaceId}
+              audiences={audiences}
+            />
           )}
         </div>
       </WearableBrandingProvider>
@@ -107,12 +117,14 @@ function EmbeddedTryOn({
   embed,
   branding,
   workspaceId,
+  audiences,
   onFillViewportChange,
 }: {
   viewportMode: PreviewViewportMode;
   embed: EmbedRuntimeConfig;
   branding?: TryOnLayoutProps["branding"];
   workspaceId?: string;
+  audiences?: TryOnAudience[];
   onFillViewportChange: (fill: boolean) => void;
 }) {
   const shopper = useShopperAuth(embed);
@@ -148,6 +160,7 @@ function EmbeddedTryOn({
         embed={embed}
         branding={branding}
         workspaceId={workspaceId}
+        audiences={audiences}
         shopper={{
           profiles: shopper.profiles,
           createProfile: shopper.createProfile,
@@ -164,6 +177,7 @@ function TryOnExperience({
   embed,
   branding,
   workspaceId,
+  audiences,
   shopper,
   onFillViewportChange,
 }: {
@@ -171,6 +185,7 @@ function TryOnExperience({
   embed?: EmbedRuntimeConfig;
   branding?: TryOnLayoutProps["branding"];
   workspaceId?: string;
+  audiences?: TryOnAudience[];
   shopper?: ShopperProfileBridge;
   onFillViewportChange?: (fill: boolean) => void;
 }) {
@@ -194,6 +209,7 @@ function TryOnExperience({
           <AudienceStep
             key={agent.activeProfileId}
             value={agent.profile.audience}
+            audiences={audiences}
             onSelect={agent.selectAudience}
             showNameField={agent.profiles.length > 1}
             name={hasCustomLabel ? activeProfileLabel : ""}
@@ -205,13 +221,13 @@ function TryOnExperience({
       // screen was the tallest in onboarding by far, mostly padding no wider viewport needed.
       case "measurements":
         return (
-          <div className="flex flex-col gap-6 md:flex-row md:items-start md:gap-8">
-            <div className="flex-1 md:min-w-0">
+          <div className="flex flex-col gap-6 @lg:flex-row @lg:items-start @lg:gap-8">
+            <div className="flex-1 @lg:min-w-0">
               <MeasurementsStep profile={agent.profile} onChange={agent.updateProfile} />
             </div>
-            <div className="h-px bg-[var(--color-border)] md:hidden" />
-            <div className="hidden self-stretch w-px bg-[var(--color-border)] md:block" />
-            <div className="flex-1 md:min-w-0">
+            <div className="h-px bg-[var(--color-border)] @lg:hidden" />
+            <div className="hidden self-stretch w-px bg-[var(--color-border)] @lg:block" />
+            <div className="flex-1 @lg:min-w-0">
               <PhotoStep profile={agent.profile} error={agent.avatarGenerationError} onChange={agent.updateProfile} />
             </div>
           </div>
@@ -285,6 +301,8 @@ function TryOnExperience({
                 <AvatarGenerationLoading
                   progress={agent.generationProgress}
                   stageIndex={agent.generationStageIndex}
+                  photoUrl={agent.profile.photoUrl}
+                  arrived={agent.avatarsArrived}
                 />
               )}
 

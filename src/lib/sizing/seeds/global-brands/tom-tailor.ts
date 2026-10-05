@@ -1,4 +1,5 @@
 import { rowsFromColumns, type SeedChart } from "../types";
+import { TOM_TAILOR_EXPANDED_SEED } from "./tom-tailor-expanded";
 
 /**
  * Tom Tailor, transcribed from the brand's official global size guide.
@@ -7,15 +8,23 @@ import { rowsFromColumns, type SeedChart } from "../types";
  *
  * `coversLeaves` is the assignment truth. Each chart claims only garment types named by its
  * published heading; nearby taxonomy leaves are deliberately not inferred. Denim Female, Plus,
- * long-size and children's tables are omitted: the first three are separate ranges/fit classes,
- * while the children's published size labels do not safely provide the required height bounds.
+ * long-size and children's tables are retained in `tom-tailor-expanded.ts` with explicit line,
+ * fit and age applicability so they cannot be selected as an unqualified base chart.
  */
+
+/** `32/34` = waist 32 with a 34 inside leg: the label stores print for a jeans size plus its length choice. */
+function waistLengthLabels(waists: readonly string[], lengths: readonly number[]): string[][] {
+  return waists.map((waist) => lengths.map((length) => `${waist}/${length}`));
+}
 
 const BRAND = "tom_tailor";
 const SOURCE_URL = "https://www.tom-tailor.eu/en/size-guides";
 
 const WOMEN_ALPHA_SIZES = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "XXXL"] as const;
 const WOMEN_NUMERIC_SIZES = ["32", "34", "36", "38", "40", "42", "44", "46"] as const;
+const WOMEN_SCALE_NOTE =
+  "Alpha (XXS-XXXL) and EU (32-46) are two labels for the same published body rows: the T-shirt/jacket (alpha) and blouse/trouser/skirt (numeric) tables print identical chest, waist and hip ranges, and the Denim Female tables print the pairs together (XXS/32 ... XXL/44).";
+
 const WOMEN_CHEST = [
   [76, 79],
   [80, 83],
@@ -65,24 +74,28 @@ const WOMEN: SeedChart[] = [
     sourceUrl: SOURCE_URL,
     chartRows: rowsFromColumns({
       sizes: WOMEN_ALPHA_SIZES,
-      aliases: { alpha: WOMEN_ALPHA_SIZES },
+      aliases: { alpha: WOMEN_ALPHA_SIZES, eu: WOMEN_NUMERIC_SIZES },
       bounds: { chest: WOMEN_CHEST, waist: WOMEN_WAIST },
     }),
     notes: [
       "Only taxonomy leaves explicitly supported by the heading are claimed; Persona has no women's polo leaf.",
+      WOMEN_SCALE_NOTE,
     ],
   },
   {
     brandKey: BRAND,
     sizingCategory: "outerwear",
     variantName: "Women Jackets",
-    coversLeaves: ["women:outerwear:jacket", "women:outerwear:coat"],
+    coversLeaves: ["women:outerwear:jacket", "women:outerwear:coat", "women:outerwear:vest"],
     audience: "womens",
+    notes: [
+      "The vest leaf is filed under the official Jackets table: it is the only outerwear table with chest, waist and hip, and the men's Jackets table already covers the gilet the same way.",
+    ],
     sourceTitle: "Women: Jackets",
     sourceUrl: SOURCE_URL,
     chartRows: rowsFromColumns({
       sizes: WOMEN_ALPHA_SIZES,
-      aliases: { alpha: WOMEN_ALPHA_SIZES },
+      aliases: { alpha: WOMEN_ALPHA_SIZES, eu: WOMEN_NUMERIC_SIZES },
       bounds: { chest: WOMEN_CHEST, waist: WOMEN_WAIST },
     }),
   },
@@ -96,7 +109,7 @@ const WOMEN: SeedChart[] = [
     sourceUrl: SOURCE_URL,
     chartRows: rowsFromColumns({
       sizes: WOMEN_ALPHA_SIZES,
-      aliases: { alpha: WOMEN_ALPHA_SIZES },
+      aliases: { alpha: WOMEN_ALPHA_SIZES, eu: WOMEN_NUMERIC_SIZES },
       bounds: { chest: WOMEN_CHEST, waist: WOMEN_WAIST },
     }),
     notes: ["Cardigans use the official women's knit table; the Persona taxonomy files them under outerwear."],
@@ -111,7 +124,7 @@ const WOMEN: SeedChart[] = [
     sourceUrl: SOURCE_URL,
     chartRows: rowsFromColumns({
       sizes: WOMEN_NUMERIC_SIZES,
-      aliases: { eu: WOMEN_NUMERIC_SIZES },
+      aliases: { eu: WOMEN_NUMERIC_SIZES, alpha: WOMEN_ALPHA_SIZES },
       bounds: { chest: WOMEN_CHEST, waist: WOMEN_WAIST },
     }),
     notes: ["The source publishes one numeric table for blouses, blazers and dresses; this copy claims only the blouse leaf."],
@@ -126,7 +139,7 @@ const WOMEN: SeedChart[] = [
     sourceUrl: SOURCE_URL,
     chartRows: rowsFromColumns({
       sizes: WOMEN_NUMERIC_SIZES,
-      aliases: { eu: WOMEN_NUMERIC_SIZES },
+      aliases: { eu: WOMEN_NUMERIC_SIZES, alpha: WOMEN_ALPHA_SIZES },
       bounds: { chest: WOMEN_CHEST, waist: WOMEN_WAIST },
     }),
     notes: ["The source publishes one numeric table for blouses, blazers and dresses; this copy claims only the blazer leaf."],
@@ -141,7 +154,7 @@ const WOMEN: SeedChart[] = [
     sourceUrl: SOURCE_URL,
     chartRows: rowsFromColumns({
       sizes: WOMEN_NUMERIC_SIZES,
-      aliases: { eu: WOMEN_NUMERIC_SIZES },
+      aliases: { eu: WOMEN_NUMERIC_SIZES, alpha: WOMEN_ALPHA_SIZES },
       bounds: { chest: WOMEN_CHEST, waist: WOMEN_WAIST, hip: WOMEN_HIP },
     }),
     notes: ["The source publishes one numeric table for blouses, blazers and dresses; this copy claims only the dress leaf."],
@@ -150,30 +163,34 @@ const WOMEN: SeedChart[] = [
     brandKey: BRAND,
     sizingCategory: "bottoms",
     variantName: "Women Trousers",
-    coversLeaves: ["women:bottom:trouser", "women:bottom:short", "women:bottom:legging"],
+    coversLeaves: ["women:bottom:trouser", "women:bottom:short", "women:bottom:legging", "women:bottom:jean"],
     audience: "womens",
     sourceTitle: "Women: Trousers",
     sourceUrl: SOURCE_URL,
     chartRows: rowsFromColumns({
       sizes: WOMEN_NUMERIC_SIZES,
-      aliases: { eu: WOMEN_NUMERIC_SIZES },
+      aliases: { eu: WOMEN_NUMERIC_SIZES, alpha: WOMEN_ALPHA_SIZES },
       bounds: { waist: WOMEN_WAIST, hip: WOMEN_HIP },
     }),
     notes: [
       "The source offers inseam choices 30, 32 and 34 for every size. They are not collapsed into one bound because they are separate length selections.",
+      "Some Tom Tailor jeans are stocked in trouser sizing (EU 32-46); those use this table. Jeans stocked in W25-W36 use the Women Jeans table, selected by the stocked labels.",
     ],
   },
   {
     brandKey: BRAND,
     sizingCategory: "bottoms",
     variantName: "Women Jeans",
-    coversLeaves: ["women:bottom:jean"],
+    coversLeaves: ["women:bottom:jean", "women:bottom:short"],
     audience: "womens",
     sourceTitle: "Women: Jeans",
     sourceUrl: SOURCE_URL,
     chartRows: rowsFromColumns({
       sizes: ["25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "36"],
-      aliases: { numeric: ["25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "36"] },
+      aliases: {
+        numeric: ["25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "36"],
+        waist_inseam: waistLengthLabels(["25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "36"], [30, 32, 34]),
+      },
       bounds: {
         waist: [
           [59, 61],
@@ -217,7 +234,7 @@ const WOMEN: SeedChart[] = [
     sourceUrl: SOURCE_URL,
     chartRows: rowsFromColumns({
       sizes: WOMEN_NUMERIC_SIZES,
-      aliases: { eu: WOMEN_NUMERIC_SIZES },
+      aliases: { eu: WOMEN_NUMERIC_SIZES, alpha: WOMEN_ALPHA_SIZES },
       bounds: { waist: WOMEN_WAIST, hip: WOMEN_HIP },
     }),
   },
@@ -318,7 +335,7 @@ const MEN: SeedChart[] = [
     brandKey: BRAND,
     sizingCategory: "bottoms",
     variantName: "Men Jeans",
-    coversLeaves: ["men:bottom:jean"],
+    coversLeaves: ["men:bottom:jean", "men:bottom:trouser", "men:bottom:chino", "men:bottom:short"],
     audience: "mens",
     sourceTitle: "Man Casual and Denim Male: Jeans",
     sourceUrl: SOURCE_URL,
@@ -326,6 +343,7 @@ const MEN: SeedChart[] = [
       sizes: ["26", "27", "28", "29", "30", "31", "32", "33", "34", "36", "38", "40", "42", "44"],
       aliases: {
         numeric: ["26", "27", "28", "29", "30", "31", "32", "33", "34", "36", "38", "40", "42", "44"],
+        waist_inseam: waistLengthLabels(["26", "27", "28", "29", "30", "31", "32", "33", "34", "36", "38", "40", "42", "44"], [30, 32, 34, 36]),
       },
       bounds: {
         waist: [
@@ -364,6 +382,7 @@ const MEN: SeedChart[] = [
     }),
     notes: [
       "Inseam rows are incomplete for the largest waist sizes and represent separate 30/32/34/36 length choices, so no inseam bound is claimed.",
+      "Tom Tailor sells men's chinos, trousers and denim shorts in this waist scale (W29-W40, often with an L length such as 32/34); this is the only waist-size table the guide publishes, so those leaves are filed here. The EU 44-58 table remains the claimant for numeric EU sizes.",
     ],
   },
   {
@@ -401,7 +420,7 @@ const MEN: SeedChart[] = [
       },
     }),
     notes: [
-      "Only the source's mainline normal-size blazer table is included; the separate long-size fit chart is omitted.",
+      "The separate long-size fit chart is published with explicit fit applicability in tom-tailor-expanded.ts.",
       "No suit or suit-jacket leaf is claimed because the official heading names blazers only.",
     ],
   },
@@ -450,9 +469,9 @@ const MEN: SeedChart[] = [
       },
     }),
     notes: [
-      "Only the source's mainline normal-size trouser table is included; long-size and American-size variants are omitted.",
+      "Long-size and American-size variants are published with explicit applicability in tom-tailor-expanded.ts.",
     ],
   },
 ];
 
-export const TOM_TAILOR_SEED: SeedChart[] = [...WOMEN, ...MEN];
+export const TOM_TAILOR_SEED: SeedChart[] = [...WOMEN, ...MEN, ...TOM_TAILOR_EXPANDED_SEED];

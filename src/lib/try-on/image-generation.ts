@@ -7,6 +7,7 @@ import {
   uploadPrunaFile,
 } from "@/lib/ai/pruna";
 import { flattenOntoChromaKey, stripBackgroundToTransparent } from "@/lib/ai/background-removal";
+import { AVATAR_STYLE_LABELS } from "@/modules/wearable-agent/constants";
 import type { AvatarVariation } from "@/modules/wearable-agent/types";
 import type { GarmentCategory } from "@/modules/wearable-agent/utils/fit-metrics";
 
@@ -18,19 +19,35 @@ export class PersonaAgentError extends Error {
 }
 
 /**
- * Matches the 4-card "Choose your avatar" UI and the 4 fixed backdrop plates — a fixed
- * product/layout decision (like the 2K image size), not an env-tunable model parameter.
+ * Matches the 3-slide "Choose your avatar" carousel and the 3 fixed backdrop plates it uses — a
+ * fixed product/layout decision (like the 2K image size), not an env-tunable model parameter.
  */
-export const DEFAULT_AVATAR_VARIATION_COUNT = 4;
+export const DEFAULT_AVATAR_VARIATION_COUNT = 3;
 
 const AVATAR_ASPECT_RATIO = "3:4";
 
-/** Each variation gets a genuinely different outfit so the 4 results aren't 4 copies of the same look. */
+/**
+ * Each variation gets a genuinely different outfit so the 3 results aren't 3 copies of the same
+ * look. Casual, sport and formal are deliberately three distinct registers (earlier sets with
+ * a blazer, a suit and an evening look read as several near-identical navy suits). This order is
+ * also the order of the carousel slides.
+ */
 const AVATAR_STYLES = [
-  { label: "Tailored Blazer", styleHint: "wearing a tailored blazer look with clean, structured lines" },
-  { label: "Classic Suit", styleHint: "wearing a classic suit look, sharp and formal" },
-  { label: "Relaxed Casual", styleHint: "wearing a relaxed, neutral-tone casual look" },
-  { label: "Elegant Fitted", styleHint: "wearing an elegant, fitted evening-appropriate look" },
+  {
+    label: AVATAR_STYLE_LABELS[0],
+    styleHint:
+      "a relaxed everyday casual outfit in neutral tones: a plain well-fitting crew-neck sweater or t-shirt, straight-leg trousers or jeans, and clean white sneakers",
+  },
+  {
+    label: AVATAR_STYLE_LABELS[1],
+    styleHint:
+      "a sporty athletic outfit: a fitted performance top, matching training joggers or track pants, and running sneakers",
+  },
+  {
+    label: AVATAR_STYLE_LABELS[2],
+    styleHint:
+      "a classic formal suit: a navy two-piece suit with a white dress shirt, a tie, and black leather dress shoes",
+  },
 ] as const;
 
 /** Each fixed backdrop plate pairs 1:1 with the avatar style at the same index. */
@@ -39,21 +56,46 @@ function backdropPathForIndex(index: number): string {
 }
 
 /**
- * Non-negotiables, in priority order: (1) exact face match, (2) precise body proportions,
- * (3) the fixed chroma-key backdrop every generation is rendered against.
+ * The shopper's upload is whatever they had to hand — a close-up, a hand on the chin, coloured
+ * party lighting — and an edit model happily copies all of that into the result. The prompt is
+ * therefore split into labelled sections that make the reference photo a source of *identity
+ * only*, then fix everything else (pose, framing, lighting, background) to the same values for
+ * every shopper and every style, so the avatars are interchangeable and a try-on later lays
+ * a garment over the same stance each time.
+ *
+ * Priority, highest first: (1) exact face match, (2) one standard pose and framing, (3) body
+ * proportions from the measurements, (4) the outfit, (5) neutral light and the fixed chroma-key
+ * backdrop every generation is rendered against.
  */
-function buildIdentityAndBodyInstruction(input: {
-  heightCm: number;
-  weightKg: number;
-  chestCm: number;
-  waistCm: number;
-  shoeSizeEu: number;
-}): string {
+export function buildAvatarPrompt(
+  input: {
+    heightCm: number;
+    weightKg: number;
+    chestCm?: number;
+    waistCm?: number;
+    ageYears?: number;
+    shoeSizeEu: number;
+  },
+  outfit: string
+): string {
+  // A child is described by age, height and weight — nobody has a child's chest and waist to hand,
+  // and "age" is what tells the model to draw a child's proportions rather than a small adult's.
+  const body =
+    input.ageYears !== undefined
+      ? `The subject is a child aged ${input.ageYears === 0 ? "under 1 year" : `${input.ageYears} year${input.ageYears === 1 ? "" : "s"}`}, so render a child's face shape and proportions, not a small adult. The body must reflect these measurements: ${input.heightCm} cm tall, ${input.weightKg} kg, shoe size EU ${input.shoeSizeEu} — not a generic average body.`
+      : `The body must reflect these measurements: ${input.heightCm} cm tall, ${input.weightKg} kg, chest ${input.chestCm} cm, waist ${input.waistCm} cm, shoe size EU ${input.shoeSizeEu} — not a generic average body.`;
+
   return [
-    "This must be the exact same person as the reference photo — identical facial features, identity, skin tone, and hair, with zero beautification or alteration.",
-    `The body must precisely reflect these measurements: ${input.heightCm}cm tall, ${input.weightKg}kg, chest ${input.chestCm}cm, waist ${input.waistCm}cm, shoe size EU ${input.shoeSizeEu} — not a generic average body.`,
-    "Render entirely against a single flat, uniform, seamless background of solid color #FF00FF (pure magenta), covering 100% of the space around the subject, with no gradients, shadows, or texture in the background.",
-  ].join(" ");
+    "Create a full-body studio avatar of the person in the reference photo.",
+    "IDENTITY: Use the reference photo only to know who this person is. Keep their exact face and facial structure, skin tone, hair and hairstyle, and facial hair identical, with no beautification, slimming, smoothing or ageing. It must be recognisably the same person.",
+    "IGNORE everything else in the reference photo: its pose, any hand or arm position (for example a hand on the chin, cheek or face), head tilt, crop and framing, clothing, eyeglasses, sunglasses, watches, jewelry and every other accessory, lighting and coloured light, background, and colour grading.",
+    "POSE (identical for every avatar): standing upright and perfectly straight, facing the camera head-on and symmetrical, head level with the chin parallel to the floor, eyes looking straight into the lens, a calm natural expression with a very slight smile. Both arms hang naturally straight down at the sides with the hands relaxed and fully visible beside the thighs — empty hands, nothing held, no hand touching the face or body. Feet flat on the floor, about shoulder-width apart, toes pointing forward.",
+    "FRAMING: the whole body from the top of the head to the soles of both shoes, nothing cropped, centered, with a small margin above the head and below the feet. Straight-on camera at chest height, no tilt and no wide-angle distortion, like a clean e-commerce catalog photo.",
+    `BODY: ${body}`,
+    `OUTFIT: dressed in ${outfit}. Nothing else is worn or carried: no eyeglasses or sunglasses (bare face, even if the person wears glasses in the reference), no hat or cap, no watch, bracelet, necklace, earrings, rings, scarf, belt buckle logos, bag, headphones or any other accessory.`,
+    "LIGHTING: soft, even, neutral white studio light with realistic skin texture. The image must be completely clean and clear: no coloured lights, no rim light, no reflections, glare, shine, highlights or light leaks, no colour cast, glow, stains or blotches, and no pink, red, blue or magenta tint or light spill on the skin, hair, clothing or background — even if the reference photo has coloured lighting, reflections or shine on the face, discard all of it and render the face and skin evenly and naturally lit.",
+    "BACKGROUND: a single flat, uniform, seamless solid #FF00FF (pure magenta) covering 100% of the space around the subject, with no gradients, shadows, floor, props or texture.",
+  ].join("\n\n");
 }
 
 export interface GenerateAvatarVariationsInput {
@@ -61,8 +103,10 @@ export interface GenerateAvatarVariationsInput {
   photoMimeType: string;
   heightCm: number;
   weightKg: number;
-  chestCm: number;
-  waistCm: number;
+  /** Adults give chest and waist; the three kids departments give `ageYears` instead. */
+  chestCm?: number;
+  waistCm?: number;
+  ageYears?: number;
   shoeSizeEu: number;
 }
 
@@ -114,10 +158,8 @@ export async function* generateAvatarVariationsStream(
   const stylesToUse = AVATAR_STYLES.slice(0, clampedCount);
   if (stylesToUse.length === 0) return;
 
-  const bodyInstruction = buildIdentityAndBodyInstruction(input);
-
   // Uploaded once and shared by every variation: the reference photo is identical across the
-  // batch, so re-uploading it per style would cost four round trips for one file. An upload
+  // batch, so re-uploading it per style would cost one round trip per style for one file. An upload
   // failure here is fatal to the whole batch by definition — there is nothing to generate
   // from — so it's reported as a per-variation error for each style rather than thrown, to
   // keep the streaming contract (callers treat a thrown error as "the request broke").
@@ -145,7 +187,7 @@ export async function* generateAvatarVariationsStream(
         label: style.label,
         promise: (async (): Promise<AvatarVariation> => {
           const generated = await editPrunaImage({
-            prompt: `${bodyInstruction} Full-body standing studio pose, ${style.styleHint}.`,
+            prompt: buildAvatarPrompt(input, style.styleHint),
             imageUrls: [photoUrl],
             aspectRatio: AVATAR_ASPECT_RATIO,
           });

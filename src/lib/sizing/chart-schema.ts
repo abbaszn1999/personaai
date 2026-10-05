@@ -2,6 +2,21 @@ import type { ResearchStatus } from "@/lib/db/sizing-coverage";
 import type { Audience } from "./keys";
 import { MEASUREMENT_KEYS, MEASUREMENTS, measurementsFor, type Measurement, type SizingGroup } from "./measurements";
 
+export interface ChartApplicability {
+  productLine?: string;
+  fitClass?: string;
+  ageBand?: { minMonths?: number; maxMonths?: number; label?: string };
+  market?: string;
+}
+
+export interface SourceVerification {
+  verifiedAt: string;
+  status: "verified" | "inaccessible" | "archived";
+  locale?: string;
+  evidenceLocator?: string;
+  snapshotHash?: string;
+}
+
 /**
  * One row of a size chart, in the flat `<measurement>_min` / `<measurement>_max` shape
  * `Documentation/persona_sizing.md` specifies.
@@ -40,6 +55,15 @@ export const SIZE_ALIAS_KEYS = [
   "eu",
   "uk",
   "us",
+  "fr",
+  "it",
+  "de",
+  "es",
+  "au",
+  "jp",
+  "cn",
+  "kr",
+  "ru",
   /** A numeric scale that is not a country's own system — a denim inch waist, a dress size, a
    *  plain grading. Kept distinct from `eu`/`us` so the same real-world scale never has to pick
    *  one of two homes depending on which other column happens to be on the table. */
@@ -56,25 +80,31 @@ export const SIZE_ALIAS_KEYS = [
   /** Waist+inseam as one token, printed `3431` or `34/31`. Two measurements in one label, which is
    *  why it cannot be folded into `eu` or `us` even though it looks numeric. */
   "waist_inseam",
+  /** A combined lingerie label such as 85B or 34DD. */
+  "band_cup",
 ] as const;
 
 export type SizeAliasKey = (typeof SIZE_ALIAS_KEYS)[number];
 
 /** Only the systems this row's source actually printed. Absent is not the same as empty: a chart
  *  that never published a UK column must not claim one. */
-export type SizeAliases = Partial<Record<SizeAliasKey, string>>;
+export type SizeAliasValue = string | string[];
+export type SizeAliases = Partial<Record<SizeAliasKey, SizeAliasValue>>;
 
 export function isSizeAliasKey(value: unknown): value is SizeAliasKey {
   return typeof value === "string" && (SIZE_ALIAS_KEYS as readonly string[]).includes(value);
 }
 
-const BASE_ALIAS_KEYS = ["alpha", "eu", "uk", "us", "numeric"] as const satisfies readonly SizeAliasKey[];
+const BASE_ALIAS_KEYS = [
+  "alpha", "eu", "uk", "us", "fr", "it", "de", "es", "au", "jp", "cn", "kr", "ru", "numeric",
+] as const satisfies readonly SizeAliasKey[];
 
 /** The only parallel label systems that make sense for this chart key. */
 export function allowedAliasKeys(group: SizingGroup, audience: Audience): readonly SizeAliasKey[] {
   const aliases: SizeAliasKey[] = [...BASE_ALIAS_KEYS];
   if (audience === "boys" || audience === "girls" || audience === "kids") aliases.push("age");
   if (group === "tops") aliases.push("neck");
+  if (group === "tops") aliases.push("band_cup");
   if (group === "bottoms") aliases.push("waist_inseam");
   return aliases;
 }
@@ -89,8 +119,21 @@ export type SizeChartRow = {
 /** Every label this row answers to, `size` first, deduplicated. What Phase 6 matches a merchant's
  *  raw stock strings against before it considers spending an LLM call on the leftovers. */
 export function rowLabels(row: SizeChartRow): string[] {
-  const labels = [row.size, ...Object.values(row.aliases ?? {})];
+  const labels = [
+    row.size,
+    ...Object.values(row.aliases ?? {}).flatMap((value) => aliasLabels(value)),
+  ];
   return [...new Set(labels.map((label) => label.trim()).filter(Boolean))];
+}
+
+export function aliasLabels(value: SizeAliasValue | null | undefined): string[] {
+  if (typeof value === "string") return value.trim() ? [value.trim()] : [];
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((label) => label.trim()).filter(Boolean))];
+}
+
+export function preferredAliasLabel(value: SizeAliasValue | null | undefined): string | undefined {
+  return aliasLabels(value)[0];
 }
 
 /**
@@ -104,7 +147,9 @@ export function rowLabels(row: SizeChartRow): string[] {
  * systems. The distinction is what makes `chartLabelSystems` answerable: "which regions can this
  * chart speak to" has to mean the regional keys and nothing else.
  */
-export const REGIONAL_ALIAS_KEYS = ["eu", "uk", "us"] as const satisfies readonly SizeAliasKey[];
+export const REGIONAL_ALIAS_KEYS = [
+  "eu", "uk", "us", "fr", "it", "de", "es", "au", "jp", "cn", "kr", "ru",
+] as const satisfies readonly SizeAliasKey[];
 
 export type RegionalAliasKey = (typeof REGIONAL_ALIAS_KEYS)[number];
 
@@ -123,7 +168,7 @@ export function chartLabelSystems(rows: SizeChartRow[]): RegionalAliasKey[] {
   const present = new Set<string>();
   for (const row of rows) {
     for (const [key, value] of Object.entries(row.aliases ?? {})) {
-      if (value?.trim()) present.add(key);
+      if (aliasLabels(value).length > 0) present.add(key);
     }
   }
   return REGIONAL_ALIAS_KEYS.filter((key) => present.has(key));
@@ -194,6 +239,7 @@ export function parseSizeChartRow(
   value: unknown,
   group: SizingGroup,
   audience: Audience = "unisex",
+  decidingMeasurements: readonly Measurement[] = [],
 ): SizeChartRow | null {
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
@@ -207,7 +253,11 @@ export function parseSizeChartRow(
   if (aliases) row.aliases = aliases;
   if (record.source_point_values === true) row.source_point_values = true;
 
-  for (const measurement of measurementsFor(group, audience)) {
+  const allowedMeasurements = [...new Set([
+    ...measurementsFor(group, audience),
+    ...decidingMeasurements,
+  ])];
+  for (const measurement of allowedMeasurements) {
     const min = plausibleBound(measurement, record[`${measurement}_min`]);
     const max = plausibleBound(measurement, record[`${measurement}_max`]);
 
@@ -239,10 +289,12 @@ function parseAliases(
   const allowed = new Set<SizeAliasKey>(allowedAliasKeys(group, audience));
   const aliases: SizeAliases = {};
   for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
-    if (!isSizeAliasKey(key) || !allowed.has(key) || typeof raw !== "string") continue;
-    const label = raw.trim();
-    if (!label || label === size) continue;
-    aliases[key] = label;
+    if (!isSizeAliasKey(key) || !allowed.has(key)) continue;
+    const labels = aliasLabels(
+      typeof raw === "string" || Array.isArray(raw) ? (raw as SizeAliasValue) : undefined,
+    ).filter((label) => label !== size);
+    if (labels.length === 0) continue;
+    aliases[key] = labels.length === 1 ? labels[0] : labels;
   }
 
   return Object.keys(aliases).length > 0 ? aliases : undefined;
@@ -257,12 +309,13 @@ export function parseSizeChart(
   value: unknown,
   group: SizingGroup,
   audience: Audience = "unisex",
+  decidingMeasurements: readonly Measurement[] = [],
 ): SizeChartRow[] {
   if (!Array.isArray(value)) return [];
 
   const bySize = new Map<string, SizeChartRow>();
   for (const entry of value) {
-    const row = parseSizeChartRow(entry, group, audience);
+    const row = parseSizeChartRow(entry, group, audience, decidingMeasurements);
     if (row && !bySize.has(row.size)) bySize.set(row.size, row);
   }
   return [...bySize.values()];
@@ -280,6 +333,19 @@ export function chartHasBounds(
   audience: Audience = "unisex",
 ): boolean {
   return rows.some((row) => rowHasBounds(row, group, audience));
+}
+
+export function chartHasDecidingBounds(
+  rows: SizeChartRow[],
+  decidingMeasurements: readonly Measurement[],
+): boolean {
+  return (
+    rows.length > 0 &&
+    decidingMeasurements.length > 0 &&
+    rows.every((row) =>
+      decidingMeasurements.some((measurement) => boundsFor(row, measurement) !== null),
+    )
+  );
 }
 
 // ─── JSON Schema for structured model output ──────────────────────────────────

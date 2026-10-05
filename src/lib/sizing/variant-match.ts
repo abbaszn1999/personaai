@@ -70,16 +70,14 @@ const CHILD_AUDIENCES = new Set<Audience>(["boys", "girls", "kids"]);
  *    but three ways a brand chose to file one growth curve, and an `Infant` table genuinely serves a
  *    kids-boys path for the ages it covers. Refusing the cross would leave most kids paths with no
  *    candidate at all while a usable chart sat one row away.
- * 3. **Within adults, `unisex` bridges and nothing else does.** A unisex chart sizes anyone — that is
- *    what the word means — and a unisex *path* can be sized by either adult chart, because the
- *    garment is sold to both and only the merchant knows which block it was cut on. But a men's chart
- *    may not size a women's path: same label, different chest range, wrong half the time.
+ * 3. **Within adults, only an explicitly unisex chart bridges.** A unisex chart may size a gendered
+ *    path, but a unisex path may not silently choose a men's or women's body block.
  */
 export function audienceCompatible(path: Audience, chart: Audience): boolean {
   const pathIsChild = CHILD_AUDIENCES.has(path);
   if (pathIsChild !== CHILD_AUDIENCES.has(chart)) return false;
   if (pathIsChild) return true;
-  return path === chart || path === "unisex" || chart === "unisex";
+  return path === chart || chart === "unisex";
 }
 
 /**

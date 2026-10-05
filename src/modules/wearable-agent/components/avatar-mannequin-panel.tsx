@@ -17,10 +17,11 @@ import {
 } from "lucide-react";
 import type { GeneratedTryOn } from "../hooks/use-try-on-agent";
 import type { TryOnProfile } from "../types";
-import type { Product } from "@/modules/commerce/types";
+import type { FitMeasurementAnalysis, LookFitAnalysis, Product } from "@/modules/commerce/types";
 import { formatPrice } from "@/modules/commerce/constants";
 import { DEFAULT_MANNEQUIN_IMAGE, STUDIO_BACKDROPS } from "../constants";
 import {
+  formatAgeYears,
   formatChestCm,
   formatHeightCm,
   formatShoeSizeEu,
@@ -29,9 +30,9 @@ import {
   getHotspotPosition,
   getProductSizeLabel,
   resolveGarmentSlot,
-  getProfileFitSummary,
   recommendSize,
 } from "../utils/fit-metrics";
+import { isKidsAudience } from "../audiences";
 import { EditModelStatsModal } from "./edit-model-stats-modal";
 import { AvatarWearScanOverlay } from "./avatar-wear-scan-overlay";
 import { GarmentHotspot, type ActiveLookItem } from "./garment-hotspot";
@@ -162,6 +163,137 @@ function InfoCard({ children, className }: { children: React.ReactNode; classNam
   );
 }
 
+function rangeText(metric: FitMeasurementAnalysis): string {
+  const unit = metric.unit;
+  if (metric.min !== null && metric.max !== null) {
+    return metric.min === metric.max ? `${metric.min} ${unit}` : `${metric.min}–${metric.max} ${unit}`;
+  }
+  if (metric.min !== null) return `${metric.min}+ ${unit}`;
+  if (metric.max !== null) return `Up to ${metric.max} ${unit}`;
+  return "—";
+}
+
+function directionText(metric: FitMeasurementAnalysis): string {
+  if (metric.shopperValue === null) return "Not provided";
+  if (metric.direction === "inside") return "Inside range";
+  if (metric.direction === "size_up") return `${metric.outside} ${metric.unit} above · size up`;
+  return `${metric.outside} ${metric.unit} below · size down`;
+}
+
+function aggregateFitMetrics(fit: LookFitAnalysis): Array<{ label: string; value: number }> {
+  const grouped = new Map<string, { label: string; scores: number[] }>();
+  for (const item of fit.items) {
+    for (const metric of item.metrics) {
+      if (metric.score === null) continue;
+      const entry = grouped.get(metric.measurement) ?? { label: metric.label, scores: [] };
+      entry.scores.push(metric.score);
+      grouped.set(metric.measurement, entry);
+    }
+  }
+  return [...grouped.values()].map(({ label, scores }) => ({
+    label,
+    value: Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length),
+  }));
+}
+
+function FitAnalysisContent({ fit, mobile = false }: { fit: LookFitAnalysis; mobile?: boolean }) {
+  const [expandedId, setExpandedId] = React.useState<string | null>(null);
+  const metrics = aggregateFitMetrics(fit);
+
+  return (
+    <>
+      <div className={cn("flex flex-col items-center gap-1", mobile ? "mb-4" : "mb-4")}>
+        <p className="text-[10px] text-[var(--ic-faint)] font-medium">Overall look fit</p>
+        {fit.score !== null ? (
+          <>
+            <div className="relative h-[88px] w-[88px] my-1">
+              <svg className="h-[88px] w-[88px] -rotate-90" viewBox="0 0 88 88" aria-hidden>
+                <circle cx="44" cy="44" r="36" fill="none" stroke="var(--ic-line)" strokeWidth="6" />
+                <circle
+                  cx="44"
+                  cy="44"
+                  r="36"
+                  fill="none"
+                  stroke="var(--color-brand)"
+                  strokeWidth="6"
+                  strokeLinecap="round"
+                  strokeDasharray={`${(fit.score / 100) * 226} 226`}
+                />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-[22px] font-bold text-[var(--ic-fg)]">{fit.score}%</span>
+              </div>
+            </div>
+            <p className="text-[12px] font-semibold text-[var(--ic-strong)]">{fit.label}</p>
+          </>
+        ) : (
+          <p className="py-3 text-center text-[12px] text-[var(--ic-muted)]">
+            No size-chart measurements are available for this look.
+          </p>
+        )}
+      </div>
+
+      {metrics.length > 0 && (
+        <div className="space-y-2.5 mb-4">
+          {metrics.map((metric) => (
+            <div key={metric.label}>
+              <div className="flex justify-between text-[11px] mb-1">
+                <span className="text-[var(--ic-muted)]">{metric.label}</span>
+                <span className="text-[var(--ic-strong)] font-semibold">{metric.value}%</span>
+              </div>
+              <div className="h-[3px] rounded-full bg-[var(--ic-line)] overflow-hidden">
+                <div className="h-full rounded-full bg-[var(--color-brand)]" style={{ width: `${metric.value}%` }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="space-y-1.5">
+        {fit.items.map((item) => {
+          const expanded = expandedId === item.productId;
+          return (
+            <div key={item.productId} className="overflow-hidden rounded-lg border border-[var(--ic-line)]">
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-2.5 py-2 text-left"
+                onClick={() => setExpandedId(expanded ? null : item.productId)}
+                aria-expanded={expanded}
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[11px] font-semibold text-[var(--ic-fg)]">{item.productName}</span>
+                  <span className="text-[10px] text-[var(--ic-muted)]">Size {item.size} · {item.label}</span>
+                </span>
+                {item.score !== null && <span className="text-[11px] font-bold text-[var(--ic-strong)]">{item.score}%</span>}
+                <ChevronDown className={cn("h-3.5 w-3.5 text-[var(--ic-muted)] transition-transform", expanded && "rotate-180")} />
+              </button>
+              {expanded && (
+                <div className="space-y-2 border-t border-[var(--ic-line)] px-2.5 py-2.5">
+                  {item.metrics.length === 0 ? (
+                    <p className="text-[10px] text-[var(--ic-muted)]">No matching size-chart row.</p>
+                  ) : (
+                    item.metrics.map((metric) => (
+                      <div key={metric.measurement} className="text-[10px]">
+                        <div className="flex justify-between gap-2">
+                          <span className="font-medium text-[var(--ic-strong)]">{metric.label}</span>
+                          <span className="text-right text-[var(--ic-muted)]">
+                            {metric.shopperValue === null ? "Not provided" : `${metric.shopperValue} ${metric.unit}`} / {rangeText(metric)}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 text-[var(--ic-faint)]">{directionText(metric)}</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
 export function AvatarMannequinPanel({
   profile,
   outfitItems,
@@ -222,7 +354,7 @@ export function AvatarMannequinPanel({
     // "3d" is disabled — coming soon, intentionally not wired up.
   }
 
-  const fit = getProfileFitSummary(profile);
+  const fit = currentTryOn?.fit ?? null;
   const defaultSize = recommendSize(profile);
   const total = tryOnImages.length;
   const hasPrev = currentImageIndex > 0;
@@ -265,14 +397,14 @@ export function AvatarMannequinPanel({
       categoryCounts[category] = staggerIndex + 1;
       // Shoes are sized in EU numbers from the real profile stat, not the XS–XL letter
       // size every other garment gets from BMI — showing "S" for a shoe made no sense.
-      const fallbackSize = category === "shoes" ? formatShoeSizeEu(profile.shoeSizeEu) : defaultSize;
+      const fallbackSize = category === "shoes" ? formatShoeSizeEu(profile.shoeSizeEu, isKidsAudience(profile.audience)) : defaultSize;
       return {
         product,
         size: currentTryOn?.recommendedSizes[product.id] ?? fallbackSize,
         position: getHotspotPosition(product, staggerIndex),
       };
     });
-  }, [currentTryOn, outfitItems, defaultSize, profile.shoeSizeEu]);
+  }, [currentTryOn, outfitItems, defaultSize, profile.shoeSizeEu, profile.audience]);
   const liveProducts = React.useMemo(() => {
     const byId = new Map<string, Product>();
     for (const version of tryOnImages) {
@@ -451,17 +583,19 @@ export function AvatarMannequinPanel({
         />
       )}
 
-      {/* ── Layer 1: Right-side fade — blends photo edge into the dark panel bg ── */}
-      {viewMode === "photo" && <div className="absolute inset-0 z-[2] pointer-events-none"
-        style={{
-          background: `linear-gradient(to right, transparent 52%, ${panelBg}CC 64%, ${panelBg} 72%)`,
-        }}
-      />}
-
-      {/* ── Layer 2: Top vignette — keeps Save/Share legible ── */}
-      <div className="absolute inset-x-0 top-0 h-24 z-[3] pointer-events-none"
-        style={{ background: theme === "light" ? "linear-gradient(to bottom, rgba(242,240,245,0.55), transparent)" : "linear-gradient(to bottom, rgba(0,0,0,0.42), transparent)" }}
-      />
+      {/* ── Layer 1: Right-side fade — blends the photo's own right edge into the panel bg ──
+          Sized to the photo (same aspect ratio as the image above) rather than the whole panel,
+          so only the last sliver of the picture fades. Measured against the panel it started
+          about half way across and washed out a third of the studio scene. ── */}
+      {viewMode === "photo" && (
+        <div
+          className="absolute inset-y-0 left-0 z-[2] h-full pointer-events-none"
+          style={{
+            aspectRatio: hasFixedBackdrop ? "3 / 4" : "2 / 3",
+            background: `linear-gradient(to right, transparent 86%, ${panelBg}80 93%, ${panelBg} 100%)`,
+          }}
+        />
+      )}
 
       {/* ── Hotspots — mapped to exact photo aspect ratio. pointer-events-none on the
           wrapper so empty space lets clicks/drags reach the photo underneath (e.g. panning);
@@ -533,53 +667,15 @@ export function AvatarMannequinPanel({
             onAddToCart={onAddToCart}
           />
         </aside>
-      ) : <div className="absolute top-5 right-5 z-[20] w-[252px] flex flex-col gap-3">
+      ) : <div className="absolute top-5 right-5 z-[20] max-h-[calc(100%_-_40px)] w-[252px] flex flex-col gap-3 overflow-y-auto sidebar-scroll">
 
-        {/* Fit Analysis card */}
-        <InfoCard className="p-4">
-          <p className="text-[13px] font-semibold text-[var(--ic-fg)] mb-3">Fit Analysis</p>
-
-          {/* Circular gauge — centered */}
-          <div className="flex flex-col items-center gap-1 mb-4">
-            <p className="text-[10px] text-[var(--ic-faint)] font-medium">Fit Score</p>
-            <div className="relative h-[88px] w-[88px] my-1">
-              <svg className="h-[88px] w-[88px] -rotate-90" viewBox="0 0 88 88">
-                <circle cx="44" cy="44" r="36" fill="none" stroke="var(--ic-line)" strokeWidth="6" />
-                <circle
-                  cx="44" cy="44" r="36" fill="none"
-                  stroke="url(#fitGaugeGrad)" strokeWidth="6"
-                  strokeLinecap="round"
-                  strokeDasharray={`${(fit.fitScore / 100) * 226} 226`}
-                />
-                <defs>
-                  <linearGradient id="fitGaugeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="var(--color-brand-from)" />
-                    <stop offset="100%" stopColor="var(--color-brand-to)" />
-                  </linearGradient>
-                </defs>
-              </svg>
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-[22px] font-bold text-[var(--ic-fg)] leading-none">{fit.fitScore}%</span>
-              </div>
-            </div>
-            <p className="text-[12px] font-semibold text-[var(--ic-strong)]">{fit.fitLabel}</p>
-          </div>
-
-          {/* Metric bars */}
-          <div className="space-y-2.5">
-            {fit.metrics.map((m) => (
-              <div key={m.label}>
-                <div className="flex justify-between text-[11px] mb-1">
-                  <span className="text-[var(--ic-muted)]">{m.label}</span>
-                  <span className="text-[var(--ic-strong)] font-semibold">{m.value}%</span>
-                </div>
-                <div className="h-[3px] rounded-full bg-[var(--ic-line)] overflow-hidden">
-                  <div className="h-full rounded-full bg-[var(--color-brand)]" style={{ width: `${m.value}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </InfoCard>
+        {/* No placeholder score: a card exists only for a generated version with chart data. */}
+        {fit && (
+          <InfoCard className="p-4">
+            <p className="text-[13px] font-semibold text-[var(--ic-fg)] mb-3">Fit Analysis</p>
+            <FitAnalysisContent fit={fit} />
+          </InfoCard>
+        )}
 
         {/* Model Stats + Size Recommendation card */}
         <InfoCard className="p-4">
@@ -595,11 +691,15 @@ export function AvatarMannequinPanel({
           </div>
           <div className="space-y-2">
             {[
-              { label: "Height", value: formatHeightCm(profile.heightCm) },
-              { label: "Weight", value: formatWeightKg(profile.weightKg) },
-              { label: "Chest", value: formatChestCm(profile.chestCm) },
-              { label: "Waist", value: formatWaistCm(profile.waistCm) },
-              { label: "Shoe Size", value: formatShoeSizeEu(profile.shoeSizeEu) },
+              { label: "Height", value: formatHeightCm(profile.heightCm, isKidsAudience(profile.audience)) },
+              { label: "Weight", value: formatWeightKg(profile.weightKg, isKidsAudience(profile.audience)) },
+              ...(isKidsAudience(profile.audience)
+                ? [{ label: "Age", value: formatAgeYears(profile.ageYears) }]
+                : [
+                    { label: "Chest", value: formatChestCm(profile.chestCm) },
+                    { label: "Waist", value: formatWaistCm(profile.waistCm) },
+                  ]),
+              { label: "Shoe Size", value: formatShoeSizeEu(profile.shoeSizeEu, isKidsAudience(profile.audience)) },
             ].map(({ label, value }) => (
               <div key={label} className="flex items-center justify-between">
                 <span className="text-[12px] text-[var(--ic-muted)]">{label}</span>
@@ -792,7 +892,7 @@ interface MobileAvatarStripProps {
   imgSrc: string;
   backdropUrl: string | null;
   onImageError: () => void;
-  fit: ReturnType<typeof getProfileFitSummary>;
+  fit: LookFitAnalysis | null;
   profile: TryOnProfile;
   sizeRows: { id: string; label: string; size: string }[];
   cartTotal: number;
@@ -883,6 +983,7 @@ function MobileAvatarStrip({
     onSaveMeasurements({
       heightCm: editDraft.heightCm,
       weightKg: editDraft.weightKg,
+      ageYears: editDraft.ageYears,
       chestCm: editDraft.chestCm,
       waistCm: editDraft.waistCm,
       hipsCm: editDraft.hipsCm,
@@ -968,13 +1069,13 @@ function MobileAvatarStrip({
         style={{ bottom: SHEET_H, background: "linear-gradient(to top, rgba(0,0,0,0.5), transparent)" }}
       />
 
-      {/* ── Top row: Fit badge + Details button ── */}
-      {viewMode === "photo" && <div className="absolute top-3 inset-x-3 z-[10] flex items-center justify-between gap-2">
+      {/* ── Top row: only a generated version with real chart analysis gets a fit badge. ── */}
+      {viewMode === "photo" && fit && fit.score !== null && <div className="absolute top-3 inset-x-3 z-[10] flex items-center justify-between gap-2">
         <div className="flex min-h-11 min-w-0 items-center gap-1.5 rounded-full bg-black/50 backdrop-blur-md border border-white/[0.12] px-3">
           <div className="h-2 w-2 shrink-0 rounded-full" style={{
-            background: fit.fitScore >= 90 ? "#22c55e" : fit.fitScore >= 75 ? "#f76d01" : "#ef4444",
+            background: fit.score >= 90 ? "#22c55e" : fit.score >= 75 ? "#f76d01" : "#ef4444",
           }} />
-          <span className="text-[12px] font-bold text-white">{fit.fitScore}% Fit</span>
+          <span className="text-[12px] font-bold text-white">{fit.score}% Fit</span>
           <span className="ml-0.5 truncate text-[12px] text-white/55">{lookLabel}</span>
         </div>
         <button
@@ -1070,35 +1171,23 @@ function MobileAvatarStrip({
           ════════════════════════════════════════════════════════════════════ */}
 
       {/* ── Fit Analysis / Details ── */}
-      {viewMode === "photo" && panel === "details" && (
+      {viewMode === "photo" && fit && panel === "details" && (
         <MobileInlinePanel title="Fit Analysis" onClose={() => setPanel(null)}>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="h-12 w-12 rounded-full border-2 border-[var(--color-brand)] flex items-center justify-center shrink-0">
-              <span className={cn("text-[15px] font-black", styles.panelValue)}>{fit.fitScore}%</span>
-            </div>
-            <div>
-              <p className={cn("text-[13px] font-bold", styles.panelValue)}>{fit.fitLabel}</p>
-            </div>
-          </div>
-          <div className="space-y-2.5 mb-4">
-            {fit.metrics.map((m) => (
-              <div key={m.label} className="flex items-center gap-2">
-                <span className={cn("w-20 shrink-0 text-[12px]", styles.panelLabel)}>{m.label}</span>
-                <div className={cn("flex-1 h-1.5 rounded-full", styles.panelTrack)}>
-                  <div className="h-full rounded-full bg-[var(--color-brand)]" style={{ width: `${m.value}%` }} />
-                </div>
-                <span className={cn("w-8 text-right text-[12px] font-semibold", styles.panelValue)}>{m.value}%</span>
-              </div>
-            ))}
+          <div style={INFO_CARD_TONE[theme] as React.CSSProperties}>
+            <FitAnalysisContent fit={fit} mobile />
           </div>
           <div className={cn("h-px mb-4", styles.panelDivider)} />
           <div className="grid grid-cols-2 gap-x-4 gap-y-3 mb-5">
             {[
-              { id: "height", label: "Height", value: formatHeightCm(profile.heightCm) },
-              { id: "weight", label: "Weight", value: formatWeightKg(profile.weightKg) },
-              { id: "chest", label: "Chest", value: formatChestCm(profile.chestCm) },
-              { id: "waist", label: "Waist", value: formatWaistCm(profile.waistCm) },
-              { id: "shoe", label: "Shoe Size", value: formatShoeSizeEu(profile.shoeSizeEu) },
+              { id: "height", label: "Height", value: formatHeightCm(profile.heightCm, isKidsAudience(profile.audience)) },
+              { id: "weight", label: "Weight", value: formatWeightKg(profile.weightKg, isKidsAudience(profile.audience)) },
+              ...(isKidsAudience(profile.audience)
+                ? [{ id: "age", label: "Age", value: formatAgeYears(profile.ageYears) }]
+                : [
+                    { id: "chest", label: "Chest", value: formatChestCm(profile.chestCm) },
+                    { id: "waist", label: "Waist", value: formatWaistCm(profile.waistCm) },
+                  ]),
+              { id: "shoe", label: "Shoe Size", value: formatShoeSizeEu(profile.shoeSizeEu, isKidsAudience(profile.audience)) },
               ...sizeRows.map((r) => ({ id: `size-${r.id}`, label: r.label, value: r.size })),
             ].map(({ id, label, value }) => (
               <div key={id} className="flex flex-col">
@@ -1127,8 +1216,12 @@ function MobileAvatarStrip({
             {([
               { key: "heightCm", label: "Height", unit: "cm" },
               { key: "weightKg", label: "Weight", unit: "kg" },
-              { key: "chestCm",  label: "Chest",  unit: "cm" },
-              { key: "waistCm",  label: "Waist",  unit: "cm" },
+              ...(isKidsAudience(profile.audience)
+                ? ([{ key: "ageYears", label: "Age", unit: "yrs" }] as const)
+                : ([
+                    { key: "chestCm", label: "Chest", unit: "cm" },
+                    { key: "waistCm", label: "Waist", unit: "cm" },
+                  ] as const)),
               { key: "shoeSizeEu", label: "Shoe Size", unit: "EU" },
             ] as const).map(({ key, label, unit }) => (
               <label key={key} className="flex flex-col gap-1">

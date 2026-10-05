@@ -3,6 +3,8 @@
 import { use, useEffect, useState } from "react";
 import { TryOnLayout } from "@/modules/wearable-agent/components/try-on-layout";
 import type { WorkspaceBranding } from "@/modules/workspaces/types";
+import type { TryOnAudience } from "@/modules/wearable-agent/types";
+import { parseOnboardingAudiences } from "@/modules/wearable-agent/audiences";
 import { toWearableBranding } from "@/modules/workspaces/branding-schema";
 import { cn } from "@/lib/utils/cn";
 import { fontFamilyCssValue, loadGoogleFont } from "@/lib/fonts/google-fonts";
@@ -14,13 +16,14 @@ interface Props { params: Promise<{ token: string }> }
 
 interface EmbedConfigResponse {
   branding?: WorkspaceBranding;
+  audiences?: unknown;
   error?: string;
 }
 
 type LoadState =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; branding: WorkspaceBranding };
+  | { status: "ready"; branding: WorkspaceBranding; audiences?: TryOnAudience[] };
 
 export default function EmbedPage({ params }: Props) {
   const { token } = use(params);
@@ -46,6 +49,7 @@ export default function EmbedPage({ params }: Props) {
         setState({
           status: "ready",
           branding: data.branding,
+          audiences: parseOnboardingAudiences(data.audiences),
         });
       } catch {
         if (active) setState({ status: "error", message: "Couldn't connect — please try again shortly." });
@@ -101,6 +105,7 @@ export default function EmbedPage({ params }: Props) {
         embed={{ apiBase: "/api/embed", embedToken: token }}
         theme={state.branding.theme}
         branding={toWearableBranding(state.branding)}
+        audiences={state.audiences}
         onFillViewportChange={setFillViewport}
       />
     </div>

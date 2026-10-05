@@ -1,7 +1,13 @@
 import { db } from "@/lib/supabase/server";
-import { parseSizeChart, type ChartProvenance, type SizeChartRow } from "@/lib/sizing/chart-schema";
+import {
+  parseSizeChart,
+  type ChartApplicability,
+  type ChartProvenance,
+  type SizeChartRow,
+  type SourceVerification,
+} from "@/lib/sizing/chart-schema";
 import type { Audience } from "@/lib/sizing/keys";
-import { isSizingGroup } from "@/lib/sizing/measurements";
+import { isMeasurement, isSizingGroup, type Measurement } from "@/lib/sizing/measurements";
 
 /**
  * Measurement bounds from two deliberately isolated stores:
@@ -43,6 +49,10 @@ export interface SizingChartRow {
   /** Provenance, not identity: the verbatim heading of the table this was transcribed from, kept so
    *  a merchant can trace a variant back to the page it came from. */
   sourceTitle: string;
+  sourceTableId?: string;
+  applicability?: ChartApplicability;
+  decidingMeasurements?: Measurement[];
+  sourceVerification?: SourceVerification | null;
   chartRows: SizeChartRow[];
   confidence: number | null;
   sourceUrl: string | null;
@@ -64,8 +74,11 @@ function rowToChart(row: Record<string, unknown>): SizingChartRow {
   const sizingCategory = row.sizing_category as string;
   const audience = (row.audience as Audience) ?? "unisex";
   const rawRows = row.chart_rows ?? [];
+  const decidingMeasurements = Array.isArray(row.deciding_measurements)
+    ? row.deciding_measurements.filter(isMeasurement)
+    : [];
   const chartRows = isSizingGroup(sizingCategory)
-    ? parseSizeChart(rawRows, sizingCategory, audience)
+    ? parseSizeChart(rawRows, sizingCategory, audience, decidingMeasurements)
     : ((rawRows as SizeChartRow[]) ?? []);
 
   return {
@@ -77,6 +90,18 @@ function rowToChart(row: Record<string, unknown>): SizingChartRow {
     coversLeaves: (row.covers_leaves as string[] | null) ?? [],
     audience,
     sourceTitle: (row.source_title as string | null) ?? "",
+    sourceTableId: (row.source_table_id as string | null) ?? "",
+    applicability:
+      row.applicability && typeof row.applicability === "object"
+        ? (row.applicability as ChartApplicability)
+        : {},
+    decidingMeasurements,
+    sourceVerification:
+      row.source_verification &&
+      typeof row.source_verification === "object" &&
+      typeof (row.source_verification as Record<string, unknown>).verifiedAt === "string"
+        ? (row.source_verification as unknown as SourceVerification)
+        : null,
     chartRows,
     confidence: row.confidence === null || row.confidence === undefined ? null : Number(row.confidence),
     sourceUrl: (row.source_url as string | null) ?? null,
@@ -180,6 +205,10 @@ interface ChartWrite {
   coversLeaves: string[];
   audience: Audience;
   sourceTitle: string;
+  sourceTableId?: string;
+  applicability?: ChartApplicability;
+  decidingMeasurements?: Measurement[];
+  sourceVerification?: SourceVerification | null;
   chartRows: SizeChartRow[];
   confidence: number | null;
   sourceUrl: string | null;
@@ -192,7 +221,41 @@ interface ChartWrite {
  */
 export async function upsertSharedChart(input: ChartWrite): Promise<boolean> {
   if (!isSizingGroup(input.sizingCategory)) return false;
-  const chartRows = parseSizeChart(input.chartRows, input.sizingCategory, input.audience);
+  const chartRows = parseSizeChart(
+    input.chartRows,
+    input.sizingCategory,
+    input.audience,
+    input.decidingMeasurements,
+  );
+  const { data: existing, error: existingError } = await db
+    .from("sizing_charts")
+    .select("*")
+    .eq("brand_key", input.brandKey)
+    .eq("sizing_category", input.sizingCategory)
+    .eq("variant_name", input.variantName)
+    .maybeSingle();
+
+  if (existingError) {
+    console.error("[db/sizing-charts upsertSharedChart read]", input.brandKey, input.sizingCategory, existingError);
+    return false;
+  }
+
+  if (existing) {
+    const old = existing as Record<string, unknown>;
+    const { error: historyError } = await db.from("sizing_chart_versions").upsert({
+      chart_id: old.id,
+      brand_key: old.brand_key,
+      sizing_category: old.sizing_category,
+      variant_name: old.variant_name,
+      version: old.version ?? 1,
+      snapshot: old,
+    }, { onConflict: "chart_id,version", ignoreDuplicates: true });
+    if (historyError) {
+      console.error("[db/sizing-charts upsertSharedChart archive]", input.brandKey, input.sizingCategory, historyError);
+      return false;
+    }
+  }
+
   const { error: deleteError } = await db
     .from("sizing_charts")
     .delete()
@@ -213,6 +276,11 @@ export async function upsertSharedChart(input: ChartWrite): Promise<boolean> {
     covers_leaves: input.coversLeaves,
     audience: input.audience,
     source_title: input.sourceTitle,
+    source_table_id: input.sourceTableId ?? "",
+    applicability: input.applicability ?? {},
+    deciding_measurements: input.decidingMeasurements ?? [],
+    source_verification: input.sourceVerification ?? {},
+    version: existing ? Number((existing as Record<string, unknown>).version ?? 1) + 1 : 1,
     chart_rows: chartRows,
     confidence: input.confidence,
     source_url: input.sourceUrl,
@@ -232,7 +300,12 @@ export async function upsertPrivateChart(
   input: ChartWrite & { connectionId: string },
 ): Promise<boolean> {
   if (!isSizingGroup(input.sizingCategory)) return false;
-  const chartRows = parseSizeChart(input.chartRows, input.sizingCategory, input.audience);
+  const chartRows = parseSizeChart(
+    input.chartRows,
+    input.sizingCategory,
+    input.audience,
+    input.decidingMeasurements,
+  );
   const { error: deleteError } = await db
     .from("sizing_charts_private")
     .delete()
@@ -254,6 +327,10 @@ export async function upsertPrivateChart(
     covers_leaves: input.coversLeaves,
     audience: input.audience,
     source_title: input.sourceTitle,
+    source_table_id: input.sourceTableId ?? "",
+    applicability: input.applicability ?? {},
+    deciding_measurements: input.decidingMeasurements ?? [],
+    source_verification: input.sourceVerification ?? {},
     chart_rows: chartRows,
     confidence: input.confidence,
     source_url: input.sourceUrl,

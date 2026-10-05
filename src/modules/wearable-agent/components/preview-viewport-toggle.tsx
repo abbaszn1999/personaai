@@ -8,12 +8,16 @@ export type PreviewViewportMode = "desktop" | "mobile";
 interface PreviewViewportToggleProps {
   value: PreviewViewportMode;
   onChange: (mode: PreviewViewportMode) => void;
+  className?: string;
 }
 
-export function PreviewViewportToggle({ value, onChange }: PreviewViewportToggleProps) {
+export function PreviewViewportToggle({ value, onChange, className }: PreviewViewportToggleProps) {
   return (
     <div
-      className="flex items-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface-base)] p-0.5"
+      className={cn(
+        "flex items-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface-base)] p-0.5",
+        className
+      )}
       role="group"
       aria-label="Preview viewport"
     >

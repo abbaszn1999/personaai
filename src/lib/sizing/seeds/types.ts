@@ -1,4 +1,9 @@
-import type { SizeAliasKey, SizeChartRow } from "@/lib/sizing/chart-schema";
+import type {
+  ChartApplicability,
+  SizeAliasKey,
+  SizeChartRow,
+  SourceVerification,
+} from "@/lib/sizing/chart-schema";
 import type { Audience } from "@/lib/sizing/keys";
 import type { Measurement, SizingGroup } from "@/lib/sizing/measurements";
 
@@ -17,6 +22,8 @@ import type { Measurement, SizingGroup } from "@/lib/sizing/measurements";
  */
 export interface SeedChart {
   brandKey: string;
+  /** Stable identity of the exact official table, independent of its display title. */
+  sourceTableId?: string;
   sizingCategory: SizingGroup;
   /** The brand's own wording for the table, prefixed with the audience it is cut for — 'Men',
    *  'Men Tailored Long', 'Women Bras (Wired)'. Identity, so it has to stay stable across re-seeds:
@@ -42,6 +49,10 @@ export interface SeedChart {
   /** The heading verbatim off the page, so a merchant can trace a variant back to its source. */
   sourceTitle: string;
   sourceUrl: string;
+  applicability?: ChartApplicability;
+  /** The body measurements this table itself uses to choose a row. */
+  decidingMeasurements?: Measurement[];
+  sourceVerification?: SourceVerification;
   chartRows: SizeChartRow[];
   /**
    * Set where the source publishes one nominal number per size instead of a range.
@@ -81,7 +92,7 @@ export type SeedBound = readonly [number | null, number | null] | null;
  */
 export function rowsFromColumns(input: {
   sizes: readonly string[];
-  aliases?: Partial<Record<SizeAliasKey, readonly (string | null)[]>>;
+  aliases?: Partial<Record<SizeAliasKey, readonly (string | readonly string[] | null)[]>>;
   bounds?: Partial<Record<Measurement, readonly SeedBound[]>>;
 }): SizeChartRow[] {
   const { sizes, aliases = {}, bounds = {} } = input;
@@ -100,10 +111,10 @@ export function rowsFromColumns(input: {
   return sizes.map((size, column) => {
     const row: SizeChartRow = { size };
 
-    const rowAliases: Record<string, string> = {};
+    const rowAliases: Record<string, string | string[]> = {};
     for (const [key, values] of Object.entries(aliases)) {
       const value = values?.[column];
-      if (value) rowAliases[key] = value;
+      if (value) rowAliases[key] = typeof value === "string" ? value : [...value];
     }
     if (Object.keys(rowAliases).length > 0) row.aliases = rowAliases;
 

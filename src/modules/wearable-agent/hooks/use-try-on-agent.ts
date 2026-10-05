@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import type { ChatMessage } from "@/modules/commerce/types";
+import type { ChatMessage, LookFitAnalysis } from "@/modules/commerce/types";
 import type { AvatarVariation, OnboardingPhase, TryOnAudience, TryOnProfile } from "@/modules/wearable-agent/types";
 import type { BundleSuggestion, Product, TurnAttribution } from "@/modules/commerce/types";
 import { formatBudget } from "@/modules/commerce/constants";
@@ -10,6 +10,7 @@ import { attributionForProduct } from "../utils/cart-attribution";
 import { parseTypedBudget } from "../utils/typed-budget";
 import { EMPTY_RETRIEVAL_STATE, normalizeRetrievalState, type RetrievalState } from "../utils/retrieval-state";
 import { AVATAR_GENERATION_STAGES } from "../constants";
+import { isKidsAudience, KIDS_AGE_RANGE } from "../audiences";
 import { INITIAL_WEARABLE_MESSAGE, SCAN_STAGE_DURATION_MS, SCAN_STAGES } from "../mocks/responses";
 import {
   recommendSizesForProducts,
@@ -25,7 +26,7 @@ import { addItemToShopifyCart } from "@/lib/shopify/ajax-cart-client";
 // literal rather than importing that module, since this hook ships in the client widget bundle
 // and image-generation.ts pulls in server-only deps (sharp, the Pruna client) that must never be
 // bundled for the browser.
-const EXPECTED_AVATAR_VARIATION_COUNT = 4;
+const EXPECTED_AVATAR_VARIATION_COUNT = 3;
 const GENERIC_AVATAR_ERROR = "We couldn't generate your avatar. Please try again.";
 const GENERIC_TRYON_ERROR = "Sorry, I couldn't generate your try-on preview. Please try again.";
 const GENERIC_CHAT_ERROR = "Sorry, something went wrong on my end. Please try that again.";
@@ -306,8 +307,11 @@ async function streamAvatarVariations(
         photoMimeType: profile.photoMimeType,
         heightCm: profile.heightCm,
         weightKg: profile.weightKg,
-        chestCm: profile.chestCm,
-        waistCm: profile.waistCm,
+        // Kids profiles are asked for age instead of chest and waist (see MeasurementsStep), and
+        // the server accepts either set — sending the unasked pair would only be null noise.
+        ...(isKidsAudience(profile.audience)
+          ? { ageYears: profile.ageYears }
+          : { chestCm: profile.chestCm, waistCm: profile.waistCm }),
         shoeSizeEu: profile.shoeSizeEu,
         ...(count ? { count } : {}),
         ...(sessionId ? { sessionId } : {}),
@@ -367,6 +371,7 @@ const INITIAL_PROFILE: TryOnProfile = {
   heightCm: null,
   weightKg: null,
   shoeSizeEu: null,
+  ageYears: null,
   chestCm: null,
   waistCm: null,
   hipsCm: null,
@@ -381,6 +386,8 @@ export interface GeneratedTryOn {
   outfitProducts: Product[];
   recommendedSizes: Record<string, string>;
   fitNotes: string;
+  /** Real size-chart analysis captured for this exact outfit version. */
+  fit: LookFitAnalysis | null;
   createdAt: string;
 }
 
@@ -393,6 +400,8 @@ interface TryOnAgentState {
   profileSubmitted: boolean;
   generationProgress: number;
   generationStageIndex: number;
+  /** How many of the avatar styles have finished so far — drives the loading screen's style row. */
+  avatarsArrived: number;
   avatarVariations: AvatarVariation[];
   /** Set when the real avatar generation request fails — cleared on the next attempt. */
   avatarGenerationError: string | null;
@@ -443,17 +452,31 @@ interface TryOnAgentState {
 /** Just the numeric fields — the photo lives on the same combined screen but is gated
  *  separately via `isProfileComplete` below. */
 export function isMeasurementsComplete(profile: TryOnProfile): boolean {
-  return (
+  const common =
     profile.heightCm !== null &&
     profile.heightCm > 0 &&
     profile.weightKg !== null &&
     profile.weightKg > 0 &&
+    profile.shoeSizeEu !== null &&
+    profile.shoeSizeEu > 0;
+  if (!common) return false;
+
+  // The three kids departments give an age instead of chest and waist. Age 0 is a real answer
+  // (under one year), so this is a range check rather than the `> 0` the others use.
+  if (isKidsAudience(profile.audience)) {
+    return (
+      profile.ageYears !== null &&
+      Number.isFinite(profile.ageYears) &&
+      profile.ageYears >= KIDS_AGE_RANGE.min &&
+      profile.ageYears <= KIDS_AGE_RANGE.max
+    );
+  }
+
+  return (
     profile.chestCm !== null &&
     profile.chestCm > 0 &&
     profile.waistCm !== null &&
-    profile.waistCm > 0 &&
-    profile.shoeSizeEu !== null &&
-    profile.shoeSizeEu > 0
+    profile.waistCm > 0
   );
 }
 
@@ -575,6 +598,7 @@ export function useTryOnAgent(
     profileSubmitted: activeSlot?.profileSubmitted ?? false,
     generationProgress: 0,
     generationStageIndex: 0,
+    avatarsArrived: 0,
     avatarVariations: [],
     avatarGenerationError: null,
     avatarPartialNote: null,
@@ -803,6 +827,7 @@ export function useTryOnAgent(
       audience: profile.audience,
       heightCm: profile.heightCm,
       weightKg: profile.weightKg,
+      ageYears: profile.ageYears,
       chestCm: profile.chestCm,
       waistCm: profile.waistCm,
       hipsCm: profile.hipsCm,
@@ -1038,6 +1063,7 @@ export function useTryOnAgent(
       onboardingPhase: "generating",
       generationProgress: 0,
       generationStageIndex: 0,
+      avatarsArrived: 0,
       avatarVariations: [],
       avatarGenerationError: null,
       avatarPartialNote: null,
@@ -1083,7 +1109,7 @@ export function useTryOnAgent(
     let receivedAny = false;
     const collected: AvatarVariation[] = [];
 
-    // All 4 Pruna calls already fire in parallel (see generateAvatarVariationsStream).
+    // All 3 Pruna calls already fire in parallel (see generateAvatarVariationsStream).
     // Keep the loading screen up until the whole batch settles, then reveal every
     // style together. Only the cutout the shopper confirms is persisted.
     void streamAvatarVariations(state.profile, embed, (variation) => {
@@ -1092,7 +1118,7 @@ export function useTryOnAgent(
       const arrived = Math.min(96, (collected.length / EXPECTED_AVATAR_VARIATION_COUNT) * 92);
       setState((s) =>
         s.onboardingPhase === "generating"
-          ? { ...s, generationProgress: Math.max(s.generationProgress, arrived) }
+          ? { ...s, generationProgress: Math.max(s.generationProgress, arrived), avatarsArrived: collected.length }
           : s
       );
     }, undefined, embed ? embedSessionIdRef.current : null).then((result) => {
@@ -1110,13 +1136,18 @@ export function useTryOnAgent(
             : `We generated ${result.successCount} of ${EXPECTED_AVATAR_VARIATION_COUNT} styles this time — you can still pick your favorite below.`
           : null;
 
+      // Variations finish in whatever order the model returns them. The carousel should always
+      // start on the same first slide and move through the styles in the same order, so put
+      // them back in backdrop (= style) order before they are shown.
+      const ordered = [...collected].sort((a, b) => (a.backdropUrl ?? "").localeCompare(b.backdropUrl ?? ""));
+
       setState((s) => ({
         ...s,
         onboardingPhase: "avatar-selection",
-        avatarVariations: collected,
+        avatarVariations: ordered,
         generationProgress: 100,
         generationStageIndex: AVATAR_GENERATION_STAGES.length - 1,
-        selectedAvatarId: collected[0]?.id ?? null,
+        selectedAvatarId: ordered[0]?.id ?? null,
         avatarPartialNote: partialNote,
       }));
     });
@@ -1368,6 +1399,48 @@ export function useTryOnAgent(
       return;
     }
 
+    const profileContext = {
+      heightCm: profile.heightCm,
+      weightKg: profile.weightKg,
+      chestCm: profile.chestCm,
+      waistCm: profile.waistCm,
+      shoeSizeEu: profile.shoeSizeEu,
+      photoBase64: profile.photoBase64,
+      photoMimeType: profile.photoMimeType,
+      avatarUrl: profile.avatarUrl,
+      isCustomAvatar: selectedAvatarIdRef.current === "custom",
+    };
+    const recSizes = recommendSizesForProducts(profileContext, items);
+
+    // This reads chart rows while Pruna renders the image. A chart-service failure must never
+    // discard a render the shopper paid and waited for; that version simply shows no analysis.
+    const fitPromise: Promise<LookFitAnalysis | null> = fetch(
+      embed ? `${embed.apiBase}/persona/fit-analysis` : "/api/agents/persona/fit-analysis",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(embed ? { embedToken: embed.embedToken } : {}),
+          productIds: items.map((item) => item.id),
+          recommendedSizes: recSizes,
+          audience: profile.audience,
+          measurements: {
+            heightCm: profile.heightCm,
+            chestCm: profile.chestCm,
+            waistCm: profile.waistCm,
+            hipsCm: profile.hipsCm,
+            shoeSizeEu: profile.shoeSizeEu,
+          },
+        }),
+      }
+    )
+      .then(async (response) => {
+        if (!response.ok) return null;
+        const data = (await response.json().catch(() => ({}))) as { fit?: LookFitAnalysis };
+        return data.fit ?? null;
+      })
+      .catch(() => null);
+
     let imageUrl: string;
     try {
       const res = await fetch(embed ? `${embed.apiBase}/persona/try-on` : "/api/agents/persona/try-on", {
@@ -1402,39 +1475,16 @@ export function useTryOnAgent(
       return;
     }
 
-    const recSizes = recommendSizesForProducts(
-      {
-        heightCm: profile.heightCm,
-        weightKg: profile.weightKg,
-        chestCm: profile.chestCm,
-        waistCm: profile.waistCm,
-        shoeSizeEu: profile.shoeSizeEu,
-        photoBase64: profile.photoBase64,
-        photoMimeType: profile.photoMimeType,
-        avatarUrl: profile.avatarUrl,
-        isCustomAvatar: selectedAvatarIdRef.current === "custom",
-      },
-      items
-    );
-
-    const fitNotes = buildFitNote({
-      heightCm: profile.heightCm,
-      weightKg: profile.weightKg,
-      chestCm: profile.chestCm,
-      waistCm: profile.waistCm,
-      shoeSizeEu: profile.shoeSizeEu,
-      photoBase64: profile.photoBase64,
-      photoMimeType: profile.photoMimeType,
-      avatarUrl: profile.avatarUrl,
-      isCustomAvatar: selectedAvatarIdRef.current === "custom",
-    });
+    const fitNotes = buildFitNote(profileContext);
+    const snapshotId = `tryon-${Date.now()}`;
 
     const snapshot: GeneratedTryOn = {
-      id: `tryon-${Date.now()}`,
+      id: snapshotId,
       imageUrl,
       outfitProducts: [...items],
       recommendedSizes: recSizes,
       fitNotes,
+      fit: null,
       createdAt: new Date().toISOString(),
     };
 
@@ -1458,6 +1508,17 @@ export function useTryOnAgent(
       currentImageIndex: s.tryOnImages.length,
       messages: [...s.messages, imageMsg],
     }));
+    // Do not hold the completed image screen open for a catalog read. The card appears on this
+    // exact version when its analysis lands; a null/failure stays honestly hidden.
+    void fitPromise.then((fit) => {
+      if (!fit) return;
+      setState((s) => ({
+        ...s,
+        tryOnImages: s.tryOnImages.map((version) =>
+          version.id === snapshotId ? { ...version, fit } : version
+        ),
+      }));
+    });
     logTryOnEvent(snapshot.outfitProducts, recSizes);
   }
 

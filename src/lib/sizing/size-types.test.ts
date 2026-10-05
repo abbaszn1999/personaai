@@ -22,7 +22,7 @@ describe("sizeTypeFor", () => {
   });
 
   it("ignores an exception naming a system this build does not have", () => {
-    expect(sizeTypeFor("Nike", { default: "Alpha", overrides: { nike: "JP" as never } })).toBe("Alpha");
+    expect(sizeTypeFor("Nike", { default: "Alpha", overrides: { nike: "Martian" as never } })).toBe("Alpha");
   });
 
   it("resolves unbranded products to the store default rather than throwing", () => {
@@ -36,14 +36,14 @@ describe("parseSizeSettings", () => {
   });
 
   it("falls back the default to Alpha rather than rejecting the whole value", () => {
-    expect(parseSizeSettings({ default: "JP", overrides: {} })).toEqual({ default: DEFAULT_SIZE_TYPE, overrides: {} });
+    expect(parseSizeSettings({ default: "Martian", overrides: {} })).toEqual({ default: DEFAULT_SIZE_TYPE, overrides: {} });
     expect(parseSizeSettings(undefined)).toEqual({ default: DEFAULT_SIZE_TYPE, overrides: {} });
     expect(parseSizeSettings(null)).toEqual({ default: DEFAULT_SIZE_TYPE, overrides: {} });
     expect(parseSizeSettings(["EU"])).toEqual({ default: DEFAULT_SIZE_TYPE, overrides: {} });
   });
 
   it("drops override entries naming a system this build does not have", () => {
-    expect(parseSizeSettings({ default: "US", overrides: { nike: "EU", adidas: "JP" } })).toEqual({
+    expect(parseSizeSettings({ default: "US", overrides: { nike: "EU", adidas: "Martian" } })).toEqual({
       default: "US",
       overrides: { nike: "EU" },
     });

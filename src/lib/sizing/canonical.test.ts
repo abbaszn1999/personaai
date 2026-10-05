@@ -50,6 +50,26 @@ describe("matchLabel", () => {
     const rows: SizeChartRow[] = [{ size: "32", aliases: { alpha: "M" } }];
     expect(matchLabel("32", rows, "Numeric")).toMatchObject({ row: rows[0], matchedVia: "numeric" });
   });
+
+  it("matches multiple official labels without splitting compound stock sizes", () => {
+    const ageRows: SizeChartRow[] = [
+      { size: "3–6M", aliases: { age: ["3-6M", "3 / 6 months"] } },
+    ];
+    expect(matchLabel("3 / 6 M", ageRows, "Age")).toMatchObject({
+      row: ageRows[0],
+      matchedVia: "age",
+    });
+
+    const combined: SizeChartRow[] = [{ size: "XS/S", aliases: { alpha: "XS/S" } }];
+    expect(matchRawFormat("XS/S", combined, "Alpha").matches).toHaveLength(1);
+    expect(matchLabel("XS", combined, "Alpha").row).toBeNull();
+
+    const denim: SizeChartRow[] = [
+      { size: "W32/L34", aliases: { waist_inseam: ["32/34", "32x34"] } },
+    ];
+    expect(matchRawFormat("W32/L34", denim, "Waist/Inseam").matches).toHaveLength(1);
+    expect(matchLabel("32/34", denim, "Waist/Inseam").row).toBe(denim[0]);
+  });
 });
 
 describe("matchRawFormat", () => {

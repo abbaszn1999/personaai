@@ -1,6 +1,8 @@
 import { sizeLabelCandidates } from "@/lib/sizing/size-label-forms";
 import {
   isSizingGroup,
+  isBodyMeasurement,
+  MEASUREMENTS,
   measurementsFor,
   requiredMeasurementsFor,
   SIZING_GROUPS,
@@ -8,6 +10,11 @@ import {
   type SizingGroup,
 } from "@/lib/sizing/measurements";
 import type { CatalogCandidate } from "@/lib/retrieval/types";
+import type {
+  FitMeasurementAnalysis,
+  ItemFitAnalysis,
+  LookFitAnalysis,
+} from "@/modules/commerce/types";
 
 /** The body measurements the shopper entered at onboarding, as the chat request carries them. */
 export interface ShopperMeasurements {
@@ -219,6 +226,181 @@ function sameSize(left: string, right: string): boolean {
 }
 
 /**
+ * Distance outside a published size range that reaches a zero fit score. These are UI scoring
+ * scales, not sizing tolerances and not an industry standard: the product is accepted/rejected by
+ * FIT_TOLERANCE_CM above. Keeping them named prevents an attractive percentage from pretending to
+ * be more scientific than the chart data supports.
+ */
+export const FIT_SCORE_DISTANCE_CM: Partial<Record<Measurement, number>> = {
+  chest: 6,
+  underbust: 6,
+  waist: 6,
+  hip: 6,
+  shoulder: 4,
+  sleeve: 5,
+  thigh: 5,
+  inseam: 5,
+  height: 12,
+  foot_length: 1.5,
+  head_circumference: 3,
+  hand_circumference: 2,
+  wrist_circumference: 2,
+  finger_circumference: 1,
+  neck: 3,
+};
+
+function scoreLabel(score: number | null): string {
+  if (score === null) return "No chart data";
+  if (score >= 90) return "Excellent Fit";
+  if (score >= 75) return "Good Fit";
+  if (score >= 50) return "Consider another size";
+  return "Poor Fit";
+}
+
+function itemScoreLabel(metrics: readonly FitMeasurementAnalysis[], score: number | null): string {
+  if (score === null || score >= 75) return scoreLabel(score);
+  const directions = new Set(metrics.flatMap((metric) =>
+    metric.direction && metric.direction !== "inside" ? [metric.direction] : []
+  ));
+  const suffix =
+    directions.size > 1
+      ? "mixed measurements"
+      : directions.has("size_up")
+        ? "size up"
+        : directions.has("size_down")
+          ? "size down"
+          : null;
+  const fit = score < 50
+    ? "Poor Fit"
+    : directions.size > 1
+      ? "Check fit"
+      : directions.has("size_up")
+        ? "Tight"
+        : directions.has("size_down")
+          ? "Loose"
+          : "Check fit";
+  return suffix ? `${fit} · ${suffix}` : fit;
+}
+
+/** Exact size-row analysis used by the shopper-facing Fit Analysis card. */
+export function analyzeFit(
+  rows: readonly string[],
+  group: SizingGroup,
+  size: string,
+  body: Partial<Record<Measurement, number>>,
+  child = false
+): Omit<ItemFitAnalysis, "productId" | "productName"> {
+  const parsedRows = rows.map(parseRow).filter((row): row is FitRow => row !== null);
+  const row = parsedRows.find((candidate) => typeof candidate.s === "string" && sameSize(candidate.s, size));
+  if (!row) {
+    return {
+      size,
+      group,
+      score: null,
+      label: "Size chart unavailable",
+      metrics: [],
+      reason: rows.length === 0 ? "no_chart" : "size_not_found",
+    };
+  }
+
+  const metrics: FitMeasurementAnalysis[] = [];
+  const analyzedMeasurements = child
+    ? requiredMeasurementsFor(group, "kids")
+    : group === "dresses"
+      ? (["chest", "waist"] as const)
+    : measurementsFor(group);
+  for (const measurement of analyzedMeasurements) {
+    if (!isBodyMeasurement(measurement)) continue;
+    const bounds = boundsOf(row, measurement);
+    if (!bounds) continue;
+    const value = body[measurement];
+    const [min, max] = bounds;
+    if (value === undefined) {
+      metrics.push({
+        measurement,
+        label: MEASUREMENTS[measurement].label,
+        unit: MEASUREMENTS[measurement].unit,
+        shopperValue: null,
+        min,
+        max,
+        outside: null,
+        direction: null,
+        score: null,
+      });
+      continue;
+    }
+
+    const { outside } = distances(bounds, value);
+    const direction =
+      min !== null && value < min ? "size_down" : max !== null && value > max ? "size_up" : "inside";
+    const scale = FIT_SCORE_DISTANCE_CM[measurement] ?? 6;
+    metrics.push({
+      measurement,
+      label: MEASUREMENTS[measurement].label,
+      unit: MEASUREMENTS[measurement].unit,
+      shopperValue: round(value),
+      min,
+      max,
+      outside: round(outside),
+      direction,
+      score: Math.max(0, Math.round(100 - (outside / scale) * 100)),
+    });
+  }
+
+  const scored = metrics.flatMap((metric) => (metric.score === null ? [] : [metric.score]));
+  const score = scored.length ? Math.round(scored.reduce((sum, value) => sum + value, 0) / scored.length) : null;
+  return {
+    size,
+    group,
+    score,
+    label: itemScoreLabel(metrics, score),
+    metrics,
+    ...(score === null ? { reason: "no_measurements" as const } : {}),
+  };
+}
+
+/** Combines real per-item chart analyses without allowing an item lacking data to invent a score. */
+export function summarizeLookFit(items: ItemFitAnalysis[]): LookFitAnalysis {
+  const scored = items.flatMap((item) => (item.score === null ? [] : [item.score]));
+  const score = scored.length ? Math.round(scored.reduce((sum, value) => sum + value, 0) / scored.length) : null;
+  return { score, label: scoreLabel(score), items };
+}
+
+/**
+ * The sizing group a product's chart belongs to. ACS does not return `fit_group` on search results
+ * (it is indexed for filtering only, to stay under the retrievable-attribute cap), so the group is
+ * read back off the chart rows themselves: the group fixes which measurement decides the size, and
+ * the rows carry exactly the measurements their chart was built from.
+ *
+ * Adults: a chest column means a top-style chart (tops, outerwear and dresses decide on chest, and
+ * are analysed on the same measurements), otherwise a waist column means bottoms, otherwise a foot
+ * length means footwear. Kids' non-footwear groups all decide on height, so only the measurements
+ * that rank the sizes differ and the same reading applies. An `explicit` group wins when present.
+ */
+export function sizingGroupOfRows(
+  rows: readonly string[],
+  child = false,
+  explicit?: unknown
+): SizingGroup | null {
+  if (isSizingGroup(explicit)) return explicit;
+  const present = new Set<string>();
+  for (const value of rows) {
+    const row = parseRow(value);
+    if (!row) continue;
+    for (const measurement of Object.keys(row)) if (boundsOf(row, measurement)) present.add(measurement);
+  }
+  if (present.size === 0) return null;
+  if (present.has("foot_length") && !present.has("chest") && !present.has("waist") && !present.has("height")) {
+    return "footwear";
+  }
+  if (present.has("chest")) return "tops";
+  if (present.has("waist") || present.has("hip") || present.has("inseam")) return "bottoms";
+  if (child && present.has("height")) return "tops";
+  if (present.has("foot_length")) return "footwear";
+  return null;
+}
+
+/**
  * The sizes among a product's chart rows (one JSON string each) that fit the shopper, best first.
  * A row fits when its required measurement is within `FIT_TOLERANCE_CM` of the shopper's value.
  * Best means: inside the range rather than merely within tolerance, then the optional
@@ -267,9 +449,10 @@ export function fittingSizes(
   named: readonly string[] = [],
   child = false
 ): string[] {
-  const group = candidate.attributes?.fit_group?.[0];
-  if (!isSizingGroup(group)) return [];
-  return fitRowSizes(candidate.attributes?.fit_rows ?? [], group, body, child, named);
+  const rows = candidate.attributes?.fit_rows ?? [];
+  const group = sizingGroupOfRows(rows, child, candidate.attributes?.fit_group?.[0]);
+  if (!group) return [];
+  return fitRowSizes(rows, group, body, child, named);
 }
 
 /** How the fit rule reads in an honest "nothing matched" reply. */

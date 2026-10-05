@@ -4,6 +4,7 @@ import * as React from "react";
 import { AlertCircle, FolderOpen, Loader2, Package, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useStoreConnectionStore } from "@/modules/store/store";
+import { catalogProgressView } from "./catalog-progress";
 
 const POLL_INTERVAL_MS = 5000;
 
@@ -46,8 +47,7 @@ export function CatalogIndexCard() {
     setStarting(false);
   }
 
-  const pct =
-    catalogSync.total > 0 ? Math.min(100, Math.round((catalogSync.progress / catalogSync.total) * 100)) : 0;
+  const { percent: pct, finalizing } = catalogProgressView(catalogSync.progress, catalogSync.total);
 
   return (
     <div className="space-y-3">
@@ -97,7 +97,9 @@ export function CatalogIndexCard() {
               <p className="text-xs text-[var(--color-text-muted)]">
                 {catalogSync.status === "pending" && "Queued — starting shortly…"}
                 {catalogSync.status === "indexing" &&
-                  (catalogSync.total > 0
+                  (finalizing
+                    ? "Finishing up the last products…"
+                    : catalogSync.total > 0
                     ? `Indexing ${catalogSync.progress.toLocaleString()} of ${catalogSync.total.toLocaleString()} products`
                     : "Counting your catalog…")}
                 {catalogSync.status === "ready" &&
@@ -125,7 +127,7 @@ export function CatalogIndexCard() {
                 style={{ width: `${pct}%` }}
               />
             </div>
-            <p className="text-xs text-[var(--color-text-muted)]">{pct}% complete</p>
+            <p className="text-xs text-[var(--color-text-muted)]">{finalizing ? "Finishing up…" : `${pct}% complete`}</p>
           </div>
         )}
 

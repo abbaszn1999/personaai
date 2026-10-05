@@ -16,6 +16,7 @@ import {
   FolderTree,
   Ruler,
   FlaskConical,
+  RefreshCw,
 } from "lucide-react";
 import { LogoMark } from "@/components/brand/logo";
 import { SidebarNavItem } from "./sidebar/sidebar-nav-item";
@@ -125,6 +126,13 @@ export function AppSidebar() {
       href: "/store?section=sizingtester",
       icon: <FlaskConical className="h-3.5 w-3.5" />,
       active: storeActive && storeSection === "sizingtester",
+      disabled: !connection,
+    },
+    {
+      label: "Sync",
+      href: "/store?section=sync",
+      icon: <RefreshCw className="h-3.5 w-3.5" />,
+      active: storeActive && storeSection === "sync",
       disabled: !connection,
     },
     // Style Guide sits last so the tabs above it read as the setup pipeline, in order.

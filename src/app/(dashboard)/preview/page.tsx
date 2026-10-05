@@ -4,6 +4,11 @@ import * as React from "react";
 import Link from "next/link";
 import { ArrowLeft, Shirt } from "lucide-react";
 import { TryOnLayout } from "@/modules/wearable-agent/components/try-on-layout";
+import {
+  PreviewViewportToggle,
+  type PreviewViewportMode,
+} from "@/modules/wearable-agent/components/preview-viewport-toggle";
+import { useOnboardingAudiences } from "@/modules/wearable-agent/hooks/use-onboarding-audiences";
 import { useWorkspaceStore } from "@/modules/workspaces/store";
 import { toWearableBranding } from "@/modules/workspaces/branding-schema";
 import { fontFamilyCssValue, loadGoogleFont } from "@/lib/fonts/google-fonts";
@@ -14,6 +19,8 @@ import { cn } from "@/lib/utils/cn";
 export default function CustomerPreviewPage() {
   const ws = useWorkspaceStore((s) => s.workspace);
   const hasLoaded = useWorkspaceStore((s) => s.hasLoaded);
+  const audiences = useOnboardingAudiences();
+  const [viewportMode, setViewportMode] = React.useState<PreviewViewportMode>("desktop");
 
   React.useEffect(() => {
     if (ws) loadGoogleFont(ws.branding.fontFamily);
@@ -47,7 +54,12 @@ export default function CustomerPreviewPage() {
           <Shirt className="h-3.5 w-3.5" />
           Customer Preview — {ws.name}
         </span>
-        <span className="ml-auto opacity-70">This is how shoppers will see your widget</span>
+        <span className="ml-auto hidden opacity-70 md:inline">This is how shoppers will see your widget</span>
+        <PreviewViewportToggle
+          value={viewportMode}
+          onChange={setViewportMode}
+          className="ml-auto md:ml-0 text-[var(--color-text-primary)]"
+        />
       </div>
 
       {/* Full-height agent frame — no sidebar */}
@@ -66,6 +78,8 @@ export default function CustomerPreviewPage() {
             workspaceId={ws.id}
             theme={ws.branding.theme}
             branding={toWearableBranding(ws.branding)}
+            audiences={audiences}
+            viewportMode={viewportMode}
           />
         </CatalogReadyGate>
       </div>

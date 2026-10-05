@@ -58,9 +58,10 @@ describe("audienceCompatible", () => {
     expect(audienceCompatible("mens", "womens")).toBe(false);
   });
 
-  it("lets unisex bridge in both directions", () => {
+  it("allows an explicit unisex chart but never guesses a gendered block for unisex stock", () => {
     expect(audienceCompatible("womens", "unisex")).toBe(true);
-    expect(audienceCompatible("unisex", "mens")).toBe(true);
+    expect(audienceCompatible("unisex", "mens")).toBe(false);
+    expect(audienceCompatible("unisex", "unisex")).toBe(true);
   });
 });
 

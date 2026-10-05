@@ -3,6 +3,7 @@ import { getUserById } from "@/lib/db/users";
 import { consumeImageGeneration } from "@/lib/db/image-generations";
 import { canGenerateImage, getAccountBillingContext } from "@/lib/billing/account";
 import { AVATAR_IMAGE_NANOS } from "@/lib/billing/pricing";
+import { parseAvatarBodyMeasurements } from "@/lib/try-on/avatar-body";
 import {
   generateAvatarVariationsStream,
   DEFAULT_AVATAR_VARIATION_COUNT,
@@ -47,7 +48,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { photoBase64, photoMimeType, heightCm, weightKg, chestCm, waistCm, shoeSizeEu, count } = body;
+  const { photoBase64, photoMimeType, count } = body;
 
   if (typeof photoBase64 !== "string" || !photoBase64) {
     return Response.json({ error: "A face photo is required" }, { status: 400, headers: EMBED_CORS_HEADERS });
@@ -55,13 +56,9 @@ export async function POST(req: NextRequest) {
   if (typeof photoMimeType !== "string" || !photoMimeType) {
     return Response.json({ error: "Missing photo mime type" }, { status: 400, headers: EMBED_CORS_HEADERS });
   }
-  for (const [key, value] of Object.entries({ heightCm, weightKg, chestCm, waistCm, shoeSizeEu })) {
-    if (typeof value !== "number" || value <= 0) {
-      return Response.json(
-        { error: `Invalid or missing measurement: ${key}` },
-        { status: 400, headers: EMBED_CORS_HEADERS }
-      );
-    }
+  const measured = parseAvatarBodyMeasurements(body);
+  if ("error" in measured) {
+    return Response.json({ error: measured.error }, { status: 400, headers: EMBED_CORS_HEADERS });
   }
 
   const includedRemaining = Math.max(billing.tier.monthlyGarmentUnits - billing.imagesUsedThisCycle, 0);
@@ -112,7 +109,7 @@ export async function POST(req: NextRequest) {
 
       try {
         for await (const event of generateAvatarVariationsStream(
-          { photoBase64, photoMimeType, heightCm, weightKg, chestCm, waistCm, shoeSizeEu },
+          { photoBase64, photoMimeType, ...measured.measurements },
           requestedCount
         )) {
           if (closed || req.signal.aborted) break;

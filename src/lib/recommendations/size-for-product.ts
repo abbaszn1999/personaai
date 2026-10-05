@@ -12,6 +12,7 @@ function toFitMetricsProfile(profile: WearableChatProfileContext): TryOnProfile 
     heightCm: profile.heightCm,
     weightKg: profile.weightKg,
     shoeSizeEu: profile.shoeSizeEu,
+    ageYears: null,
     chestCm: profile.chestCm,
     waistCm: profile.waistCm,
     hipsCm: null,

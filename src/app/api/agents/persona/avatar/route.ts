@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { consumeImageGeneration } from "@/lib/db/image-generations";
 import { canGenerateImage, getAccountBillingContext } from "@/lib/billing/account";
 import { AVATAR_IMAGE_NANOS } from "@/lib/billing/pricing";
+import { parseAvatarBodyMeasurements } from "@/lib/try-on/avatar-body";
 import { generateAvatarVariationsStream, DEFAULT_AVATAR_VARIATION_COUNT } from "@/lib/try-on/image-generation";
 
 export const maxDuration = 300;
@@ -27,7 +28,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => ({}));
-  const { photoBase64, photoMimeType, heightCm, weightKg, chestCm, waistCm, shoeSizeEu, count } = body;
+  const { photoBase64, photoMimeType, count } = body;
 
   if (typeof photoBase64 !== "string" || !photoBase64) {
     return Response.json({ error: "A face photo is required" }, { status: 400 });
@@ -35,10 +36,9 @@ export async function POST(req: NextRequest) {
   if (typeof photoMimeType !== "string" || !photoMimeType) {
     return Response.json({ error: "Missing photo mime type" }, { status: 400 });
   }
-  for (const [key, value] of Object.entries({ heightCm, weightKg, chestCm, waistCm, shoeSizeEu })) {
-    if (typeof value !== "number" || value <= 0) {
-      return Response.json({ error: `Invalid or missing measurement: ${key}` }, { status: 400 });
-    }
+  const measured = parseAvatarBodyMeasurements(body);
+  if ("error" in measured) {
+    return Response.json({ error: measured.error }, { status: 400 });
   }
 
   // Only request as many variations as the account can actually pay for. Callers may ask
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
 
       try {
         for await (const event of generateAvatarVariationsStream(
-          { photoBase64, photoMimeType, heightCm, weightKg, chestCm, waistCm, shoeSizeEu },
+          { photoBase64, photoMimeType, ...measured.measurements },
           requestedCount
         )) {
           if (closed || req.signal.aborted) break;
