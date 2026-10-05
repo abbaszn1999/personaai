@@ -68,30 +68,42 @@ function build(id: string, q: Q, tl: gsap.core.Timeline) {
       .to(q("[data-note]"), { opacity: 1, duration: 0.2 }, "<");
   }
   if (id === "live") {
-    const rings = q("[data-ring]");
-    const tap = (i: number) =>
-      tl.fromTo(q(`[data-tapfx="${i}"]`), { scale: 0, opacity: 0.9 }, { scale: 1.6, opacity: 0, duration: 0.35, ease: "power2.out" });
-    const wear = (from: number, to: number, img: string) =>
-      tl
-        .to(rings[from], { opacity: 0, duration: 0.1 }, "<")
-        .to(rings[to], { opacity: 1, duration: 0.1 }, "<")
-        .to(q(img), { opacity: 1, duration: 0.25 }, "<")
-        .to(q(`[data-wearing="${from}"]`), { opacity: 0, y: -8, duration: 0.15 }, "<")
-        .fromTo(q(`[data-wearing="${to}"]`), { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.2 }, "<");
-    press(tl, q("[data-cam-btn]"), 0.1);
-    tl.to(q("[data-cam-off]"), { opacity: 0, duration: 0.3 })
-      .to(q("[data-live-ui]"), { opacity: 1, duration: 0.25 }, "<")
-      .to(q("[data-track]"), { opacity: 1, duration: 0.25 }, "<0.1")
-      .to(q("[data-session]"), { scaleX: 1, duration: 2.4, ease: "none" }, "<")
-      .add(count(q, "[data-timer]", 90, 2.4, clock), "<")
-      .to(q("[data-track]"), { x: 8, y: 4, duration: 0.4, ease: "sine.inOut" }, "<0.1")
-      .to(q("[data-track]"), { x: -4, y: 2, duration: 0.4, ease: "sine.inOut" });
-    tap(1);
-    wear(0, 1, "[data-live-next]");
-    tl.to(q("[data-track]"), { x: 6, y: 0, duration: 0.4, ease: "sine.inOut" }, "<0.2");
-    tap(2);
-    wear(1, 2, "[data-live-next2]");
-    tl.to(q("[data-track]"), { x: 0, y: 0, duration: 0.4, ease: "sine.inOut" }, "<0.2");
+    const host = q("[data-live-rack]")[0];
+    const cursor = q("[data-live-cursor]");
+    const spot = (index: number, dx = 0.62, dy = 0.5) => {
+      const card = q(`[data-live-card="${index}"]`)[0];
+      const a = host.getBoundingClientRect();
+      const b = card.getBoundingClientRect();
+      return { x: b.left - a.left + b.width * dx, y: b.top - a.top + b.height * dy };
+    };
+    const wear = (from: number, to: number) => {
+      tl.to(cursor, { opacity: 1, duration: 0.2 })
+        .to(cursor, { x: () => spot(to).x, y: () => spot(to).y, duration: 0.6, ease: "power2.inOut" }, "<")
+        .to(cursor, { scale: 0.8, duration: 0.1, yoyo: true, repeat: 1 })
+        .fromTo(q(`[data-live-ripple="${to}"]`), { scale: 0, opacity: 0.9 }, { scale: 1.8, opacity: 0, duration: 0.45, ease: "power2.out" }, "<")
+        .to(q(`[data-live-ring="${from}"]`), { opacity: 0, duration: 0.15 }, "<")
+        .to(q(`[data-live-badge="${from}"]`), { opacity: 0, duration: 0.15 }, "<")
+        .to(q(`[data-live-ring="${to}"]`), { opacity: 1, duration: 0.15 }, "<")
+        .to(q(`[data-live-badge="${to}"]`), { opacity: 1, duration: 0.15 }, "<")
+        .to(q("[data-live-flash]"), { opacity: 0.55, duration: 0.08, yoyo: true, repeat: 1 }, "<")
+        .fromTo(q("[data-live-sweep]"), { top: "0%", opacity: 1 }, { top: "100%", duration: 0.6, ease: "sine.inOut" }, "<")
+        .to(q(`[data-live-img="${to}"]`), { opacity: 1, duration: 0.3 }, "<0.15")
+        .to(q(`[data-live-img="${from}"]`), { opacity: 0, duration: 0.3 }, "<")
+        .to(q(`[data-live-cap="${from}"]`), { opacity: 0, y: -6, duration: 0.2 }, "<")
+        .fromTo(q(`[data-live-cap="${to}"]`), { opacity: 0, y: 6 }, { opacity: 1, y: 0, duration: 0.25 }, "<0.05")
+        .to(q("[data-live-sweep]"), { opacity: 0, duration: 0.1 })
+        .to({}, { duration: 0.9 });
+    };
+    press(tl, q("[data-cam-btn]"), 0.4);
+    tl.to(q("[data-cam-off]"), { opacity: 0, duration: 0.4 })
+      .to(q("[data-live-ui]"), { opacity: 1, duration: 0.3 }, "<0.1")
+      .fromTo(q("[data-live-joint]"), { scale: 0 }, { scale: 1, stagger: 0.03, duration: 0.2, ease: "back.out(3)" }, "<0.1")
+      .add(count(q, "[data-timer]", 14, 9, clock), "<")
+      .to({}, { duration: 0.8 });
+    wear(0, 1);
+    wear(1, 2);
+    wear(2, 3);
+    tl.to(cursor, { opacity: 0, duration: 0.2 });
   }
   if (id === "stylist") {
     const msgs = q("[data-msg]");
@@ -140,11 +152,20 @@ export function Chapters() {
 
       panels.forEach((panel, index) => {
         const q = gsap.utils.selector(panel) as Q;
-        const tl = gsap.timeline({
-          defaults: { ease: "none" },
-          scrollTrigger: { trigger: panel, start: "top 80%", end: "center 58%", scrub: 0.6 },
-        });
+        // Plays on its own in real time when the chapter comes into view, loops, and rests when it leaves.
+        const tl = gsap.timeline({ paused: true, repeat: -1, repeatDelay: 1.8, defaults: { ease: "power2.out" } });
         build(panel.dataset.panel ?? "", q, tl);
+
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+          tl.repeat(0).progress(1);
+        } else {
+          ScrollTrigger.create({
+            trigger: panel,
+            start: "top 70%",
+            end: "bottom 30%",
+            onToggle: (self) => (self.isActive ? tl.restart() : tl.pause()),
+          });
+        }
 
         ScrollTrigger.create({
           trigger: panel,
@@ -255,8 +276,9 @@ export function Chapters() {
           </aside>
 
           <div data-panels className="space-y-24 min-[1100px]:space-y-0">
-            {chapters.map((chapter) => {
+            {chapters.map((chapter, chapterIndex) => {
               const Visual = visuals[chapter.id];
+              const next = chapters[chapterIndex + 1];
               return (
                 <div
                   key={chapter.id}
@@ -281,7 +303,41 @@ export function Chapters() {
                         ))}
                       </ul>
                     </div>
-                    <Visual />
+                    <div className="relative">
+                      <div
+                        aria-hidden
+                        className="pointer-events-none absolute -inset-x-8 -inset-y-10 -z-10 opacity-70"
+                        style={{
+                          background:
+                            "radial-gradient(50% 50% at 70% 35%, rgba(247,109,1,0.16), transparent 70%), radial-gradient(45% 45% at 20% 80%, rgba(107,53,141,0.2), transparent 70%)",
+                        }}
+                      />
+                      <Visual />
+
+                      <div className="mt-5 flex items-center gap-3">
+                        <ol className="flex flex-1 items-center gap-1.5" aria-label={`Step ${chapter.n} of 6`}>
+                          {chapters.map((step, stepIndex) => (
+                            <li
+                              key={step.id}
+                              className={cn(
+                                "h-[3px] flex-1 rounded-full transition-colors",
+                                stepIndex < chapterIndex ? "bg-brand/60" : stepIndex === chapterIndex ? "bg-[image:var(--grad-brand)]" : "bg-hairline",
+                              )}
+                            />
+                          ))}
+                        </ol>
+                        <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.16em] text-faint">
+                          <span className="text-brand">{chapter.n}</span> / 06
+                          {next ? (
+                            <>
+                              {" "}· Next <span className="text-muted">{next.label}</span> →
+                            </>
+                          ) : (
+                            <> · Done</>
+                          )}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               );

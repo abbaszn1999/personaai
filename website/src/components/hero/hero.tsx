@@ -83,7 +83,7 @@ export function Hero() {
       />
 
       <div className="relative mx-auto grid max-w-[1560px] items-center gap-12 px-[var(--gutter)] pb-[var(--section-y)] pt-28 min-[1000px]:min-h-svh min-[1000px]:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)] min-[1000px]:gap-12 min-[1000px]:pb-14 min-[1000px]:pt-32">
-        <div className="min-w-0">
+        <div className="min-w-0 text-center min-[1000px]:text-left">
           <p data-fade className="font-mono text-[11px] uppercase tracking-[0.24em] text-brand">
             {hero.kicker}
           </p>
@@ -98,32 +98,32 @@ export function Hero() {
               {hero.lineC}
             </span>
           </h1>
-          <p data-fade className="mt-8 max-w-[44ch] text-base leading-relaxed text-muted">
+          <p data-fade className="mx-auto mt-8 max-w-[44ch] text-base leading-relaxed text-muted min-[1000px]:mx-0">
             {hero.lede}
           </p>
-          <div data-fade className="mt-9 flex flex-wrap items-center gap-3">
+          <div data-fade className="mx-auto mt-9 flex w-full max-w-[20rem] flex-col items-stretch gap-3 min-[1000px]:mx-0 min-[1000px]:max-w-none min-[1000px]:flex-row min-[1000px]:flex-wrap min-[1000px]:items-center">
             <a
               href={appPath("/sign-up")}
-              className="auth-out group relative inline-flex items-center gap-3 overflow-hidden rounded-full bg-[image:var(--grad-brand)] px-7 py-4 text-sm font-semibold text-white shadow-[0_12px_36px_-12px_rgba(247,109,1,0.7)] transition hover:brightness-110"
+              className="auth-out group relative inline-flex items-center justify-center gap-3 overflow-hidden rounded-full bg-[image:var(--grad-brand)] px-7 py-4 text-sm font-semibold text-white shadow-[0_12px_36px_-12px_rgba(247,109,1,0.7)] transition hover:brightness-110"
             >
               {hero.cta}
               <span className="transition-transform duration-500 group-hover:translate-x-1">→</span>
             </a>
             <a
               href={appPath("/dashboard")}
-              className="auth-in group inline-flex items-center gap-3 rounded-full bg-[image:var(--grad-brand)] px-7 py-4 text-sm font-semibold text-white transition hover:brightness-110"
+              className="auth-in group inline-flex items-center justify-center gap-3 rounded-full bg-[image:var(--grad-brand)] px-7 py-4 text-sm font-semibold text-white transition hover:brightness-110"
             >
               {hero.dashboard}
               <span className="transition-transform duration-500 group-hover:translate-x-1">→</span>
             </a>
             <a
               href="#fitting-room"
-              className="rounded-full border border-hairline px-7 py-4 text-sm text-bone transition hover:border-bone/40"
+              className="rounded-full border border-hairline px-7 py-4 text-center text-sm text-bone transition hover:border-bone/40"
             >
               {hero.scroll}
             </a>
           </div>
-          <ul data-fade className="mt-10 flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-[10px] uppercase tracking-[0.2em] text-faint">
+          <ul data-fade className="mt-10 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 font-mono min-[1000px]:justify-start text-[10px] uppercase tracking-[0.2em] text-faint">
             {hero.platforms.map((item) => (
               <li key={item} className="flex items-center gap-2">
                 <span className="h-1 w-1 rounded-full bg-brand" />

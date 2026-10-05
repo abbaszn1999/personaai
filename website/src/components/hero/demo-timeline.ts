@@ -74,12 +74,13 @@ function buildTimeline(scope: HTMLElement, mobile: boolean) {
     });
   if (mobile) tl.set(one("sheet"), { yPercent: 100 });
 
-  const clickOn = (key: string, at: number) => {
+  const clickOn = (key: string, at: number, fast = false) => {
+    const travel = fast ? 0.4 : 0.75;
     const target = centreOf(one(key), screen);
     tl.to(cursor, { autoAlpha: 1, duration: 0.2 }, at)
-      .to(cursor, { x: target.x, y: target.y, duration: 0.75, ease: "power2.inOut" }, at)
-      .to(cursor, { scale: 0.82, duration: 0.12, yoyo: true, repeat: 1, ease: "power1.inOut" }, at + 0.78)
-      .fromTo(one("ripple"), { autoAlpha: 0.8, scale: 0.3 }, { autoAlpha: 0, scale: 2, duration: 0.5, ease: "power2.out" }, at + 0.8);
+      .to(cursor, { x: target.x, y: target.y, duration: travel, ease: "power2.inOut" }, at)
+      .to(cursor, { scale: 0.82, duration: 0.12, yoyo: true, repeat: 1, ease: "power1.inOut" }, at + travel + 0.03)
+      .fromTo(one("ripple"), { autoAlpha: 0.8, scale: 0.3 }, { autoAlpha: 0, scale: 2, duration: 0.5, ease: "power2.out" }, at + travel + 0.05);
   };
   const step = (index: number, at: number, length: number) => {
     tl.to(steps[index], { opacity: 1, duration: 0.3 }, at).to(bars[index], { scaleX: 1, duration: length, ease: "none" }, at);
@@ -140,28 +141,31 @@ function buildTimeline(scope: HTMLElement, mobile: boolean) {
   tl.to(one("scan"), { autoAlpha: 0, duration: 0.35 }, 8.95).to(one("fit"), { autoAlpha: 1, y: 0, duration: 0.4 }, 9.05);
 
   // 03 · Hotspots on every piece, and it lands in the store's own cart.
-  step(2, 9.0, 3.2);
-  tl.to(all("hot"), { autoAlpha: 1, scale: 1, duration: 0.4, stagger: 0.12, ease: "back.out(2.5)" }, 9.1)
-    .to(one("pop"), { autoAlpha: 1, y: 0, scale: 1, duration: 0.4, ease: "back.out(1.6)" }, 9.6);
-  clickOn("add", 9.75);
-  tl.to(one("add-a"), { autoAlpha: 0, duration: 0.15 }, 10.6)
-    .to(one("add-b"), { autoAlpha: 1, duration: 0.15 }, 10.65)
+  step(2, 9.0, 2.4);
+  tl.to(all("hot"), { autoAlpha: 1, scale: 1, duration: 0.25, stagger: 0.06, ease: "back.out(2.5)" }, 9.1)
+    .to(one("pop"), { autoAlpha: 1, y: 0, scale: 1, duration: 0.3, ease: "back.out(1.6)" }, 9.3);
+  clickOn("add", 9.4, true);
+  tl.to(one("add-a"), { autoAlpha: 0, duration: 0.1 }, 9.93)
+    .to(one("add-b"), { autoAlpha: 1, duration: 0.1 }, 9.96)
     .call(
       () => {
         cart.textContent = "3";
         cart.dataset.on = "true";
       },
       undefined,
-      10.75,
+      10.0,
     )
-    .fromTo(cart, { scale: 1 }, { scale: 1.6, duration: 0.18, yoyo: true, repeat: 1, ease: "power2.out" }, 10.75)
-    .to(one("toast"), { autoAlpha: 1, y: 0, duration: 0.4 }, 10.85)
-    .to(cursor, { autoAlpha: 0, duration: 0.3 }, 11.2);
+    .fromTo(cart, { scale: 1 }, { scale: 1.6, duration: 0.18, yoyo: true, repeat: 1, ease: "power2.out" }, 10.0)
+    .to(one("toast"), { autoAlpha: 1, y: 0, duration: 0.3 }, 10.05)
+    .to(cursor, { autoAlpha: 0, duration: 0.2 }, 10.3);
 
-  tl.to([one("widget"), one("toast")], { autoAlpha: 0, y: 10, duration: 0.5, ease: "power2.in" }, 13.3)
-    .to(one("dim"), { autoAlpha: 0, duration: 0.5 }, 13.3)
-    .to(steps, { opacity: 0.4, duration: 0.4 }, 13.3)
-    .to({}, { duration: 0.6 }, 13.8);
+  tl.to([one("widget"), one("toast")], { autoAlpha: 0, y: 10, duration: 0.5, ease: "power2.in" }, 11.8)
+    .to(one("dim"), { autoAlpha: 0, duration: 0.5 }, 11.8)
+    .to(steps, { opacity: 0.4, duration: 0.4 }, 11.8)
+    .to({}, { duration: 0.6 }, 12.3);
+
+  // Whole demo (stylist, render, cart) plays faster.
+  tl.timeScale(1.4);
 
   return tl;
 }

@@ -361,72 +361,156 @@ export function TryOnVisual() {
   );
 }
 
-const liveRack = [others.find((item) => item.id === "bomber")!, others.find((item) => item.id === "coat")!, picks[0], others.find((item) => item.id === "tee")!];
+const liveRack = [
+  { ...others.find((item) => item.id === "bomber")!, photo: "/media/look-4.webp" },
+  { ...others.find((item) => item.id === "coat")!, photo: "/media/look-3.webp" },
+  { ...picks[0], photo: "/media/look-2.webp" },
+  { ...others.find((item) => item.id === "tee")!, photo: "/media/look-1.webp" },
+];
+
+/** Body landmarks as percentages of the 9:16 look photos. */
+const liveJoints = [
+  [50, 13], [31, 24], [69, 24], [28, 41], [72, 41], [31, 56], [68, 56], [38, 52], [62, 52], [37, 74], [61, 74], [37, 89], [61, 89],
+];
+const liveBones = [
+  [0, 1], [0, 2], [1, 3], [3, 5], [2, 4], [4, 6], [1, 7], [2, 8], [7, 8], [7, 9], [9, 11], [8, 10], [10, 12],
+];
 
 export function LiveVisual() {
   return (
     <Storefront label="Persona · Live mirror">
       <Widget>
-        <div className="relative h-[380px] overflow-hidden bg-black @lg:h-[460px]">
-          <img src="/media/look-4.webp" alt="" className="absolute inset-0 h-full w-full object-cover object-[50%_16%]" />
-          <img data-live-next src="/media/look-3.webp" alt="" className="absolute inset-0 h-full w-full object-cover object-[50%_16%] opacity-0" />
-          <img data-live-next2 src="/media/look-2.webp" alt="" className="absolute inset-0 h-full w-full object-cover object-[50%_16%] opacity-0" />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-black/45" />
-          {["left-3 top-3 border-l-2 border-t-2", "right-3 top-3 border-r-2 border-t-2", "left-3 bottom-3 border-b-2 border-l-2", "right-3 bottom-3 border-b-2 border-r-2"].map((corner) => (
-            <span key={corner} className={cn("absolute h-6 w-6 rounded-[3px] border-white/80", corner)} />
-          ))}
+        <div className="grid gap-3 p-3 @lg:grid-cols-[auto_minmax(0,1fr)] @lg:gap-4">
+          <div data-live-feed className="relative mx-auto aspect-[9/16] h-[400px] overflow-hidden rounded-[16px] bg-black ring-1 ring-white/10 @lg:h-[490px]">
+            {liveRack.map((item, index) => (
+              <img
+                key={item.id}
+                data-live-img={index}
+                src={item.photo}
+                alt=""
+                className={cn("absolute inset-0 h-full w-full object-cover", index !== 0 && "opacity-0")}
+              />
+            ))}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-black/40" />
 
-          <span data-track className="absolute left-[31%] top-[22%] h-[44%] w-[38%] rounded-xl border border-brand/80 opacity-0">
-            <span className="absolute -top-5 left-0 font-mono text-[8.5px] uppercase tracking-[0.16em] text-brand">Body tracked</span>
-          </span>
+            <span data-live-flash className="absolute inset-0 bg-white opacity-0 mix-blend-overlay" />
+            <span data-live-sweep className="absolute inset-x-0 top-0 h-[3px] bg-brand opacity-0 shadow-[0_0_22px_5px_rgba(247,109,1,0.6)]" />
 
-          <div data-live-ui className="absolute left-5 top-5 flex items-center gap-2 opacity-0">
-            <Pill>
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" /> Live · your camera
-            </Pill>
-          </div>
-          <div data-live-ui className="absolute right-5 top-5 opacity-0">
-            <Pill className="font-mono">
-              <span data-timer>00:00</span>
-              <span className="text-white/40">/ 01:30</span>
-            </Pill>
-          </div>
-
-          <div data-cam-off className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-[#0d0814] px-6 text-center">
-            <span className="flex h-12 w-12 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white/70">
-              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 8a2 2 0 0 1 2-2h2l1.5-2h7L17 6h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                <circle cx="12" cy="12.5" r="3.5" />
+            <div data-live-ui className="absolute inset-0 opacity-0">
+              {["left-3 top-3 border-l-2 border-t-2", "right-3 top-3 border-r-2 border-t-2", "left-3 bottom-3 border-b-2 border-l-2", "right-3 bottom-3 border-b-2 border-r-2"].map((corner) => (
+                <span key={corner} className={cn("absolute h-5 w-5 rounded-[3px] border-white/80", corner)} />
+              ))}
+              <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 h-full w-full">
+                {liveBones.map(([a, b], index) => (
+                  <line
+                    key={index}
+                    x1={liveJoints[a][0]}
+                    y1={liveJoints[a][1]}
+                    x2={liveJoints[b][0]}
+                    y2={liveJoints[b][1]}
+                    stroke="rgba(247,109,1,0.8)"
+                    strokeWidth="0.3"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                ))}
               </svg>
-            </span>
-            <p className="text-[12px] text-white/70">Your picks are ready. See them on you, live.</p>
-            <span data-cam-btn className="flex h-9 items-center gap-1.5 rounded-full bg-[image:var(--grad-brand)] px-5 text-[11px] font-semibold text-white shadow-[0_8px_24px_-8px_rgba(247,109,1,0.6)]">
-              <Sparkle className="h-3 w-3" /> Start live try-on
-            </span>
-            <p className="text-[9.5px] text-white/40">Uses your own camera. Nothing is uploaded.</p>
-          </div>
-
-          <div data-live-ui className="absolute inset-x-4 bottom-4 opacity-0">
-            <div className="flex items-end justify-between gap-3">
-              <div className="flex gap-2">
-                {liveRack.map((item, index) => (
-                  <span key={item.id} className="relative h-14 w-11 overflow-hidden rounded-[10px] border border-white/20 bg-white @lg:h-16 @lg:w-12">
-                    <span className="absolute inset-0" style={crop(item)} />
-                    <span data-ring={index} className={cn("absolute inset-0 rounded-[10px] ring-2 ring-inset ring-brand", index !== 0 && "opacity-0")} />
-                    <span data-tapfx={index} className="absolute left-1/2 top-1/2 h-8 w-8 -translate-x-1/2 -translate-y-1/2 scale-0 rounded-full bg-brand/70 opacity-0" />
-                  </span>
-                ))}
+              {liveJoints.map(([x, y], index) => (
+                <span
+                  key={index}
+                  data-live-joint
+                  className="absolute h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white bg-brand"
+                  style={{ left: `${x}%`, top: `${y}%` }}
+                />
+              ))}
+              <div className="absolute left-4 top-4">
+                <Pill>
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" /> Live
+                </Pill>
               </div>
-              <div className="relative h-8 min-w-0 flex-1 text-right text-[11px] font-medium text-white">
-                {[0, 1, 2].map((i) => (
-                  <span key={i} data-wearing={i} className={cn("absolute inset-x-0 bottom-0 truncate", i !== 0 && "opacity-0")}>
-                    Wearing · {liveRack[i].name}
-                  </span>
-                ))}
+              <div className="absolute right-4 top-4">
+                <Pill className="font-mono">
+                  <span data-timer>00:00</span>
+                  <span className="text-white/40">/ 01:30</span>
+                </Pill>
+              </div>
+              <div className="absolute inset-x-4 bottom-4">
+                <p className="font-mono text-[8.5px] uppercase tracking-[0.18em] text-white/60">Wearing now</p>
+                <div className="relative mt-1 h-6">
+                  {liveRack.map((item, index) => (
+                    <p
+                      key={item.id}
+                      data-live-cap={index}
+                      className={cn("absolute inset-x-0 top-0 truncate font-serif text-[19px] italic leading-6 text-white", index !== 0 && "opacity-0")}
+                    >
+                      {item.name}
+                    </p>
+                  ))}
+                </div>
               </div>
             </div>
-            <span className="mt-3 block h-1 overflow-hidden rounded-full bg-white/20">
-              <span data-session className="block h-full origin-left scale-x-0 bg-[image:var(--grad-brand)]" />
+
+            <div data-cam-off className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-[#0d0814] px-6 text-center text-white">
+              <span className="flex h-12 w-12 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white/70">
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 8a2 2 0 0 1 2-2h2l1.5-2h7L17 6h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                  <circle cx="12" cy="12.5" r="3.5" />
+                </svg>
+              </span>
+              <p className="text-[12px] text-white/75">Your picks are ready.</p>
+              <span
+                data-cam-btn
+                className="flex h-9 items-center gap-1.5 rounded-full bg-[image:var(--grad-brand)] px-5 text-[11px] font-semibold shadow-[0_8px_24px_-8px_rgba(247,109,1,0.6)]"
+              >
+                <Sparkle className="h-3 w-3" /> Start live try-on
+              </span>
+              <p className="text-[9.5px] text-white/40">Uses their own camera</p>
+            </div>
+          </div>
+
+          <div data-live-rack className="relative flex min-w-0 flex-col @lg:py-1">
+            <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[var(--pw-muted)]">Your picks · tap to wear</p>
+            <div className="mt-2.5 grid grid-cols-2 gap-2 @lg:grid-cols-1 @lg:gap-2.5">
+              {liveRack.map((item, index) => (
+                <div
+                  key={item.id}
+                  data-live-card={index}
+                  className="relative flex items-center gap-2.5 overflow-hidden rounded-[12px] border border-[var(--pw-border)] bg-[var(--pw-card)] p-2 @lg:p-2.5"
+                >
+                  <span className="h-14 w-11 shrink-0 rounded-[8px] bg-white @lg:h-16 @lg:w-12" style={crop(item)} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[11px] font-medium @lg:text-[12px]">{item.name}</span>
+                    <span className="mt-0.5 block text-[10px] text-[var(--pw-muted)]">
+                      <span className="font-semibold text-brand">${item.price}</span> · Size M
+                    </span>
+                    <span
+                      data-live-badge={index}
+                      className={cn(
+                        "mt-1 inline-flex items-center gap-1 rounded-full bg-brand/15 px-1.5 py-px font-mono text-[8px] uppercase tracking-[0.12em] text-brand",
+                        index !== 0 && "opacity-0",
+                      )}
+                    >
+                      <span className="h-1 w-1 rounded-full bg-brand" /> Wearing
+                    </span>
+                  </span>
+                  <span
+                    data-live-ring={index}
+                    className={cn("pointer-events-none absolute inset-0 rounded-[12px] ring-2 ring-inset ring-brand", index !== 0 && "opacity-0")}
+                  />
+                  <span data-live-ripple={index} className="pointer-events-none absolute left-1/2 top-1/2 h-16 w-16 -translate-x-1/2 -translate-y-1/2 scale-0 rounded-full bg-brand/40 opacity-0" />
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 hidden items-center justify-between rounded-[12px] border border-[var(--pw-border)] bg-[var(--pw-card)] px-3 py-2 @lg:flex">
+              <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-[var(--pw-muted)]">Body tracking</span>
+              <span className="font-mono text-[10px]">
+                <span className="text-brand">60</span> fps · <span className="text-brand">38</span> ms
+              </span>
+            </div>
+
+            <span data-live-cursor className="pointer-events-none absolute left-0 top-0 z-10 opacity-0">
+              <svg viewBox="0 0 24 24" className="h-6 w-6 drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]" fill="#fff" stroke="#111" strokeWidth="1.2">
+                <path d="M4 3l15 7-6.2 1.8L10 18 4 3z" strokeLinejoin="round" />
+              </svg>
             </span>
           </div>
         </div>
