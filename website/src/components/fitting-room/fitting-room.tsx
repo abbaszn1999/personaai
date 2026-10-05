@@ -21,6 +21,22 @@ export function FittingRoom() {
   const stage = useRef<MirrorStage | null>(null);
   const [webgl, setWebgl] = useState(true);
   const [active, setActive] = useState(0);
+  const [phoneScale, setPhoneScale] = useState(1);
+
+  // On phones the mirror is shorter than the 640px design the overlays are laid out for, so scale them together.
+  useEffect(() => {
+    const el = mirror.current;
+    if (!el) return;
+    const measure = () => setPhoneScale(window.innerWidth < 900 ? el.offsetHeight / 640 : 1);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, []);
 
   useEffect(() => {
     if (!canvas.current) return;
@@ -44,7 +60,7 @@ export function FittingRoom() {
         { desktop: "(min-width: 900px)", mobile: "(max-width: 899px)" },
         (ctx) => {
           const desktop = Boolean(ctx.conditions?.desktop);
-          gsap.set(frame.current, desktop ? { xPercent: 58 } : { yPercent: -14, scale: 0.72 });
+          gsap.set(frame.current, desktop ? { xPercent: 58 } : { xPercent: 0, yPercent: 0, scale: 1 });
           gsap.set(q("[data-story], [data-callouts], [data-words]"), { autoAlpha: 1 });
 
           const tl = gsap.timeline({
@@ -153,7 +169,7 @@ export function FittingRoom() {
         <div
           ref={mirror}
           onPointerMove={onPointer}
-          className="relative h-[calc(100svh-17rem)] w-[min(88vw,calc((100svh-17rem)*0.5625))] overflow-hidden rounded-[28px] border border-hairline bg-[#0d0b10] shadow-[0_40px_120px_-20px_rgba(247,109,1,0.25)] light:shadow-[0_24px_70px_-15px_rgba(247,109,1,0.2),0_12px_32px_-8px_rgba(0,0,0,0.1)] min-[900px]:h-[82svh] min-[900px]:w-[calc(82svh*0.5625)]"
+          className="relative h-[max(17rem,calc(100svh-24.5rem))] w-[calc(max(17rem,calc(100svh-24.5rem))*0.5625)] overflow-hidden rounded-[28px] border border-hairline bg-[#0d0b10] shadow-[0_40px_120px_-20px_rgba(247,109,1,0.25)] light:shadow-[0_24px_70px_-15px_rgba(247,109,1,0.2),0_12px_32px_-8px_rgba(0,0,0,0.1)] min-[900px]:h-[82svh] min-[900px]:w-[calc(82svh*0.5625)]"
         >
           <canvas
             ref={canvas}
@@ -172,6 +188,14 @@ export function FittingRoom() {
               />
             ))
           ) : null}
+          <div
+            className="absolute left-0 top-0 origin-top-left"
+            style={
+              phoneScale === 1
+                ? { width: "100%", height: "100%" }
+                : { width: 360, height: 640, transform: `scale(${phoneScale})` }
+            }
+          >
           <MirrorOverlays active={active} />
 
           <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-3 whitespace-nowrap p-4 font-mono text-[10px] uppercase tracking-[0.2em] text-white/90">
@@ -190,13 +214,14 @@ export function FittingRoom() {
             <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-white/60">Rendered on avatar</p>
             <p className="mt-1 font-serif text-2xl italic leading-none text-white">{look.garment}</p>
           </div>
+          </div>
         </div>
         </div>
 
-        <div data-story className="invisible absolute inset-y-0 left-0 z-30 flex w-full items-end px-[var(--gutter)] pb-10 min-[900px]:w-1/2 min-[900px]:items-center min-[900px]:pb-0">
+        <div data-story className="invisible absolute inset-y-0 left-0 z-30 flex w-full items-end px-[var(--gutter)] pb-6 min-[900px]:w-1/2 min-[900px]:items-center min-[900px]:pb-0">
           <div className="w-full max-w-lg">
             <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-brand">{hero.room}</p>
-            <div className="relative mt-5 h-[13rem] min-[900px]:mt-10 min-[900px]:h-[27rem]">
+            <div className="relative mt-4 h-[12.5rem] min-[900px]:mt-10 min-[900px]:h-[27rem]">
               {looks.map((item, index) => {
                 const on = index === active;
                 const lift = (delay: number): React.CSSProperties => ({
@@ -258,7 +283,7 @@ export function FittingRoom() {
                 );
               })}
             </div>
-            <ol className="mt-8 flex gap-2 min-[900px]:mt-10" aria-label="Looks">
+            <ol className="mt-5 flex gap-2 min-[900px]:mt-10" aria-label="Looks">
               {looks.map((item, index) => (
                 <li key={item.code} className="h-[3px] flex-1 overflow-hidden rounded-full bg-hairline">
                   <span
