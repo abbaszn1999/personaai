@@ -80,6 +80,13 @@ describe("searchCatalog", () => {
     expect(outcome.candidates).toHaveLength(1);
   });
 
+  it("does not browse again when the filter matched nothing, since that search is billed and cannot find more", async () => {
+    acs.searchProducts.mockResolvedValue({ results: [] });
+    const outcome = await searchCatalog(ctx, spec, "very specific styling words", 10);
+    expect(acs.searchProducts).toHaveBeenCalledTimes(1);
+    expect(outcome.candidates).toEqual([]);
+  });
+
   it("with measurements, filters on fit and returns only products with a fitting size", async () => {
     acs.searchProducts.mockResolvedValue({
       results: [

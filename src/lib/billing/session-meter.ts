@@ -1,8 +1,4 @@
-import {
-  ACS_SEARCH_NANOS,
-  GEMINI_INPUT_TOKEN_NANOS,
-  GEMINI_OUTPUT_TOKEN_NANOS,
-} from "./pricing";
+import { ACS_SEARCH_NANOS, geminiTokenCostNanos, type GeminiTokenCounts } from "./pricing";
 
 /** Mutable accumulator for one shopper turn. Created by the API route and threaded through
  *  every Gemini call and ACS search that turn causes. Undefined at a call site means "this
@@ -17,22 +13,12 @@ export function createSessionMeter(): SessionMeter {
   return { nanos: 0, acsSearches: 0, geminiCalls: 0 };
 }
 
-function wholeTokens(value: number): number {
-  if (!Number.isFinite(value) || value <= 0) return 0;
-  return Math.floor(value);
-}
-
-/** Adds one Gemini call. A call that reports no usage still counts, at zero cost, so a missing
+/** Adds one Gemini call. Cached input tokens are billed at the cached rate, the rest of the input
+ *  at the input rate. A call that reports no usage still counts, at zero cost, so a missing
  *  `usageMetadata` is visible as calls without nanos rather than as a turn that never happened. */
-export function addTokenCost(
-  meter: SessionMeter | undefined,
-  inputTokens: number,
-  outputTokens: number
-): void {
+export function addTokenCost(meter: SessionMeter | undefined, tokens: GeminiTokenCounts, at?: Date | number): void {
   if (!meter) return;
-  const input = wholeTokens(inputTokens);
-  const output = wholeTokens(outputTokens);
-  meter.nanos += input * GEMINI_INPUT_TOKEN_NANOS + output * GEMINI_OUTPUT_TOKEN_NANOS;
+  meter.nanos += geminiTokenCostNanos(tokens, at);
   meter.geminiCalls += 1;
 }
 

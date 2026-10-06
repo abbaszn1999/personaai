@@ -801,7 +801,7 @@ export function Stage5ChartAssignment({
           <button
             type="button"
             onClick={onNext}
-            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-[#8B5CF6] to-[#EC4899] hover:opacity-95 shadow-md shadow-purple-500/25 active:scale-98 transition-all cursor-pointer"
+            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] hover:opacity-95 shadow-md shadow-purple-500/25 active:scale-98 transition-all cursor-pointer"
           >
             <span>Proceed to Active Catalog</span>
             <ArrowRight className="w-4 h-4" />

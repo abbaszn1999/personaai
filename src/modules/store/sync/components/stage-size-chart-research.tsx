@@ -386,7 +386,7 @@ export function Stage4SizeChartResearch({
             <button
               type="button"
               onClick={startResearch}
-              className="inline-flex items-center gap-2.5 px-8 py-4 rounded-xl text-base font-bold text-white bg-gradient-to-r from-[#8B5CF6] to-[#EC4899] hover:opacity-95 shadow-lg shadow-purple-500/25 active:scale-98 transition-all cursor-pointer"
+              className="inline-flex items-center gap-2.5 px-8 py-4 rounded-xl text-base font-bold text-white bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] hover:opacity-95 shadow-lg shadow-purple-500/25 active:scale-98 transition-all cursor-pointer"
             >
               <Sparkles className="w-5 h-5 text-pink-200" />
               <span>Run Size Chart Research</span>
@@ -414,7 +414,7 @@ export function Stage4SizeChartResearch({
       {isRunning && (
         <div className="bg-white rounded-2xl border border-purple-200/80 p-12 text-center shadow-lg shadow-purple-500/5 flex flex-col items-center justify-center space-y-6 min-h-[380px]">
           <div className="relative">
-            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[#8B5CF6] to-[#EC4899] text-white flex items-center justify-center shadow-md animate-pulse">
+            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-white flex items-center justify-center shadow-md animate-pulse">
               <Globe className="w-10 h-10 animate-spin" />
             </div>
             <div className="absolute -inset-2 rounded-2xl border-2 border-pink-300 animate-ping opacity-25"></div>
@@ -438,7 +438,7 @@ export function Stage4SizeChartResearch({
             </div>
             <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden p-0.5 border border-slate-200">
               <div
-                className="h-full bg-gradient-to-r from-[#8B5CF6] to-[#EC4899] rounded-full transition-all duration-100 ease-out"
+                className="h-full bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] rounded-full transition-all duration-100 ease-out"
                 style={{ width: `${progressPercent}%` }}
               ></div>
             </div>
@@ -1084,7 +1084,7 @@ export function Stage4SizeChartResearch({
               <button
                 type="button"
                 onClick={onNext}
-                className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-[#8B5CF6] to-[#EC4899] hover:opacity-95 shadow-md shadow-purple-500/25 active:scale-98 transition-all cursor-pointer"
+                className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] hover:opacity-95 shadow-md shadow-purple-500/25 active:scale-98 transition-all cursor-pointer"
               >
                 <span>Proceed to Chart Assignment</span>
                 <ArrowRight className="w-4 h-4" />

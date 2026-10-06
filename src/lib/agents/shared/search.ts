@@ -108,7 +108,9 @@ export async function searchCatalog(
   // A long styling description can match only products nobody can be shown (no image) or none
   // at all, while the validated filter still has stock. Every product inside that filter
   // satisfies the request, so browse it instead.
-  if (response && query.trim() && !candidates.some(isDisplayable)) {
+  // When the filter itself matched nothing there is nothing to browse: the same filter without a
+  // query can only return the same empty set, and the extra search would be billed for nothing.
+  if (response && response.results?.length && query.trim() && !candidates.some(isDisplayable)) {
     ({ filter, response } = await run(""));
     candidates = collect(response?.results);
   }
