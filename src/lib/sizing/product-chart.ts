@@ -86,7 +86,12 @@ export interface ProductChartInput {
   brandKey: string;
   sizingCategory: string;
   primaryPersonaLeafKey: string | null;
+  /** Every size the product lists, in stock or not. The chart is chosen and checked against this, so
+   *  a sold-out product still resolves to the chart it will have the moment it is restocked. */
   rawSizeFormat: string | null;
+  /** The sizes buyable right now. When present, only these reach the published sizing rows; absent
+   *  means every size in `rawSizeFormat` is published. */
+  purchasableSizeFormat?: string | null;
   /** Validated bridge for a merchant custom leaf. Global charts never claim arbitrary custom keys. */
   standardPersonaLeafKey?: string | null;
   productLine?: string | null;
@@ -152,6 +157,33 @@ function narrowByPriority<T extends { chart: SizingChartRow }>(
   const unqualified = candidates.filter(({ chart }) => !chart.applicability?.productLine);
   if (!input.productLine && unqualified.length > 0) candidates = unqualified;
   return candidates;
+}
+
+/**
+ * Label matching per chart, remembered for the life of the loaded chart rows. A catalog repeats the
+ * same few size runs ("S,M,L,XL") across thousands of products, and matching is the expensive step
+ * of resolving one, so re-resolving a whole store after a chart edit does each distinct run once.
+ * Keyed on the chart object itself: a fresh context load brings fresh rows and an empty memo.
+ */
+const chartMatchMemo = new WeakMap<SizingChartRow, Map<string, ReturnType<typeof matchRawFormat>>>();
+
+function matchChartRows(
+  rawSizeFormat: string,
+  chart: SizingChartRow,
+  sizeType: SizeType,
+): ReturnType<typeof matchRawFormat> {
+  let byFormat = chartMatchMemo.get(chart);
+  if (!byFormat) {
+    byFormat = new Map();
+    chartMatchMemo.set(chart, byFormat);
+  }
+  const key = `${sizeType}\u0000${rawSizeFormat}`;
+  let matched = byFormat.get(key);
+  if (!matched) {
+    matched = matchRawFormat(rawSizeFormat, chart.chartRows, sizeType);
+    byFormat.set(key, matched);
+  }
+  return matched;
 }
 
 function unresolved(
@@ -247,7 +279,7 @@ export function resolveProductChart(
   const sizeType = input.sizeType ?? sizeTypeFor(input.brandKey, context.sizeSettings);
   const candidateMatches = selectable.map((chart) => ({
     chart,
-    matched: matchRawFormat(input.rawSizeFormat!, chart.chartRows, sizeType),
+    matched: matchChartRows(input.rawSizeFormat!, chart, sizeType),
   }));
   let fullyMatched = candidateMatches.filter(({ matched }) => matched.fullyMatched);
   if (fullyMatched.length > 1) fullyMatched = narrowByPriority(fullyMatched, input);
@@ -277,6 +309,12 @@ export function resolveProductChart(
     return unresolved("sizes-unresolved", leafKey, canonicalBrandKey, unmatched);
   }
   const { chart, matched } = fullyMatched[0];
+  const purchasable = input.purchasableSizeFormat === undefined
+    ? null
+    : new Set(splitRawSizeValue(input.purchasableSizeFormat ?? "").map(comparableLabel));
+  const publishedMatches = purchasable
+    ? matched.matches.filter((match) => purchasable.has(comparableLabel(match.raw)))
+    : matched.matches;
 
   return {
     status: "matched",
@@ -284,8 +322,8 @@ export function resolveProductChart(
     canonicalBrandKey,
     chart,
     chartKey: chartKey(canonicalBrandKey, leafGroup, chart.variantName, sizeType, chart.version),
-    canonicalSizes: matched.matches.map((match) => canonicalLabelForRow(match.row!, sizeType)),
-    sizeMatches: matched.matches.map((match) => ({
+    canonicalSizes: publishedMatches.map((match) => canonicalLabelForRow(match.row!, sizeType)),
+    sizeMatches: publishedMatches.map((match) => ({
       raw: match.raw,
       canonical: canonicalLabelForRow(match.row!, sizeType),
       row: match.row!,

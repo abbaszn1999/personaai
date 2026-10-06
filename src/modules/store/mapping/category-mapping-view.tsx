@@ -1117,6 +1117,21 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
                         </span>
                       </div>
                     )}
+
+                    {!isMapped && cat.status === "unmapped" && cat.inheritedPersonaPath && (
+                      <div
+                        className="ml-6 flex items-center justify-between gap-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-2.5 py-1 text-[11px] font-medium text-[var(--color-text-secondary)]"
+                        title={`No mapping of its own, so products here use ${cat.inheritedFromName ?? "the parent category"}'s mapping.`}
+                      >
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <span className="shrink-0 font-bold">Inherited from {cat.inheritedFromName ?? "parent"}:</span>
+                          <span className="truncate font-mono font-semibold">{cat.inheritedPersonaPath}</span>
+                        </div>
+                        <span className="shrink-0 rounded border border-[var(--color-border)] bg-[var(--color-surface-sticky)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider">
+                          Inherited
+                        </span>
+                      </div>
+                    )}
                   </div>
                 );
               })

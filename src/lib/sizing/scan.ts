@@ -2,7 +2,7 @@ import { createCatalogPager, membership } from "@/lib/catalog/pager";
 import { resolveCategoryPaths } from "@/lib/catalog/index-product";
 import { buildCategoryIndex } from "@/lib/catalog/category-parents";
 import { buildPersonaMappingConfig, resolvePersonaPaths, type ResolvedPersonaPath } from "@/lib/catalog/persona-mapping";
-import { extractVariantAttributes } from "@/lib/catalog/acs/map-product";
+import { extractVariantAttributes, resolveProductBrand } from "@/lib/catalog/acs/map-product";
 import { sleep } from "@/lib/catalog/timeout";
 import type { StoreConnectionRow } from "@/lib/db/store-connections";
 import { replaceSizingCoverage } from "@/lib/db/sizing-coverage";
@@ -135,10 +135,10 @@ export async function runSizingScan(connection: StoreConnectionRow, run: SizingR
           externalId: raw.externalId,
           sku: raw.sku,
           title: raw.title,
-          // A group the merchant reassigned to `brand` in Stage 1 wins over the platform's own
+          // A group or column the merchant pointed at `brand` in Stage 1 wins over the platform's own
           // field, which is the whole point of the override — some stores keep the real brand in an
           // attribute and leave the vendor field as their own shop name.
-          brandField: variants.brands[0] ?? raw.brand,
+          brandField: resolveProductBrand(raw, connection.acsFieldMapping),
           sizingGroup: isSizingGroup(override) ? override : primaryPersonaPath?.sizingGroup ?? null,
           sizingCategoryId: primaryPersonaPath?.key ?? null,
           sizes: [...variants.sizes],

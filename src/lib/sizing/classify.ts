@@ -8,8 +8,8 @@ import { UNKNOWN_BRAND_KEY } from "./keys";
  *
  * 1. Scan coverage contains the mapped brand field exactly as the store supplied it.
  * 2. Empty fields are marked `none` without involving a model.
- * 3. Every distinct non-empty brand in the selected, sized catalog is sent to Gemini together.
- * 4. The one response splits that list into `global_brands` and `private_brands`.
+ * 3. Every distinct non-empty brand in the selected, sized catalog is sent to Gemini, in chunks.
+ * 4. Each response splits its chunk into `global_brands` and `private_brands`.
  *
  * There is no product-level brand inference and no per-brand request. Products already carry their
  * brand; Gemini only decides which of the two routing buckets each distinct name belongs to.
@@ -67,14 +67,15 @@ export async function runBrandClassification(connection: StoreConnectionRow): Pr
   if (entries.length === 0) return result;
 
   const names = entries.map(([, name]) => name);
-  const verdicts = await classifyCatalogBrands(names, storeContextFor(connection));
+  const verdicts = await classifyInChunks(names, storeContextFor(connection));
   const unanswered = verdicts.reduce<number[]>((missing, verdict, index) => {
     if (!verdict) missing.push(index);
     return missing;
   }, []);
   if (unanswered.length > 0) {
-    // The contract says every input appears exactly once. Treat a partial answer as a failed single
-    // request instead of publishing a half-classified Stage 2 and quietly routing the rest nowhere.
+    // The contract says every input appears exactly once, and `classifyInChunks` has already re-asked
+    // for whatever a response left out. Anything still missing fails the run instead of publishing a
+    // half-classified Stage 2 and quietly routing the rest nowhere.
     throw new GeminiApiError(
       `Brand classification omitted or duplicated ${unanswered.length} of ${names.length} brand(s).`
     );
@@ -160,9 +161,50 @@ const CLASSIFY_SCHEMA = {
 } as const;
 
 /**
+ * Brands per request. A store can carry thousands of distinct vendor strings, and one response that
+ * has to echo every one of them back exactly once is where models start dropping and merging names —
+ * which failed the whole run. A few hundred is comfortably inside what one response reproduces.
+ */
+export const CLASSIFY_CHUNK_SIZE = 150;
+
+/**
+ * Classifies the full list in sequential chunks, re-asking once for any name a chunk left out.
+ *
+ * Verdicts are returned for the whole list, in input order, before anything is persisted, so a failure
+ * in a later chunk cannot leave a store half-classified.
+ */
+async function classifyInChunks(names: string[], store: string): Promise<Array<BrandVerdict | null>> {
+  const verdicts: Array<BrandVerdict | null> = names.map(() => null);
+
+  for (let start = 0; start < names.length; start += CLASSIFY_CHUNK_SIZE) {
+    const indexes = names.slice(start, start + CLASSIFY_CHUNK_SIZE).map((_, offset) => start + offset);
+    const answered = await classifyCatalogBrands(
+      indexes.map((index) => names[index]!),
+      store
+    );
+    indexes.forEach((index, offset) => {
+      verdicts[index] = answered[offset] ?? null;
+    });
+
+    const omitted = indexes.filter((index) => !verdicts[index]);
+    if (omitted.length === 0) continue;
+
+    const retried = await classifyCatalogBrands(
+      omitted.map((index) => names[index]!),
+      store
+    );
+    omitted.forEach((index, offset) => {
+      verdicts[index] = retried[offset] ?? null;
+    });
+  }
+
+  return verdicts;
+}
+
+/**
  * The only LLM call in brand identification/classification.
  *
- * The request contains the complete distinct non-empty brand list for the selected, sized catalog.
+ * The request contains one chunk of the distinct non-empty brand list for the selected, sized catalog.
  * Its response is the two arrays the product specifies; Null / No brand SKUs bypass this function.
  */
 async function classifyCatalogBrands(
@@ -177,7 +219,7 @@ async function classifyCatalogBrands(
     "",
     `Storefront: ${store}`,
     "",
-    `All catalog brands:\n${names.map((name) => `- ${name}`).join("\n")}`,
+    `Catalog brands to classify:\n${names.map((name) => `- ${name}`).join("\n")}`,
   ].join("\n");
 
   let text: string | undefined;

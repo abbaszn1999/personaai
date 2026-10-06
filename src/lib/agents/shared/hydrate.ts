@@ -8,13 +8,11 @@ import type { StoreConnectionRow } from "@/lib/db/store-connections";
 import { categoryToGarmentSlot } from "@/lib/retrieval/taxonomy";
 import type { CatalogCandidate } from "@/lib/retrieval/types";
 import { productImageProxyUrl } from "@/lib/images/product-image";
+import { variantTypeForOptionName } from "@/lib/catalog/option-groups";
 import { hostnameOf, isHostBlocked, recordHostFailure, recordHostSuccess } from "@/lib/net/host-health";
 
 function guessVariantType(optionName: string): ProductVariant["type"] {
-  const name = optionName.toLowerCase();
-  if (name.includes("size")) return "size";
-  if (name.includes("colour") || name.includes("color")) return "color";
-  return "style";
+  return variantTypeForOptionName(optionName);
 }
 
 function toVariants(groups: VariantOptionGroups | undefined, inStock: boolean): ProductVariant[] {
@@ -130,7 +128,8 @@ export async function hydrateLiveFacts(
             credentials.wpUsername ?? "",
             credentials.wpAppPassword ?? "",
             externalIds,
-            signal
+            signal,
+            connection.storeCurrency
           );
 
     recordHostSuccess(storeHost);

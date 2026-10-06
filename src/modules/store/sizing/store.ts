@@ -69,6 +69,12 @@ export interface ManualChartTarget {
    *  merchant editing a copy starts from the same coverage rather than an empty one. Absent (not
    *  empty) for a fresh gap, which has no source chart to copy coverage from. */
   coversLeaves?: string[];
+  /** The leaves pre-checked when the editor opens. Only differs from `coversLeaves` when editing a
+   *  saved chart, where `coversLeaves` also offers uncovered leaves the chart could take on. */
+  selectedLeaves?: string[];
+  /** Set only when editing a saved chart, so the save updates that row by id instead of matching on
+   *  its name. */
+  chartId?: string;
   /** True when replacing an existing private chart rather than filling a new gap or making a copy. */
   editing?: boolean;
 }
@@ -121,6 +127,8 @@ interface SizingUiState {
   /** Tab 3's deterministic routing of those lists. */
   routing: RoutingPlan;
   mappingApproved: boolean;
+  lastPublishedAt: string | null;
+  personaMappingUpdatedAt: string | null;
   /** True only for the initial read, so a poll refresh never blanks the stage back to a spinner. */
   runLoading: boolean;
   runError: string | null;
@@ -245,7 +253,7 @@ interface SizingUiState {
    *  needed classification. */
   sampleScanned: boolean;
   loadSample: (options?: { force?: boolean }) => Promise<void>;
-  goToSamplePage: (page: number) => Promise<void>;
+  goToSamplePage: (page: number, options?: { fresh?: boolean }) => Promise<void>;
   setSamplePageSize: (size: number) => Promise<void>;
   setSampleBrandType: (type: ServerBrandType | null) => Promise<void>;
   setSampleParent: (parent: string | null) => Promise<void>;
@@ -317,6 +325,8 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
   identification: EMPTY_IDENTIFICATION,
   routing: EMPTY_ROUTING,
   mappingApproved: false,
+  lastPublishedAt: null,
+  personaMappingUpdatedAt: null,
   runLoading: false,
   runError: null,
   startingRun: false,
@@ -363,6 +373,8 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
         identification: data.identification ?? EMPTY_IDENTIFICATION,
         routing: data.routing ?? EMPTY_ROUTING,
         mappingApproved: data.mappingApproved,
+        lastPublishedAt: data.lastPublishedAt ?? null,
+        personaMappingUpdatedAt: data.personaMappingUpdatedAt ?? null,
         runLoading: false,
         runError: null,
         ...(scanRestarted
@@ -599,17 +611,21 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
   manualChartTarget: null,
 
   openManualChart: (gap) => {
-    const coversLeaves = manualChartLeaves(
-      get().chartLeafCounts
-        .filter((entry) => entry.skuCount > 0)
-        .map((entry) => ({
-          brandKey: entry.brandKey,
-          sizingCategory: personaSizingGroup(entry.leafKey.split(":")[1] ?? "") ?? "",
-          categoryId: entry.leafKey,
-        })),
-      gap.brandKey,
-      gap.sizingCategory,
-    );
+    // The server already knows which stocked leaves no chart claims, so a partially charted pair opens
+    // on only what is left. The leaf-count derivation remains for a scan with no leaf-level coverage.
+    const coversLeaves = gap.missingLeaves?.length
+      ? [...gap.missingLeaves]
+      : manualChartLeaves(
+          get().chartLeafCounts
+            .filter((entry) => entry.skuCount > 0)
+            .map((entry) => ({
+              brandKey: entry.brandKey,
+              sizingCategory: personaSizingGroup(entry.leafKey.split(":")[1] ?? "") ?? "",
+              categoryId: entry.leafKey,
+            })),
+          gap.brandKey,
+          gap.sizingCategory,
+        );
     set({
       manualChartTarget: {
         id: gap.id,
@@ -631,9 +647,14 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
 
   editManualChart: (chart) => {
     if (chart.shared || !isSizingGroup(chart.sizingCategory)) return;
+    const { chartGapsNotFound, chartGapsNoBrand } = get();
+    const uncovered = [...chartGapsNotFound, ...chartGapsNoBrand]
+      .filter((gap) => gap.brandKey === chart.brandKey && gap.sizingCategory === chart.sizingCategory)
+      .flatMap((gap) => gap.missingLeaves ?? []);
     set({
       manualChartTarget: {
         id: chart.id,
+        chartId: chart.id,
         brandKey: chart.brandKey,
         brandName: chart.brand,
         sizingCategory: chart.sizingCategory,
@@ -642,7 +663,8 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
         variantName: chart.variantName,
         seedRows: draftRowsFrom(chart.chartRows, chart.sizingCategory, chart.audience),
         audience: chart.audience,
-        coversLeaves: chart.coversLeaves,
+        coversLeaves: [...new Set([...chart.coversLeaves, ...uncovered])],
+        selectedLeaves: [...chart.coversLeaves],
         editing: true,
       },
     });
@@ -660,6 +682,7 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           brandKey: target.brandKey,
+          chartId: target.chartId ?? null,
           sizingCategory: target.sizingCategory,
           variantName,
           rows,
@@ -713,10 +736,10 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
     // Refresh re-counts too: the usual reason to press it is having changed the category selection
     // in another tab, which is exactly when the held total is the stale part.
     if (options?.force) set({ sampleTotal: null });
-    await get().goToSamplePage(get().samplePage);
+    await get().goToSamplePage(get().samplePage, { fresh: options?.force === true });
   },
 
-  goToSamplePage: async (page) => {
+  goToSamplePage: async (page, options) => {
     const { samplePageSize, sampleCursors } = get();
     const cursor = sampleCursors[page - 1] ?? null;
 
@@ -736,6 +759,8 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
       // Asked for once and then carried. The server derives it from coverage, because "All items"
       // means the five sizing families and excludes Main-category-only products.
       if (get().sampleTotal === null) params.set("count", "1");
+      // A deliberate refresh re-reads these products from the store instead of the recent read.
+      if (options?.fresh) params.set("fresh", "1");
 
       const res = await fetch(`/api/store-connection/sizing/sample?${params.toString()}`);
       const data = (await res.json()) as Partial<SizingSampleResponse> & { error?: string };

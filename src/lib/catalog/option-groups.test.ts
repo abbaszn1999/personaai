@@ -1,5 +1,44 @@
 import { describe, expect, it } from "vitest";
-import { customAttributeKeyFor, sanitizeAttributeKeySegment } from "./option-groups";
+import {
+  customAttributeKeyFor,
+  detectDefaultVariantRole,
+  isColorOptionName,
+  isSizeOptionName,
+  sanitizeAttributeKeySegment,
+  variantTypeForOptionName,
+} from "./option-groups";
+
+describe("size and colour option names", () => {
+  it.each(["Size", "size", "Taille", "Talla", "Größe", "GROSSE", "Maat", "Taglia", "Tamanho", "pa_size", "attribute_pa_taille", "المقاس", "Shoe Size"])(
+    "reads %s as a size",
+    (name) => {
+      expect(isSizeOptionName(name)).toBe(true);
+      expect(detectDefaultVariantRole(name.trim().toLowerCase())).toBe("size");
+    },
+  );
+
+  it.each(["Color", "Colour", "Couleur", "Farbe", "Colore", "Kleur", "Cor", "pa_color", "اللون", "Frame Color"])(
+    "reads %s as a colour",
+    (name) => {
+      expect(isColorOptionName(name)).toBe(true);
+      expect(detectDefaultVariantRole(name.trim().toLowerCase())).toBe("color");
+    },
+  );
+
+  it("does not take unrelated options for either", () => {
+    for (const name of ["Material", "Style", "Fit", "Sizzle", "Corduroy"]) {
+      expect(isSizeOptionName(name)).toBe(false);
+      expect(isColorOptionName(name)).toBe(false);
+    }
+  });
+
+  it("types shopper-facing variants, size first", () => {
+    expect(variantTypeForOptionName("Taille")).toBe("size");
+    expect(variantTypeForOptionName("Couleur")).toBe("color");
+    expect(variantTypeForOptionName("Size / Color")).toBe("size");
+    expect(variantTypeForOptionName("Finish")).toBe("style");
+  });
+});
 
 describe("sanitizeAttributeKeySegment", () => {
   it("lowercases and collapses anything outside a-z0-9_ into a single underscore", () => {

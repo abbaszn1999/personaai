@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getWordPressProductCount, listWooCatalogPage, mapWooWebhookProduct, WooCommerceApiError } from "./client";
+import {
+  fetchWooStoreCurrency,
+  getWordPressProductCount,
+  listWooCatalogPage,
+  mapWooWebhookProduct,
+  WooCommerceApiError,
+} from "./client";
 
 // Keeps the transient-retry tests below instant rather than paying the real backoff delay —
 // nothing here exercises `createTimeoutSignal`'s real timer either.
@@ -208,5 +214,41 @@ describe("listWooCatalogPage skipVariants", () => {
     await listWooCatalogPage("https://store.example", "admin", "secret", { page: 1 });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("store currency", () => {
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+  it("reads the store's configured currency code", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      expect(String(url)).toContain("/data/currencies/current");
+      return json({ code: "aed", name: "UAE dirham" });
+    }));
+
+    await expect(fetchWooStoreCurrency("https://store.example", "admin", "secret")).resolves.toBe("AED");
+  });
+
+  it("returns null rather than throwing when the store will not say", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ message: "nope" }, 404)));
+    await expect(fetchWooStoreCurrency("https://store.example", "admin", "secret")).resolves.toBeNull();
+  });
+
+  it("prices products and variants in the connection's currency, falling back to USD", async () => {
+    const product = {
+      id: 7, name: "Tee", description: "", short_description: "", price: "20", images: [], categories: [],
+      tags: [], attributes: [], stock_status: "instock" as const, sku: "T", permalink: "", type: "simple",
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => json([product])));
+
+    const priced = await listWooCatalogPage("https://store.example", "a", "b", { page: 1, currency: "AED" });
+    expect(priced.products[0]?.currency).toBe("AED");
+    expect(priced.products[0]?.variants[0]?.currency).toBe("AED");
+
+    const fallback = await listWooCatalogPage("https://store.example", "a", "b", { page: 1 });
+    expect(fallback.products[0]?.currency).toBe("USD");
+
+    expect(mapWooWebhookProduct(product, "AED")?.currency).toBe("AED");
   });
 });

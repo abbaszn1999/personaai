@@ -20,9 +20,8 @@ const CONNECTION_ID = "11111111-1111-1111-1111-111111111111";
 function request(overrides: Record<string, string> = {}): Request {
   const params = new URLSearchParams({
     brand: "Acme",
+    target: "men",
     fitGroup: "tops",
-    fitAudience: "mens",
-    chartVariant: "Men's Core",
     chest: "98",
     waist: "82",
     ...overrides,
@@ -45,7 +44,7 @@ function hit(id: string, rows: object[]): AcsSearchResultItem {
     product: {
       id: `${CONNECTION_ID}_${id}`,
       title: `Tee ${id}`,
-      categories: ["persona", "persona > men > top > t-shirt"],
+      categories: ["persona", "persona > men", "persona > men > top", "persona > men > top > t-shirt"],
       brands: ["Acme"],
       availability: "IN_STOCK",
       images: [{ uri: "https://example.com/tee.jpg" }],
@@ -85,6 +84,7 @@ describe("GET /api/store-connection/sizing/tester/products", () => {
   it("validates the sizing selection before searching", async () => {
     expect((await GET(request({ fitGroup: "hats" }))).status).toBe(400);
     expect((await GET(request({ chest: "" }))).status).toBe(400);
+    expect((await GET(request({ target: "" }))).status).toBe(400);
     expect(searchProducts).not.toHaveBeenCalled();
   });
 
@@ -104,11 +104,11 @@ describe("GET /api/store-connection/sizing/tester/products", () => {
     const response = await GET(request());
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ products: [], hitCount: 0, totalSize: 0 });
+    expect(await response.json()).toMatchObject({ products: [], hitCount: 0, totalSize: 0, categoryProducts: 0 });
     expect(searchProducts).not.toHaveBeenCalled();
   });
 
-  it("sends the shared fit filter with tenant/category scope and returns ACS's answer and the filter", async () => {
+  it("sends the shared fit filter for the category with tenant/category scope and returns ACS's answer and the filter", async () => {
     vi.mocked(searchProducts).mockResolvedValue({
       totalSize: 2,
       results: [
@@ -129,18 +129,21 @@ describe("GET /api/store-connection/sizing/tester/products", () => {
       query: "",
     });
     expect(call.extraFilter).toContain(
-      '(attributes.fit_group: ANY("tops") AND attributes.fit_chest_min: IN(*, 100i) AND attributes.fit_chest_max: IN(96i, *))'
+      '(attributes.fit_group: ANY("tops") AND attributes.fit_chest_cm: ANY("96", "97", "98", "99", "100"))'
     );
+    expect(call.extraFilter).toContain('(categories: ANY("persona > men", "persona > unisex"))');
     expect(call.extraFilter).not.toContain("fit_waist");
-    expect(call.extraFilter).not.toContain("fit_size_labels");
+    expect(call.extraFilter).not.toContain("fit_chart_variant");
 
     expect(response.status).toBe(200);
     expect(body.filter).toBe(call.extraFilter);
     expect(body.tolerances).toEqual([{ measurement: "chest", value: 98, tolerance: 2 }]);
-    expect(body).toMatchObject({ hitCount: 2, totalSize: 2, pages: 1, truncated: false });
-    expect(body.products.map((product: { id: string; fitSizes: string[] }) => [product.id, product.fitSizes])).toEqual([
-      ["p1", ["M", "L"]],
-      ["p2", []],
+    expect(body.measurements).toEqual({ chest: 98, waist: 82 });
+    expect(body.departments).toEqual(["persona > men", "persona > unisex"]);
+    expect(body).toMatchObject({ hitCount: 2, totalSize: 2, pages: 1, truncated: false, categoryProducts: null });
+    expect(body.products.map((product: { id: string; fitSizes: string[]; leafKey: string }) => [product.id, product.fitSizes, product.leafKey])).toEqual([
+      ["p1", ["M", "L"], "men:top:t-shirt"],
+      ["p2", [], "men:top:t-shirt"],
     ]);
   });
 
@@ -148,40 +151,41 @@ describe("GET /api/store-connection/sizing/tester/products", () => {
     vi.mocked(searchProducts).mockRejectedValue(
       Object.assign(new Error("ACS API error 400"), {
         status: 400,
-        body: 'Unsupported field \\"attributes.fit_foot_length_min\\" on \\":\\" operator.',
+        body: 'Unsupported field \\"attributes.fit_foot_length_cm\\" on \\":\\" operator.',
       }),
     );
 
-    const params = new URLSearchParams({
-      brand: "Acme", fitGroup: "footwear", fitAudience: "mens", chartVariant: "Shoes", footLength: "27",
-    });
+    const params = new URLSearchParams({ brand: "Acme", target: "men", fitGroup: "footwear", footLength: "27" });
     const shoes = await GET(new Request(`http://localhost/api/store-connection/sizing/tester/products?${params}`));
     expect(shoes.status).toBe(422);
-    expect(await shoes.json()).toMatchObject({ reason: "unsupported_field", field: "attributes.fit_foot_length_min" });
+    const body = await shoes.json();
+    expect(body).toMatchObject({ reason: "unsupported_field", field: "attributes.fit_foot_length_cm" });
+    expect(body.error).toContain("No published product carries foot length sizing yet");
   });
 
-  it("tells an empty chart from an empty fit by asking again without the measurements", async () => {
+  it("tells an empty category from an empty fit by asking again without the measurements", async () => {
     vi.mocked(searchProducts)
       .mockResolvedValueOnce({ results: [], totalSize: 0 })
       .mockResolvedValueOnce({ results: [], totalSize: 0 });
-    const emptyChart = await (await GET(request())).json();
-    expect(emptyChart.chartProducts).toBe(0);
+    const emptyCategory = await (await GET(request())).json();
+    expect(emptyCategory.categoryProducts).toBe(0);
     const scope = vi.mocked(searchProducts).mock.calls[1][0];
-    expect(scope.extraFilter).toContain('attributes.fit_chart_variant: ANY("Men\'s Core")');
+    expect(scope.extraFilter).toContain('(attributes.fit_group: ANY("tops"))');
+    expect(scope.extraFilter).toContain('(categories: ANY("persona > men", "persona > unisex"))');
     expect(scope.extraFilter).not.toContain("fit_chest");
 
     vi.mocked(searchProducts)
       .mockResolvedValueOnce({ results: [], totalSize: 0 })
       .mockResolvedValueOnce({ results: [hit("p1", [{ s: "M", chest: [94, 98] }])], totalSize: 12 });
     const emptyFit = await (await GET(request())).json();
-    expect(emptyFit.chartProducts).toBe(12);
+    expect(emptyFit.categoryProducts).toBe(12);
 
     vi.mocked(searchProducts).mockResolvedValueOnce({
       results: [hit("p1", [{ s: "M", chest: [94, 98] }])],
       totalSize: 1,
     });
     vi.mocked(searchProducts).mockClear();
-    expect((await (await GET(request())).json()).chartProducts).toBeNull();
+    expect((await (await GET(request())).json()).categoryProducts).toBeNull();
     expect(searchProducts).toHaveBeenCalledTimes(1);
   });
 
@@ -195,5 +199,17 @@ describe("GET /api/store-connection/sizing/tester/products", () => {
     expect(vi.mocked(searchProducts).mock.calls[1][0].pageToken).toBe("page-2");
     expect(body).toMatchObject({ hitCount: 2, pages: 2, truncated: false });
     expect(body.products).toHaveLength(2);
+  });
+
+  it("stops at the page limit and says more pages exist", async () => {
+    vi.mocked(searchProducts).mockImplementation(async () => ({
+      results: [hit(`p${Math.random()}`, [{ s: "M", chest: [94, 98] }])],
+      nextPageToken: "more",
+    }));
+
+    const body = await (await GET(request())).json();
+
+    expect(searchProducts).toHaveBeenCalledTimes(10);
+    expect(body).toMatchObject({ pages: 10, truncated: true });
   });
 });

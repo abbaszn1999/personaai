@@ -1,5 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { manualChartAudiences, manualChartLeaves } from "./manual-chart-coverage";
+import { manualChartAudiences, manualChartLeaves, suggestChartName } from "./manual-chart-coverage";
+
+describe("suggestChartName", () => {
+  it("names a chart after the department and the subcategories it covers", () => {
+    expect(suggestChartName(["men:top:shirt", "men:top:polo-shirt"])).toBe("Men - Polo-Shirt, Shirt");
+  });
+
+  it("summarises long lists and keeps departments apart", () => {
+    const name = suggestChartName([
+      "men:top:shirt",
+      "men:top:polo-shirt",
+      "men:top:t-shirt",
+      "men:top:sweater",
+      "women:top:blouse",
+    ]);
+    expect(name).toContain("Men - ");
+    expect(name).toContain("+1");
+    expect(name).toContain(" / Women - Blouse");
+  });
+
+  it("returns an empty name when nothing is selected", () => {
+    expect(suggestChartName([])).toBe("");
+  });
+});
 
 const paths = [
   {

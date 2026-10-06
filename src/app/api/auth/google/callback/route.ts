@@ -1,14 +1,25 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getIronSession } from "iron-session";
 import { randomUUID } from "crypto";
-import { verifyState, exchangeCodeForProfile } from "@/modules/auth/lib/google";
+import {
+  exchangeCodeForProfile,
+  GOOGLE_STATE_COOKIE,
+  verifyState,
+} from "@/modules/auth/lib/google";
 import { sessionOptions, type SessionData } from "@/modules/auth/lib/session";
 import { buildSessionProfile } from "@/modules/auth/lib/get-user";
 import { getUserByEmail, createGoogleUser, linkGoogleAccount } from "@/lib/db/users";
 import { createSession } from "@/lib/db/sessions";
 
 const APP_URL = process.env.APP_URL ?? "http://localhost:3000";
+
+function redirectTo(path: string): NextResponse {
+  const res = NextResponse.redirect(`${APP_URL}${path}`);
+  // Single use, whatever the outcome.
+  res.cookies.set(GOOGLE_STATE_COOKIE, "", { path: "/api/auth/google", maxAge: 0 });
+  return res;
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -18,18 +29,22 @@ export async function GET(req: NextRequest) {
     const error = searchParams.get("error");
 
     if (error) {
-      return Response.redirect(`${APP_URL}/sign-in?error=google_cancelled`);
+      return redirectTo("/sign-in?error=google_cancelled");
     }
 
     if (!code || !state) {
-      return Response.redirect(`${APP_URL}/sign-in?error=google_invalid`);
+      return redirectTo("/sign-in?error=google_invalid");
     }
 
-    if (!verifyState(state)) {
-      return Response.redirect(`${APP_URL}/sign-in?error=google_csrf`);
+    if (!verifyState(state, req.cookies.get(GOOGLE_STATE_COOKIE)?.value)) {
+      return redirectTo("/sign-in?error=google_csrf");
     }
 
     const profile = await exchangeCodeForProfile(code);
+    // Only an address Google itself has verified proves the person owns the inbox.
+    if (!profile.emailVerified) {
+      return redirectTo("/sign-in?error=google_unverified");
+    }
 
     // Check if a user with this email already exists
     let user = await getUserByEmail(profile.email);
@@ -38,11 +53,19 @@ export async function GET(req: NextRequest) {
       // Keep a photo already on the account (including an upload). Google's
       // picture is used only when the account has none yet.
       const profileImageUrl = user.profile_image_url || profile.profileImageUrl || null;
+      // An unverified password account on this address was opened by whoever typed it in. Google
+      // has just proved who owns the inbox, so that password stops working here.
+      const revokePassword = !user.email_verified && Boolean(user.password_hash);
       await linkGoogleAccount(user.id, {
         googleId: profile.googleId,
         profileImageUrl,
+        revokePassword,
       });
-      user = { ...user, profile_image_url: profileImageUrl };
+      user = {
+        ...user,
+        profile_image_url: profileImageUrl,
+        ...(revokePassword ? { password_hash: null, provider: "google" } : {}),
+      };
     } else {
       // Create new Google user
       const newUser = await createGoogleUser({
@@ -54,7 +77,7 @@ export async function GET(req: NextRequest) {
       });
 
       if (!newUser) {
-        return Response.redirect(`${APP_URL}/sign-in?error=google_failed`);
+        return redirectTo("/sign-in?error=google_failed");
       }
       user = newUser;
     }
@@ -79,10 +102,10 @@ export async function GET(req: NextRequest) {
     session.profile = buildSessionProfile(freshUser);
     await session.save();
 
-    const dest = user.has_completed_onboarding ? "/" : "/onboarding";
-    return Response.redirect(`${APP_URL}${dest}`);
+    // Same destination as an email sign-in.
+    return redirectTo(user.has_completed_onboarding ? "/dashboard" : "/onboarding");
   } catch (err) {
     console.error("[google/callback]", err);
-    return Response.redirect(`${APP_URL}/sign-in?error=google_failed`);
+    return redirectTo("/sign-in?error=google_failed");
   }
 }

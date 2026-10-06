@@ -183,6 +183,38 @@ export async function getLatestPublishedSizingRun(connectionId: string): Promise
   return data ? rowToRun(data) : null;
 }
 
+/** When this store last went live in ACS, regardless of any newer run still in progress. */
+export async function getLastPublishedAt(connectionId: string): Promise<string | null> {
+  return (await getLatestPublishedSizingRun(connectionId))?.publishedAt ?? null;
+}
+
+/**
+ * The id every product written to ACS right now should carry as `persona_publish_id`.
+ *
+ * A publish stamps its own run id on everything it writes, so once it settles anything still
+ * carrying another id is leftover from an earlier catalog and can be retired. Writes outside a
+ * publish (a webhook, a category-scope backfill) carry the run id currently live in ACS instead, so
+ * they are never mistaken for leftovers by the publish that finishes next.
+ */
+export async function getAcsPublishStampId(connectionId: string): Promise<string | null> {
+  const { data, error } = await db
+    .from("sizing_runs")
+    .select("id")
+    .eq("connection_id", connectionId)
+    .eq("stage", "publish")
+    .in("status", ["pending", "running"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[db/sizing-runs getAcsPublishStampId]", error);
+  }
+  if (data) return (data as { id: string }).id;
+
+  return (await getLatestPublishedSizingRun(connectionId))?.id ?? null;
+}
+
 export interface SizingRunPatch {
   status?: SizingRunStatus;
   stage?: SizingRunStage;

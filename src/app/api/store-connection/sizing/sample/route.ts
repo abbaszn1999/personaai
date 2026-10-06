@@ -2,9 +2,14 @@ import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
 import { createCatalogPager } from "@/lib/catalog/pager";
 import type { RawCatalogProduct } from "@/lib/catalog/sync-types";
-import { resolveCategoryPaths } from "@/lib/catalog/index-product";
-import { buildPersonaMappingConfig, resolvePersonaPaths } from "@/lib/catalog/persona-mapping";
-import { extractVariantAttributes } from "@/lib/catalog/acs/map-product";
+import {
+  buildPersonaMappingConfig,
+  personaPathLabel,
+  resolvePersonaPaths,
+  storeCategoryTrail,
+} from "@/lib/catalog/persona-mapping";
+import { getRawProducts } from "@/lib/catalog/raw-product-cache";
+import { extractVariantAttributes, resolveProductBrand } from "@/lib/catalog/acs/map-product";
 import { listSizingCoverage, type BrandType } from "@/lib/db/sizing-coverage";
 import {
   listSizingProductRecordsPage,
@@ -37,6 +42,9 @@ const DEFAULT_PAGE_SIZE = 25;
  */
 const STORE_FETCH_PAGE_SIZE = 100;
 
+/** How old a product read may be before a page re-reads it from the store. */
+const SAMPLE_MAX_AGE_MS = 10 * 60_000;
+
 const BRAND_TYPES: readonly BrandType[] = ["global", "private", "none", "unclassified"];
 
 export interface SizingSampleRow {
@@ -60,7 +68,14 @@ export interface SizingSampleRow {
   sizes: string[];
   /** The deduplicated size string this product contributes to its coverage row. */
   rawFormat: string | null;
+  /** The merchant's own category this product is sized from, root first — the one its Persona path
+   *  below was mapped from, not just whichever category the platform happened to list first. */
   storeCategoryPath: string[];
+  /** Where that category sits in Persona, as the Mapping page words it ("Women > Tops > T-Shirts"). */
+  personaPath: string | null;
+  personaLeafKey: string | null;
+  /** The merchant ancestor the mapping was taken from, when the product's own category has none. */
+  mappingInheritedFrom: string[] | null;
   primaryLeafKey?: string | null;
   canonicalBrandKey?: string;
   resolutionStatus?: ProductChartStatus;
@@ -200,10 +215,15 @@ export async function GET(request: Request) {
 
     const toRow = (raw: RawCatalogProduct, indexed?: SizingProductRecordRow): SizingSampleRow => {
       const variants = extractVariantAttributes(raw, connection.acsFieldMapping);
-      const storeCategoryPaths = resolveCategoryPaths(raw, connection);
       const primaryPersonaPath = resolvePersonaPaths(raw.sourceCategoryIds, personaConfig)[0] ?? null;
+      const merchantPath = primaryPersonaPath?.sourceCategoryId
+        ? storeCategoryTrail(primaryPersonaPath.sourceCategoryId, connection.categories)
+        : [];
+      const inheritedFrom = primaryPersonaPath?.inheritedFromCategoryId
+        ? storeCategoryTrail(primaryPersonaPath.inheritedFromCategoryId, connection.categories)
+        : null;
 
-      const brand = variants.brands[0] ?? raw.brand;
+      const brand = resolveProductBrand(raw, connection.acsFieldMapping);
       const brandKey = normalizeBrandKey(brand);
       const override = connection.skuParentOverrides[raw.externalId];
 
@@ -211,9 +231,12 @@ export async function GET(request: Request) {
       // own category mapping and their Stage 2 corrections. The whole point of this preview is to
       // show what the pipeline currently sees, so a second way of deciding a product's parent here
       // would defeat it.
+      // A Stage 2 correction made since the scan wins over the scan's own answer: Preview and Publish
+      // already size the product on it, so this row must say the same.
       const inheritedParent = primaryPersonaPath?.sizingGroup ?? null;
-      const sizingCategory = indexed?.sizingCategory ??
-        (isSizingGroup(override) ? override : primaryPersonaPath?.sizingGroup ?? null);
+      const sizingCategory = isSizingGroup(override)
+        ? override
+        : indexed?.sizingCategory ?? primaryPersonaPath?.sizingGroup ?? null;
 
       const row: SizingSampleRow = {
         externalId: raw.externalId,
@@ -232,14 +255,18 @@ export async function GET(request: Request) {
         inheritedCategory: inheritedParent,
         sizes: [...variants.sizes],
         rawFormat: toRawFormat(variants.sizes),
-        storeCategoryPath: storeCategoryPaths[0] ?? [],
+        storeCategoryPath: merchantPath,
+        personaPath: primaryPersonaPath ? personaPathLabel(primaryPersonaPath, personaConfig) : null,
+        personaLeafKey: primaryPersonaPath?.key ?? null,
+        mappingInheritedFrom: inheritedFrom && inheritedFrom.length > 0 ? inheritedFrom : null,
       };
       if (resolutionContext) {
         const resolution = resolveProductChart({
           brandKey,
-          sizingCategory: indexed?.sizingCategory ?? "",
+          sizingCategory: sizingCategory ?? "",
           primaryPersonaLeafKey: indexed?.primaryPersonaLeafKey ?? null,
           rawSizeFormat: indexed?.rawSizeFormat ?? null,
+          audienceHint: indexed?.audienceHint ?? null,
         }, resolutionContext);
         row.primaryLeafKey = resolution.leafKey;
         row.canonicalBrandKey = resolution.canonicalBrandKey;
@@ -265,8 +292,13 @@ export async function GET(request: Request) {
       sizingCategory: parentFilter,
       search,
     });
-    const rawProducts = await pager.fetchByIds(indexedPage.records.map((record) => record.externalId));
-    const rawById = new Map(rawProducts.map((raw) => [raw.externalId, raw]));
+    // The refresh button asks for a live read; ordinary paging reuses products read in the last few
+    // minutes (by this screen or by the Stage 5 preview), which is what makes paging instant.
+    const rawById = await getRawProducts(
+      connection,
+      indexedPage.records.map((record) => record.externalId),
+      { maxAgeMs: params.get("fresh") === "1" ? 0 : SAMPLE_MAX_AGE_MS, pager },
+    );
     const rows = indexedPage.records.flatMap((record) => {
       const raw = rawById.get(record.externalId);
       return raw ? [toRow(raw, record)] : [];

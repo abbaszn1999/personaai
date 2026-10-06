@@ -37,21 +37,30 @@ Run:
 pnpm setup:stripe
 ```
 
-This creates 6 Products (with their Prices) in your Stripe **test** account and prints 6 lines
+This creates 5 Products (with their Prices) in your Stripe **test** account and prints 5 lines
 like:
 
 ```
-STRIPE_PRICE_WEARABLE_FIXED=price_1AbCdEf...
-STRIPE_PRICE_UNWEARABLE_FIXED=price_1AbCdEf...
-STRIPE_PRICE_CREDITS_STARTER=price_1AbCdEf...
-STRIPE_PRICE_CREDITS_GROWTH=price_1AbCdEf...
-STRIPE_PRICE_CREDITS_SCALE=price_1AbCdEf...
-STRIPE_PRICE_LIVE_MINUTE=price_1AbCdEf...
+STRIPE_PRICE_PLAN_TRIAL=price_1AbCdEf...       # Trial plan, one 30-day period
+STRIPE_PRICE_PLAN_MAIN=price_1AbCdEf...        # Main plan, monthly
+STRIPE_PRICE_GARMENT_UNITS=price_1AbCdEf...    # extra try-on images (Main only)
+STRIPE_PRICE_SESSION_UNITS=price_1AbCdEf...    # extra chat sessions (Main only)
+STRIPE_PRICE_LIVE_MINUTE=price_1AbCdEf...      # extra live try-on minutes (Main only)
 ```
 
-Copy those 6 lines into `.env.local`, replacing the `STRIPE_PRICE_...` placeholders (add the
+Copy those 5 lines into `.env.local`, replacing the `STRIPE_PRICE_...` placeholders (add the
 section if it doesn't exist yet). Nothing to click in the Dashboard — you can open
 **Products** in the Dashboard afterward just to visually confirm they exist.
+
+Promotion codes are accepted on plan checkouts only. Balance top-ups are always charged at their
+catalog price, because fulfilment checks the amount paid against it.
+
+When you register the webhook endpoint (`/api/stripe/webhook`), subscribe it to:
+`checkout.session.completed`, `checkout.session.async_payment_succeeded`,
+`checkout.session.async_payment_failed`, `checkout.session.expired`,
+`customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`,
+`invoice.created`, `invoice.paid`, `invoice.payment_failed`, `charge.refunded`,
+`charge.dispute.created`.
 
 ---
 
@@ -108,8 +117,8 @@ pnpm dev
 This confirms Checkout session creation and the return flow work — it does **not** confirm
 credits/subscriptions get granted, since that needs the webhook (Step 3 was skipped for now).
 
-1. Open the app, go to **Settings → Billing**, and try buying a credit bundle or subscribing to
-   a plan.
+1. Open the app, go to **Settings → Billing**, and start the Trial or Main plan (balance top-ups
+   appear once Main is active).
 2. You'll be redirected to a Stripe-hosted Checkout page. Use a test card:
    - Card number: `4242 4242 4242 4242`
    - Expiry: any future date, e.g. `12/34`
@@ -134,7 +143,8 @@ Only needed for the "Manage Billing" button (letting customers update their card
 
 1. Dashboard → **Settings → Billing → Customer portal**.
 2. Turn on: payment-method updates, invoice history, cancel-at-period-end.
-3. Turn off: plan/price switching (Hybrid plans are handled outside Stripe).
+3. Turn off: plan/price switching (moving from Trial to Main goes through the app's own checkout,
+   which carries unused Trial allowance over).
 4. Save. The configuration ID appears in the page URL or via **Developers → API** as
    `bpc_...`.
 5. Add it to `.env.local`:
@@ -165,7 +175,7 @@ ready to accept real payments (see the launch checklist below).
 |---|---|---|
 | `STRIPE_SECRET_KEY` | Dashboard → Developers → API keys (Test mode on) | Same page, Test mode off |
 | `STRIPE_WEBHOOK_SECRET` | `stripe listen` CLI output | Dashboard → Webhooks → your endpoint |
-| `STRIPE_PRICE_*` (6 vars) | `pnpm setup:stripe` output | `pnpm setup:stripe` output (run again with live key) |
+| `STRIPE_PRICE_*` (5 vars) | `pnpm setup:stripe` output | `pnpm setup:stripe` output (run again with live key) |
 | `STRIPE_PORTAL_CONFIGURATION_ID` | Dashboard → Settings → Billing → Customer portal | Same, live mode |
 | `APP_URL` | `http://localhost:3000` | Your real `https://` domain |
 | `STRIPE_AUTOMATIC_TAX_ENABLED` | `false` unless Stripe Tax is set up | same |

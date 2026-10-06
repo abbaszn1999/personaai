@@ -1,4 +1,5 @@
 import { createDecartClient } from "@decartai/sdk";
+import { fetchPublicImage } from "@/lib/images/product-image";
 
 export const DECART_REALTIME_MODEL = "lucy-vton-latest" as const;
 export const REALTIME_TRYON_SESSION_CAP_SECONDS = 90;
@@ -60,39 +61,26 @@ const REFERENCE_IMAGE_FETCH_TIMEOUT_MS = 10_000;
 export async function fetchReferenceImageAsBase64(
   imageUrl: string
 ): Promise<{ base64: string; mimeType: string }> {
-  let parsed: URL;
   try {
-    parsed = new URL(imageUrl);
+    new URL(imageUrl);
   } catch {
     throw new DecartApiError("Invalid reference image URL.", 400);
   }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new DecartApiError("Reference image URL must be http(s).", 400);
-  }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REFERENCE_IMAGE_FETCH_TIMEOUT_MS);
   try {
-    const response = await fetch(parsed, { signal: controller.signal });
-    if (!response.ok) {
-      throw new DecartApiError(`Reference image request failed (${response.status}).`, 502);
-    }
-    const mimeType = response.headers.get("content-type")?.split(";")[0]?.trim() || "image/jpeg";
-    const buffer = await response.arrayBuffer();
-    if (buffer.byteLength > REFERENCE_IMAGE_MAX_BYTES) {
-      throw new DecartApiError("Reference image is too large.", 413);
-    }
-    return { base64: Buffer.from(buffer).toString("base64"), mimeType };
+    // The URL comes from a browser, so it goes through the public-internet-only image fetch.
+    const image = await fetchPublicImage(imageUrl, {
+      maxBytes: REFERENCE_IMAGE_MAX_BYTES,
+      timeoutMs: REFERENCE_IMAGE_FETCH_TIMEOUT_MS,
+    });
+    if (!image) throw new DecartApiError("That reference image could not be loaded.", 400);
+    return { base64: image.body.toString("base64"), mimeType: image.contentType };
   } catch (error) {
     if (error instanceof DecartApiError) throw error;
     const message =
-      error instanceof Error && error.name === "AbortError"
+      error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")
         ? "Reference image request timed out."
-        : error instanceof Error
-          ? error.message
-          : "Unable to fetch the reference image.";
-    throw new DecartApiError(message, 502);
-  } finally {
-    clearTimeout(timeout);
+        : "That reference image could not be loaded.";
+    throw new DecartApiError(message, error instanceof Error && error.name === "TimeoutError" ? 504 : 400);
   }
 }

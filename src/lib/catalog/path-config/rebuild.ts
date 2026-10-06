@@ -1,5 +1,6 @@
 import { readConnectionCatalog } from "@/lib/catalog/acs/stage-five-listing";
 import { isAcsConfigured } from "@/lib/catalog/acs/config";
+import { getLatestSizingRun } from "@/lib/db/sizing-runs";
 import {
   getPersonaPathConfig,
   listStalePersonaPathConfigIds,
@@ -36,7 +37,8 @@ export function rebuildPersonaPathConfig(connectionId: string): Promise<RebuildR
 
   const run = (async (): Promise<RebuildResult | null> => {
     if (!isAcsConfigured()) return null;
-    const products = await readConnectionCatalog(connectionId, { fresh: true });
+    const run = await getLatestSizingRun(connectionId);
+    const products = await readConnectionCatalog(connectionId, { publishedAt: run?.publishedAt ?? null });
     const config = buildPathConfig(products);
     const renderedText = renderPathConfig(config);
     const fingerprint = pathConfigFingerprint(renderedText, PERSONA_TAXONOMY_VERSION, config);

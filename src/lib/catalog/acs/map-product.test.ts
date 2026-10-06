@@ -4,6 +4,7 @@ import {
   buildVariantAcsProducts,
   rawCatalogProductToAcsProduct,
   rawCatalogProductToAcsProducts,
+  resolveProductBrand,
   type MapProductInput,
 } from "./map-product";
 import type { AcsFieldMapping, CmsColumnRef, CustomAttributeDef } from "@/lib/catalog/acs-mapping";
@@ -111,16 +112,15 @@ describe("rawCatalogProductToAcsProduct", () => {
             raw: "SMALL",
             label: "S",
             rowJson: '{"s":"S","chest":[89,94],"waist":[72,77]}',
-            envelopes: { chest_min: 89, chest_max: 94, waist_min: 72, waist_max: 77 },
+            bounds: { chest: { min: 89, max: 94 }, waist: { min: 72, max: 77 } },
           },
           {
             raw: "MEDIUM",
             label: "M",
             rowJson: '{"s":"M","chest":[94,99],"waist":[77,82]}',
-            envelopes: { chest_min: 94, chest_max: 99, waist_min: 77, waist_max: 82 },
+            bounds: { chest: { min: 94, max: 99 }, waist: { min: 77, max: 82 } },
           },
         ],
-        envelopes: { chest_min: 89, chest_max: 99, waist_min: 72, waist_max: 82 },
       },
     });
 
@@ -132,11 +132,40 @@ describe("rawCatalogProductToAcsProduct", () => {
       ],
       indexable: false,
     });
-    expect(product.attributes?.fit_chest_min?.numbers).toEqual([89]);
-    expect(product.attributes?.fit_chest_max?.numbers).toEqual([99]);
-    expect(product.attributes?.fit_waist_min?.numbers).toEqual([72]);
-    expect(product.attributes?.fit_waist_max?.numbers).toEqual([82]);
+    expect(product.attributes?.fit_chest_cm).toMatchObject({
+      text: ["89", "90", "91", "92", "93", "94", "95", "96", "97", "98", "99"],
+      indexable: true,
+      searchable: false,
+    });
+    expect(product.attributes?.fit_waist_cm?.text).toEqual([
+      "72", "73", "74", "75", "76", "77", "78", "79", "80", "81", "82",
+    ]);
+    expect(product.attributes?.fit_chest_min).toBeUndefined();
     expect(product.attributes?.size_chart_data).toBeUndefined();
+  });
+
+  it("leaves the gap of a sold-out size out of the fit values", () => {
+    const product = rawCatalogProductToAcsProduct({
+      raw: raw(),
+      connectionId: CONNECTION_ID,
+      categoryPaths: [["Men", "T-Shirts"]],
+      garmentCategory: "tops",
+      garmentSubcategory: "t-shirt",
+      sizing: {
+        chartKey: "acme|tops|men|alpha|v1",
+        leaf: "men:top:t-shirt",
+        group: "tops",
+        audience: "mens",
+        chartVariant: "Men",
+        entries: [
+          { raw: "S", label: "S", rowJson: '{"s":"S","chest":[88,90]}', bounds: { chest: { min: 88, max: 90 } } },
+          { raw: "L", label: "L", rowJson: '{"s":"L","chest":[98,100]}', bounds: { chest: { min: 98, max: 100 } } },
+        ],
+      },
+    });
+
+    expect(product.attributes?.fit_chest_cm?.text).toEqual(["88", "89", "90", "98", "99", "100"]);
+    expect(product.attributes?.fit_waist_cm).toBeUndefined();
   });
 
   it("round-trips the namespaced id back to connectionId + externalId", () => {
@@ -495,6 +524,22 @@ describe("merchant column binding", () => {
     expect(product.brands).toEqual(["Acme Studio"]);
   });
 
+  it("resolves the product brand exactly as indexing writes it", () => {
+    const platform = raw();
+    expect(resolveProductBrand(platform, mapping({}))).toBe("Acme");
+
+    // A column bound to the ACS brand field beats the platform's vendor, as it does in `product.brands`.
+    expect(resolveProductBrand(platform, mapping({ sources: { brand: field("sku") } }))).toBe("SKU-1");
+
+    // An option group reassigned to brand beats both.
+    const withLabel = raw({ variantOptions: { Label: [{ id: "b1", label: "Acme Studio" }] } });
+    expect(
+      resolveProductBrand(withLabel, mapping({ sources: { brand: field("sku") }, optionRoles: { label: "brand" } })),
+    ).toBe("Acme Studio");
+
+    expect(resolveProductBrand(raw({ brand: null }), mapping({}))).toBeNull();
+  });
+
   it("reads a price out of a text column for a store that keeps it somewhere else", () => {
     // Currency symbols and thousands separators are what real storefront fields actually carry, and
     // a European store writes for 1299.50 what a US one writes as "1,299.50".
@@ -753,16 +798,15 @@ describe("buildVariantAcsProducts", () => {
           raw: "MEDIUM",
           label: "M",
           rowJson: '{"s":"M","chest":[94,99],"waist":[80,85]}',
-          envelopes: { chest_min: 94, chest_max: 99, waist_min: 80, waist_max: 85 },
+          bounds: { chest: { min: 94, max: 99 }, waist: { min: 80, max: 85 } },
         },
         {
           raw: "LARGE",
           label: "L",
           rowJson: '{"s":"L","chest":[99,107],"waist":[85,92]}',
-          envelopes: { chest_min: 99, chest_max: 107, waist_min: 85, waist_max: 92 },
+          bounds: { chest: { min: 99, max: 107 }, waist: { min: 85, max: 92 } },
         },
       ],
-      envelopes: { chest_min: 94, chest_max: 107, waist_min: 80, waist_max: 92 },
     };
     const { variants } = build([
       variant({ externalId: "v1", selectedOptions: { Color: "Berry", Size: "MEDIUM" } }),
@@ -773,18 +817,16 @@ describe("buildVariantAcsProducts", () => {
     expect(variants[0].attributes?.fit_rows?.text).toEqual([
       '{"s":"M","chest":[94,99],"waist":[80,85]}',
     ]);
-    expect(variants[0].attributes?.fit_chest_min?.numbers).toEqual([94]);
-    expect(variants[0].attributes?.fit_chest_max?.numbers).toEqual([99]);
-    expect(variants[0].attributes?.fit_waist_min?.numbers).toEqual([80]);
-    expect(variants[0].attributes?.fit_waist_max?.numbers).toEqual([85]);
+    expect(variants[0].attributes?.fit_chest_cm?.text).toEqual(["94", "95", "96", "97", "98", "99"]);
+    expect(variants[0].attributes?.fit_waist_cm?.text).toEqual(["80", "81", "82", "83", "84", "85"]);
     expect(variants[1].attributes?.fit_size_labels?.text).toEqual(["L"]);
     expect(variants[1].attributes?.fit_rows?.text).toEqual([
       '{"s":"L","chest":[99,107],"waist":[85,92]}',
     ]);
-    expect(variants[1].attributes?.fit_chest_min?.numbers).toEqual([99]);
-    expect(variants[1].attributes?.fit_chest_max?.numbers).toEqual([107]);
-    expect(variants[1].attributes?.fit_waist_min?.numbers).toEqual([85]);
-    expect(variants[1].attributes?.fit_waist_max?.numbers).toEqual([92]);
+    expect(variants[1].attributes?.fit_chest_cm?.text?.[0]).toBe("99");
+    expect(variants[1].attributes?.fit_chest_cm?.text?.at(-1)).toBe("107");
+    expect(variants[1].attributes?.fit_waist_cm?.text?.[0]).toBe("85");
+    expect(variants[1].attributes?.fit_waist_cm?.text?.at(-1)).toBe("92");
   });
 
   it("writes gtin from a variant's own barcode", () => {

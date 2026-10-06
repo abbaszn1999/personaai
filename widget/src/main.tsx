@@ -1,6 +1,6 @@
 import * as React from "react";
 import { createRoot } from "react-dom/client";
-import { EmbedApp } from "./embed-app";
+import { EmbedApp, type PrefetchedEmbedConfig } from "./embed-app";
 import { attachPageScrollForwarding } from "./forward-page-scroll";
 import { setWearableAssetOrigin } from "@/modules/wearable-agent/constants";
 import { setWidgetOrigin } from "./widget-origin";
@@ -13,6 +13,41 @@ import compiledCss from "./widget.css";
 // while this script is actively (synchronously) executing, which won't still be true once
 // `boot()` runs after a deferred `DOMContentLoaded` wait (typical for an `async` widget tag).
 const scriptElAtLoad = document.currentScript instanceof HTMLScriptElement ? document.currentScript : null;
+
+/**
+ * The store's settings (branding, which departments to offer) requested the moment this script
+ * runs, rather than after the page finishes parsing and React mounts. An `async` widget tag on a
+ * busy storefront can wait a long time for DOMContentLoaded; the request rides along with that wait
+ * instead of starting after it.
+ */
+const prefetchedConfig: PrefetchedEmbedConfig | null = (() => {
+  if (!scriptElAtLoad) return null;
+  try {
+    const url = new URL(scriptElAtLoad.src, window.location.href);
+    const token = url.searchParams.get("w");
+    if (!token) return null;
+    return {
+      origin: url.origin,
+      embedToken: token,
+      result: fetch(`${url.origin}/api/embed/workspace/${encodeURIComponent(token)}`)
+        .then(async (res) => ({ ok: res.ok, data: await res.json().catch(() => ({})) }))
+        .catch(() => null),
+    };
+  } catch {
+    return null;
+  }
+})();
+
+// Fonts come from Google once the settings arrive; opening the connections now saves a round trip.
+for (const href of ["https://fonts.googleapis.com", "https://fonts.gstatic.com"]) {
+  if (!document.head.querySelector(`link[rel="preconnect"][href="${href}"]`)) {
+    const link = document.createElement("link");
+    link.rel = "preconnect";
+    link.href = href;
+    if (href.includes("gstatic")) link.crossOrigin = "anonymous";
+    document.head.appendChild(link);
+  }
+}
 
 /** Floor for the dynamically-measured fullpage height (see `fullpageHeightPx` below) so a
  *  widget placed very low on a long page never collapses to something unusably short. */
@@ -158,8 +193,18 @@ function boot() {
 
   attachPageScrollForwarding(host);
 
+  const prefetched =
+    prefetchedConfig && prefetchedConfig.origin === origin && prefetchedConfig.embedToken === embedToken
+      ? prefetchedConfig.result
+      : undefined;
+
   createRoot(mountEl).render(
-    <EmbedApp origin={origin} embedToken={embedToken} onDisplayModeChange={applyDisplayMode} />
+    <EmbedApp
+      origin={origin}
+      embedToken={embedToken}
+      prefetchedConfig={prefetched}
+      onDisplayModeChange={applyDisplayMode}
+    />
   );
 }
 

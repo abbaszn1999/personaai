@@ -16,7 +16,7 @@ export async function requireShopperEmbed(
   req: NextRequest,
   embedToken: unknown
 ): Promise<ShopperEmbedAuth> {
-  const resolution = await resolveEmbedRequest(embedToken);
+  const resolution = await resolveEmbedRequest(embedToken, { req });
   if ("error" in resolution) return resolution;
 
   const token = extractBearerToken(req);

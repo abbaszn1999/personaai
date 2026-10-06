@@ -107,7 +107,7 @@ describe("searchCatalog", () => {
   it("drops a fit group ACS does not index yet and retries", async () => {
     acs.searchProducts
       .mockRejectedValueOnce(
-        new acs.AcsApiError(400, 'Unsupported field \\"attributes.fit_waist_min\\" on \\":\\" operator.')
+        new acs.AcsApiError(400, 'Unsupported field \\"attributes.fit_waist_cm\\" on \\":\\" operator.')
       )
       .mockResolvedValueOnce({ results: [] });
     await searchCatalog(fitted, spec, "", 10);

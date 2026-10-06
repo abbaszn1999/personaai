@@ -1,7 +1,9 @@
 import { indexProductIfInScope } from "@/lib/catalog/index-product";
+import { applyShopifyOrderTopic } from "@/lib/attribution/apply-shopify-order";
 import { markAcsProductOutOfStock } from "@/lib/catalog/acs/sync";
 import { getStoreConnectionByStoreUrl } from "@/lib/db/store-connections";
 import { markPathConfigStale } from "@/lib/catalog/path-config/rebuild";
+import { noteStoreProductChanged } from "@/lib/catalog/catalog-change";
 import { mapShopifyWebhookProduct, normalizeShopifyDomain } from "@/lib/shopify/client";
 import { decodeCredentials } from "@/lib/utils/crypto";
 import { verifyHmacSignature } from "@/lib/utils/internal-auth";
@@ -50,11 +52,21 @@ export async function POST(request: Request) {
   }
 
   try {
+    // Sales attribution. Handled before the product topics so an order payload is never mistaken for
+    // a product and fed to the catalog mapper.
+    if (topic.startsWith("orders/") || topic.startsWith("refunds/")) {
+      await applyShopifyOrderTopic(connection, topic, payload);
+      return Response.json({ handled: topic });
+    }
+
     if (topic === "products/delete") {
       const id = (payload as { id?: number }).id;
       // Downgraded rather than removed — Google's own guidance is that deleting an ACS product
       // invalidates the user-event history tied to its id (see `markAcsProductOutOfStock`).
-      if (id) await markAcsProductOutOfStock(connection.id, `gid://shopify/Product/${id}`);
+      if (id) {
+        await markAcsProductOutOfStock(connection.id, `gid://shopify/Product/${id}`);
+        noteStoreProductChanged(connection.id, `gid://shopify/Product/${id}`);
+      }
       await markPathConfigStale(connection.id);
       return Response.json({ deleted: true });
     }
@@ -62,6 +74,7 @@ export async function POST(request: Request) {
     const product = mapShopifyWebhookProduct(payload, normalizeShopifyDomain(connection.storeUrl));
     if (!product) return Response.json({ ignored: "unmappable payload" });
 
+    noteStoreProductChanged(connection.id, product.externalId);
     const outcome = await indexProductIfInScope(connection, product);
     await markPathConfigStale(connection.id);
     return Response.json({ outcome });

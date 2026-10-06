@@ -1,4 +1,5 @@
 import type { Audience } from "./keys";
+import { leafLabel } from "@/modules/store/mapping/persona-taxonomy";
 import { audienceForPersonaPath, leafOfPersonaPath } from "./variant-match";
 
 interface CoveragePath {
@@ -43,6 +44,30 @@ export function manualChartAudiences(leaves: readonly string[]): Audience[] {
         .filter((audience): audience is Audience => audience !== null),
     ),
   ];
+}
+
+/**
+ * A readable default name for a chart covering these leaves, e.g. `Men - Polo-Shirt, Shirt`. The name
+ * only tells a merchant two tables apart, so it is derived from what the table covers rather than left
+ * blank (which led every chart to be saved as "Regular" and collide).
+ */
+export function suggestChartName(leaves: readonly string[]): string {
+  const byDepartment = new Map<string, string[]>();
+  for (const leaf of leaves) {
+    const [label, sub] = leafLabel(leaf).split(" · ");
+    if (!label || !sub) continue;
+    const subs = byDepartment.get(label) ?? [];
+    if (!subs.includes(sub)) subs.push(sub);
+    byDepartment.set(label, subs);
+  }
+
+  return [...byDepartment]
+    .map(([department, subs]) => {
+      const sorted = [...subs].sort();
+      const shown = sorted.slice(0, 3).join(", ");
+      return `${department} - ${shown}${sorted.length > 3 ? ` +${sorted.length - 3}` : ""}`;
+    })
+    .join(" / ");
 }
 
 function isPersonaLeaf(categoryId: string): boolean {

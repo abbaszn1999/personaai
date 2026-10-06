@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { generateCode, sendVerificationEmail } from "@/modules/auth/lib/helpers";
+import { AUTH_LIMITS, allowAuthAttempt, clientIp, tooManyAttempts } from "@/modules/auth/lib/rate-limit";
 import { getUserByEmail, setEmailVerificationCode } from "@/lib/db/users";
 
 const COOLDOWN_MS = 60 * 1000; // 60 seconds
@@ -10,6 +11,14 @@ export async function POST(req: NextRequest) {
 
     if (!email) {
       return Response.json({ error: "Email is required" }, { status: 400 });
+    }
+    if (
+      !allowAuthAttempt(
+        [`code-send:${clientIp(req)}`, AUTH_LIMITS.codeSendPerIp],
+        [`verify-send:${String(email).toLowerCase()}`, AUTH_LIMITS.codeSendPerEmail],
+      )
+    ) {
+      return tooManyAttempts();
     }
 
     const user = await getUserByEmail(email);

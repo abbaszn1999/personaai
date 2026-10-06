@@ -1,5 +1,6 @@
 import type { WearableBrandingInput } from "@/modules/wearable-agent/branding-context";
 import type { WorkspaceBranding, WorkspaceDisplayMode, WorkspaceTheme } from "./types";
+import { FONT_PICKER_OPTIONS } from "@/lib/fonts/google-fonts";
 
 export const BRANDING_LIMITS = {
   agentName: 40,
@@ -31,7 +32,10 @@ const STUDIO_BACKDROP_IDS = new Set(["backdrop-1", "backdrop-2", "backdrop-3", "
 const THEMES = new Set<WorkspaceTheme>(["dark", "light"]);
 const DISPLAY_MODES = new Set<WorkspaceDisplayMode>(["floating", "fullpage"]);
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
-const MAX_LOGO_CHARS = 3_000_000;
+/** An inline logo is sent with every widget load, so it is kept small: the editor shrinks raster
+ *  logos to 256px before saving, which leaves this as the ceiling for an SVG. */
+export const MAX_LOGO_DATA_URL_CHARS = 350_000;
+const ALLOWED_FONTS = new Set<string>(FONT_PICKER_OPTIONS);
 
 type TextKey = "agentName" | "welcomeMessage" | "statusText" | "inputPlaceholder" | "signInMessage" | "launcherLabel";
 const TEXT_KEYS: TextKey[] = ["agentName", "welcomeMessage", "statusText", "inputPlaceholder", "signInMessage", "launcherLabel"];
@@ -75,8 +79,10 @@ export function sanitizeBrandingPatch(input: unknown): Partial<WorkspaceBranding
   if (typeof raw.primaryColor === "string" && HEX_COLOR.test(raw.primaryColor)) {
     out.primaryColor = raw.primaryColor.toLowerCase();
   }
-  if (typeof raw.fontFamily === "string" && raw.fontFamily.trim()) {
-    out.fontFamily = raw.fontFamily.trim().slice(0, 60);
+  // Only fonts the picker offers: the name is written into a Google Fonts URL, a CSS selector and a
+  // style on the merchant's own page.
+  if (typeof raw.fontFamily === "string" && ALLOWED_FONTS.has(raw.fontFamily.trim())) {
+    out.fontFamily = raw.fontFamily.trim();
   }
   const borderRadius = sanitizeBorderRadius(raw.borderRadius);
   if (borderRadius) out.borderRadius = borderRadius;
@@ -99,8 +105,9 @@ export function sanitizeBrandingPatch(input: unknown): Partial<WorkspaceBranding
     out.logoUrl = null;
   } else if (
     typeof raw.logoUrl === "string" &&
-    raw.logoUrl.length <= MAX_LOGO_CHARS &&
-    /^(https:\/\/|data:image\/(png|jpeg|jpg|webp|svg\+xml);base64,)/.test(raw.logoUrl)
+    (/^https:\/\/\S{1,2000}$/.test(raw.logoUrl) ||
+      (raw.logoUrl.length <= MAX_LOGO_DATA_URL_CHARS &&
+        /^data:image\/(png|jpeg|jpg|webp|svg\+xml);base64,/.test(raw.logoUrl)))
   ) {
     out.logoUrl = raw.logoUrl;
   }

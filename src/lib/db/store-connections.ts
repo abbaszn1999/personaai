@@ -108,6 +108,9 @@ export interface StoreConnectionRow {
   cmsColumnDiscoveryError: string | null;
   cmsColumnDiscoveryUpdatedAt: string | null;
   ordersAccess: OrdersAccess | null;
+  /** ISO 4217 code the store sells in. Only WooCommerce needs it — Shopify reports a currency on
+   *  every product. Null until read, in which case Woo prices fall back to USD. */
+  storeCurrency: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -155,6 +158,7 @@ function rowToConnection(row: Record<string, unknown>): StoreConnectionRow {
     cmsColumnDiscoveryError: (row.cms_column_discovery_error as string | null) ?? null,
     cmsColumnDiscoveryUpdatedAt: (row.cms_column_discovery_updated_at as string | null) ?? null,
     ordersAccess: row.orders_access === "active" || row.orders_access === "missing" ? row.orders_access : null,
+    storeCurrency: (row.store_currency as string | null) ?? null,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
   };
@@ -216,6 +220,7 @@ export interface UpsertStoreConnectionInput {
   apiKeyEncrypted: string | null;
   productCount?: number;
   categories?: StoreCategory[];
+  storeCurrency?: string | null;
 }
 
 /** Connects (or replaces) the account's single store connection. */
@@ -245,6 +250,9 @@ export async function upsertStoreConnection(input: UpsertStoreConnectionInput): 
         product_count: input.productCount ?? 0,
         synced_at: null,
         updated_at: new Date().toISOString(),
+        // Written only when read, so a platform that never needs it does not depend on the column.
+        // A stale value left by an earlier WooCommerce connection is ignored on every other platform.
+        ...(input.storeCurrency ? { store_currency: input.storeCurrency } : {}),
       },
       { onConflict: "owner_id" }
     )
@@ -280,6 +288,7 @@ export interface UpdateStoreConnectionInput {
   catalogSyncProgress?: number;
   catalogSyncTotal?: number;
   catalogPendingCategoryIds?: string[];
+  storeCurrency?: string | null;
 }
 
 export async function updateStoreConnection(
@@ -309,6 +318,7 @@ export async function updateStoreConnection(
   if (patch.catalogSyncTotal !== undefined) dbPatch.catalog_sync_total = patch.catalogSyncTotal;
   if (patch.catalogPendingCategoryIds !== undefined)
     dbPatch.catalog_pending_category_ids = patch.catalogPendingCategoryIds;
+  if (patch.storeCurrency !== undefined) dbPatch.store_currency = patch.storeCurrency;
 
   const { data, error } = await db
     .from("store_connections")

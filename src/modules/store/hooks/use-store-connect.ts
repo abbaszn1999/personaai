@@ -54,15 +54,14 @@ export function useStoreConnect() {
   }
 
   // Shopify requires a Client ID + Secret from the merchant's own app; WordPress requires an
-  // Application Password; other platforms are still simulated.
+  // Application Password. Nothing else can be connected.
   const canConnect =
-    form.platform !== null &&
     form.storeUrl.trim().length > 3 &&
     (form.platform === "shopify"
       ? form.clientId.trim().length > 0 && form.clientSecret.trim().length > 0
       : form.platform === "wordpress"
         ? form.wpUsername.trim().length > 0 && form.wpAppPassword.trim().length > 0
-        : true);
+        : false);
 
   async function connect(): Promise<boolean> {
     if (!canConnect) return false;
@@ -74,18 +73,12 @@ export function useStoreConnect() {
             clientId: form.clientId,
             clientSecret: form.clientSecret,
           }
-        : form.platform === "wordpress"
-          ? {
-              platform: form.platform,
-              storeUrl: form.storeUrl,
-              wpUsername: form.wpUsername,
-              wpAppPassword: form.wpAppPassword,
-            }
-          : {
-              platform: form.platform!,
-              storeUrl: form.storeUrl,
-              apiKey: form.apiKey,
-            }
+        : {
+            platform: "wordpress",
+            storeUrl: form.storeUrl,
+            wpUsername: form.wpUsername,
+            wpAppPassword: form.wpAppPassword,
+          }
     );
     if (ok) setForm(INITIAL_FORM);
     return ok;

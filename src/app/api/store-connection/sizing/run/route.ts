@@ -2,10 +2,11 @@ import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner, updateStoreConnection } from "@/lib/db/store-connections";
 import { hasApprovedCurrentMapping } from "@/lib/catalog/acs/field-overrides";
 import { MAPPER_VERSION } from "@/lib/catalog/acs/map-product";
-import { createSizingRun, getLatestSizingRun, rewindRun } from "@/lib/db/sizing-runs";
+import { createSizingRun, getLastPublishedAt, getLatestSizingRun, rewindRun } from "@/lib/db/sizing-runs";
 import { listSizingCoverage } from "@/lib/db/sizing-coverage";
 import { listSizingNullRecords } from "@/lib/db/sizing-null-records";
-import { summarizeCoverage } from "@/lib/sizing/summary";
+import { listSizingPathCoverage } from "@/lib/db/sizing-path-coverage";
+import { attachPersonaLeaves, summarizeCoverage } from "@/lib/sizing/summary";
 import { buildIdentification, buildRouting } from "@/lib/sizing/routing";
 import { mappedSourceCategoryIds } from "@/lib/catalog/persona-mapping";
 
@@ -46,19 +47,28 @@ export async function GET() {
 
     // Coverage is only meaningful once a scan has written it. Skipping the reads when no run exists
     // keeps first load on a fresh connection to a single query.
-    const [coverage, nullRecords] = run
-      ? await Promise.all([listSizingCoverage(connection.id), listSizingNullRecords(connection.id)])
-      : [[], []];
+    const [coverage, nullRecords, pathCoverage] = run
+      ? await Promise.all([
+          listSizingCoverage(connection.id),
+          listSizingNullRecords(connection.id),
+          listSizingPathCoverage(connection.id),
+        ])
+      : [[], [], []];
+    const lastPublishedAt = await getLastPublishedAt(connection.id);
 
     return Response.json({
       run,
-      summary: summarizeCoverage(coverage),
+      summary: attachPersonaLeaves(summarizeCoverage(coverage), pathCoverage),
       // Tab 2's three lists and Tab 3's routing, sent together with the run for the same reason
       // coverage is: the pipeline renders them on one screen, and fetching them separately would
       // let it show a completed run's routing against the previous run's brand list.
       identification: buildIdentification(coverage, nullRecords),
       routing: buildRouting(coverage, nullRecords),
       mappingApproved: hasApprovedCurrentMapping(connection, MAPPER_VERSION),
+      // Together these say whether shoppers are still on a catalog older than the saved mapping: the
+      // live catalog keeps serving through a remap, so only a republish brings the change across.
+      lastPublishedAt,
+      personaMappingUpdatedAt: connection.personaMappingUpdatedAt,
     });
   } catch (err) {
     console.error("[store-connection sizing/run GET]", err);

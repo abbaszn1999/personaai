@@ -71,6 +71,8 @@ export interface CoverageBrand {
   /** The merchant's own category paths behind this row, root-first. Populated only for the
    *  unbranded sentinel — see `CoverageBrand` in `lib/sizing/summary.ts`. */
   storeCategoryPaths: string[][];
+  /** Persona subcategories this row's stock sits in, most stocked first. Private and unbranded rows only. */
+  personaLeaves?: string[];
 }
 
 export interface CoverageCategory {
@@ -127,6 +129,9 @@ export interface SizingRunResponse {
   identification: BrandIdentification;
   routing: RoutingPlan;
   mappingApproved: boolean;
+  /** When shoppers' catalog was last published, even while a newer setup run is in progress. */
+  lastPublishedAt?: string | null;
+  personaMappingUpdatedAt?: string | null;
 }
 
 export type BrandMappingStatus = "needs_mapping" | "ready";
@@ -244,6 +249,12 @@ export interface ChartGap {
   /** Status and brand type already resolved into one phrase, so the table doesn't re-derive it. */
   reason: string;
   sampleSkus: { sku: string | null; title: string; imageUrl: string | null }[];
+  /** Stocked Persona leaves no chart claims yet, most stocked first. */
+  missingLeaves: string[];
+  /** Products per missing leaf. */
+  missingLeafCounts: Record<string, number>;
+  /** True when the pair already has a chart and only some subcategories are still uncovered. */
+  partial: boolean;
 }
 
 /**
@@ -275,6 +286,9 @@ export interface BrandResearchRow {
   skuCount: number;
   sizingCategories: string[];
   chartedCategories: number;
+  partialCategories: number;
+  missingLeaves: string[];
+  missingSkuCount: number;
   chartCount: number;
   note: string | null;
   /** Original merchant brand labels routed through this canonical Stage 4 row. */
@@ -337,7 +351,13 @@ export interface SizingSampleRow {
   inheritedCategory: string | null;
   sizes: string[];
   rawFormat: string | null;
+  /** The merchant category the product is sized from, root first. */
   storeCategoryPath: string[];
+  /** That category's Persona mapping, readable ("Women > Tops > T-Shirts"). Null when unmapped. */
+  personaPath: string | null;
+  personaLeafKey: string | null;
+  /** The merchant ancestor the mapping came from, when the product's own category has none. */
+  mappingInheritedFrom: string[] | null;
   /** Present only when Stage 5 requests `include=resolution`. */
   primaryLeafKey?: string | null;
   canonicalBrandKey?: string;
@@ -349,8 +369,22 @@ export interface SizingSampleRow {
   chartKey?: string | null;
 }
 
+/** Products that would publish without a size chart, grouped by brand, subcategory and reason. */
+export interface UnresolvedSizingGroup {
+  brandKey: string;
+  brandName: string | null;
+  leafKey: string | null;
+  status: Exclude<import("@/lib/sizing/product-chart").ProductChartStatus, "matched">;
+  count: number;
+  sampleSkus: string[];
+}
+
 export interface SizingResolutionSummary {
+  /** Products that will publish — matched plus unresolved. Products the mapping leaves out are
+   *  counted in `excluded` instead. */
   total: number;
+  excluded?: number;
+  unresolvedGroups?: UnresolvedSizingGroup[];
   /** Exact generated VARIANT record count before publish. Authoritative ACS supplies this directly
    * after publish, so older responses may omit it. */
   variantCount?: number;
@@ -362,6 +396,12 @@ export interface SizingResolutionSummary {
   canonicalBrandCount: number;
   unmatchedLabels: Array<{ label: string; count: number; exampleSku: string | null }>;
   brandMappingCurrent: boolean;
+  /** Scanned products the store no longer returns (deleted or unpublished since the scan). */
+  unavailable?: number;
+  /** When the numbers shown were computed (epoch ms). */
+  builtAt?: number;
+  /** True while a newer computation is running; the screen re-asks until it is false. */
+  refreshing?: boolean;
 }
 
 export interface AcsStageFiveRow {
@@ -402,6 +442,10 @@ export interface AcsStageFiveResponse {
     outOfStock: number;
     otherAvailability: number;
   };
+  /** When the records shown were read or generated (epoch ms). */
+  builtAt?: number;
+  /** True while a newer read is running behind this answer; the screen re-asks until it is false. */
+  refreshing?: boolean;
 }
 
 export interface SizingSampleResponse {

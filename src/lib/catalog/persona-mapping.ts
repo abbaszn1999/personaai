@@ -19,6 +19,7 @@ import {
   type SerializedTaxonomyScope,
 } from "@/modules/store/mapping/persona-taxonomy";
 import type { SizingGroup } from "@/lib/sizing/measurements";
+import { buildCategoryIndex, type CategoryIndex } from "./category-parents";
 
 const DEPARTMENT_IDS = new Set(PERSONA_DEPARTMENTS.map((item) => item.id));
 const CATEGORY_IDS = new Set(PERSONA_CATEGORIES.map((item) => item.id));
@@ -111,16 +112,87 @@ export function parsePersonaCategoryMap(value: unknown, categories: readonly Sto
   return parsed;
 }
 
+/**
+ * The mapping plus the store's category tree, which is what lets a product filed on an unmapped
+ * child take its parent's mapping and lets several mapped categories on one product be ordered by
+ * how specific they are. Optional so a config built without a category list still resolves exactly
+ * as before — by direct mapping, in the order the product reported its categories.
+ */
+export interface HierarchicalPersonaMappingConfig extends PersonaMappingConfig {
+  hierarchy?: CategoryIndex;
+}
+
+/**
+ * Configs already built from the same connection objects. Resolving a catalog calls this once per
+ * product with the same scope, map and category list, and rebuilding the category index each time
+ * made re-resolving a few thousand products take seconds instead of milliseconds. Keyed on the
+ * objects themselves, so a freshly read connection always gets a freshly built config.
+ */
+const configMemo = new WeakMap<object, WeakMap<object, WeakMap<object, HierarchicalPersonaMappingConfig>>>();
+
 export function buildPersonaMappingConfig(
   scopeValue: unknown,
   mapValue: unknown,
   categories: readonly StoreCategory[],
-): PersonaMappingConfig {
-  return {
+): HierarchicalPersonaMappingConfig {
+  const memoizable =
+    typeof scopeValue === "object" && scopeValue !== null &&
+    typeof mapValue === "object" && mapValue !== null;
+  const cached = memoizable
+    ? configMemo.get(scopeValue)?.get(mapValue)?.get(categories)
+    : undefined;
+  if (cached) return cached;
+
+  const config: HierarchicalPersonaMappingConfig = {
     taxonomyVersion: PERSONA_TAXONOMY_VERSION,
     scope: parsePersonaScope(scopeValue),
     mappings: parsePersonaCategoryMap(mapValue, categories),
+    hierarchy: buildCategoryIndex(categories),
   };
+
+  if (memoizable) {
+    let byMap = configMemo.get(scopeValue);
+    if (!byMap) {
+      byMap = new WeakMap();
+      configMemo.set(scopeValue, byMap);
+    }
+    let byCategories = byMap.get(mapValue);
+    if (!byCategories) {
+      byCategories = new WeakMap();
+      byMap.set(mapValue, byCategories);
+    }
+    byCategories.set(categories, config);
+  }
+  return config;
+}
+
+export interface EffectiveMapping {
+  mapping: PersonaCategoryMapping;
+  /** The ancestor the mapping was taken from; null when the category carries it itself. */
+  inheritedFrom: string | null;
+}
+
+/**
+ * The mapping that governs one store category. A category's own answer — mapped, or deliberately
+ * excluded — always stands. Without one it takes the nearest mapped ancestor's, and an excluded
+ * ancestor ends the search: excluding a branch excludes what sits under it.
+ */
+export function effectiveMappingFor(
+  sourceId: string,
+  mappings: PersonaCategoryMap,
+  hierarchy: CategoryIndex | undefined,
+): EffectiveMapping | null {
+  const own = mappings[sourceId];
+  if (own) return { mapping: own, inheritedFrom: null };
+  if (!hierarchy) return null;
+
+  let cursor = hierarchy.parentOf.get(sourceId) ?? null;
+  for (let hops = 0; cursor !== null && hops <= hierarchy.parentOf.size; hops += 1) {
+    const inherited = mappings[cursor];
+    if (inherited) return inherited.status === "mapped" ? { mapping: inherited, inheritedFrom: cursor } : null;
+    cursor = hierarchy.parentOf.get(cursor) ?? null;
+  }
+  return null;
 }
 
 export interface ResolvedPersonaPath {
@@ -133,6 +205,10 @@ export interface ResolvedPersonaPath {
   sizingGroup: SizingGroup;
   gender: "female" | "male" | "male+female";
   ageGroup: "adult" | "kids";
+  /** The merchant category this path was resolved from — the one the product is filed on. */
+  sourceCategoryId?: string;
+  /** Set when that category has no mapping of its own and took this one from an ancestor. */
+  inheritedFromCategoryId?: string | null;
 }
 
 function resolveOne(
@@ -188,15 +264,34 @@ function resolveOne(
   };
 }
 
-/** Resolves every mapped Persona path for one product; merchant paths never leave this boundary. */
+/**
+ * Resolves every mapped Persona path for one product; merchant paths never leave this boundary.
+ *
+ * The first entry is the product's primary path — the one its size chart is chosen from — so the
+ * order is a decision, not an accident of how a platform lists categories. The most specific
+ * category wins (`Men > Tops > Polos` over `Men > Tops` over `Sale`), and equally specific ones are
+ * ordered by id, so the same product resolves to the same path on every walk and on every platform.
+ */
 export function resolvePersonaPaths(
   sourceCategoryIds: readonly string[],
-  config: PersonaMappingConfig,
+  config: HierarchicalPersonaMappingConfig,
 ): ResolvedPersonaPath[] {
+  const candidates: Array<{ path: ResolvedPersonaPath; depth: number; sourceId: string }> = [];
+  for (const sourceId of new Set(sourceCategoryIds)) {
+    const effective = effectiveMappingFor(sourceId, config.mappings, config.hierarchy);
+    const resolved = resolveOne(effective?.mapping, config.scope);
+    if (!resolved) continue;
+    const path = { ...resolved, sourceCategoryId: sourceId, inheritedFromCategoryId: effective?.inheritedFrom ?? null };
+    candidates.push({ path, depth: config.hierarchy?.depthOf.get(sourceId) ?? 0, sourceId });
+  }
+
+  if (config.hierarchy) {
+    candidates.sort((a, b) => b.depth - a.depth || a.sourceId.localeCompare(b.sourceId));
+  }
+
   const byKey = new Map<string, ResolvedPersonaPath>();
-  for (const sourceId of sourceCategoryIds) {
-    const resolved = resolveOne(config.mappings[sourceId], config.scope);
-    if (resolved) byKey.set(resolved.key, resolved);
+  for (const { path } of candidates) {
+    if (!byKey.has(path.key)) byKey.set(path.key, path);
   }
   return [...byKey.values()];
 }
@@ -239,7 +334,8 @@ export function mappedSourceCategoryIds(map: PersonaCategoryMap): string[] {
   return Object.entries(map).flatMap(([sourceId, mapping]) => mapping.status === "mapped" ? [sourceId] : []);
 }
 
-export function storeCategoryBreadcrumb(categoryId: string, categories: readonly StoreCategory[]): string {
+/** A merchant category's names from the root down, as the store's own admin shows them. */
+export function storeCategoryTrail(categoryId: string, categories: readonly StoreCategory[]): string[] {
   const byId = new Map(categories.map((category) => [category.id, category]));
   const names: string[] = [];
   const seen = new Set<string>();
@@ -249,5 +345,9 @@ export function storeCategoryBreadcrumb(categoryId: string, categories: readonly
     names.unshift(cursor.name);
     cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined;
   }
-  return names.join(" / ");
+  return names;
+}
+
+export function storeCategoryBreadcrumb(categoryId: string, categories: readonly StoreCategory[]): string {
+  return storeCategoryTrail(categoryId, categories).join(" / ");
 }

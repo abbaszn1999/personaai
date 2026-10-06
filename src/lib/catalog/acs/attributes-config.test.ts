@@ -76,30 +76,16 @@ describe("acs/attributes-config", () => {
     expect(bodies).toEqual(expect.arrayContaining([
       expect.objectContaining({
         catalogAttribute: expect.objectContaining({
-          key: "attributes.fit_chest_min",
-          type: "NUMERICAL",
+          key: "attributes.fit_chest_cm",
+          type: "TEXTUAL",
           indexableOption: "INDEXABLE_ENABLED",
           retrievableOption: "RETRIEVABLE_DISABLED",
         }),
       }),
       expect.objectContaining({
         catalogAttribute: expect.objectContaining({
-          key: "attributes.fit_hip_min",
-          type: "NUMERICAL",
-          indexableOption: "INDEXABLE_ENABLED",
-        }),
-      }),
-      expect.objectContaining({
-        catalogAttribute: expect.objectContaining({
-          key: "attributes.fit_inseam_max",
-          type: "NUMERICAL",
-          indexableOption: "INDEXABLE_ENABLED",
-        }),
-      }),
-      expect.objectContaining({
-        catalogAttribute: expect.objectContaining({
-          key: "attributes.fit_age_months_min",
-          type: "NUMERICAL",
+          key: "attributes.fit_foot_length_cm",
+          type: "TEXTUAL",
           indexableOption: "INDEXABLE_ENABLED",
         }),
       }),

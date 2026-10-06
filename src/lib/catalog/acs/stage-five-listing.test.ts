@@ -5,15 +5,21 @@ const listProducts = vi.fn();
 vi.mock("./client", () => ({
   listProducts: (...args: unknown[]) => listProducts(...args),
 }));
+vi.mock("@/lib/cache/snapshot-store", () => ({
+  loadSnapshot: vi.fn(async () => null),
+  saveSnapshot: vi.fn(async () => undefined),
+}));
 
 const {
   belongsToConnection,
   clearAcsStageFiveCache,
   listAcsStageFiveProducts,
+  readConnectionCatalog,
   toAcsStageFiveRow,
 } = await import("./stage-five-listing");
 
 const CONNECTION_ID = "11111111-1111-1111-1111-111111111111";
+const PUBLISHED_AT = "2026-10-01T00:00:00.000Z";
 
 function product(overrides: Partial<AcsProduct> = {}): AcsProduct {
   return {
@@ -34,9 +40,17 @@ function product(overrides: Partial<AcsProduct> = {}): AcsProduct {
   };
 }
 
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+function resetServerCaches() {
+  const holder = globalThis as Record<string, unknown>;
+  (holder.__personaSwrCaches as Map<string, Map<string, unknown>> | undefined)?.forEach((slots) => slots.clear());
+  (holder.__personaRawProducts as Map<string, unknown> | undefined)?.clear();
+  (holder.__personaPreviewContext as Map<string, unknown> | undefined)?.clear();
+}
 describe("ACS Stage 5 listing", () => {
   beforeEach(() => {
-    clearAcsStageFiveCache();
+    resetServerCaches();
     listProducts.mockReset();
   });
 
@@ -79,7 +93,7 @@ describe("ACS Stage 5 listing", () => {
     });
     listProducts.mockResolvedValue({ products: [variant, otherMerchant, parent] });
 
-    const all = await listAcsStageFiveProducts(CONNECTION_ID, { offset: 0, limit: 25 });
+    const all = await listAcsStageFiveProducts(CONNECTION_ID, { offset: 0, limit: 25, publishedAt: PUBLISHED_AT });
     expect(all.rows.map((row) => row.type)).toEqual(["PRIMARY", "VARIANT"]);
     expect(all.counts).toEqual({
       primary: 1,
@@ -88,6 +102,7 @@ describe("ACS Stage 5 listing", () => {
       outOfStock: 1,
       otherAvailability: 0,
     });
+    expect(all.refreshing).toBe(false);
 
     const filtered = await listAcsStageFiveProducts(CONNECTION_ID, {
       offset: 0,
@@ -95,11 +110,20 @@ describe("ACS Stage 5 listing", () => {
       type: "VARIANT",
       availability: "OUT_OF_STOCK",
       query: "sku-1",
+      publishedAt: PUBLISHED_AT,
     });
     expect(filtered.total).toBe(1);
     expect(filtered.rows[0].id).toBe(variant.id);
-    // The second query is served from the short cache rather than walking the shared catalog again.
+    // The second query is served from the cached walk rather than paging the shared catalog again.
     expect(listProducts).toHaveBeenCalledTimes(1);
+  });
+
+  it("names only the fields the mirror reads", async () => {
+    listProducts.mockResolvedValue({ products: [product()] });
+    await listAcsStageFiveProducts(CONNECTION_ID, { offset: 0, limit: 25, publishedAt: PUBLISHED_AT });
+    const readMask = (listProducts.mock.calls[0][1] as { readMask: string }).readMask;
+    expect(readMask.split(",")).toEqual(expect.arrayContaining(["id", "type", "attributes", "availability"]));
+    expect(readMask).not.toContain("description");
   });
 
   it("filters authoritative rows by the merchant's brand classification", async () => {
@@ -115,6 +139,7 @@ describe("ACS Stage 5 listing", () => {
     const privateRows = await listAcsStageFiveProducts(CONNECTION_ID, {
       offset: 0,
       limit: 25,
+      publishedAt: PUBLISHED_AT,
       brandType: "private",
       brandTypes,
     });
@@ -125,12 +150,60 @@ describe("ACS Stage 5 listing", () => {
     const nullRows = await listAcsStageFiveProducts(CONNECTION_ID, {
       offset: 0,
       limit: 25,
+      publishedAt: PUBLISHED_AT,
       brandType: "none",
       brandTypes,
     });
     expect(nullRows.rows.map((row) => [row.id, row.brandType])).toEqual([
       [unbranded.id, "none"],
     ]);
+  });
+
+  it("shows the previous mirror while a new publish is read, then the new one", async () => {
+    listProducts.mockResolvedValueOnce({ products: [product({ title: "Before" })] });
+    await listAcsStageFiveProducts(CONNECTION_ID, { offset: 0, limit: 25, publishedAt: PUBLISHED_AT });
+
+    listProducts.mockResolvedValueOnce({ products: [product({ title: "After" })] });
+    const during = await listAcsStageFiveProducts(CONNECTION_ID, {
+      offset: 0,
+      limit: 25,
+      publishedAt: "2026-10-02T00:00:00.000Z",
+    });
+    expect(during.refreshing).toBe(true);
+    expect(during.rows[0].title).toBe("Before");
+
+    await flush();
+    const after = await listAcsStageFiveProducts(CONNECTION_ID, {
+      offset: 0,
+      limit: 25,
+      publishedAt: "2026-10-02T00:00:00.000Z",
+    });
+    expect(after.refreshing).toBe(false);
+    expect(after.rows[0].title).toBe("After");
+  });
+
+  it("refreshes behind an invalidated mirror without blanking it", async () => {
+    listProducts.mockResolvedValueOnce({ products: [product({ title: "Before" })] });
+    await listAcsStageFiveProducts(CONNECTION_ID, { offset: 0, limit: 25, publishedAt: PUBLISHED_AT });
+
+    clearAcsStageFiveCache(CONNECTION_ID);
+    listProducts.mockResolvedValueOnce({ products: [product({ title: "After" })] });
+    const during = await listAcsStageFiveProducts(CONNECTION_ID, { offset: 0, limit: 25, publishedAt: PUBLISHED_AT });
+    expect(during).toMatchObject({ refreshing: true });
+    expect(during.rows[0].title).toBe("Before");
+
+    await flush();
+    const after = await listAcsStageFiveProducts(CONNECTION_ID, { offset: 0, limit: 25, publishedAt: PUBLISHED_AT });
+    expect(after.rows[0].title).toBe("After");
+  });
+
+  it("seeds the mirror from a full catalog read made for another reason", async () => {
+    listProducts.mockResolvedValueOnce({ products: [product({ title: "Seeded" })] });
+    await readConnectionCatalog(CONNECTION_ID, { publishedAt: PUBLISHED_AT });
+
+    const listed = await listAcsStageFiveProducts(CONNECTION_ID, { offset: 0, limit: 25, publishedAt: PUBLISHED_AT });
+    expect(listed.rows[0].title).toBe("Seeded");
+    expect(listProducts).toHaveBeenCalledTimes(1);
   });
 
   it("reads every authoritative ACS page and rejects repeated tokens", async () => {
@@ -142,7 +215,7 @@ describe("ACS Stage 5 listing", () => {
       });
 
     await expect(
-      listAcsStageFiveProducts(CONNECTION_ID, { offset: 0, limit: 25 }),
+      listAcsStageFiveProducts(CONNECTION_ID, { offset: 0, limit: 25, publishedAt: PUBLISHED_AT }),
     ).rejects.toThrow("repeated catalog page token");
   });
 });

@@ -5,6 +5,7 @@ import { randomUUID } from "crypto";
 import { verifyPassword, generateCode, sendVerificationEmail } from "@/modules/auth/lib/helpers";
 import { sessionOptions, type SessionData } from "@/modules/auth/lib/session";
 import { buildSessionProfile } from "@/modules/auth/lib/get-user";
+import { AUTH_LIMITS, allowAuthAttempt, clientIp, tooManyAttempts } from "@/modules/auth/lib/rate-limit";
 import { getUserByEmail, setEmailVerificationCode } from "@/lib/db/users";
 import { createSession } from "@/lib/db/sessions";
 
@@ -14,6 +15,14 @@ export async function POST(req: NextRequest) {
 
     if (!email || !password) {
       return Response.json({ error: "Email and password are required" }, { status: 400 });
+    }
+    if (
+      !allowAuthAttempt(
+        [`login:${clientIp(req)}`, AUTH_LIMITS.loginPerIp],
+        [`login:${String(email).toLowerCase()}`, AUTH_LIMITS.loginPerEmail],
+      )
+    ) {
+      return tooManyAttempts();
     }
 
     const user = await getUserByEmail(email);

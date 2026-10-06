@@ -37,6 +37,7 @@ import { getPersistedCmsColumns, type PersistedColumnCoverage } from "@/lib/cata
 import { toSizingBrands } from "@/lib/sizing/brand-list";
 import type { CmsColumn } from "@/modules/store/types";
 import type { RawCatalogProduct } from "@/lib/catalog/sync-types";
+import { createSwrCache } from "@/lib/cache/swr-cache";
 
 /** More than the 5-product mapping preview samples — this discovers *every* column a merchant's
  *  catalog offers, and one that only appears on some products (a "Fit" attribute used just for pants,
@@ -44,13 +45,21 @@ import type { RawCatalogProduct } from "@/lib/catalog/sync-types";
  *  for something to bind if the sample were too small. */
 const DISCOVERY_SAMPLE_SIZE = 25;
 
+const STORE_READS_MAX_AGE_MS = 10 * 60_000;
+
+const stageOneStoreReads = createSwrCache<{
+  rawProducts: RawCatalogProduct[];
+  platformBrandNames: string[];
+  definitions: CmsColumnDef[];
+}>({ name: "stage-one-store-reads", maxEntries: 20, persist: true });
+
 /**
  * Every column of the merchant's own catalog that Stage 1 can bind an ACS field to, discovered from a
  * real sample rather than declared anywhere — the merchant's platform decides what exists.
  *
  * Read-only; never mutates anything.
  */
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const user = await getCurrentUser();
     if (!user) {
@@ -62,21 +71,41 @@ export async function GET() {
       return Response.json({ error: "Store connection not found" }, { status: 404 });
     }
 
-    // Independent reads: the sample is a page of products, the brand list and the platform's own
-    // declared schema (metafield definitions, global attributes) are separate small reads that
-    // don't need the sample to have finished first.
-    const [rawProducts, platformBrandNames, definitions, persisted] = await Promise.all([
-      fetchSampleRawProducts(connection, connection.selectedCategoryIds, DISCOVERY_SAMPLE_SIZE, {
-        discoverCustomFields: true,
+    // The store reads are cached: they describe what the catalog offers, not how it is mapped, so a
+    // binding change or a revisit is answered from the last read (refreshed behind it once old). The
+    // coverage scan's findings are a quick database read and always current.
+    const fresh = new URL(request.url).searchParams.get("fresh") === "1";
+    const [{ value: storeReads }, persisted] = await Promise.all([
+      stageOneStoreReads.get(connection.id, {
+        fingerprint: JSON.stringify([
+          connection.platform,
+          connection.storeUrl,
+          connection.storeCurrency,
+          [...connection.selectedCategoryIds].sort(),
+        ]),
+        maxAgeMs: fresh ? 0 : STORE_READS_MAX_AGE_MS,
+        mode: fresh ? "current" : "swr",
+        build: async () => {
+          // Independent reads: the sample is a page of products, the brand list and the platform's
+          // own declared schema (metafield definitions, global attributes) are separate small reads
+          // that don't need the sample to have finished first.
+          const [rawProducts, platformBrandNames, definitions] = await Promise.all([
+            fetchSampleRawProducts(connection, connection.selectedCategoryIds, DISCOVERY_SAMPLE_SIZE, {
+              discoverCustomFields: true,
+            }),
+            fetchStoreBrandNames(connection),
+            fetchColumnDefinitions(connection),
+          ]);
+          return { rawProducts, platformBrandNames, definitions };
+        },
       }),
-      fetchStoreBrandNames(connection),
-      fetchColumnDefinitions(connection),
       // The full-catalog coverage scan's own findings, if a walk has completed one — see
       // `cms-column-store.ts`. Absent (a store that has never run discovery, or one still running
       // it) simply means every column's presence/sample below comes from the 25-product sample
       // alone, exactly as before this feature existed.
       getPersistedCmsColumns(connection.id),
     ]);
+    const { rawProducts, platformBrandNames, definitions } = storeReads;
 
     const mapping = connection.acsFieldMapping;
     const columns = discoverColumns(connection, rawProducts, mapping, definitions, persisted);

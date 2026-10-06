@@ -20,10 +20,13 @@ import { SOURCE_FIELDS } from "@/lib/catalog/source-fields";
 import { variantFieldDef } from "@/lib/catalog/cms-columns";
 import { buildAcsProductId, merchantAttributeValue, MERCHANT_ID_ATTRIBUTE } from "./isolation";
 import type { AcsAvailability, AcsCustomAttribute, AcsProduct } from "./types";
+import type { AcsSizingPayload } from "@/lib/sizing/acs-payload";
 import {
-  sizingEnvelopesForEntries,
-  type AcsSizingPayload,
-} from "@/lib/sizing/acs-payload";
+  FIT_INDEX_ATTRIBUTES,
+  FIT_INDEXED_MEASUREMENTS,
+  fitValueAttribute,
+  rowValues,
+} from "@/lib/sizing/fit-index";
 import { sizeLabelCandidates } from "@/lib/sizing/size-label-forms";
 
 /**
@@ -51,8 +54,13 @@ import { sizeLabelCandidates } from "@/lib/sizing/size-label-forms";
  * SKU in `RawCatalogProduct.variants`, each carrying its own price/availability/sku/gtin/image
  * and `primaryProductId`. Every existing approval predates real per-SKU records entirely, so this
  * bump reopens Stage 1 the same way every prior structural change has.
+ *
+ * 9: every record carries a `persona_publish_id` stamp (what lets a republish retire products it no
+ * longer writes), and option groups named in French, German, Spanish, Italian, Dutch, Portuguese or
+ * Arabic ("Taille", "Farbe", "المقاس") now resolve to size/colour by default instead of falling into
+ * the `opt_*` catch-all. The second changes what an already-approved mapping produces.
  */
-export const MAPPER_VERSION = 8;
+export const MAPPER_VERSION = 9;
 
 export interface MapProductInput {
   raw: RawCatalogProduct;
@@ -72,6 +80,17 @@ export interface MapProductInput {
   /** Stage 5's resolved, stock-trimmed chart payload. Absent leaves the ordinary catalog document
    * unchanged, which is the correct behavior before sizing has been published or when unresolved. */
   sizing?: AcsSizingPayload | null;
+  /** The sizing run this write belongs to, stored as `persona_publish_id` so a finished publish can
+   *  retire products that an earlier catalog wrote and this one no longer does. Omitted by previews. */
+  publishId?: string | null;
+}
+
+export const PUBLISH_ID_ATTRIBUTE = "persona_publish_id";
+
+function publishIdAttribute(publishId: string | null | undefined): Record<string, AcsCustomAttribute> {
+  return publishId
+    ? { [PUBLISH_ID_ATTRIBUTE]: textAttribute(publishId, { searchable: false, indexable: false }) }
+    : {};
 }
 
 /**
@@ -112,6 +131,7 @@ function toAvailability(inStock: boolean): AcsAvailability {
  */
 export const PIPELINE_ATTRIBUTE_KEYS: ReadonlySet<string> = new Set([
   MERCHANT_ID_ATTRIBUTE,
+  PUBLISH_ID_ATTRIBUTE,
   "garment_category",
   "garment_subcategory",
   "product_group_id",
@@ -124,20 +144,7 @@ export const PIPELINE_ATTRIBUTE_KEYS: ReadonlySet<string> = new Set([
   "fit_chart_variant",
   "fit_size_labels",
   "fit_rows",
-  "fit_chest_min",
-  "fit_chest_max",
-  "fit_waist_min",
-  "fit_waist_max",
-  "fit_hip_min",
-  "fit_hip_max",
-  "fit_inseam_min",
-  "fit_inseam_max",
-  "fit_height_min",
-  "fit_height_max",
-  "fit_foot_length_min",
-  "fit_foot_length_max",
-  "fit_age_months_min",
-  "fit_age_months_max",
+  ...FIT_INDEX_ATTRIBUTES,
   // Written on every VARIANT record (see `buildVariantAcsProducts`) so `catalog-reads.ts` can find
   // and downgrade a product's variant children by a plain filter without knowing their ids —
   // `primaryProductId` alone is not documented as filterable, where a registered custom attribute
@@ -235,6 +242,23 @@ export function extractVariantAttributes(raw: RawCatalogProduct, mapping: AcsFie
   }
 
   return { colors, sizes, materials, patterns, genders, ageGroups, brands, customOptions };
+}
+
+/**
+ * The brand a product is filed under, resolved the way indexing resolves `product.brands`: a group the
+ * merchant reassigned to `brand`, else whatever column is bound to the ACS brand field, else the
+ * platform's own brand/vendor.
+ *
+ * The one definition for the scan, the Stage 2 sample, the Stage 5 preview and push. Each used to read
+ * `variants.brands[0] ?? raw.brand`, which ignores a column bound to the brand field in Stage 1 — so a
+ * store keeping its real brand in a metafield was classified on the vendor name while ACS carried the
+ * metafield, and the chart looked up under one brand was assigned to products indexed under another.
+ */
+export function resolveProductBrand(raw: RawCatalogProduct, mapping: AcsFieldMapping): string | null {
+  const optionBrand = extractVariantAttributes(raw, mapping).brands.find((label) => label.trim());
+  if (optionBrand) return optionBrand;
+  const bound = routeAcsFields(raw, mapping).text("brand");
+  return bound?.trim() ? bound : (raw.brand ?? null);
 }
 
 /** The subset of {@link VariantAttributes} that makes sense for one single SKU rather than a
@@ -701,10 +725,6 @@ function textListAttribute(values: string[], opts: { searchable: boolean; indexa
   };
 }
 
-function numberListAttribute(values: number[]): AcsCustomAttribute {
-  return { numbers: values, searchable: false, indexable: true };
-}
-
 function labelsOverlap(left: string, right: string): boolean {
   const rightForms = new Set(sizeLabelCandidates(right));
   return sizeLabelCandidates(left).some((form) => rightForms.has(form));
@@ -735,11 +755,22 @@ function sizingAttributes(
       indexable: false,
     }),
   };
-  // Aggregate only the retained rows. For PRIMARY records this spans every stocked size; for a
-  // VARIANT it is the exact row selected above, never the parent's broad all-sizes envelope.
-  const envelopes = sizingEnvelopesForEntries(entries, sizing.envelopes);
-  for (const [key, value] of Object.entries(envelopes)) {
-    if (typeof value === "number") attributes[`fit_${key}`] = numberListAttribute([value]);
+  // The exact values the retained rows cover, so a filter on them is a filter on sizes someone can
+  // buy. A PRIMARY lists the values of every stocked size (and none of the gaps between them); a
+  // VARIANT lists only its own row.
+  for (const measurement of FIT_INDEXED_MEASUREMENTS) {
+    const values = new Set<string>();
+    for (const entry of entries) {
+      const bounds = entry.bounds?.[measurement];
+      if (!bounds) continue;
+      for (const value of rowValues(measurement, bounds.min, bounds.max)) values.add(value);
+    }
+    if (values.size > 0) {
+      attributes[fitValueAttribute(measurement)] = textListAttribute([...values], {
+        searchable: false,
+        indexable: true,
+      });
+    }
   }
   return attributes;
 }
@@ -772,6 +803,7 @@ export function rawCatalogProductToAcsProduct(input: MapProductInput): AcsProduc
       indexable: true,
     }),
     ...sizingAttributes(input.sizing),
+    ...publishIdAttribute(input.publishId),
   };
   if (garmentCategory) {
     attributes.garment_category = textAttribute(garmentCategory, { searchable: false, indexable: true });
@@ -901,6 +933,7 @@ export function buildVariantAcsProducts(input: MapProductInput, primary: AcsProd
       // deselection) — see `getAcsVariantIds`.
       primary_external_id: textAttribute(raw.externalId, { searchable: false, indexable: true }),
       ...sizingAttributes(input.sizing, buckets.sizes),
+      ...publishIdAttribute(input.publishId),
     };
     if (variant.sku) attributes.sku = textAttribute(variant.sku, { searchable: false, indexable: true });
 

@@ -17,6 +17,7 @@ vi.mock("@/lib/db/store-connections", () => ({
 
 vi.mock("@/lib/woocommerce/client", () => ({
   listWooCatalogPage: (...args: unknown[]) => listWooCatalogPage(...args),
+  fetchWooStoreCurrency: async () => "USD",
   normalizeWordPressUrl: (url: string) => `https://${url}`,
 }));
 

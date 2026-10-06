@@ -22,7 +22,11 @@ export async function persistShopperAvatar(
 ): Promise<string | null> {
   if (!avatarUrl) return null;
   if (avatarUrl.startsWith("blob:")) return null;
-  if (!avatarUrl.startsWith("data:")) return avatarUrl;
+  if (!avatarUrl.startsWith("data:")) {
+    // Only this app's own paths and https URLs are kept; anything else is not an avatar.
+    const ownPath = avatarUrl.startsWith("/") && !avatarUrl.startsWith("//");
+    return ownPath || avatarUrl.startsWith("https://") ? avatarUrl : null;
+  }
 
   const match = /^data:([^;]+);base64,(.+)$/.exec(avatarUrl);
   if (!match) return null;

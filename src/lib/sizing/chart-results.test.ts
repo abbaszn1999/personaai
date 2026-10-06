@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildChartResults } from "./chart-results";
+import {
+  buildBrandResearch,
+  buildChartResults,
+  leafIsCovered,
+  missingLeavesFor,
+  stockedLeavesKey,
+  type StockedLeaves,
+} from "./chart-results";
 import type { SizingChartRow } from "@/lib/db/sizing-charts";
 import type { SizingCoverageRow } from "@/lib/db/sizing-coverage";
 
@@ -290,5 +297,139 @@ describe("buildChartResults", () => {
     expect(result.charts).toHaveLength(0);
     expect(result.notFound).toHaveLength(0);
     expect(result.totals.pairsNeeded).toBe(0);
+  });
+});
+
+function stockedFor(brandKey: string, leaves: Record<string, number>, group = "tops"): StockedLeaves {
+  return new Map([[stockedLeavesKey(brandKey, group), new Map(Object.entries(leaves))]]);
+}
+
+describe("leaf-level coverage", () => {
+  const privateRow = () =>
+    coverage({
+      brandKey: "house",
+      brandName: "House",
+      brandType: "private",
+      researchStatus: "not_found",
+      skuCount: 20,
+    });
+  const privateChart = (overrides: Partial<SizingChartRow> = {}) =>
+    chart({ brandKey: "house", connectionId: "conn-1", provenance: "manual", ...overrides });
+
+  it("reports a pair as partial when a chart leaves a stocked subcategory uncovered", () => {
+    const stocked = stockedFor("house", { "men:top:t-shirt": 12, "men:top:polo-shirt": 8 });
+
+    const result = buildChartResults(
+      [privateRow()],
+      [privateChart({ coversLeaves: ["men:top:t-shirt"] })],
+      stocked
+    );
+
+    expect(result.notFound).toHaveLength(1);
+    const [gap] = result.notFound;
+    expect(gap.partial).toBe(true);
+    expect(gap.missingLeaves).toEqual(["men:top:polo-shirt"]);
+    expect(gap.missingLeafCounts).toEqual({ "men:top:polo-shirt": 8 });
+    expect(gap.skuCount).toBe(8);
+    expect(result.totals.gapSkus).toBe(8);
+    expect(result.totals.chartedSkus).toBe(12);
+  });
+
+  it("treats the pair as charted once every stocked leaf is claimed", () => {
+    const stocked = stockedFor("house", { "men:top:t-shirt": 12, "men:top:polo-shirt": 8 });
+
+    const result = buildChartResults(
+      [privateRow()],
+      [privateChart({ coversLeaves: ["men:top:t-shirt", "men:top:polo-shirt"] })],
+      stocked
+    );
+
+    expect(result.notFound).toHaveLength(0);
+    expect(result.totals.chartedSkus).toBe(20);
+    expect(result.totals.gapSkus).toBe(0);
+  });
+
+  it("lists every stocked leaf on a pair that has no chart at all", () => {
+    const stocked = stockedFor("house", { "men:top:t-shirt": 12, "men:top:polo-shirt": 8 });
+
+    const [gap] = buildChartResults([privateRow()], [], stocked).notFound;
+
+    expect(gap.partial).toBe(false);
+    expect(gap.missingLeaves).toEqual(["men:top:t-shirt", "men:top:polo-shirt"]);
+  });
+
+  it("keeps the parent-level behaviour when no leaf coverage was recorded", () => {
+    const result = buildChartResults([privateRow()], [privateChart()]);
+
+    expect(result.notFound).toHaveLength(0);
+    expect(result.totals.chartedSkus).toBe(20);
+  });
+
+  it("routes a partial unbranded pair to the no-brand list", () => {
+    const stocked = stockedFor("", { "women:top:blouse": 5 });
+    const row = coverage({ brandKey: "", brandName: null, brandType: "none", skuCount: 5 });
+
+    const result = buildChartResults(
+      [row],
+      [chart({ brandKey: "", connectionId: "conn-1", coversLeaves: ["women:top:t-shirt"], audience: "womens" })],
+      stocked
+    );
+
+    expect(result.noBrand[0]?.missingLeaves).toEqual(["women:top:blouse"]);
+    expect(result.notFound).toHaveLength(0);
+  });
+
+  it("marks a global brand partial rather than done when its guide skips a stocked subcategory", () => {
+    const stocked = stockedFor("nike", { "men:top:t-shirt": 6, "men:top:polo-shirt": 4 });
+    const row = coverage({ skuCount: 10, researchStatus: "found" });
+    const covering = chart({ coversLeaves: ["men:top:t-shirt"] });
+
+    const [brand] = buildBrandResearch([row], [covering], {}, stocked);
+
+    expect(brand.status).toBe("partial");
+    expect(brand.partialCategories).toBe(1);
+    expect(brand.missingLeaves).toEqual(["men:top:polo-shirt"]);
+    expect(brand.missingSkuCount).toBe(4);
+
+    const [done] = buildBrandResearch(
+      [row],
+      [chart({ coversLeaves: ["men:top:t-shirt", "men:top:polo-shirt"] })],
+      {},
+      stocked
+    );
+    expect(done.status).toBe("done");
+  });
+});
+
+describe("leafIsCovered", () => {
+  it("accepts a leaf the charts claim directly", () => {
+    expect(leafIsCovered("men:top:t-shirt", new Set(["men:top:t-shirt"]))).toBe(true);
+    expect(leafIsCovered("men:top:polo-shirt", new Set(["men:top:t-shirt"]))).toBe(false);
+  });
+
+  it("covers a kids-unisex leaf only when its own key or both boys and girls charts claim it", () => {
+    const leaf = "kids-unisex:top:t-shirt";
+    expect(leafIsCovered(leaf, new Set([leaf]))).toBe(true);
+    expect(leafIsCovered(leaf, new Set(["kids-boys:top:t-shirt"]))).toBe(false);
+    expect(leafIsCovered(leaf, new Set(["kids-boys:top:t-shirt", "kids-girls:top:t-shirt"]))).toBe(true);
+  });
+});
+
+describe("missingLeavesFor", () => {
+  it("sorts the most stocked first and ignores empty leaves", () => {
+    const stocked = new Map([
+      ["men:top:shirt", 3],
+      ["men:top:t-shirt", 9],
+      ["men:top:polo-shirt", 0],
+    ]);
+
+    const missing = missingLeavesFor(stocked, []);
+
+    expect(missing.leaves).toEqual(["men:top:t-shirt", "men:top:shirt"]);
+    expect(missing.skus).toBe(12);
+  });
+
+  it("returns nothing when no leaf coverage is known", () => {
+    expect(missingLeavesFor(undefined, [])).toEqual({ leaves: [], counts: {}, skus: 0 });
   });
 });

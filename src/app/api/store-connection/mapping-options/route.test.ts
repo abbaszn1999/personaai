@@ -20,6 +20,7 @@ vi.mock("@/lib/catalog/acs/preview", () => ({
 vi.mock("@/lib/catalog/cms-column-discovery", () => ({ fetchColumnDefinitions: vi.fn() }));
 vi.mock("@/lib/catalog/cms-column-store", () => ({ getPersistedCmsColumns: vi.fn() }));
 vi.mock("@/lib/db/sizing-runs", () => ({ rewindRun: vi.fn() }));
+vi.mock("@/lib/cache/snapshot-store", () => ({ loadSnapshot: vi.fn(async () => null), saveSnapshot: vi.fn(async () => undefined) }));
 
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner, updateAcsFieldMapping } from "@/lib/db/store-connections";
@@ -68,6 +69,7 @@ function row(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRow {
     cmsColumnDiscoveryError: null,
     cmsColumnDiscoveryUpdatedAt: null,
     ordersAccess: null,
+    storeCurrency: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
@@ -98,6 +100,10 @@ function product(overrides: Partial<RawCatalogProduct> = {}): RawCatalogProduct 
   };
 }
 
+function getRequest(query = "?fresh=1"): Request {
+  return new Request(`http://localhost/api/store-connection/mapping-options${query}`);
+}
+
 function patchRequest(body: unknown): NextRequest {
   return new NextRequest("http://localhost/api/store-connection/mapping-options", {
     method: "PATCH",
@@ -106,9 +112,16 @@ function patchRequest(body: unknown): NextRequest {
   });
 }
 
+function resetServerCaches() {
+  const holder = globalThis as Record<string, unknown>;
+  (holder.__personaSwrCaches as Map<string, Map<string, unknown>> | undefined)?.forEach((slots) => slots.clear());
+  (holder.__personaRawProducts as Map<string, unknown> | undefined)?.clear();
+  (holder.__personaPreviewContext as Map<string, unknown> | undefined)?.clear();
+}
 describe("mapping-options GET", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetServerCaches();
     vi.mocked(getCurrentUser).mockResolvedValue({ id: "owner-1" } as never);
     vi.mocked(getStoreConnectionByOwner).mockResolvedValue(row());
     vi.mocked(fetchSampleRawProducts).mockResolvedValue([product()]);
@@ -118,7 +131,7 @@ describe("mapping-options GET", () => {
   });
 
   it("includes every native column even when the sample never carries it", async () => {
-    const res = await GET();
+    const res = await GET(getRequest());
     const data = await res.json();
 
     // Shopify's own always-fetched built-ins (see `shopify/product-columns.ts`) — none of them are
@@ -130,7 +143,7 @@ describe("mapping-options GET", () => {
   });
 
   it("includes every native per-variant field regardless of what the sample's products carry", async () => {
-    const res = await GET();
+    const res = await GET(getRequest());
     const data = await res.json();
 
     const keys = data.columns.map((c: { key: string }) => c.key);
@@ -158,14 +171,14 @@ describe("mapping-options GET", () => {
     );
     vi.mocked(fetchSampleRawProducts).mockResolvedValue([product({ sourceCategoryIds: ["tees"] })]);
 
-    const res = await GET();
+    const res = await GET(getRequest());
     const data = await res.json();
 
     expect(data.categoriesSample).toBe("Women > Top > T-Shirts");
   });
 
   it("leaves the categories sample null when nothing in the sample resolves to a Persona path", async () => {
-    const res = await GET();
+    const res = await GET(getRequest());
     const data = await res.json();
 
     expect(data.categoriesSample).toBeNull();
@@ -176,13 +189,29 @@ describe("mapping-options GET", () => {
       new Map([["meta:field.handle", { presence: 480, sampled: 500, sample: "real-handle" }]])
     );
 
-    const res = await GET();
+    const res = await GET(getRequest());
     const data = await res.json();
 
     const handle = data.columns.find((c: { key: string }) => c.key === "meta:field.handle");
     expect(handle.presence).toBe(480);
     expect(handle.sampled).toBe(500);
     expect(handle.sample).toBe("real-handle");
+  });
+
+  it("answers a revisit from the last store read and re-reads when asked to", async () => {
+    await GET(getRequest(""));
+    await GET(getRequest(""));
+    expect(fetchSampleRawProducts).toHaveBeenCalledTimes(1);
+
+    await GET(getRequest("?fresh=1"));
+    expect(fetchSampleRawProducts).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-reads the store when the category selection changes", async () => {
+    await GET(getRequest(""));
+    vi.mocked(getStoreConnectionByOwner).mockResolvedValue(row({ selectedCategoryIds: ["cat-2"] }));
+    await GET(getRequest(""));
+    expect(fetchSampleRawProducts).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -2,12 +2,18 @@ import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
 import { listSizingCoverage, setResearchOutcomes } from "@/lib/db/sizing-coverage";
 import {
+  insertPrivateChart,
   listPrivateChartsForBrands,
   listSharedChartsForBrands,
-  upsertPrivateChart,
+  updatePrivateChartById,
 } from "@/lib/db/sizing-charts";
 import { getLatestSizingRun } from "@/lib/db/sizing-runs";
-import { buildChartResults, buildBrandResearch } from "@/lib/sizing/chart-results";
+import {
+  buildChartResults,
+  buildBrandResearch,
+  missingLeavesFor,
+  stockedLeavesKey,
+} from "@/lib/sizing/chart-results";
 import { parseDraft, type ChartDraftRow } from "@/lib/sizing/chart-draft";
 import { chartHasBounds } from "@/lib/sizing/chart-schema";
 import { isSizingGroup } from "@/lib/sizing/measurements";
@@ -15,7 +21,9 @@ import { isAudience, normalizeBrandKey, UNKNOWN_BRAND_KEY } from "@/lib/sizing/k
 import { sanitizeCoverage } from "@/lib/sizing/variant-match";
 import { canonicalizeCoverageForCharts } from "@/lib/sizing/brand-mapping-view";
 import { listSizingPathCoverage } from "@/lib/db/sizing-path-coverage";
-import { mappedPersonaLeaves } from "@/modules/store/mapping/persona-taxonomy";
+import { buildStockedLeaves } from "@/lib/sizing/stocked-leaves";
+import { clearGeneratedStageFiveCache } from "@/lib/catalog/acs/stage-five-preview";
+import { leafLabel, mappedPersonaLeaves } from "@/modules/store/mapping/persona-taxonomy";
 import {
   brandMappingIsCurrent,
   parseStoreBrandMapping,
@@ -74,20 +82,28 @@ export async function GET() {
     ]);
     const charts = [...sharedCharts, ...privateCharts];
 
-    const results = buildChartResults(canonical.rows, charts);
-    const brands = buildBrandResearch(canonical.rows, charts, {
-      // Only while research is the live stage. A scope left on a run that has moved past research is
-      // spent, and reading it would show brands as Queued forever.
-      scopedBrandKeys: run?.stage === "research" ? run.researchBrandKeys : [],
-      currentBrandKey: run?.stage === "research" ? run.researchCurrentBrandKey : null,
-    }).map((brand) => ({
+    const mappedLeaves = mappedPersonaLeaves(connection.personaCategoryMap, connection.personaTaxonomyScope);
+    const types = new Map(coverage.map((row) => [row.brandKey, row.brandType]));
+    const stocked = buildStockedLeaves(pathCoverage, types, brandMapping, mappedLeaves);
+
+    const results = buildChartResults(canonical.rows, charts, stocked);
+    const brands = buildBrandResearch(
+      canonical.rows,
+      charts,
+      {
+        // Only while research is the live stage. A scope left on a run that has moved past research is
+        // spent, and reading it would show brands as Queued forever.
+        scopedBrandKeys: run?.stage === "research" ? run.researchBrandKeys : [],
+        currentBrandKey: run?.stage === "research" ? run.researchCurrentBrandKey : null,
+      },
+      stocked
+    ).map((brand) => ({
       ...brand,
       memberBrands: canonical.membersByCanonicalKey.get(brand.brandKey) ?? [
         { brandKey: brand.brandKey, brandName: brand.brandName, skuCount: brand.skuCount },
       ],
     }));
 
-    const types = new Map(coverage.map((row) => [row.brandKey, row.brandType]));
     const leafCounts = new Map<string, number>();
     for (const path of pathCoverage) {
       const brandKey = types.get(path.brandKey) === "global"
@@ -100,7 +116,7 @@ export async function GET() {
     return Response.json({
       ...results,
       brands,
-      mappedLeaves: mappedPersonaLeaves(connection.personaCategoryMap, connection.personaTaxonomyScope),
+      mappedLeaves,
       leafCounts: [...leafCounts].map(([key, skuCount]) => {
         const [brandKey, leafKey] = key.split("\u0000");
         return { brandKey, leafKey, skuCount };
@@ -210,8 +226,31 @@ export async function POST(request: Request) {
 
     const brandKey = unbranded ? UNKNOWN_BRAND_KEY : normalizeBrandKey(brandKeyInput);
 
-    const wrote = await upsertPrivateChart({
-      connectionId: connection.id,
+    const chartId = typeof body.chartId === "string" && body.chartId.trim() ? body.chartId.trim() : null;
+    const existingCharts = (await listPrivateChartsForBrands(connection.id, [brandKey])).filter(
+      (chart) => chart.sizingCategory === sizingCategory
+    );
+    if (chartId && !existingCharts.some((chart) => chart.id === chartId)) {
+      return Response.json({ error: "That chart no longer exists. Reload and try again." }, { status: 404 });
+    }
+
+    // One leaf, one chart. Two private charts claiming the same subcategory would make which of them
+    // governs a product depend on row order, so the second claim is refused and named instead.
+    for (const other of existingCharts) {
+      if (other.id === chartId) continue;
+      const taken = coversLeaves.filter((leaf) => other.coversLeaves.includes(leaf));
+      if (taken.length > 0) {
+        return Response.json(
+          {
+            error: `${taken.map(leafLabel).join(", ")} ${taken.length === 1 ? "is" : "are"} already covered by your chart "${other.variantName}". Edit that chart or uncheck ${taken.length === 1 ? "it" : "them"} here.`,
+            conflictingLeaves: taken,
+          },
+          { status: 409 }
+        );
+      }
+    }
+
+    const write = {
       brandKey,
       sizingCategory,
       variantName,
@@ -227,27 +266,57 @@ export async function POST(request: Request) {
       // this pipeline, and anything below the review bar would flag their own work for review.
       confidence: 1,
       sourceUrl: null,
-      provenance: "manual",
-    });
+      provenance: "manual" as const,
+    };
 
-    if (!wrote) {
+    const saved = chartId
+      ? await updatePrivateChartById(connection.id, chartId, write)
+      : await insertPrivateChart({ connectionId: connection.id, ...write });
+
+    if (!saved.ok) {
+      if (saved.reason === "name_conflict") {
+        return Response.json(
+          {
+            error: `You already have a chart named "${variantName}" for this brand and category. Choose a different name, or edit that chart instead.`,
+          },
+          { status: 409 }
+        );
+      }
+      if (saved.reason === "not_found") {
+        return Response.json({ error: "That chart no longer exists. Reload and try again." }, { status: 404 });
+      }
       return Response.json({ error: "Could not save this chart." }, { status: 500 });
     }
 
-    // Closes the gap that sent them here. Without it the coverage row keeps whatever research
-    // concluded — `not_found`, most often — and Stage 4 would list the row as an outstanding gap
-    // directly beside the chart that just filled it.
-    if (known) {
-      await setResearchOutcomes(
-        connection.id,
-        known.brandKey,
-        [sizingCategory],
-        "found",
-        "Filled in by hand.",
-      );
+    // Closes the gap that sent them here — but only once nothing stocked is left uncovered. Marking the
+    // pair "found" after the first of several charts told Stage 4 the brand was finished while the
+    // other subcategories it sells still had no chart.
+    clearGeneratedStageFiveCache(connection.id);
+    const [pathCoverage, pairCharts] = await Promise.all([
+      listSizingPathCoverage(connection.id),
+      listPrivateChartsForBrands(connection.id, [brandKey]),
+    ]);
+    const types = new Map(coverage.map((row) => [row.brandKey, row.brandType]));
+    const stocked = buildStockedLeaves(
+      pathCoverage,
+      types,
+      brandMapping,
+      mappedPersonaLeaves(connection.personaCategoryMap, connection.personaTaxonomyScope)
+    );
+    const remaining = missingLeavesFor(
+      stocked.get(stockedLeavesKey(brandKey, sizingCategory)),
+      pairCharts.filter((chart) => chart.sizingCategory === sizingCategory)
+    );
+    if (remaining.leaves.length === 0) {
+      await setResearchOutcomes(connection.id, known.brandKey, [sizingCategory], "found", "Filled in by hand.");
     }
 
-    return Response.json({ ok: true, sizes: chartRows.length });
+    return Response.json({
+      ok: true,
+      id: saved.id,
+      sizes: chartRows.length,
+      missingLeaves: remaining.leaves,
+    });
   } catch (err) {
     console.error("[store-connection sizing/charts POST]", err);
     return Response.json({ error: "Could not save this chart" }, { status: 500 });

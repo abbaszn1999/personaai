@@ -8,6 +8,7 @@ import {
 } from "@/lib/shopify/client";
 import {
   countWooCatalogProducts,
+  fetchWooStoreCurrency,
   listWooCatalogPage,
   listWooProductsByIds,
   normalizeWordPressUrl,
@@ -42,11 +43,12 @@ export interface CatalogPager {
    *  them is counted twice and there is no cross-group deduplication short of the walk itself. The
    *  flag exists so the UI can say "about" instead of quietly overstating a merchant's catalog. */
   countProducts(): Promise<{ total: number; exact: boolean }>;
-  /** Reads exactly these products, one request, no category walk.
+  /** Reads exactly these products, no category walk, however many are asked for.
    *
    *  Used to refresh volatile details for ids already selected by the Stage 2 snapshot. Ignores the
-   *  category selection because those ids came from it. Order is the platform's, not the argument's,
-   *  so a caller that needs its own order has to restore it. */
+   *  category selection because those ids came from it. Split into requests no larger than the
+   *  platform answers in one go, so a long list is never silently cut to the first page. Order is
+   *  the platform's, not the argument's, so a caller that needs its own order has to restore it. */
   fetchByIds(externalIds: readonly string[]): Promise<RawCatalogProduct[]>;
 }
 
@@ -72,6 +74,70 @@ export interface PagerOptions {
 /** How many category ids to put in one WooCommerce `category` filter. Bounded only to keep the
  *  query string a sane length — a deep tree can expand to hundreds of terms. */
 const WOO_CATEGORY_FILTER_CHUNK = 40;
+
+/** Ids per by-id request. WooCommerce's `include` returns at most `per_page` (100) rows, so a longer
+ *  list loses everything past the first hundred; Shopify's `nodes(ids:)` takes 250, but each node
+ *  carries up to 250 variants and a smaller request keeps one throttled retry cheap. */
+const FETCH_BY_IDS_CHUNK = 100;
+/** By-id requests in flight at once. Woo is often a small shared host, and every variable product in
+ *  a chunk already fans out to its own `/variations` reads. */
+const FETCH_BY_IDS_CONCURRENCY = { shopify: 3, woo: 2 } as const;
+const FETCH_BY_IDS_ATTEMPTS = 5;
+
+const WOO_CURRENCY_MEMO_MS = 60 * 60_000;
+
+async function rememberedWooCurrency(
+  connectionId: string,
+  read: () => Promise<string | null>
+): Promise<string | null> {
+  const holder = globalThis as typeof globalThis & {
+    __personaWooCurrency?: Map<string, { currency: string | null; at: number }>;
+  };
+  holder.__personaWooCurrency ??= new Map();
+  const memo = holder.__personaWooCurrency.get(connectionId);
+  if (memo && Date.now() - memo.at <= WOO_CURRENCY_MEMO_MS) return memo.currency;
+  const currency = await read();
+  holder.__personaWooCurrency.set(connectionId, { currency, at: Date.now() });
+  return currency;
+}
+
+function throttleDelayMs(error: unknown): number | null {
+  if (!error || typeof error !== "object") return null;
+  const { throttled, retryAfterMs } = error as { throttled?: unknown; retryAfterMs?: unknown };
+  if (throttled !== true) return null;
+  return typeof retryAfterMs === "number" && retryAfterMs > 0 ? Math.min(retryAfterMs, 20_000) : 2_000;
+}
+
+async function withThrottleRetry<T>(read: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await read();
+    } catch (error) {
+      const delay = throttleDelayMs(error);
+      if (delay === null || attempt >= FETCH_BY_IDS_ATTEMPTS) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
+async function fetchByIdsInChunks(
+  externalIds: readonly string[],
+  concurrency: number,
+  read: (ids: string[]) => Promise<RawCatalogProduct[]>
+): Promise<RawCatalogProduct[]> {
+  const ids = [...new Set(externalIds)];
+  const chunks = chunk(ids, FETCH_BY_IDS_CHUNK);
+  const results: RawCatalogProduct[][] = new Array(chunks.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(concurrency, chunks.length) }, async () => {
+    while (next < chunks.length) {
+      const index = next++;
+      results[index] = await withThrottleRetry(() => read(chunks[index]));
+    }
+  });
+  await Promise.all(workers);
+  return results.flat();
+}
 
 /**
  * Builds the pager for a connection, or returns null when there is nothing in scope to walk.
@@ -133,10 +199,12 @@ export async function createCatalogPager(
           discoverCustomFields: options.discoverCustomFields,
         }).then((page) => ({ products: page.products, nextCursor: page.nextCursor })),
       fetchByIds: (externalIds) =>
-        listShopifyProductsByIds(domain, accessToken, externalIds, {
-          metafieldKeys,
-          discoverCustomFields: options.discoverCustomFields,
-        }),
+        fetchByIdsInChunks(externalIds, FETCH_BY_IDS_CONCURRENCY.shopify, (ids) =>
+          listShopifyProductsByIds(domain, accessToken, ids, {
+            metafieldKeys,
+            discoverCustomFields: options.discoverCustomFields,
+          })
+        ),
     };
   }
 
@@ -146,6 +214,11 @@ export async function createCatalogPager(
     const appPassword = credentials.wpAppPassword ?? "";
 
     const chunks = chunk(categoryIds, WOO_CATEGORY_FILTER_CHUNK);
+    // A connection made before the currency was saved is read here rather than priced in USD, and
+    // remembered so every page of a walk does not ask again.
+    const currency = connection.storeCurrency ?? (await rememberedWooCurrency(connection.id, () =>
+      fetchWooStoreCurrency(siteUrl, username, appPassword)
+    ));
 
     return {
       // Filtered as a union, so a parent and all its descendants are one walk returning each
@@ -175,10 +248,14 @@ export async function createCatalogPager(
           page,
           updatedAfter: options.updatedAfter,
           pageSize: options.pageSize,
+          currency,
         });
         return { products: result.products, nextCursor: result.hasMore ? String(page + 1) : null };
       },
-      fetchByIds: (externalIds) => listWooProductsByIds(siteUrl, username, appPassword, externalIds),
+      fetchByIds: (externalIds) =>
+        fetchByIdsInChunks(externalIds, FETCH_BY_IDS_CONCURRENCY.woo, (ids) =>
+          listWooProductsByIds(siteUrl, username, appPassword, ids, undefined, currency)
+        ),
     };
   }
 

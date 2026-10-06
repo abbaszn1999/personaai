@@ -5,9 +5,11 @@ import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { verifyPassword } from "@/modules/auth/lib/helpers";
 import { sessionOptions, type SessionData } from "@/modules/auth/lib/session";
 import { getPasswordHash, deleteUser } from "@/lib/db/users";
-import { deleteAllSessionsForUser } from "@/lib/db/sessions";
+import { deleteAllSessionsForUser, getSessionStartedAt } from "@/lib/db/sessions";
 import { getOrCreateBillingAccount, listLiveSubscriptions } from "@/lib/db/billing";
 import { getStripe } from "@/lib/stripe/client";
+
+const RECENT_SIGN_IN_MS = 15 * 60_000;
 
 export async function DELETE(req: NextRequest) {
   try {
@@ -16,10 +18,12 @@ export async function DELETE(req: NextRequest) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const body = (await req.json().catch(() => ({}))) as { password?: unknown; confirm?: unknown };
+
     // Re-auth for password accounts
     if (user.provider === "credentials") {
-      const { password } = await req.json().catch(() => ({}));
-      if (!password) {
+      const { password } = body;
+      if (typeof password !== "string" || !password) {
         return Response.json({ error: "Password required to delete account" }, { status: 400 });
       }
 
@@ -31,6 +35,26 @@ export async function DELETE(req: NextRequest) {
       const valid = await verifyPassword(password, passwordHash);
       if (!valid) {
         return Response.json({ error: "Incorrect password" }, { status: 401 });
+      }
+    } else {
+      // No password to ask for, so a Google account proves it is really its owner by having signed
+      // in moments ago — a cookie left on a shared or stolen device is not enough to delete it.
+      if (body.confirm !== "delete") {
+        return Response.json({ error: 'Type "delete" to confirm.' }, { status: 400 });
+      }
+      const session = await getIronSession<SessionData>(await cookies(), sessionOptions);
+      const startedAt = session.sid
+        ? await getSessionStartedAt(session.sid, (sessionOptions.ttl ?? 0) * 1000)
+        : null;
+      if (startedAt === null || Date.now() - startedAt > RECENT_SIGN_IN_MS) {
+        return Response.json(
+          {
+            error:
+              "For your security, sign out and sign in with Google again, then delete your account within 15 minutes.",
+            reauthRequired: true,
+          },
+          { status: 403 },
+        );
       }
     }
 

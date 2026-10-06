@@ -2,6 +2,7 @@ import { getIronSession } from "iron-session";
 import { cookies } from "next/headers";
 import { sessionOptions, type SessionData, type SessionProfile } from "./session";
 import { getUserById, type UserRow } from "@/lib/db/users";
+import { isSessionLive } from "./session-validity";
 
 export async function getSession() {
   const cookieStore = await cookies();
@@ -46,10 +47,14 @@ export function buildSessionProfile(row: Partial<UserRow>): SessionProfile {
 /**
  * Returns the current user. Reads from the session cookie profile cache first —
  * only falls back to a DB query if the cache is missing (e.g. old sessions).
+ *
+ * A cookie whose session row has been revoked (signed out elsewhere, password changed or reset,
+ * account deleted) is treated as signed out.
  */
 export async function getCurrentUser(): Promise<UserProfile | null> {
   const session = await getSession();
   if (!session.userId) return null;
+  if (!(await isSessionLive(session.sid, session.userId))) return null;
 
   // --- Fast path: profile is cached in the cookie, zero DB calls ---
   if (session.profile) {

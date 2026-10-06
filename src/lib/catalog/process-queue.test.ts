@@ -56,7 +56,16 @@ const updateSizingRun = vi.fn(async (runId: string, patch: unknown) => {
   void patch;
   return null;
 });
+const retireStaleAcsProducts = vi.fn(async (connectionId: string, runId: string) => {
+  void connectionId;
+  void runId;
+  return 0;
+});
+vi.mock("@/lib/catalog/acs/catalog-reads", () => ({
+  retireStaleAcsProducts: (connectionId: string, runId: string) => retireStaleAcsProducts(connectionId, runId),
+}));
 vi.mock("@/lib/db/sizing-runs", () => ({
+  getAcsPublishStampId: async () => "publish-run-1",
   getActiveSizingRun: (connectionId: string) => getActiveSizingRun(connectionId),
   listActivePublishingSizingRuns: () => listActivePublishingSizingRuns(),
   updateSizingRun: (runId: string, patch: unknown) => updateSizingRun(runId, patch),
@@ -254,6 +263,7 @@ describe("settleFinishedRuns", () => {
       publishedAt: expect.any(String),
       error: null,
     }));
+    expect(retireStaleAcsProducts).toHaveBeenCalledWith(CONNECTION_ID, "run-1");
   });
 
   it("recovers a publish run stranded after its catalog was already marked ready", async () => {

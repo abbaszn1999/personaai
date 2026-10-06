@@ -18,6 +18,9 @@ vi.mock("@/lib/catalog/acs/sync", () => ({
 vi.mock("@/lib/catalog/pager", () => ({
   createCatalogPager: vi.fn(async () => ({ fetchByIds })),
 }));
+vi.mock("@/lib/db/sizing-runs", () => ({
+  getAcsPublishStampId: vi.fn(async () => null),
+}));
 
 const { indexSingleProduct, indexProductIfInScope, resolveCategoryPaths, resolveGarmentCategory } = await import(
   "./index-product"

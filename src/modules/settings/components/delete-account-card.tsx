@@ -34,7 +34,7 @@ export function DeleteAccountCard() {
       const res = await fetch("/api/account", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(needsPassword ? { password } : {}),
+        body: JSON.stringify(needsPassword ? { password } : { confirm: confirmText.trim().toLowerCase() }),
       });
       if (res.ok) {
         window.location.href = "/sign-in";

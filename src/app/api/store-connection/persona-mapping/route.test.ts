@@ -16,6 +16,12 @@ vi.mock("@/lib/catalog/acs/catalog-reads", () => ({
 }));
 vi.mock("@/lib/db/sizing-runs", () => ({
   rewindRun: vi.fn(),
+  createSizingRun: vi.fn(),
+  getLastPublishedAt: vi.fn(),
+  getLatestSizingRun: vi.fn(),
+}));
+vi.mock("@/lib/catalog/acs/stage-five-preview", () => ({
+  clearGeneratedStageFiveCache: vi.fn(),
 }));
 vi.mock("@/lib/db/sizing-product-records", () => ({
   getSizingProductPrimaryLeafCounts: vi.fn().mockResolvedValue(null),
@@ -30,7 +36,9 @@ vi.mock("@/lib/catalog/path-config/rebuild", () => ({
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner, updateStoreConnection } from "@/lib/db/store-connections";
 import { deactivateAcsCatalogForRemapping } from "@/lib/catalog/acs/catalog-reads";
-import { rewindRun } from "@/lib/db/sizing-runs";
+import { createSizingRun, getLastPublishedAt, getLatestSizingRun, rewindRun } from "@/lib/db/sizing-runs";
+import { clearGeneratedStageFiveCache } from "@/lib/catalog/acs/stage-five-preview";
+import { markPathConfigStale } from "@/lib/catalog/path-config/rebuild";
 import { getSizingProductPrimaryLeafCounts } from "@/lib/db/sizing-product-records";
 import { listSizingCoverage } from "@/lib/db/sizing-coverage";
 import { DELETE, GET, PUT } from "./route";
@@ -83,6 +91,7 @@ function row(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRow {
     cmsColumnDiscoveryError: null,
     cmsColumnDiscoveryUpdatedAt: null,
     ordersAccess: null,
+    storeCurrency: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
@@ -96,6 +105,9 @@ describe("Persona mapping endpoint", () => {
     vi.mocked(getStoreConnectionByOwner).mockResolvedValue(row());
     vi.mocked(deactivateAcsCatalogForRemapping).mockResolvedValue(0);
     vi.mocked(rewindRun).mockResolvedValue(null);
+    vi.mocked(getLastPublishedAt).mockResolvedValue(null);
+    vi.mocked(getLatestSizingRun).mockResolvedValue(null);
+    vi.mocked(createSizingRun).mockResolvedValue(null as never);
     vi.mocked(getSizingProductPrimaryLeafCounts).mockResolvedValue(null);
     vi.mocked(listSizingCoverage).mockResolvedValue([]);
   });
@@ -221,6 +233,81 @@ describe("Persona mapping endpoint", () => {
       expect.objectContaining({ personaAutoMatchCompletedAt: expect.any(String) }),
     );
     expect(data.autoMatchCompletedAt).toEqual(expect.any(String));
+  });
+
+  function putRequest() {
+    return new NextRequest("http://localhost/api/store-connection/persona-mapping", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        scope,
+        mappings: { tees: { status: "mapped", departmentId: "women", categoryId: "top", subCategory: "t-shirt" } },
+      }),
+    });
+  }
+
+  function echoPatch() {
+    vi.mocked(updateStoreConnection).mockImplementation(async (_ownerId, patch) => row({
+      personaTaxonomyScope: patch.personaTaxonomyScope,
+      personaCategoryMap: patch.personaCategoryMap,
+      personaTaxonomyVersion: patch.personaTaxonomyVersion,
+      personaMappingUpdatedAt: patch.personaMappingUpdatedAt,
+    }));
+  }
+
+  it("treats saving an unchanged mapping as a no-op with no side effects", async () => {
+    echoPatch();
+    await PUT(putRequest());
+    const saved = await vi.mocked(updateStoreConnection).mock.results[0]!.value;
+    vi.clearAllMocks();
+    vi.mocked(getCurrentUser).mockResolvedValue({ id: "owner-1" } as never);
+    vi.mocked(getStoreConnectionByOwner).mockResolvedValue(saved);
+    vi.mocked(getSizingProductPrimaryLeafCounts).mockResolvedValue(null);
+    vi.mocked(listSizingCoverage).mockResolvedValue([]);
+
+    const response = await PUT(putRequest());
+
+    expect(response.status).toBe(200);
+    expect(updateStoreConnection).not.toHaveBeenCalled();
+    expect(deactivateAcsCatalogForRemapping).not.toHaveBeenCalled();
+    expect(rewindRun).not.toHaveBeenCalled();
+    expect(markPathConfigStale).not.toHaveBeenCalled();
+    expect(clearGeneratedStageFiveCache).not.toHaveBeenCalled();
+  });
+
+  it("keeps the published catalog serving when a published store remaps", async () => {
+    vi.mocked(getLastPublishedAt).mockResolvedValue("2026-09-01T00:00:00.000Z");
+    echoPatch();
+
+    const response = await PUT(putRequest());
+
+    expect(response.status).toBe(200);
+    expect(deactivateAcsCatalogForRemapping).not.toHaveBeenCalled();
+    expect(updateStoreConnection).toHaveBeenCalledWith(
+      "owner-1",
+      expect.not.objectContaining({ catalogSyncStatus: expect.anything() }),
+    );
+    expect(rewindRun).toHaveBeenCalledWith("11111111-1111-1111-1111-111111111111", "scan");
+    expect(clearGeneratedStageFiveCache).toHaveBeenCalledWith("11111111-1111-1111-1111-111111111111");
+  });
+
+  it("starts a fresh setup run after a remap when the previous run already finished", async () => {
+    vi.mocked(getLatestSizingRun).mockResolvedValue({ id: "old-run" } as never);
+    echoPatch();
+
+    await PUT(putRequest());
+
+    expect(createSizingRun).toHaveBeenCalledWith("11111111-1111-1111-1111-111111111111");
+  });
+
+  it("leaves the live catalog alone when a published store clears its mapping", async () => {
+    vi.mocked(getLastPublishedAt).mockResolvedValue("2026-09-01T00:00:00.000Z");
+    vi.mocked(updateStoreConnection).mockResolvedValue(row());
+
+    const response = await DELETE();
+
+    expect(response.status).toBe(200);
+    expect(deactivateAcsCatalogForRemapping).not.toHaveBeenCalled();
   });
 
   it("clears mappings, restores an unconfigured taxonomy scope, and unlocks Auto-Match again", async () => {

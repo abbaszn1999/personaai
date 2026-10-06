@@ -1,6 +1,7 @@
 import type { StoreCategory } from "@/modules/store/types";
 import type { Product, ProductVariant } from "@/modules/commerce/types";
 import type { CatalogPageOptions, RawCatalogProduct, RawCatalogVariant, VariantOptionGroups } from "@/lib/catalog/sync-types";
+import { variantTypeForOptionName } from "@/lib/catalog/option-groups";
 import { isCacheDisabled } from "@/lib/utils/disable-cache";
 import { pickSizedVariant } from "@/lib/sizing/cart-variant";
 
@@ -529,10 +530,7 @@ const COLLECTION_PRODUCT_SEARCH_QUERY = `
 /** Guesses a variant option's UI type from its name — Shopify lets merchants name options
  *  freely, so this is a best-effort match against the common conventions. */
 function guessVariantType(optionName: string): ProductVariant["type"] {
-  const n = optionName.toLowerCase();
-  if (n.includes("size")) return "size";
-  if (n.includes("colour") || n.includes("color")) return "color";
-  return "style";
+  return variantTypeForOptionName(optionName);
 }
 
 function stripHtml(html: string): string {
@@ -1416,7 +1414,10 @@ export function mapShopifyWebhookProduct(payload: unknown, domain: string): RawC
 }
 
 const PRODUCT_WEBHOOK_TOPICS = ["products/create", "products/update", "products/delete"];
-const ORDER_WEBHOOK_TOPICS = ["orders/create", "orders/updated", "refunds/create"];
+/** The topics `applyShopifyOrderTopic` actually handles. */
+const ORDER_WEBHOOK_TOPICS = ["orders/paid", "orders/cancelled", "refunds/create"];
+/** Subscribed by earlier versions but handled by nothing; removed from our callback on registration. */
+const OBSOLETE_ORDER_WEBHOOK_TOPICS = ["orders/create", "orders/updated"];
 
 export interface WebhookRegistration {
   registered: string[];
@@ -1454,6 +1455,20 @@ export async function registerShopifyWebhooks(
 
   const registered: string[] = [];
   const failed: string[] = [];
+
+  // Only subscriptions pointed at this app's own callback are touched, never a webhook another app
+  // or the merchant created for the same topic.
+  for (const hook of existing.webhooks ?? []) {
+    if (hook.address !== callbackUrl || !OBSOLETE_ORDER_WEBHOOK_TOPICS.includes(hook.topic)) continue;
+    const res = await fetch(`https://${domain}/admin/api/${API_VERSION}/webhooks/${hook.id}.json`, {
+      method: "DELETE",
+      headers: { "X-Shopify-Access-Token": accessToken },
+      cache: "no-store",
+    }).catch(() => null);
+    if (!res?.ok) {
+      console.error(`[shopify registerShopifyWebhooks] could not remove obsolete ${hook.topic} subscription`);
+    }
+  }
 
   for (const topic of [...PRODUCT_WEBHOOK_TOPICS, ...ORDER_WEBHOOK_TOPICS]) {
     if (already.has(topic)) continue;

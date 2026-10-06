@@ -108,6 +108,10 @@ export interface StoreCategoryItem {
   derived?: PersonaDerivedValues;
   excludeReason?: string;
   isAutoMatched?: boolean;
+  /** Display only. An unmapped category still resolves through its nearest mapped ancestor, and this
+   *  names that ancestor and the path it gives, so the merchant can see where its products land. */
+  inheritedFromName?: string;
+  inheritedPersonaPath?: string;
 }
 
 export const PERSONA_DEPARTMENTS: PersonaDepartmentDef[] = [
@@ -313,6 +317,20 @@ const LEAF_LABELS: Record<string, string> = {
 
 export function formatLeafLabel(sub: string): string {
   return LEAF_LABELS[sub] ?? sub.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
+
+/**
+ * A Persona path as stored (`["persona", "women", "top", "t-shirt"]` — the ids ACS `categories` and
+ * coverage carry) in the words the Mapping page uses: "Women > Tops > T-Shirts". Anything that is not
+ * a Persona path is joined as it is.
+ */
+export function formatPersonaSegments(path: readonly string[]): string {
+  if (path[0] !== "persona") return path.join(" › ");
+  const [, deptId, catId, sub] = path;
+  const department = PERSONA_DEPARTMENTS.find((item) => item.id === deptId);
+  const parts = [department?.name ?? deptId, catId ? getCategoryDisplayName(catId) : undefined];
+  if (sub) parts.push(formatLeafLabel(sub));
+  return parts.filter((part): part is string => Boolean(part)).join(" > ");
 }
 
 export function getCategoryDisplayName(catId: PersonaCategoryId | string): string {

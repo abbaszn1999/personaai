@@ -15,7 +15,7 @@ export async function OPTIONS() {
 export async function POST(req: NextRequest) {
   try {
     const body: RequestBody = await req.json().catch(() => ({}));
-    const resolution = await resolveEmbedRequest(body.embedToken);
+    const resolution = await resolveEmbedRequest(body.embedToken, { req, kind: "paid" });
     if ("error" in resolution) return resolution.error;
 
     const imageUrl = typeof body.imageUrl === "string" ? body.imageUrl.trim() : "";

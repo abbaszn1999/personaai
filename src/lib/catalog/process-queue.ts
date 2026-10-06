@@ -20,7 +20,9 @@ import {
 import { resolveCategoryPaths, resolveGarmentCategory } from "./index-product";
 import { loadSizingResolutionContext } from "@/lib/sizing/product-chart";
 import { sizingForRawProduct } from "./sizing-for-product";
+import { retireStaleAcsProducts } from "@/lib/catalog/acs/catalog-reads";
 import {
+  getAcsPublishStampId,
   getActiveSizingRun,
   listActivePublishingSizingRuns,
   updateSizingRun,
@@ -181,7 +183,17 @@ export async function settleFinishedRuns(): Promise<number> {
             phaseTotal: connection.catalogSyncTotal,
             error: "The sizing-aware catalog publish indexed no products.",
           });
-      if (status === "ready") clearAcsStageFiveCache(connection.id);
+      if (status === "ready") {
+        clearAcsStageFiveCache(connection.id);
+        // Everything this publish wrote carries its run id; whatever still carries another one was
+        // written by an earlier catalog and is no longer part of this one. Not awaited: it pages the
+        // shared ACS catalog, which must not hold up settling the other connections.
+        void retireStaleAcsProducts(connection.id, sizingRun.id)
+          .then(() => clearAcsStageFiveCache(connection.id))
+          .catch((error) =>
+            console.error("[catalog process-queue] retireStaleAcsProducts", connection.id, error),
+          );
+      }
     }
     if (statusWritten && status === "ready") scheduleRebuildPersonaPathConfig(connection.id);
 
@@ -266,6 +278,7 @@ async function processConnectionBatch(connectionId: string, batch: QueuedMessage
   const sizingContext = connection.sizingBrandMapping && connection.storeSizeSettings
     ? await loadSizingResolutionContext(connection)
     : null;
+  const publishId = await getAcsPublishStampId(connectionId);
   const prepared = batch.map((message) => {
     const sourceCategoryIds = message.body.sourceCategoryIds ?? [];
     const rawWithMembership = { ...message.body.product, sourceCategoryIds };
@@ -286,6 +299,7 @@ async function processConnectionBatch(connectionId: string, batch: QueuedMessage
       // merchant's Stage 1 reassignment purely cosmetic — correct in the preview, absent from search.
       fieldMapping: connection.acsFieldMapping,
       sizing: sizingContext ? sizingForRawProduct(rawWithMembership, connection, sizingContext) : null,
+      publishId,
     };
 
     return { message, input };

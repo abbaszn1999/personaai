@@ -1,7 +1,9 @@
 import { indexProductIfInScope } from "@/lib/catalog/index-product";
+import { applyWooOrder } from "@/lib/attribution/apply-woo-order";
 import { markAcsProductOutOfStock } from "@/lib/catalog/acs/sync";
 import { getStoreConnectionByStoreUrl } from "@/lib/db/store-connections";
 import { markPathConfigStale } from "@/lib/catalog/path-config/rebuild";
+import { noteStoreProductChanged } from "@/lib/catalog/catalog-change";
 import { mapWooWebhookProduct } from "@/lib/woocommerce/client";
 import { deriveWebhookSecret, verifyHmacSignature } from "@/lib/utils/internal-auth";
 
@@ -42,17 +44,30 @@ export async function POST(request: Request) {
   }
 
   try {
+    if (topic === "order.created" || topic === "order.updated") {
+      await applyWooOrder(connection, payload);
+      return Response.json({ handled: topic });
+    }
+    // A deleted order is no evidence about a sale already recorded, so it is acknowledged and left.
+    if (topic.startsWith("order.")) {
+      return Response.json({ ignored: topic });
+    }
+
     if (topic === "product.deleted") {
       const id = (payload as { id?: number }).id;
       // Downgraded rather than removed — see the Shopify webhook route's identical note.
-      if (id) await markAcsProductOutOfStock(connection.id, String(id));
+      if (id) {
+        await markAcsProductOutOfStock(connection.id, String(id));
+        noteStoreProductChanged(connection.id, String(id));
+      }
       await markPathConfigStale(connection.id);
       return Response.json({ deleted: true });
     }
 
-    const product = mapWooWebhookProduct(payload);
+    const product = mapWooWebhookProduct(payload, connection.storeCurrency);
     if (!product) return Response.json({ ignored: "unmappable payload" });
 
+    noteStoreProductChanged(connection.id, product.externalId);
     const outcome = await indexProductIfInScope(connection, product);
     await markPathConfigStale(connection.id);
     return Response.json({ outcome });

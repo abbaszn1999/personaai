@@ -211,12 +211,15 @@ export async function deleteProduct(acsProductId: string): Promise<boolean> {
  * Reads products from ProductService itself rather than the search index. The latter is
  * eventually consistent, so it cannot be the source of truth for destructive cleanup.
  */
-export async function listProducts(pageToken?: string): Promise<AcsListProductsResponse> {
+export async function listProducts(
+  pageToken?: string,
+  options: { readMask?: string } = {},
+): Promise<AcsListProductsResponse> {
   const config = getAcsConfig();
   // ProductService otherwise applies a narrow default read mask that omits type, parent,
-  // availability and custom attributes. Cleanup only needs ids, but Stage 5 is an ACS mirror and
-  // must receive the complete PRIMARY/VARIANT records exactly as stored.
-  const params = new URLSearchParams({ pageSize: "1000", readMask: "*" });
+  // availability and custom attributes, so the default here is everything. A caller that knows
+  // exactly which fields it reads (the Stage 5 mirror) can name them and page less data.
+  const params = new URLSearchParams({ pageSize: "1000", readMask: options.readMask ?? "*" });
   if (pageToken) params.set("pageToken", pageToken);
   return acsFetch<AcsListProductsResponse>(`${branchPath(config)}/products?${params}`, { method: "GET" });
 }

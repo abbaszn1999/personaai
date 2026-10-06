@@ -35,7 +35,7 @@ export async function OPTIONS() {
 export async function POST(req: NextRequest) {
   const body: EmbedAgentRequestBody = await req.json().catch(() => ({}));
 
-  const resolution = await resolveEmbedRequest(body.embedToken);
+  const resolution = await resolveEmbedRequest(body.embedToken, { req, kind: "paid" });
   if ("error" in resolution) return resolution.error;
   const { workspace } = resolution;
 

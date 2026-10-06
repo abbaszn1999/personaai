@@ -100,12 +100,23 @@ async function assertPublicHttpUrl(raw: string): Promise<URL> {
   return url;
 }
 
-async function fetchSourceImage(sourceUrl: string): Promise<Buffer | null> {
+/**
+ * Fetches an image from the public internet on a caller's behalf, refusing anything that is not:
+ * an http(s) URL whose host (and every redirect's host) resolves only to public addresses, served
+ * as `image/*`, within `maxBytes`. Every server-side fetch of a URL a browser supplied goes through
+ * this — without it, such an endpoint reads internal services and cloud metadata and hands the
+ * response back to whoever asked.
+ */
+export async function fetchPublicImage(
+  sourceUrl: string,
+  options: { maxBytes?: number; timeoutMs?: number } = {},
+): Promise<{ body: Buffer; contentType: string } | null> {
+  const maxBytes = options.maxBytes ?? MAX_SOURCE_BYTES;
   let current = await assertPublicHttpUrl(sourceUrl);
 
   for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects++) {
     const response = await fetch(current, {
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      signal: AbortSignal.timeout(options.timeoutMs ?? FETCH_TIMEOUT_MS),
       redirect: "manual",
       headers: { Accept: "image/avif,image/webp,image/jpeg,image/png,image/*" },
     });
@@ -118,20 +129,20 @@ async function fetchSourceImage(sourceUrl: string): Promise<Buffer | null> {
     }
     if (!response.ok) return null;
 
-    const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+    const contentType = response.headers.get("content-type")?.toLowerCase().split(";")[0]?.trim() ?? "";
     if (!contentType.startsWith("image/")) return null;
     const declaredLength = Number(response.headers.get("content-length") ?? "0");
-    if (declaredLength > MAX_SOURCE_BYTES) return null;
+    if (declaredLength > maxBytes) return null;
 
     const body = Buffer.from(await response.arrayBuffer());
-    return body.length <= MAX_SOURCE_BYTES ? body : null;
+    return body.length <= maxBytes ? { body, contentType } : null;
   }
   return null;
 }
 
 async function loadAndOptimize(sourceUrl: string): Promise<CachedProductImage | null> {
   try {
-    const source = await fetchSourceImage(sourceUrl);
+    const source = (await fetchPublicImage(sourceUrl))?.body;
     if (!source) return null;
     const body = await sharp(source)
       .rotate()

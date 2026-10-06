@@ -10,6 +10,8 @@ function getInitialError(errorParam: string | null): string | null {
   if (errorParam === "google_cancelled") return "Google sign-in was cancelled.";
   if (errorParam === "google_csrf") return "Security check failed. Please try again.";
   if (errorParam === "google_failed") return "Google sign-in failed. Please try again.";
+  if (errorParam === "google_invalid") return "Google sign-in didn't complete. Please try again.";
+  if (errorParam === "google_unverified") return "Your Google account's email isn't verified, so it can't be used to sign in.";
   return null;
 }
 

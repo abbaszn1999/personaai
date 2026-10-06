@@ -1,22 +1,22 @@
 import { fitGroupClause, fitRowSizes, FIT_TOLERANCE_CM } from "@/lib/agents/shared/fit";
-import { isAudience, type Audience } from "@/lib/sizing/keys";
+import { isSizingGroup, type Measurement, type SizingGroup } from "@/lib/sizing/measurements";
 import {
-  isBodyMeasurement,
-  isChildAudience,
-  isSizingGroup,
-  measurementsFor,
-  requiredMeasurementsFor,
-  type Measurement,
-  type SizingGroup,
-} from "@/lib/sizing/measurements";
+  isSizingTarget,
+  TARGET_DEPARTMENTS,
+  targetIsChild,
+  targetMeasurements,
+  targetRequiredMeasurements,
+  type SizingTarget,
+} from "@/lib/sizing/sizing-target";
+import { personaSizingGroup } from "@/modules/store/mapping/persona-taxonomy";
 import { escapeFilterLiteral } from "./isolation";
 import type { AcsAvailability, AcsProduct, AcsSearchResultItem } from "./types";
 
 /**
- * The Sizing Tester's ACS request. It builds the same fit clause the Persona agent sends
- * (`fitGroupClause`, fixed tolerances from `FIT_TOLERANCE_CM`), plus the brand, chart and
- * department scoping the tester needs. What ACS answers is the result: nothing here removes a
- * product ACS returned.
+ * The Sizing Tester's ACS request for one garment category of one brand. Found Sizes sends one per
+ * category the brand has: the shared fit clause for that category (`fitGroupClause`, fixed
+ * tolerances from `FIT_TOLERANCE_CM`), the brand, the departments the sizing target shops in, and
+ * in stock. What ACS answers is the result: nothing here removes a product ACS returned.
  */
 
 const MAX_FILTER_TEXT_LENGTH = 256;
@@ -36,9 +36,8 @@ export interface FitSearchQuery {
   brand: string | null;
   /** All raw catalog names grouped beneath the selected canonical brand. */
   brandAliases?: string[];
+  target: SizingTarget;
   fitGroup: SizingGroup;
-  fitAudience: Audience;
-  chartVariant: string;
   measurements: Partial<Record<Measurement, number>>;
 }
 
@@ -55,16 +54,18 @@ export interface FitSearchProductDto {
   /** Every size label the product carries. */
   sizes: string[];
   /** The in-stock sizes whose own chart row is within tolerance of the shopper, best first.
-   *  Empty when ACS returned the product on its all-sizes range but no single stocked size fits. */
+   *  Empty when ACS returned the product on an outward-rounded edge value or a stale index but no
+   *  single stocked size is within tolerance. */
   fitSizes: string[];
+  /** The product's stocked chart rows as indexed (`{"s":"M","chest":[93,98],…}`), which say which
+   *  chart sized it. */
+  fitRows: string[];
   availability: AcsAvailability | "UNKNOWN";
   uri: string | null;
-  category: string | null;
-}
-
-function requiredText(params: URLSearchParams, key: string): string | null {
-  const value = params.get(key)?.trim() ?? "";
-  return value.length > 0 && value.length <= MAX_FILTER_TEXT_LENGTH ? value : null;
+  /** The Persona leaf the product sits in for this target and category (`men:top:t-shirt`). */
+  leafKey: string | null;
+  /** The same leaf as ACS stores it (`persona > men > top > t-shirt`). */
+  personaPath: string | null;
 }
 
 function selectedBrand(params: URLSearchParams): string | null | undefined {
@@ -95,26 +96,21 @@ export function parseFitSearchQuery(params: URLSearchParams): FitSearchQueryResu
     return { ok: false, error: "A valid brand selection is required." };
   }
 
+  const target = params.get("target");
+  if (!isSizingTarget(target)) return { ok: false, error: "A valid sizing target (men, women or kid) is required." };
+
   const fitGroup = params.get("fitGroup");
   if (!isSizingGroup(fitGroup)) return { ok: false, error: "A valid fitGroup is required." };
 
-  const fitAudience = params.get("fitAudience");
-  if (!isAudience(fitAudience)) return { ok: false, error: "A valid fitAudience is required." };
-
-  const chartVariant = requiredText(params, "chartVariant");
-  if (!chartVariant) return { ok: false, error: "A valid chartVariant is required." };
-
   const applicable = new Set(
-    measurementsFor(fitGroup, fitAudience)
-      .filter(isBodyMeasurement)
-      .filter((measurement) => FILTERABLE_MEASUREMENTS.has(measurement)),
+    targetMeasurements(fitGroup, target).filter((measurement) => FILTERABLE_MEASUREMENTS.has(measurement)),
   );
   const measurements: Partial<Record<Measurement, number>> = {};
   for (const { measurement, keys } of MEASUREMENT_QUERY_KEYS) {
     const supplied = firstParam(params, keys);
     if (!supplied) continue;
     if (!applicable.has(measurement)) {
-      return { ok: false, error: `${supplied.key} is not applicable to this fit group and audience.` };
+      return { ok: false, error: `${supplied.key} is not applicable to ${fitGroup} for ${target}.` };
     }
     const value = Number(supplied.value);
     if (!Number.isFinite(value) || value <= 0 || value > 1_000) {
@@ -123,7 +119,7 @@ export function parseFitSearchQuery(params: URLSearchParams): FitSearchQueryResu
     measurements[measurement] = value;
   }
 
-  const missing = requiredMeasurementsFor(fitGroup, fitAudience).filter((measurement) => measurements[measurement] === undefined);
+  const missing = targetRequiredMeasurements(fitGroup, target).filter((measurement) => measurements[measurement] === undefined);
   if (missing.length > 0) {
     return { ok: false, error: `${missing.join(", ")} is required to size ${fitGroup}.` };
   }
@@ -133,16 +129,11 @@ export function parseFitSearchQuery(params: URLSearchParams): FitSearchQueryResu
     value: {
       brand,
       ...(brandAliases.length > 1 ? { brandAliases } : {}),
+      target,
       fitGroup,
-      fitAudience,
-      chartVariant,
       measurements,
     },
   };
-}
-
-function anyTextClause(field: string, value: string): string {
-  return `(${field}: ANY("${escapeFilterLiteral(value)}"))`;
 }
 
 /**
@@ -151,10 +142,10 @@ function anyTextClause(field: string, value: string): string {
  * Null when the measurements cannot form it (the parser already requires them).
  */
 export function buildFitSearchFilter(query: FitSearchQuery): string | null {
-  const fit = fitGroupClause(query.fitGroup, query.measurements, isChildAudience(query.fitAudience));
+  const fit = fitGroupClause(query.fitGroup, query.measurements, targetIsChild(query.target));
   if (!fit) return null;
   const brand = brandClause(query);
-  return [...(brand ? [brand] : []), fit, chartClauses(query).join(" AND ")].join(" AND ");
+  return [...(brand ? [brand] : []), fit, ...scopeClauses(query)].join(" AND ");
 }
 
 function brandClause(query: FitSearchQuery): string | null {
@@ -165,27 +156,33 @@ function brandClause(query: FitSearchQuery): string | null {
   return `(${names.map((name) => `brands: ANY("${escapeFilterLiteral(name)}")`).join(" OR ")})`;
 }
 
-function chartClauses(query: FitSearchQuery): string[] {
-  return [
-    anyTextClause("attributes.fit_audience", query.fitAudience),
-    anyTextClause("attributes.fit_chart_variant", query.chartVariant),
-    anyTextClause("availability", "IN_STOCK"),
-  ];
+/** The ACS category entries of the target's departments, stored on every product beneath them. */
+export function targetDepartmentPaths(target: SizingTarget): string[] {
+  return TARGET_DEPARTMENTS[target].map((department) => `persona > ${department}`);
+}
+
+function scopeClauses(query: FitSearchQuery): string[] {
+  const departments = targetDepartmentPaths(query.target).map((path) => `"${escapeFilterLiteral(path)}"`);
+  return [`(categories: ANY(${departments.join(", ")}))`, `(availability: ANY("IN_STOCK"))`];
 }
 
 /**
- * The half of the filter that only says which chart's products are wanted (brand, audience,
- * chart variant, in stock) without any body measurement. The tester sends it alone to tell
- * "no product fits" apart from "no product in the catalog is matched to this chart".
+ * The same request without any body measurement: this brand's sized, in-stock products of this
+ * category for this target. The tester sends it alone to tell "no product fits" apart from "the
+ * brand has nothing here".
  */
-export function buildChartScopeFilter(query: FitSearchQuery): string {
+export function buildCategoryScopeFilter(query: FitSearchQuery): string {
   const brand = brandClause(query);
-  return [...(brand ? [brand] : []), ...chartClauses(query)].join(" AND ");
+  return [
+    ...(brand ? [brand] : []),
+    `(attributes.fit_group: ANY("${query.fitGroup}"))`,
+    ...scopeClauses(query),
+  ].join(" AND ");
 }
 
-/** The tolerance each measurement of this request is widened by, for display next to the filter. */
+/** The tolerance each filtering measurement of this request is widened by, for display next to the filter. */
 export function fitSearchTolerances(query: FitSearchQuery): Array<{ measurement: Measurement; value: number; tolerance: number }> {
-  return requiredMeasurementsFor(query.fitGroup, query.fitAudience).flatMap((measurement) => {
+  return targetRequiredMeasurements(query.fitGroup, query.target).flatMap((measurement) => {
     const value = query.measurements[measurement];
     return value === undefined ? [] : [{ measurement, value, tolerance: FIT_TOLERANCE_CM[measurement] ?? 0 }];
   });
@@ -218,12 +215,25 @@ function textAttribute(product: AcsProduct, key: string): string | null {
   return product.attributes?.[key]?.text?.find((value) => value.trim().length > 0) ?? null;
 }
 
-function productCategory(product: AcsProduct): string | null {
-  const categories = product.categories ?? [];
-  return categories.reduce<string | null>(
-    (longest, category) => (longest === null || category.length > longest.length ? category : longest),
-    null,
-  );
+/**
+ * The Persona leaf this product is sized under for the request: a `persona > dept > cat > sub`
+ * entry in one of the target's departments whose category is the requested group. A product
+ * mapped to several leaves keeps the first, which is the order its paths were indexed in.
+ */
+function personaLeaf(
+  products: readonly AcsProduct[],
+  group: SizingGroup,
+  departments: readonly string[],
+): { leafKey: string; personaPath: string } | null {
+  for (const product of products) {
+    for (const category of product.categories ?? []) {
+      const [root, department, categoryId, sub] = category.split(" > ");
+      if (root !== "persona" || !department || !categoryId || !sub) continue;
+      if (!departments.includes(department) || personaSizingGroup(categoryId) !== group) continue;
+      return { leafKey: `${department}:${categoryId}:${sub}`, personaPath: category };
+    }
+  }
+  return null;
 }
 
 interface ProductGroup {
@@ -278,11 +288,14 @@ export function toFitSearchProducts(
     groups.set(parentId, group);
   }
 
-  const child = isChildAudience(query.fitAudience);
+  const child = targetIsChild(query.target);
+  const departments = TARGET_DEPARTMENTS[query.target];
   const products = [...groups].map(([parentId, group]) => {
     const variant = group.variants[0] ?? null;
     const identity = group.primary ?? variant!;
     const commercial = variant ?? identity;
+    const leaf = personaLeaf([identity, commercial], query.fitGroup, departments);
+    const rows = [...group.rows];
     return {
       id: externalId(parentId, connectionId),
       title: identity.title,
@@ -292,10 +305,12 @@ export function toFitSearchProducts(
       price: commercial.priceInfo?.price ?? identity.priceInfo?.price ?? null,
       currency: commercial.priceInfo?.currencyCode ?? identity.priceInfo?.currencyCode ?? null,
       sizes: [...group.sizes],
-      fitSizes: fitRowSizes([...group.rows], query.fitGroup, query.measurements, child),
+      fitSizes: fitRowSizes(rows, query.fitGroup, query.measurements, child),
+      fitRows: rows,
       availability: "IN_STOCK" as const,
       uri: commercial.uri ?? identity.uri ?? null,
-      category: productCategory(identity) ?? productCategory(commercial),
+      leafKey: leaf?.leafKey ?? null,
+      personaPath: leaf?.personaPath ?? null,
     };
   });
   return { products, outOfScope };

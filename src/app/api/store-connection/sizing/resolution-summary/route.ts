@@ -1,17 +1,20 @@
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
-import { listSizingProductRecordsPage } from "@/lib/db/sizing-product-records";
 import { summarizeGeneratedSizing } from "@/lib/catalog/acs/stage-five-preview";
-import { getLatestSizingRun } from "@/lib/db/sizing-runs";
 import {
-  loadSizingResolutionContext,
   PRODUCT_CHART_STATUSES,
-  resolveProductChart,
   type ProductChartStatus,
 } from "@/lib/sizing/product-chart";
 
-const PAGE_SIZE = 1_000;
-
+/**
+ * Always the live resolution, before and after a publish. The published branch used to resolve the
+ * stored scan snapshot instead, which skips the merchant's category scope and the live variant
+ * sizes, so the same screen could show different numbers than the table beneath it and the publish
+ * that follows.
+ *
+ * Answered from the last build when one exists; `refreshing` says a newer one is on its way, and the
+ * screen re-asks until it lands.
+ */
 export async function GET() {
   try {
     const user = await getCurrentUser();
@@ -20,73 +23,28 @@ export async function GET() {
     const connection = await getStoreConnectionByOwner(user.id);
     if (!connection) return Response.json({ error: "Store connection not found" }, { status: 404 });
 
-    const run = await getLatestSizingRun(connection.id);
-    if (!run?.publishedAt) {
-      const live = await summarizeGeneratedSizing(connection);
-      const byStatus = Object.fromEntries(
-        PRODUCT_CHART_STATUSES.map((status) => [status, status === "matched" ? live.matched : 0]),
-      ) as Record<ProductChartStatus, number>;
-      return Response.json({
-        total: live.total,
-        variantCount: live.variantCount,
-        matched: live.matched,
-        unresolved: live.total - live.matched,
-        matchPercent: live.total === 0 ? 0 : Math.round((live.matched / live.total) * 10_000) / 100,
-        byStatus,
-        chartCount: live.chartKeys.length,
-        canonicalBrandCount: live.canonicalBrandKeys.length,
-        unmatchedLabels: [],
-        brandMappingCurrent: live.brandMappingCurrent,
-        source: "live-preview",
-      });
-    }
-
-    const context = await loadSizingResolutionContext(connection);
+    const live = await summarizeGeneratedSizing(connection);
     const byStatus = Object.fromEntries(
-      PRODUCT_CHART_STATUSES.map((status) => [status, 0]),
+      PRODUCT_CHART_STATUSES.map((status) => [status, live.byStatus[status] ?? 0]),
     ) as Record<ProductChartStatus, number>;
-    const chartKeys = new Set<string>();
-    const canonicalBrands = new Set<string>();
-    const unmatched = new Map<string, { count: number; exampleSku: string | null }>();
+    const evaluated = live.matched + live.unresolved;
 
-    let offset = 0;
-    let total = 0;
-    do {
-      const page = await listSizingProductRecordsPage(connection.id, {
-        limit: PAGE_SIZE,
-        offset,
-      });
-      total = page.total;
-      for (const record of page.records) {
-        const resolution = resolveProductChart(record, context);
-        byStatus[resolution.status] += 1;
-        if (resolution.canonicalBrandKey) canonicalBrands.add(resolution.canonicalBrandKey);
-        if (resolution.status === "matched") chartKeys.add(resolution.chartKey);
-        for (const label of resolution.unmatchedLabels) {
-          const current = unmatched.get(label);
-          unmatched.set(label, {
-            count: (current?.count ?? 0) + 1,
-            exampleSku: current?.exampleSku ?? record.sku,
-          });
-        }
-      }
-      offset += page.records.length;
-      if (page.records.length === 0) break;
-    } while (offset < total);
-
-    const matched = byStatus.matched;
     return Response.json({
-      total,
-      matched,
-      unresolved: total - matched,
-      matchPercent: total === 0 ? 0 : Math.round((matched / total) * 10_000) / 100,
+      total: evaluated,
+      variantCount: live.variantCount,
+      matched: live.matched,
+      unresolved: live.unresolved,
+      excluded: live.excluded,
+      matchPercent: evaluated === 0 ? 0 : Math.round((live.matched / evaluated) * 10_000) / 100,
       byStatus,
-      chartCount: chartKeys.size,
-      canonicalBrandCount: canonicalBrands.size,
-      unmatchedLabels: [...unmatched]
-        .map(([label, detail]) => ({ label, ...detail }))
-        .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label)),
-      brandMappingCurrent: context.brandMappingCurrent,
+      unresolvedGroups: live.unresolvedGroups,
+      chartCount: live.chartKeys.length,
+      canonicalBrandCount: live.canonicalBrandKeys.length,
+      unmatchedLabels: [],
+      brandMappingCurrent: live.brandMappingCurrent,
+      unavailable: live.unavailable,
+      builtAt: live.builtAt,
+      refreshing: live.refreshing,
     });
   } catch (error) {
     console.error("[store-connection sizing/resolution-summary GET]", error);

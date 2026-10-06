@@ -128,6 +128,26 @@ export async function getSizingProductSnapshotHealth(
   return { total, missingPrimaryLeaf, missingRawSizeFormat };
 }
 
+/**
+ * Identifies one written snapshot. Every scan deletes and re-inserts the rows, so they all get new
+ * ids; the smallest id together with the count changes on every rewrite, including a re-scan that
+ * keeps its run. Null when it cannot be read, which callers treat as "unknown, rebuild".
+ */
+export async function getSizingProductSnapshotMarker(connectionId: string): Promise<string | null> {
+  const { data, count, error } = await db
+    .from("sizing_product_records")
+    .select("id", { count: "exact" })
+    .eq("connection_id", connectionId)
+    .order("id", { ascending: true })
+    .limit(1);
+  if (error) {
+    console.error("[db/sizing-product-records snapshotMarker]", connectionId, error);
+    return null;
+  }
+  const first = (data as Array<{ id: string }> | null)?.[0]?.id ?? "";
+  return `${count ?? 0}:${first}`;
+}
+
 /** Exact Stage 2 product total partitioned by one primary Persona leaf per product. */
 export async function getSizingProductPrimaryLeafCounts(
   connectionId: string,

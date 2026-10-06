@@ -1,4 +1,5 @@
 import { sizeLabelCandidates } from "@/lib/sizing/size-label-forms";
+import { FIT_TOLERANCE_CM, fitValueField, isFitIndexed, shopperValues } from "@/lib/sizing/fit-index";
 import {
   isSizingGroup,
   isBodyMeasurement,
@@ -73,24 +74,7 @@ export function isChildShopper(audience: string | null): boolean {
 
 const GROUPS = Object.keys(SIZING_GROUPS) as SizingGroup[];
 
-/**
- * The one fit tolerance, in cm, for the measurements a size is decided on. A shopper at 95 cm
- * chest fits everything whose chart range reaches anywhere between 93 and 97, whether the brand
- * publishes ranges (92-96) or one nominal number per size (97). Both the Persona agent and the
- * Sizing Tester build their ACS filter from this table, so the tester shows exactly what a
- * shopper gets.
- *
- * Chest, waist and foot length are the adult measurements. These are design choices, not an
- * industry standard: no ISO/ASTM standard defines a body-to-chart matching tolerance, so they
- * sit below half of the usual 4 cm chest/waist grade step and below half of a Mondopoint step
- * (0.5 cm). Height is used for kids only and is not tuned yet.
- */
-export const FIT_TOLERANCE_CM: Partial<Record<Measurement, number>> = {
-  chest: 2,
-  waist: 2,
-  foot_length: 0.3,
-  height: 5,
-};
+export { FIT_TOLERANCE_CM };
 
 function toleranceFor(measurement: Measurement): number {
   return FIT_TOLERANCE_CM[measurement] ?? 0;
@@ -103,9 +87,10 @@ function round(value: number): number {
 /**
  * The ACS half of the fit rule for one sizing group: the group, plus its *required* measurement
  * (chest for tops, outerwear and dresses; waist for bottoms; foot length for footwear; height for
- * every kids' group) reaching the shopper's value within `FIT_TOLERANCE_CM`. Written as range
- * overlap — `min <= value + tolerance AND max >= value - tolerance` — which is the same test for
- * a ranged size and for a one-number size.
+ * every kids' group) listed among the values the product's in-stock sizes cover (`fit-index.ts`).
+ * The shopper's side of the match is every value within `FIT_TOLERANCE_CM` of their measurement,
+ * which is the same range-overlap test for a ranged size and for a one-number size, and a sold-out
+ * size leaves a real gap instead of being bridged by an all-sizes range.
  *
  * Other measurements (waist on a top, hips on trousers) are deliberately not sent: a chart that
  * lacks the field would fail the clause and drop out of every result. They only rank sizes, see
@@ -123,11 +108,12 @@ export function fitGroupClause(
   const clauses = [`attributes.fit_group: ANY("${group}")`];
   for (const measurement of required) {
     const value = body[measurement];
-    const minField = `attributes.fit_${measurement}_min`;
-    const maxField = `attributes.fit_${measurement}_max`;
-    if (value === undefined || unsupportedFields.has(minField) || unsupportedFields.has(maxField)) return null;
-    const tolerance = toleranceFor(measurement);
-    clauses.push(`${minField}: IN(*, ${round(value + tolerance)}i)`, `${maxField}: IN(${round(value - tolerance)}i, *)`);
+    if (value === undefined || !isFitIndexed(measurement)) return null;
+    const field = fitValueField(measurement);
+    if (unsupportedFields.has(field)) return null;
+    const values = shopperValues(measurement, value);
+    if (values.length === 0) return null;
+    clauses.push(`${field}: ANY(${values.map((entry) => `"${entry}"`).join(", ")})`);
   }
   return `(${clauses.join(" AND ")})`;
 }
@@ -439,9 +425,9 @@ export function fitRowSizes(
 
 /**
  * The in-stock sizes of this product that fit the shopper, best first. Only stocked sizes are
- * indexed with a row, so an empty result means no size the store can sell fits, even when ACS
- * returned the product because its all-sizes range reaches the shopper. `named` narrows to the
- * sizes the shopper asked for.
+ * indexed with a row, so an empty result means no size the store can sell fits. ACS's value lists
+ * are rounded outward to whole steps, so a product at the very edge of tolerance can still come
+ * back and is dropped here. `named` narrows to the sizes the shopper asked for.
  */
 export function fittingSizes(
   candidate: CatalogCandidate,

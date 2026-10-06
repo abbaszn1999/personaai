@@ -1,7 +1,9 @@
 import { NextRequest } from "next/server";
-import { getCurrentUser } from "@/modules/auth/lib/get-user";
+import { getCurrentUser, getSession } from "@/modules/auth/lib/get-user";
 import { verifyPassword, hashPassword } from "@/modules/auth/lib/helpers";
+import { passwordProblem } from "@/modules/auth/lib/rate-limit";
 import { getPasswordHash, changePassword } from "@/lib/db/users";
+import { deleteOtherSessionsForUser } from "@/lib/db/sessions";
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,6 +17,8 @@ export async function POST(req: NextRequest) {
     if (!currentPassword || !newPassword) {
       return Response.json({ error: "Current and new password are required" }, { status: 400 });
     }
+    const problem = passwordProblem(newPassword);
+    if (problem) return Response.json({ error: problem }, { status: 400 });
 
     const passwordHash = await getPasswordHash(user.id);
     if (!passwordHash) {
@@ -28,6 +32,10 @@ export async function POST(req: NextRequest) {
 
     const newHash = await hashPassword(newPassword);
     await changePassword(user.id, newHash);
+
+    // This device stays signed in; every other one has to sign in with the new password.
+    const session = await getSession();
+    if (session.sid) await deleteOtherSessionsForUser(user.id, session.sid);
 
     return Response.json({ success: true });
   } catch (err) {

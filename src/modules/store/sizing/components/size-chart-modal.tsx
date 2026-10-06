@@ -193,24 +193,27 @@ function SizeChartModalBody({
   // own item count (below) instead of the brand-wide `sizing_coverage` bucket total every variant
   // used to repeat identically.
   //
-  // Seeded from `mappedLeaves` first — the merchant's taxonomy *structure*, brand-agnostic and
-  // independent of live stock — so a leaf they have mapped a store category to still shows as
-  // "covered" (at 0 items) even when this exact brand has nothing in it right now, rather than
-  // vanishing the moment `sizing_path_coverage` (a scan artifact) happens to have no row for it.
-  // `chartLeafCounts` then overwrites with this brand's real counts wherever it has them. Counts are
-  // summed because Stage 2's mappings can place several merchant paths on the same Persona leaf.
+  // Built from `chartLeafCounts`, so it holds the leaves this brand really stocks in the merchant's
+  // mapped taxonomy. Counts are summed because Stage 2's mappings can place several merchant paths on
+  // the same Persona leaf. Only a scan that recorded no leaf counts for the brand falls back to the
+  // store's whole mapped taxonomy.
   const merchantLeaves = React.useMemo(() => {
     if (!brandKey) return null;
-    const map = new Map<string, number>();
-    for (const leaf of mappedLeaves) map.set(leaf, 0);
+    const mapped = new Set(mappedLeaves);
+    const stocked = new Map<string, number>();
     for (const count of chartLeafCounts) {
       if (count.brandKey !== brandKey) continue;
       // Merchandise Scope is authoritative once loaded. A stale or category-level scan path must
       // not silently expand the taxonomy the merchant explicitly selected.
-      if (!map.has(count.leafKey)) continue;
-      map.set(count.leafKey, (map.get(count.leafKey) ?? 0) + count.skuCount);
+      if (!mapped.has(count.leafKey) || count.skuCount <= 0) continue;
+      stocked.set(count.leafKey, (stocked.get(count.leafKey) ?? 0) + count.skuCount);
     }
-    return map;
+    // Only what this brand actually sells here. Offering every leaf the store maps listed a global
+    // brand's chart against subcategories it has no stock in, and made a brand with one polo shirt
+    // look like it covered the whole taxonomy. A scan from before leaf counts were recorded has
+    // nothing brand-specific to offer, so it keeps the store-wide list rather than showing nothing.
+    if (stocked.size > 0) return stocked;
+    return new Map(mappedLeaves.map((leaf) => [leaf, 0] as const));
   }, [chartLeafCounts, mappedLeaves, brandKey]);
   // Display-only — the size type this brand's labels are read as, same lookup the matching pipeline
   // itself uses (brand override if one exists, otherwise the store default). Not a filter: every

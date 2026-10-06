@@ -79,6 +79,21 @@ describe("resolveProductChart", () => {
     expect(result.chartKey).toBe("tom_tailor|tops|women|alpha|v1");
   });
 
+  it("resolves against every listed size but publishes rows only for the purchasable ones", () => {
+    const result = resolveProductChart({ ...product, rawSizeFormat: "S,M", purchasableSizeFormat: "M" }, context());
+    expect(result.status).toBe("matched");
+    if (result.status !== "matched") return;
+    expect(result.canonicalSizes).toEqual(["M"]);
+    expect(result.sizeMatches.map((match) => match.canonical)).toEqual(["M"]);
+  });
+
+  it("still resolves a sold-out product's chart and publishes no rows", () => {
+    const result = resolveProductChart({ ...product, rawSizeFormat: "S,M", purchasableSizeFormat: null }, context());
+    expect(result.status).toBe("matched");
+    if (result.status !== "matched") return;
+    expect(result.sizeMatches).toEqual([]);
+  });
+
   it("keeps a raw-brand size-system override after canonical brand mapping", () => {
     const result = resolveProductChart(
       { ...product, rawSizeFormat: "36,38" },

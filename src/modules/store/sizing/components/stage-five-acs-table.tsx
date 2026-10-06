@@ -16,6 +16,7 @@ import {
   Tag,
 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
+import { formatPersonaSegments } from "@/modules/store/mapping/persona-taxonomy";
 import {
   STAGE_FIVE_PAGE_SIZES,
   type AcsStageFiveResponse,
@@ -34,6 +35,18 @@ function money(row: AcsStageFiveRow): string {
   } catch {
     return `${row.price} ${row.currency ?? ""}`.trim();
   }
+}
+
+/** The deepest `persona > dept > cat > sub` entry in a product's categories, as a readable label. */
+function personaPathOf(categories: string[]): { label: string; raw: string } | null {
+  let best: string[] | null = null;
+  for (const category of categories) {
+    const parts = category.split(">").map((part) => part.trim());
+    if (parts[0] !== "persona" || parts.length < 2) continue;
+    if (!best || parts.length > best.length) best = parts;
+  }
+  if (!best) return null;
+  return { label: formatPersonaSegments(best), raw: best.join(" > ") };
 }
 
 function shortId(id: string | null): string {
@@ -132,10 +145,60 @@ function AcsSizingPayloadModal({ row, onClose }: { row: AcsStageFiveRow; onClose
   );
 }
 
-export function StageFiveAcsTable({ refreshKey }: { refreshKey: string | null | undefined }) {
+/** How often a view the server is still rebuilding is asked for again. */
+const REFRESH_POLL_MS = 3_000;
+const SESSION_CACHE_PREFIX = "persona:stage5:";
+/** Session storage is a few megabytes per origin; a 500-row page with every fit row can approach
+ *  that, and failing to cache one is better than evicting everything else. */
+const SESSION_CACHE_MAX_CHARS = 1_500_000;
+
+/**
+ * The last answer for each Stage 5 request, so returning to the stage — or reloading the page — paints
+ * at once while the request that confirms it is in flight. Kept in memory for the session and in
+ * session storage across reloads of the same tab.
+ */
+const memoryCache = new Map<string, unknown>();
+
+function readCached<T>(key: string): T | null {
+  if (memoryCache.has(key)) return memoryCache.get(key) as T;
+  try {
+    const stored = window.sessionStorage.getItem(SESSION_CACHE_PREFIX + key);
+    if (!stored) return null;
+    const value = JSON.parse(stored) as T;
+    memoryCache.set(key, value);
+    return value;
+  } catch {
+    return null;
+  }
+}
+
+function writeCached(key: string, value: unknown) {
+  memoryCache.set(key, value);
+  try {
+    const serialized = JSON.stringify(value);
+    if (serialized.length <= SESSION_CACHE_MAX_CHARS) {
+      window.sessionStorage.setItem(SESSION_CACHE_PREFIX + key, serialized);
+    }
+  } catch {
+    // Quota or privacy mode: the memory copy still serves this session.
+  }
+}
+
+export function StageFiveAcsTable({
+  refreshKey,
+  cacheScope,
+}: {
+  refreshKey: string | null | undefined;
+  /** Whose catalog this is, so a cached answer is never shown to a different store. */
+  cacheScope: string;
+}) {
   const [response, setResponse] = React.useState<AcsStageFiveResponse | null>(null);
   const [summary, setSummary] = React.useState<SizingResolutionSummary | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [pollTick, setPollTick] = React.useState(0);
+  const [summaryPollTick, setSummaryPollTick] = React.useState(0);
+  /** False while the table still shows a different page or filter than the one being loaded. */
+  const [showingRequested, setShowingRequested] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [queryInput, setQueryInput] = React.useState("");
   const [query, setQuery] = React.useState("");
@@ -151,8 +214,6 @@ export function StageFiveAcsTable({ refreshKey }: { refreshKey: string | null | 
     requestController.current?.abort();
     const controller = new AbortController();
     requestController.current = controller;
-    setLoading(true);
-    setError(null);
     const params = new URLSearchParams({
       pageSize: String(pageSize),
       offset: String((page - 1) * pageSize),
@@ -161,6 +222,13 @@ export function StageFiveAcsTable({ refreshKey }: { refreshKey: string | null | 
     if (type !== "all") params.set("type", type);
     if (availability !== "all") params.set("availability", availability);
     if (brandType !== "all") params.set("brandType", brandType);
+    const cacheKey = `${cacheScope}:${refreshKey ?? "draft"}:products:${params}`;
+
+    const cached = readCached<AcsStageFiveResponse>(cacheKey);
+    if (cached) setResponse(cached);
+    setShowingRequested(cached !== null);
+    setLoading(true);
+    setError(null);
 
     try {
       const result = await fetch(`/api/store-connection/sizing/acs-products?${params}`, {
@@ -171,6 +239,13 @@ export function StageFiveAcsTable({ refreshKey }: { refreshKey: string | null | 
       if (!result.ok) throw new Error(body.error ?? "Could not load ACS products");
       if (requestController.current !== controller) return;
       setResponse(body);
+      setShowingRequested(true);
+      writeCached(cacheKey, body);
+      if (body.refreshing) {
+        window.setTimeout(() => {
+          if (requestController.current === null) setPollTick((tick) => tick + 1);
+        }, REFRESH_POLL_MS);
+      }
     } catch (caught) {
       if (controller.signal.aborted) return;
       setError(caught instanceof Error ? caught.message : "Could not load ACS products");
@@ -180,9 +255,12 @@ export function StageFiveAcsTable({ refreshKey }: { refreshKey: string | null | 
         setLoading(false);
       }
     }
-  }, [availability, brandType, page, pageSize, query, type]);
+  }, [availability, brandType, cacheScope, page, pageSize, query, refreshKey, type]);
 
   const loadSummary = React.useCallback(async () => {
+    const cacheKey = `${cacheScope}:${refreshKey ?? "draft"}:summary`;
+    const cached = readCached<SizingResolutionSummary>(cacheKey);
+    if (cached) setSummary(cached);
     try {
       const result = await fetch("/api/store-connection/sizing/resolution-summary", {
         cache: "no-store",
@@ -190,10 +268,14 @@ export function StageFiveAcsTable({ refreshKey }: { refreshKey: string | null | 
       const body = await result.json() as SizingResolutionSummary & { error?: string };
       if (!result.ok) throw new Error(body.error ?? "Could not load sizing totals");
       setSummary(body);
+      writeCached(cacheKey, body);
+      if (body.refreshing) {
+        window.setTimeout(() => setSummaryPollTick((tick) => tick + 1), REFRESH_POLL_MS);
+      }
     } catch {
-      setSummary(null);
+      if (!cached) setSummary(null);
     }
-  }, []);
+  }, [cacheScope, refreshKey]);
 
   React.useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
@@ -201,12 +283,14 @@ export function StageFiveAcsTable({ refreshKey }: { refreshKey: string | null | 
       window.clearTimeout(timer);
       requestController.current?.abort();
     };
-  }, [load, refreshKey]);
+  }, [load, pollTick]);
 
   React.useEffect(() => {
     const timer = window.setTimeout(() => void loadSummary(), 0);
     return () => window.clearTimeout(timer);
-  }, [loadSummary, refreshKey]);
+  }, [loadSummary, summaryPollTick]);
+
+  const updating = Boolean(response?.refreshing || summary?.refreshing);
 
   const maxPage = Math.max(1, Math.ceil((response?.total ?? 0) / pageSize));
   const previewMode = response?.source === "preview";
@@ -255,8 +339,25 @@ export function StageFiveAcsTable({ refreshKey }: { refreshKey: string | null | 
             </div>
           ))}
         </div>
-        <div className="flex flex-wrap gap-x-5 gap-y-1 border-b border-slate-200 bg-slate-50/70 px-4 pb-4 text-xs font-semibold text-slate-500">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-slate-200 bg-slate-50/70 px-4 pb-4 text-xs font-semibold text-slate-500">
           {mirrorCounts.map((count) => <span key={count}>{count}</span>)}
+          {(summary?.unavailable ?? 0) > 0 && (
+            <span className="text-amber-700" title="Scanned products the store no longer returns. They are not published.">
+              No longer in store: {summary!.unavailable!.toLocaleString()}
+            </span>
+          )}
+          <span className="ml-auto flex items-center gap-1.5 font-medium text-slate-400">
+            {updating ? (
+              <>
+                <Loader2 className="h-3 w-3 animate-spin text-violet-600" />
+                <span className="text-violet-700">Updating to the latest data…</span>
+              </>
+            ) : response?.builtAt ? (
+              <span title={previewMode ? "When these records were generated" : "When ACS was last read"}>
+                As of {new Date(response.builtAt).toLocaleTimeString()}
+              </span>
+            ) : null}
+          </span>
         </div>
 
         <div className="flex flex-col gap-3 border-b border-slate-200 p-4 xl:flex-row xl:items-center">
@@ -330,11 +431,11 @@ export function StageFiveAcsTable({ refreshKey }: { refreshKey: string | null | 
 
         {error && <div className="m-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 
-        <div className={`overflow-x-auto transition-opacity ${loading && response ? "opacity-60" : ""}`} aria-busy={loading}>
+        <div className={`overflow-x-auto transition-opacity ${loading && response && !showingRequested ? "opacity-60" : ""}`} aria-busy={loading}>
           <table className="w-full min-w-[1480px] text-left text-xs">
             <thead className="border-b border-slate-200 bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
               <tr>
-                {["ACS product", "Type", "Parent", "SKU", "Brand", "Category", "Size", "Availability", "Sizing payload", ""].map((label) => (
+                {["ACS product", "Type", "Parent", "SKU", "Brand", "Persona path", "Size", "Availability", "Sizing payload", ""].map((label) => (
                   <th key={label} className="px-4 py-3 font-bold">{label}</th>
                 ))}
               </tr>
@@ -382,7 +483,18 @@ export function StageFiveAcsTable({ refreshKey }: { refreshKey: string | null | 
                       {row.brandType === "none" ? "Null / no brand" : row.brandType}
                     </span>
                   </td>
-                  <td className="max-w-[220px] px-4 py-3 text-slate-600">{row.categories.at(-1) ?? "—"}</td>
+                  <td className="max-w-[220px] px-4 py-3 text-slate-600">
+                    {(() => {
+                      const path = personaPathOf(row.categories);
+                      if (!path) return row.categories.at(-1) ?? "—";
+                      return (
+                        <>
+                          <p className="font-semibold text-slate-700">{path.label}</p>
+                          <p className="truncate font-mono text-[10px] text-slate-400" title={path.raw}>{path.raw}</p>
+                        </>
+                      );
+                    })()}
+                  </td>
                   <td className="px-4 py-3 font-semibold text-violet-700">{row.sizes.join(", ") || row.fitSizeLabels.join(", ") || "—"}</td>
                   <td className="px-4 py-3">
                     <span className={`rounded-full px-2 py-1 font-semibold ${
@@ -419,7 +531,7 @@ export function StageFiveAcsTable({ refreshKey }: { refreshKey: string | null | 
             <strong>{(response?.total ?? 0).toLocaleString()}</strong>{" "}
             {previewMode ? "generated ACS records" : "ACS records"} · page {page} of {maxPage}
             {previewMode && response ? ` · ${response.rows.length} rows shown` : ""}
-            {loading ? ` · loading page ${page}…` : ""}
+            {loading && !showingRequested ? ` · loading page ${page}…` : ""}
           </span>
           <div className="flex items-center gap-2">
             <label className="flex items-center gap-2 font-semibold text-slate-500">

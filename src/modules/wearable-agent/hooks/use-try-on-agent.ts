@@ -17,7 +17,12 @@ import {
   buildFitNote,
   mergeGarmentIntoOutfit,
 } from "@/lib/recommendations";
-import { getOrCreateEmbedSessionId, loadEmbedState, saveEmbedState } from "@/lib/embed/client/embed-storage";
+import {
+  embedRequestHeaders,
+  getOrCreateEmbedSessionId,
+  loadEmbedState,
+  saveEmbedState,
+} from "@/lib/embed/client/embed-storage";
 import type { ShopperProfileDraft } from "@/lib/embed/client/shopper-api";
 import { addItemToWooCommerceCart } from "@/lib/woocommerce/store-api-client";
 import { addItemToShopifyCart } from "@/lib/shopify/ajax-cart-client";
@@ -300,7 +305,7 @@ async function streamAvatarVariations(
   try {
     const res = await fetch(embed ? `${embed.apiBase}/persona/avatar` : "/api/agents/persona/avatar", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: embed ? embedRequestHeaders(embed.embedToken) : { "Content-Type": "application/json" },
       body: JSON.stringify({
         ...(embed ? { embedToken: embed.embedToken } : {}),
         photoBase64: profile.photoBase64,
@@ -1418,7 +1423,7 @@ export function useTryOnAgent(
       embed ? `${embed.apiBase}/persona/fit-analysis` : "/api/agents/persona/fit-analysis",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: embed ? embedRequestHeaders(embed.embedToken) : { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...(embed ? { embedToken: embed.embedToken } : {}),
           productIds: items.map((item) => item.id),
@@ -1445,7 +1450,7 @@ export function useTryOnAgent(
     try {
       const res = await fetch(embed ? `${embed.apiBase}/persona/try-on` : "/api/agents/persona/try-on", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: embed ? embedRequestHeaders(embed.embedToken) : { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...(embed ? { embedToken: embed.embedToken } : {}),
           avatarImageUrl: toAbsoluteImageUrl(avatarImageUrl),
@@ -1616,7 +1621,7 @@ export function useTryOnAgent(
 
       const res = await fetch(embed ? `${embed.apiBase}/wearable` : "/api/agents/wearable", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: embed ? embedRequestHeaders(embed.embedToken) : { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...(embed ? { embedToken: embed.embedToken, sessionId: embedSessionIdRef.current } : {}),
           messages: slimHistory,

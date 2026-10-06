@@ -4,28 +4,27 @@ import {
   isChildAudience,
   measurementsFor,
   requiredMeasurementsFor,
-  type Measurement,
   type SizingGroup,
 } from "./measurements";
 import type { MatchedProductChart } from "./product-chart";
 import type { SizeChartRow } from "./chart-schema";
+import { isFitIndexed, type FitIndexedMeasurement } from "./fit-index";
 
 const MAX_ACS_TEXT_LENGTH = 256;
-const OPEN_MIN = 0;
-const OPEN_MAX = 1_000;
 
-export type AcsEnvelopeDimension = Measurement | "age_months";
-export type AcsSizingEnvelopes = Partial<
-  Record<`${AcsEnvelopeDimension}_${"min" | "max"}`, number>
+export type AcsSizingBounds = Partial<
+  Record<FitIndexedMeasurement, { min: number | null; max: number | null }>
 >;
 
 export interface AcsSizingEntry {
   raw: string;
   label: string;
   rowJson: string;
-  /** Numeric values for this one exact size row. Kept out of ACS itself; the product mapper uses
-   *  it to build either a PRIMARY aggregate or a VARIANT-specific envelope after size narrowing. */
-  envelopes?: AcsSizingEnvelopes;
+  /** This one exact size row's bounds for the measurements ACS indexes (`fit-index.ts`). A null
+   *  bound is open-ended. Not sent to ACS as-is: the product mapper turns the bounds of whichever
+   *  rows a record keeps (every stocked size on the PRIMARY, one size on a VARIANT) into the
+   *  filterable value lists. */
+  bounds?: AcsSizingBounds;
 }
 
 export interface AcsSizingPayload {
@@ -35,7 +34,6 @@ export interface AcsSizingPayload {
   audience: string;
   chartVariant: string;
   entries: AcsSizingEntry[];
-  envelopes: AcsSizingEnvelopes;
 }
 
 function rowJson(
@@ -117,46 +115,16 @@ function ageBoundsForRows(rows: readonly SizeChartRow[]): Map<string, { min: num
   return result;
 }
 
-function rowEnvelopes(
+function rowBounds(
   row: SizeChartRow,
   group: SizingGroup,
   audience: MatchedProductChart["chart"]["audience"],
-  ageBounds: { min: number; max: number } | null,
-): AcsSizingEnvelopes {
-  const envelopes: AcsSizingEnvelopes = {};
+): AcsSizingBounds {
+  const result: AcsSizingBounds = {};
   for (const measurement of measurementsFor(group, audience)) {
-    if (!isBodyMeasurement(measurement)) continue;
+    if (!isBodyMeasurement(measurement) || !isFitIndexed(measurement)) continue;
     const bounds = boundsFor(row, measurement);
-    if (!bounds) continue;
-    envelopes[`${measurement}_min`] = bounds.min ?? OPEN_MIN;
-    envelopes[`${measurement}_max`] = bounds.max ?? OPEN_MAX;
-  }
-  if (ageBounds) {
-    envelopes.age_months_min = ageBounds.min;
-    envelopes.age_months_max = ageBounds.max;
-  }
-  return envelopes;
-}
-
-export function sizingEnvelopesForEntries(
-  entries: readonly AcsSizingEntry[],
-  fallback: AcsSizingEnvelopes = {},
-): AcsSizingEnvelopes {
-  const withEnvelopes = entries.filter((entry) => entry.envelopes);
-  if (withEnvelopes.length === 0) return fallback;
-
-  const result: AcsSizingEnvelopes = {};
-  for (const entry of withEnvelopes) {
-    for (const [key, value] of Object.entries(entry.envelopes ?? {})) {
-      if (typeof value !== "number") continue;
-      const typedKey = key as keyof AcsSizingEnvelopes;
-      const current = result[typedKey];
-      result[typedKey] = current === undefined
-        ? value
-        : key.endsWith("_min")
-          ? Math.min(current, value)
-          : Math.max(current, value);
-    }
+    if (bounds) result[measurement] = { min: bounds.min, max: bounds.max };
   }
   return result;
 }
@@ -172,10 +140,9 @@ export function buildAcsSizingPayload(resolution: MatchedProductChart): AcsSizin
       raw: match.raw,
       label: match.canonical,
       rowJson: rowJson(match.canonical, match.row, group, resolution.chart.audience, ageBounds),
-      envelopes: rowEnvelopes(match.row, group, resolution.chart.audience, ageBounds),
+      bounds: rowBounds(match.row, group, resolution.chart.audience),
     };
   });
-  const envelopes = sizingEnvelopesForEntries(entries);
 
   return {
     chartKey: resolution.chartKey,
@@ -184,6 +151,5 @@ export function buildAcsSizingPayload(resolution: MatchedProductChart): AcsSizin
     audience: resolution.chart.audience,
     chartVariant: resolution.chart.variantName,
     entries,
-    envelopes,
   };
 }

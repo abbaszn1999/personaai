@@ -103,6 +103,15 @@ export function saveShopperToken(embedToken: string, token: string): void {
   }
 }
 
+/** Headers for an embed API call, carrying the signed-in shopper's session. The chat, image and
+ *  live try-on endpoints spend the merchant's wallet and refuse calls without it. */
+export function embedRequestHeaders(embedToken: string): Record<string, string> {
+  const token = loadShopperToken(embedToken);
+  return token
+    ? { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
+    : { "Content-Type": "application/json" };
+}
+
 export function clearShopperToken(embedToken: string): void {
   const storage = safeLocalStorage();
   if (!storage) return;

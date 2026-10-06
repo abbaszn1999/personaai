@@ -23,7 +23,7 @@ export async function OPTIONS() {
 export async function POST(req: NextRequest) {
   try {
     const body: RequestBody = await req.json().catch(() => ({}));
-    const resolution = await resolveEmbedRequest(body.embedToken);
+    const resolution = await resolveEmbedRequest(body.embedToken, { req, kind: "telemetry" });
     if ("error" in resolution) return resolution.error;
     if (!isLiveTryOnEnabled(resolution.workspace.branding)) {
       return embedJson({ error: "Live camera try-on is disabled for this store" }, { status: 403 });

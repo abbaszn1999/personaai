@@ -46,8 +46,18 @@ async function syncSubscription(subscription: Stripe.Subscription, eventCreated:
     throw new Error(`Stripe price ${item.price.id} is not a subscription catalog item`);
   }
 
+  // The paying customer decides whose plan this is. Metadata is only a fallback for a customer this
+  // app has no mapping for yet — it can be edited in the Stripe dashboard, the customer link cannot
+  // be changed without moving the subscription.
   const account = await getBillingAccountByCustomerId(customerId);
-  const userId = subscription.metadata.autommerce_user_id || account?.userId;
+  const metadataUserId = subscription.metadata.autommerce_user_id || null;
+  if (account && metadataUserId && metadataUserId !== account.userId) {
+    console.warn(
+      `[api/stripe/webhook] subscription ${subscription.id} metadata names user ${metadataUserId}, ` +
+        `but its customer ${customerId} belongs to ${account.userId}; using the customer's account`,
+    );
+  }
+  const userId = account?.userId ?? metadataUserId;
   if (!userId) throw new Error(`No Autommerce account is linked to Stripe customer ${customerId}`);
 
   const rawSubscription = subscription as unknown as {
@@ -222,6 +232,17 @@ async function processEvent(event: Stripe.Event): Promise<void> {
       const session = event.data.object as Stripe.Checkout.Session;
       const orderId = session.metadata?.autommerce_order_id;
       if (orderId) await updateBillingOrder(orderId, { status: "payment_failed" });
+      return;
+    }
+    case "checkout.session.expired": {
+      // Abandoned before paying: close the order so it stops counting as an open checkout.
+      const session = event.data.object as Stripe.Checkout.Session;
+      const orderId = session.metadata?.autommerce_order_id;
+      if (!orderId) return;
+      const order = await getBillingOrderById(orderId);
+      if (order && !["paid", "processing", "fulfilled", "refunded"].includes(order.status)) {
+        await updateBillingOrder(orderId, { status: "canceled" });
+      }
       return;
     }
     case "customer.subscription.created":

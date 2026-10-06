@@ -20,15 +20,30 @@ export function merchantAvatarObjectPath(email: string, extension: string): stri
   return `${merchantAvatarFolder(email)}/avatar.${extension}`;
 }
 
+/** What the file's own first bytes say it is. The browser-supplied type is only a claim, and this
+ *  bucket is public, so anything that is not really an image never reaches it. */
+function sniffImageExtension(bytes: Buffer): (typeof EXTENSIONS)[number] | null {
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "jpg";
+  if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+    return "png";
+  }
+  if (bytes.length >= 12 && bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP") {
+    return "webp";
+  }
+  return null;
+}
+
 export async function uploadMerchantAvatar(
   email: string,
   bytes: Buffer,
   mimeType: string
 ): Promise<{ url: string } | { error: string }> {
-  const extension = MIME_TO_EXT[mimeType];
-  if (!extension) return { error: "Use a JPG, PNG, or WebP image." };
+  if (!MIME_TO_EXT[mimeType]) return { error: "Use a JPG, PNG, or WebP image." };
   if (bytes.length === 0) return { error: "That file is empty." };
   if (bytes.length > MAX_BYTES) return { error: "Images must be 2 MB or smaller." };
+  const extension = sniffImageExtension(bytes);
+  if (!extension) return { error: "That file isn't a valid JPG, PNG, or WebP image." };
+  mimeType = extension === "jpg" ? "image/jpeg" : `image/${extension}`;
 
   const folder = merchantAvatarFolder(email);
   if (!folder) return { error: "This account has no email to store a photo under." };

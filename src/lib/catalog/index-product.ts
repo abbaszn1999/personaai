@@ -1,5 +1,6 @@
 import { downgradeAcsProductIfExists, syncProductToAcs } from "@/lib/catalog/acs/sync";
 import type { StoreConnectionRow } from "@/lib/db/store-connections";
+import { getAcsPublishStampId } from "@/lib/db/sizing-runs";
 import { loadSizingResolutionContext } from "@/lib/sizing/product-chart";
 import { sizingForRawProduct } from "./sizing-for-product";
 import type { CategoryPath } from "@/lib/retrieval/types";
@@ -128,6 +129,7 @@ export async function indexSingleProduct(
       garmentSubcategory,
       fieldMapping: connection.acsFieldMapping,
       sizing,
+      publishId: await getAcsPublishStampId(connectionId),
     });
 
     return written ? "indexed" : "failed";

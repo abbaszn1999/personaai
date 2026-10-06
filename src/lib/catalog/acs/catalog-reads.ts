@@ -264,6 +264,51 @@ export async function deactivateAcsCatalogForRemapping(connectionId: string): Pr
 }
 
 /**
+ * Takes out of stock every product of this connection that a finished publish did not write.
+ *
+ * `runId` is the publish that just completed; each product it wrote carries it as
+ * `persona_publish_id`. Anything of this connection still in stock under a different (or no) id was
+ * written by an earlier catalog — a product the merchant's remapping moved out of scope, or a variant
+ * that no longer exists — and would otherwise keep being recommended with stale paths and charts. The
+ * old catalog therefore keeps serving right up to the moment the new one has fully replaced it.
+ */
+export async function retireStaleAcsProducts(connectionId: string, runId: string): Promise<number> {
+  if (!isAcsConfigured()) return 0;
+  try {
+    let retired = 0;
+    const seenTokens = new Set<string>();
+    let pageToken: string | undefined;
+    do {
+      const response = await listProducts(pageToken);
+      const staleIds = (response.products ?? [])
+        .filter((product) => {
+          const merchantIds = product.attributes?.merchant_id?.text ?? [];
+          const owned = product.id.startsWith(`${connectionId}_`) || merchantIds.includes(connectionId);
+          if (!owned || product.availability !== "IN_STOCK") return false;
+          return (product.attributes?.persona_publish_id?.text ?? [])[0] !== runId;
+        })
+        .map((product) => product.id);
+
+      for (const batch of chunk(staleIds, DELETE_CONCURRENCY)) {
+        await Promise.all(batch.map((id) => markOutOfStock(id)));
+      }
+      retired += staleIds.length;
+
+      pageToken = response.nextPageToken;
+      if (pageToken && seenTokens.has(pageToken)) {
+        throw new Error("ACS ListProducts returned a repeated page token");
+      }
+      if (pageToken) seenTokens.add(pageToken);
+    } while (pageToken);
+
+    return retired;
+  } catch (error) {
+    console.error("[acs/catalog-reads retireStaleAcsProducts]", connectionId, runId, error);
+    return 0;
+  }
+}
+
+/**
  * Actually deletes every one of this connection's products from ACS — the one caller allowed to,
  * per `markOutOfStock`'s doc comment: a merchant disconnecting their store entirely leaves no
  * ongoing catalog behind, so there is nothing left for that user-event history to serve. Unlike

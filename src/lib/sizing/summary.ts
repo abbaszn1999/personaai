@@ -35,6 +35,10 @@ export interface CoverageBrand {
    *  SKUs under Women > Footwear > Shoes" and "5 under Women > Dresses" both have `name: null` and
    *  would otherwise render as one indistinguishable "No brand detected" line. */
   storeCategoryPaths: string[][];
+  /** The Persona subcategories this brand's stock sits in, most stocked first. Filled for private
+   *  labels and unbranded rows, which have no web research to look at — the merchant's own
+   *  subcategories are the only way to tell what a hand-filled chart has to cover. */
+  personaLeaves?: string[];
 }
 
 export interface CoverageCategory {
@@ -148,6 +152,37 @@ export function summarizeCoverage(rows: SizingCoverageRow[]): CoverageSummary {
     .sort((a, b) => b.skuCount - a.skuCount || a.key.localeCompare(b.key));
 
   return { totalSkus, chartsNeeded: rows.length, brands: brandList, categories: categoryList, counts };
+}
+
+/**
+ * Adds each private-label and unbranded row's Persona subcategories to a coverage summary.
+ *
+ * Unbranded rows are split per sizing category (see `summarizeCoverage`), so they match path coverage
+ * on the sentinel brand plus that one category; a private label matches on its own brand key.
+ */
+export function attachPersonaLeaves(
+  summary: CoverageSummary,
+  pathCoverage: ReadonlyArray<{ brandKey: string; categoryId: string; sizingCategory: string; skuCount: number }>
+): CoverageSummary {
+  const brands = summary.brands.map((brand) => {
+    if (brand.brandType !== "private" && brand.brandType !== "none") return brand;
+
+    const unbranded = brand.brandType === "none";
+    const counts = new Map<string, number>();
+    for (const path of pathCoverage) {
+      if (path.skuCount <= 0) continue;
+      const matches = unbranded
+        ? path.brandKey === UNKNOWN_BRAND_KEY && path.sizingCategory === brand.sizingCategories[0]
+        : path.brandKey === brand.brandKey;
+      if (matches) counts.set(path.categoryId, (counts.get(path.categoryId) ?? 0) + path.skuCount);
+    }
+
+    const personaLeaves = [...counts]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([leaf]) => leaf);
+    return { ...brand, personaLeaves };
+  });
+  return { ...summary, brands };
 }
 
 /**

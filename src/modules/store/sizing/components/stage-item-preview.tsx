@@ -191,7 +191,7 @@ export function StageItemPreview() {
         stageNumber={2}
         eyebrow="Live Catalog Sample"
         title="Preview — catalog, brands & parent category mapping"
-        description="Read live from your store through the field mapping you approved. Items are sorted into Global, Private and Null brands, and each carries the one of the five parent categories its merchant path was mapped to. Check the brand, path and size columns look right — fixing them now is a store edit, later it means redoing paid research."
+        description="Read from your store through the field mapping you approved. Items are sorted into Global, Private and Null brands, and each shows its merchant path, the Persona path that path is mapped to, and the one of the five parent categories that follows from it — the Persona subcategory is what its size chart is chosen by. Check the brand, path and size columns look right — fixing them now is a store edit, later it means redoing paid research."
         actions={
           <div className="flex w-full items-center gap-2 sm:w-auto">
             <div className="relative w-full sm:w-56">
@@ -417,6 +417,9 @@ export function StageItemPreview() {
                     read out of one mapped column, so naming a field here would be a lie. */}
                 <th className="px-3 py-3.5">Merchant path</th>
                 <th className="px-3 py-3.5">
+                  Persona path <HeaderField>categories</HeaderField>
+                </th>
+                <th className="px-3 py-3.5">
                   Sizes read <HeaderField>size</HeaderField>
                 </th>
                 <th className="px-3 py-3.5">Price</th>
@@ -426,14 +429,14 @@ export function StageItemPreview() {
             <tbody className="divide-y divide-[var(--color-border)]">
               {loading && rows.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-10 text-center text-[var(--color-text-muted)]">
+                  <td colSpan={9} className="px-6 py-10 text-center text-[var(--color-text-muted)]">
                     <RefreshCw className="mx-auto mb-2 h-4 w-4 animate-spin" />
                     Reading from your store…
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-10 text-center text-[var(--color-text-muted)]">
+                  <td colSpan={9} className="px-6 py-10 text-center text-[var(--color-text-muted)]">
                     {!filtering
                       ? "No products came back for your selected categories."
                       : nextCursor
@@ -579,10 +582,14 @@ export function StageItemPreview() {
  */
 function ParentCell({ row }: { row: SizingSampleRow }) {
   const setSkuParent = useStoreConnectionStore((s) => s.setSkuParent);
+  const override = useStoreConnectionStore((s) => s.skuParentOverrides[row.externalId]);
   const [saving, setSaving] = React.useState(false);
 
-  const current = isSizingGroup(row.sizingCategory) ? row.sizingCategory : null;
-  const isCorrected = row.inheritedCategory !== row.sizingCategory;
+  // The saved correction is read live, so choosing a parent (or resetting it) shows at once rather
+  // than after the page is next read from the server.
+  const effective = isSizingGroup(override) ? override : row.inheritedCategory ?? row.sizingCategory;
+  const current = isSizingGroup(effective) ? effective : null;
+  const isCorrected = isSizingGroup(override) && override !== row.inheritedCategory;
 
   async function choose(group: SizingGroup | null) {
     setSaving(true);
@@ -732,6 +739,28 @@ function ProductTableRow({ row }: { row: SizingSampleRow }) {
         >
           {row.storeCategoryPath.length > 0 ? row.storeCategoryPath.join(" › ") : "—"}
         </span>
+        {row.mappingInheritedFrom && (
+          <span
+            className="block truncate text-[10px] text-[var(--color-text-muted)]"
+            title={`This category has no mapping of its own, so it uses ${row.mappingInheritedFrom.join(" › ")}'s`}
+          >
+            Mapping inherited from {row.mappingInheritedFrom.at(-1)}
+          </span>
+        )}
+      </td>
+
+      {/* The other half of the mapping: where that merchant path landed in Persona. The chart is
+          chosen from this subcategory, so the two side by side are what the merchant checks. */}
+      <td className="max-w-[210px] px-3">
+        {row.personaPath ? (
+          <span className="block truncate font-medium text-[var(--color-text-primary)]" title={row.personaPath}>
+            {row.personaPath}
+          </span>
+        ) : (
+          <span className="text-[var(--color-text-muted)]" title="This product's category is not mapped to Persona">
+            Not mapped
+          </span>
+        )}
       </td>
 
       <td className="px-3">

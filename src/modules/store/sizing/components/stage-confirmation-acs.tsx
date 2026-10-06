@@ -2,8 +2,11 @@
 
 import * as React from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Loader2, ShieldCheck } from "lucide-react";
-import { isRunWorking } from "../server-types";
+import { AlertTriangle, ArrowLeft, ArrowRight, Loader2, ShieldCheck } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
+import { leafLabel } from "@/modules/store/mapping/persona-taxonomy";
+import { isRunWorking, type UnresolvedSizingGroup } from "../server-types";
 import { useSizingStore } from "../store";
 import { StageFiveAcsTable } from "./stage-five-acs-table";
 
@@ -16,6 +19,11 @@ export function StageConfirmation() {
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [publishing, setPublishing] = React.useState(false);
+  const [pendingConfirmation, setPendingConfirmation] = React.useState<{
+    unresolved: number;
+    total: number;
+    groups: UnresolvedSizingGroup[];
+  } | null>(null);
   const publishRunId = React.useRef<string | null>(null);
   const publishObservedWorking = React.useRef(false);
 
@@ -46,18 +54,36 @@ export function StageConfirmation() {
     return () => window.clearTimeout(timer);
   }, [publishing, run]);
 
-  async function startPublish() {
+  async function startPublish(confirmUnresolved?: number) {
     setPublishing(true);
     setError(null);
     setNotice(null);
+    setPendingConfirmation(null);
     try {
-      const response = await fetch("/api/store-connection/sizing/publish", { method: "POST" });
+      const response = await fetch("/api/store-connection/sizing/publish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(confirmUnresolved === undefined ? {} : { confirmUnresolved }),
+      });
       const body = await response.json() as {
         run?: NonNullable<typeof run>;
         error?: string;
         message?: string;
         rescanning?: boolean;
+        requiresConfirmation?: boolean;
+        unresolved?: number;
+        total?: number;
+        groups?: UnresolvedSizingGroup[];
       };
+      if (response.status === 409 && body.requiresConfirmation) {
+        setPublishing(false);
+        setPendingConfirmation({
+          unresolved: body.unresolved ?? 0,
+          total: body.total ?? 0,
+          groups: body.groups ?? [],
+        });
+        return;
+      }
       if (!response.ok) throw new Error(body.error ?? "Could not publish sizing");
       if (body.run) {
         publishRunId.current = body.run.id;
@@ -115,7 +141,7 @@ export function StageConfirmation() {
       {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
       {notice && <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-800">{notice}</div>}
 
-      <StageFiveAcsTable refreshKey={run?.publishedAt} />
+      <StageFiveAcsTable refreshKey={run?.publishedAt} cacheScope={run?.connectionId ?? "none"} />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button
@@ -148,6 +174,106 @@ export function StageConfirmation() {
           </button>
         </div>
       </div>
+
+      {pendingConfirmation && (
+        <UnresolvedPublishModal
+          unresolved={pendingConfirmation.unresolved}
+          total={pendingConfirmation.total}
+          groups={pendingConfirmation.groups}
+          onBack={() => {
+            setPendingConfirmation(null);
+            prevStage();
+          }}
+          onCancel={() => setPendingConfirmation(null)}
+          onConfirm={() => void startPublish(pendingConfirmation.unresolved)}
+        />
+      )}
     </div>
+  );
+}
+
+const STATUS_REASONS: Record<UnresolvedSizingGroup["status"], string> = {
+  "no-chart": "No chart covers this subcategory",
+  "fit-only": "Only a fit-class chart exists",
+  "sizes-unknown": "The product lists no sizes",
+  "sizes-unresolved": "Its sizes are not in the chart",
+  "no-leaf": "No Persona subcategory",
+  unclassified: "Brand not classified",
+  "stale-brand-mapping": "Brand mapping needs confirming",
+  ambiguous: "More than one chart fits",
+  "parent-mismatch": "Category and chart type disagree",
+  "unsupported-source": "Brand publishes no chart for this",
+};
+
+function UnresolvedPublishModal({
+  unresolved,
+  total,
+  groups,
+  onBack,
+  onCancel,
+  onConfirm,
+}: {
+  unresolved: number;
+  total: number;
+  groups: UnresolvedSizingGroup[];
+  onBack: () => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const listed = groups.reduce((sum, group) => sum + group.count, 0);
+  return (
+    <Modal
+      isOpen
+      onClose={onCancel}
+      size="lg"
+      icon={<AlertTriangle className="h-4 w-4" />}
+      title={`${unresolved.toLocaleString()} of ${total.toLocaleString()} products have no size chart`}
+      description="They will still be published, but shoppers get no size recommendation on them."
+      footer={
+        <>
+          <Button variant="secondary" size="sm" onClick={onBack}>
+            Back to Size Chart Research
+          </Button>
+          <Button size="sm" onClick={onConfirm}>
+            Publish anyway ({unresolved.toLocaleString()} products without a size chart)
+          </Button>
+        </>
+      }
+    >
+      <div className="overflow-hidden rounded-lg border border-slate-200">
+        <table className="w-full text-left text-xs">
+          <thead className="bg-slate-50 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+            <tr>
+              <th className="px-3 py-2">Brand</th>
+              <th className="px-3 py-2">Subcategory</th>
+              <th className="px-3 py-2">Why</th>
+              <th className="px-3 py-2 text-right">Products</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {groups.map((group) => (
+              <tr key={`${group.brandKey}|${group.leafKey}|${group.status}`}>
+                <td className="px-3 py-2 font-semibold text-slate-800">{group.brandName ?? group.brandKey}</td>
+                <td className="px-3 py-2 text-slate-600">{group.leafKey ? leafLabel(group.leafKey) : "—"}</td>
+                <td className="px-3 py-2 text-slate-600">
+                  {STATUS_REASONS[group.status]}
+                  {group.sampleSkus.length > 0 && (
+                    <span className="block font-mono text-[10px] text-slate-400">{group.sampleSkus.join(", ")}</span>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-right font-mono font-semibold text-slate-800">
+                  {group.count.toLocaleString()}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {listed < unresolved && (
+        <p className="mt-2 text-[11px] text-slate-500">
+          Showing the largest groups — {(unresolved - listed).toLocaleString()} more products sit in smaller ones.
+        </p>
+      )}
+    </Modal>
   );
 }

@@ -1,11 +1,10 @@
+import { isSizeOptionName } from "@/lib/catalog/option-groups";
 import { sizeLabelCandidates } from "./size-label-forms";
 
 export interface VariantOption {
   name: string;
   value: string;
 }
-
-const SIZE_OPTION_NAME = /\b(?:pa_)?(?:sizes?|taille|talla|gr(?:ö|oe)(?:ss|ß)e|maat|taglia|tamanho)\b/i;
 
 function sameSize(left: string, right: string): boolean {
   const forms = new Set(sizeLabelCandidates(right));
@@ -24,10 +23,10 @@ export function pickSizedVariant<T>(
   optionsOf: (variant: T) => VariantOption[],
   inStock: (variant: T) => boolean
 ): T | null {
-  const named = variants.some((variant) => optionsOf(variant).some((option) => SIZE_OPTION_NAME.test(option.name)));
+  const named = variants.some((variant) => optionsOf(variant).some((option) => isSizeOptionName(option.name)));
   const sizeValues = (variant: T) =>
     optionsOf(variant)
-      .filter((option) => !named || SIZE_OPTION_NAME.test(option.name))
+      .filter((option) => !named || isSizeOptionName(option.name))
       .map((option) => option.value);
   for (const size of sizes) {
     const match = variants.find((variant) => inStock(variant) && sizeValues(variant).some((value) => sameSize(value, size)));

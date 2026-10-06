@@ -12,8 +12,9 @@ import {
   SIZING_GROUP_LABELS,
   type SizingGroup,
 } from "@/lib/sizing/measurements";
+import type { SizingTarget } from "@/lib/sizing/sizing-target";
 
-export type TesterPersona = "men" | "women" | "kid";
+export type TesterPersona = SizingTarget;
 export type TesterBrandType = "global" | "private";
 export type TesterFitType =
   | "True to Size"

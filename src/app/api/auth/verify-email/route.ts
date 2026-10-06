@@ -5,7 +5,9 @@ import { randomUUID } from "crypto";
 import { sendWelcomeEmail } from "@/modules/auth/lib/helpers";
 import { sessionOptions, type SessionData } from "@/modules/auth/lib/session";
 import { buildSessionProfile } from "@/modules/auth/lib/get-user";
-import { getUserByEmail, markEmailVerified } from "@/lib/db/users";
+import { checkCode } from "@/modules/auth/lib/one-time-code";
+import { AUTH_LIMITS, allowAuthAttempt, clientIp, tooManyAttempts } from "@/modules/auth/lib/rate-limit";
+import { getUserByEmail, markEmailVerified, spendOneTimeCode } from "@/lib/db/users";
 import { createSession } from "@/lib/db/sessions";
 
 export async function POST(req: NextRequest) {
@@ -15,19 +17,19 @@ export async function POST(req: NextRequest) {
     if (!email || !code) {
       return Response.json({ error: "Email and code are required" }, { status: 400 });
     }
+    if (!allowAuthAttempt([`verify:${clientIp(req)}`, AUTH_LIMITS.codeCheckPerIp])) {
+      return tooManyAttempts();
+    }
 
     const user = await getUserByEmail(email);
 
+    // One answer for an unknown address and a wrong code, so this cannot be used to find accounts.
     if (!user) {
-      return Response.json({ error: "User not found" }, { status: 404 });
+      return Response.json({ error: "Invalid or expired code" }, { status: 400 });
     }
 
     if (user.email_verified) {
       return Response.json({ error: "Email already verified" }, { status: 400 });
-    }
-
-    if (user.email_verification_token !== code) {
-      return Response.json({ error: "Invalid verification code" }, { status: 400 });
     }
 
     if (
@@ -35,6 +37,19 @@ export async function POST(req: NextRequest) {
       new Date(user.email_verification_expiry) < new Date()
     ) {
       return Response.json({ error: "Verification code has expired" }, { status: 400 });
+    }
+
+    const result = await checkCode(user.email_verification_token, code, (expected, next) =>
+      spendOneTimeCode(user.id, "email_verification_token", expected, next)
+    );
+    if (result === "exhausted") {
+      return Response.json(
+        { error: "Too many incorrect attempts. Request a new code.", codeExpired: true },
+        { status: 400 }
+      );
+    }
+    if (result !== "valid") {
+      return Response.json({ error: "Invalid verification code" }, { status: 400 });
     }
 
     await markEmailVerified(user.id);

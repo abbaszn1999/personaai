@@ -57,6 +57,7 @@ export async function GET(request: Request) {
     const listing = authoritative
       ? await listAcsStageFiveProducts(connection.id, {
           ...baseOptions,
+          publishedAt: run?.publishedAt ?? null,
           brandType,
           brandTypes,
         })

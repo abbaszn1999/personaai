@@ -107,6 +107,43 @@ describe("runBrandClassification", () => {
     expect(mocks.setBrandType).not.toHaveBeenCalled();
   });
 
+  it("splits a long brand list into chunks and persists only after every chunk answered", async () => {
+    const brands = Array.from({ length: 320 }, (_, index) => `Brand ${index}`);
+    mocks.listSizingCoverage.mockResolvedValue(brands.map((name) => coverage(name.toLowerCase(), name)));
+    mocks.generateContent.mockImplementation(async ({ contents }) => {
+      const prompt = contents[0].parts[0].text as string;
+      const asked = [...prompt.matchAll(/^- (Brand \d+)$/gm)].map((match) => match[1]);
+      return { text: JSON.stringify({ global_brands: asked, private_brands: [] }) };
+    });
+
+    const result = await runBrandClassification(connection);
+
+    expect(mocks.generateContent).toHaveBeenCalledTimes(3);
+    const sizes = mocks.generateContent.mock.calls.map(
+      ([call]) => (call.contents[0].parts[0].text as string).match(/^- Brand \d+$/gm)?.length,
+    );
+    expect(sizes).toEqual([150, 150, 20]);
+    expect(result).toEqual({ classified: 320, global: 320, private: 0, none: 0 });
+  });
+
+  it("asks again, once, for only the names a response left out", async () => {
+    mocks.listSizingCoverage.mockResolvedValue([
+      coverage("nike", "Nike"),
+      coverage("adidas", "Adidas"),
+    ]);
+    mocks.generateContent
+      .mockResolvedValueOnce({ text: JSON.stringify({ global_brands: ["Nike"], private_brands: [] }) })
+      .mockResolvedValueOnce({ text: JSON.stringify({ global_brands: [], private_brands: ["Adidas"] }) });
+
+    const result = await runBrandClassification(connection);
+
+    expect(mocks.generateContent).toHaveBeenCalledTimes(2);
+    const retryPrompt = mocks.generateContent.mock.calls[1][0].contents[0].parts[0].text as string;
+    expect(retryPrompt).toContain("- Adidas");
+    expect(retryPrompt).not.toContain("- Nike");
+    expect(result).toEqual({ classified: 2, global: 1, private: 1, none: 0 });
+  });
+
   it("fails instead of advancing when a classification cannot be persisted", async () => {
     mocks.listSizingCoverage.mockResolvedValue([coverage("local", "Local Label")]);
     mocks.generateContent.mockResolvedValue({

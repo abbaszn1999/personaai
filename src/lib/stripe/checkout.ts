@@ -132,7 +132,9 @@ export async function createStripeCheckout(input: CreateCheckoutInput): Promise<
     success_url: `${config.appUrl}/settings/billing?checkout=success&orderId=${order.id}&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${config.appUrl}/settings/billing?checkout=cancelled&orderId=${order.id}`,
     metadata,
-    allow_promotion_codes: true,
+    // Plans only. A balance top-up is fulfilled against its exact catalog price, so a discounted
+    // payment would be charged and then refused credit.
+    allow_promotion_codes: item.kind === "subscription",
     automatic_tax: { enabled: config.automaticTax },
     tax_id_collection: { enabled: config.automaticTax },
     customer_update: { address: "auto", name: "auto" },

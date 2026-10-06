@@ -23,7 +23,7 @@ import { Modal } from "@/components/ui/modal";
 import { cn } from "@/lib/utils/cn";
 import { CHART_CONFIDENCE_PERCENT } from "@/lib/sizing/chart-review";
 import { UNKNOWN_BRAND_KEY } from "@/lib/sizing/keys";
-import { leafLabel } from "@/modules/store/mapping/persona-taxonomy";
+import { formatPersonaSegments, leafLabel } from "@/modules/store/mapping/persona-taxonomy";
 import { useSizingStore } from "../store";
 import {
   isRunWorking,
@@ -392,11 +392,11 @@ const BRAND_STATUS_META: Record<
   pending: { label: "Chart unavailable", tone: "neutral", hint: "Contact support to add this global brand." },
   queued: { label: "Queued", tone: "info", hint: "Authorised and waiting for the worker to pick it up." },
   researching: { label: "Researching", tone: "info", hint: "The search is running right now." },
-  done: { label: "Charted", tone: "success", hint: "Every parent this store carries the brand in has a chart." },
+  done: { label: "Charted", tone: "success", hint: "Every subcategory this store sells for the brand has a chart." },
   partial: {
     label: "Partial coverage",
     tone: "warning",
-    hint: "Some categories have verified charts; contact support for the missing coverage.",
+    hint: "Some categories or subcategories this store sells have no chart yet; contact support for the missing coverage.",
   },
   not_found: {
     label: "No shared chart",
@@ -468,12 +468,30 @@ function BrandResearchTable({
   const [coverageModal, setCoverageModal] = React.useState<CoverageModalState | null>(null);
   const merchantLeafSet = React.useMemo(() => new Set(mappedLeaves), [mappedLeaves]);
 
+  const leafCounts = useSizingStore((s) => s.chartLeafCounts);
+  const stockedByBrand = React.useMemo(() => {
+    const byBrand = new Map<string, Set<string>>();
+    for (const { brandKey, leafKey, skuCount } of leafCounts) {
+      if (skuCount <= 0 || !merchantLeafSet.has(leafKey)) continue;
+      const leaves = byBrand.get(brandKey) ?? new Set<string>();
+      leaves.add(leafKey);
+      byBrand.set(brandKey, leaves);
+    }
+    return byBrand;
+  }, [leafCounts, merchantLeafSet]);
+
+  // The leaves a brand's charts cover that the brand actually stocks. A shared chart claims every
+  // subcategory the brand publishes for, most of which a given store never sells, so listing all of
+  // them overstated what this store was covered for. A scan with no leaf counts keeps the store-wide
+  // list instead of showing nothing.
   const coverageFor = React.useCallback(
-    (charts: readonly ResearchedChart[]) =>
-      [...new Set(charts.flatMap((chart) => chart.coversLeaves))]
-        .filter((leaf) => merchantLeafSet.has(leaf))
-        .sort((a, b) => leafLabel(a).localeCompare(leafLabel(b))),
-    [merchantLeafSet],
+    (brandKey: string, charts: readonly ResearchedChart[]) => {
+      const stocked = stockedByBrand.get(brandKey);
+      return [...new Set(charts.flatMap((chart) => chart.coversLeaves))]
+        .filter((leaf) => merchantLeafSet.has(leaf) && (!stocked || stocked.has(leaf)))
+        .sort((a, b) => leafLabel(a).localeCompare(leafLabel(b)));
+    },
+    [merchantLeafSet, stockedByBrand],
   );
 
   return (
@@ -514,7 +532,7 @@ function BrandResearchTable({
             ) : (
               brands.map((brand) => {
                 const variants = chartsByBrand.get(brand.brandKey) ?? [];
-                const coveredLeaves = coverageFor(variants);
+                const coveredLeaves = coverageFor(brand.brandKey, variants);
                 const canView = variants.length > 0;
 
                 return (
@@ -575,6 +593,16 @@ function BrandResearchTable({
                       <BrandStatusBadge status={brand.status} />
                       {brand.note && brand.status !== "done" && (
                         <p className="mt-1 max-w-xs text-[11px] text-[var(--color-text-muted)]">{brand.note}</p>
+                      )}
+                      {brand.missingLeaves.length > 0 && (
+                        <>
+                          <p className="mt-1 max-w-xs text-[11px] font-semibold text-[var(--color-warning)]">
+                            {brand.missingSkuCount.toLocaleString()} item{brand.missingSkuCount === 1 ? "" : "s"} in{" "}
+                            {brand.missingLeaves.length} subcategor{brand.missingLeaves.length === 1 ? "y" : "ies"}{" "}
+                            have no chart
+                          </p>
+                          <MissingLeafChips leaves={brand.missingLeaves} counts={{}} limit={4} />
+                        </>
                       )}
                     </td>
                     <td className="px-6 py-4">
@@ -951,6 +979,36 @@ function SavedManualChartTable({
   );
 }
 
+function MissingLeafChips({
+  leaves,
+  counts,
+  limit = 6,
+}: {
+  leaves: readonly string[];
+  counts: Record<string, number>;
+  limit?: number;
+}) {
+  const shown = leaves.slice(0, limit);
+  return (
+    <div className="mt-1.5 flex max-w-md flex-wrap gap-1">
+      {shown.map((leaf) => (
+        <span
+          key={leaf}
+          className="rounded-md border border-[var(--color-warning)]/30 bg-[var(--color-warning-light)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--color-warning)]"
+        >
+          {leafLabel(leaf)}
+          {counts[leaf] ? `, ${counts[leaf].toLocaleString()} item${counts[leaf] === 1 ? "" : "s"}` : ""}
+        </span>
+      ))}
+      {leaves.length > shown.length && (
+        <span className="px-1 py-0.5 text-[10px] font-semibold text-[var(--color-text-muted)]">
+          +{leaves.length - shown.length} more
+        </span>
+      )}
+    </div>
+  );
+}
+
 function GapTable({ items, kind }: { items: ChartGap[]; kind: "brand" | "category" }) {
   const openManualChart = useSizingStore((s) => s.openManualChart);
   const tone = kind === "brand" ? "warning" : "error";
@@ -1024,9 +1082,12 @@ function GapTable({ items, kind }: { items: ChartGap[]; kind: "brand" | "categor
                     {item.researchNote && (
                       <p className="mt-0.5 max-w-md text-[11px] text-[var(--color-text-muted)]">{item.researchNote}</p>
                     )}
+                    {item.missingLeaves.length > 0 && (
+                      <MissingLeafChips leaves={item.missingLeaves} counts={item.missingLeafCounts} />
+                    )}
                     {item.storeCategoryPaths.length > 0 && (
-                      <p className="mt-1 font-mono text-[10px] text-[var(--color-text-muted)]">
-                        {item.storeCategoryPaths.map((path) => path.join(" › ")).join(", ")}
+                      <p className="mt-1 text-[10px] text-[var(--color-text-muted)]">
+                        {item.storeCategoryPaths.map(formatPersonaSegments).join(", ")}
                       </p>
                     )}
                   </td>

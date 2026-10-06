@@ -26,6 +26,7 @@ import {
 } from "@/lib/sizing/variant-match";
 import {
   manualChartAudiences,
+  suggestChartName,
 } from "@/lib/sizing/manual-chart-coverage";
 import {
   leafLabel,
@@ -110,8 +111,28 @@ function ManualChartForm() {
   const [rows, setRows] = React.useState<ChartDraftRow[]>(
     () => target.seedRows ?? emptyDraftRows(group)
   );
-  const [variantName, setVariantName] = React.useState(target.variantName);
-  const [coveredLeaves, setCoveredLeaves] = React.useState<string[]>(target.coversLeaves ?? []);
+  const [typedName, setTypedName] = React.useState(target.variantName);
+  const [nameTouched, setNameTouched] = React.useState(Boolean(target.variantName));
+  const [coveredLeaves, setCoveredLeaves] = React.useState<string[]>(
+    target.selectedLeaves ?? target.coversLeaves ?? [],
+  );
+
+  // Until the merchant types their own, the name follows what the table covers — a blank default
+  // used to end up as "Regular" on every chart, and a second one with that name replaced the first.
+  const variantName = nameTouched ? typedName : suggestChartName(coveredLeaves);
+
+  const duplicateName = React.useMemo(() => {
+    const wanted = variantName.trim().toLowerCase();
+    if (!wanted) return false;
+    return charts.some(
+      (chart) =>
+        !chart.shared &&
+        chart.id !== target.chartId &&
+        chart.brandKey === target.brandKey &&
+        chart.sizingCategory === target.sizingCategory &&
+        chart.variantName.trim().toLowerCase() === wanted,
+    );
+  }, [charts, target.brandKey, target.chartId, target.sizingCategory, variantName]);
   const [view, setView] = React.useState<"table" | "json">("table");
   const [saving, setSaving] = React.useState(false);
   const [serverError, setServerError] = React.useState<string | null>(null);
@@ -193,6 +214,12 @@ function ManualChartForm() {
       return;
     }
     if (problems.length > 0 || !variantName.trim()) return;
+    if (duplicateName) {
+      setServerError(
+        `You already have a chart named "${variantName.trim()}" for this brand and category. Choose a different name.`,
+      );
+      return;
+    }
 
     setSaving(true);
     const error = await saveChart({
@@ -219,7 +246,8 @@ function ManualChartForm() {
       ];
       setSavedLeaves(nowSaved);
       setCoveredLeaves([]);
-      setVariantName("");
+      setTypedName("");
+      setNameTouched(false);
       setRows(emptyDraftRows(group));
       setSubmitted(false);
       setServerError(null);
@@ -339,17 +367,23 @@ function ManualChartForm() {
         </span>
         <input
           value={variantName}
-          onChange={(event) => setVariantName(event.target.value)}
-          disabled={target.editing}
+          onChange={(event) => {
+            setNameTouched(true);
+            setTypedName(event.target.value);
+          }}
           placeholder="Regular chart"
           className={cn(
             "mt-1 w-full max-w-xs rounded-[var(--radius-md)] border bg-[var(--color-surface-base)] px-2.5 py-1.5 text-sm font-semibold text-[var(--color-text-primary)] focus:outline-none",
-            target.editing && "cursor-not-allowed opacity-70",
-            submitted && !variantName.trim()
+            (submitted && !variantName.trim()) || duplicateName
               ? "border-[var(--color-error)]"
               : "border-[var(--color-border)] focus:border-[var(--color-brand)]"
           )}
         />
+        {duplicateName && (
+          <span className="mt-1 block text-[11px] font-semibold text-[var(--color-error)]">
+            You already have a chart with this name for this brand and category.
+          </span>
+        )}
         <span className="mt-1 block text-[11px] text-[var(--color-text-muted)]">
           A label that distinguishes this table from another table, such as <strong>Regular</strong>{" "}
           or <strong>Petite</strong>. This name does not assign products; only the selected

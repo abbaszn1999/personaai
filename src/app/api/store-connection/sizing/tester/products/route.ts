@@ -2,10 +2,11 @@ import { searchProducts } from "@/lib/catalog/acs/client";
 import { isAcsConfigured } from "@/lib/catalog/acs/config";
 import { buildAcsVisitorId } from "@/lib/catalog/acs/isolation";
 import {
-  buildChartScopeFilter,
+  buildCategoryScopeFilter,
   buildFitSearchFilter,
   fitSearchTolerances,
   parseFitSearchQuery,
+  targetDepartmentPaths,
   toFitSearchProducts,
   unsupportedFitField,
 } from "@/lib/catalog/acs/fit-search";
@@ -13,15 +14,17 @@ import type { AcsSearchResultItem } from "@/lib/catalog/acs/types";
 import { mappedSourceCategoryIds } from "@/lib/catalog/persona-mapping";
 import { getLatestPublishedSizingRun } from "@/lib/db/sizing-runs";
 import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
+import { isMeasurement, MEASUREMENTS } from "@/lib/sizing/measurements";
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 
 const PAGE_SIZE = 100;
-/** The tester reads a few pages so per-size counts are not just the first page's. */
-const MAX_PAGES = 5;
+/** One request covers a whole category of a brand, so it reads up to this many pages. */
+const MAX_PAGES = 10;
 
 /**
- * Sizing Tester "Found Sizes": sends the real fit filter to ACS and returns what ACS answers,
- * with the exact filter string that was sent. No product ACS returns is removed or rescored here.
+ * Sizing Tester "Found Sizes", one garment category per request: sends the real fit filter to ACS
+ * and returns what ACS answers, with the exact filter string that was sent. No product ACS returns
+ * is removed or rescored here.
  */
 export async function GET(request: Request) {
   try {
@@ -48,6 +51,12 @@ export async function GET(request: Request) {
     const filter = buildFitSearchFilter(parsed.value);
     if (!filter) return Response.json({ error: "These measurements cannot form a fit filter." }, { status: 400 });
     const tolerances = fitSearchTolerances(parsed.value);
+    const sent = {
+      filter,
+      tolerances,
+      measurements: parsed.value.measurements,
+      departments: targetDepartmentPaths(parsed.value.target),
+    };
 
     // All mapped products carry the stable Persona root category. A store with no mapped source
     // categories must select nothing, never omit the category clause and broaden to the catalog.
@@ -56,8 +65,8 @@ export async function GET(request: Request) {
       : [];
     if (categoryScope.length === 0) {
       return Response.json({
-        products: [], hitCount: 0, totalSize: 0, pages: 0, truncated: false, outOfScope: 0, filter, tolerances,
-        chartProducts: 0,
+        products: [], hitCount: 0, totalSize: 0, pages: 0, truncated: false, outOfScope: 0, categoryProducts: 0,
+        ...sent,
       });
     }
 
@@ -84,9 +93,9 @@ export async function GET(request: Request) {
 
     const { products, outOfScope } = toFitSearchProducts(items, parsed.value, connection.id);
 
-    // An empty answer means one of two things: nobody fits, or no catalog product is matched to
-    // this chart at all. The same filter without the measurements tells them apart.
-    let chartProducts: number | null = null;
+    // An empty answer means one of two things: nobody fits, or this brand has no sized product of
+    // this category for this target at all. The same filter without the measurements tells them apart.
+    let categoryProducts: number | null = null;
     if (items.length === 0) {
       const scope = await searchProducts({
         connectionId: connection.id,
@@ -94,9 +103,9 @@ export async function GET(request: Request) {
         visitorId,
         query: "",
         pageSize: 1,
-        extraFilter: buildChartScopeFilter(parsed.value),
+        extraFilter: buildCategoryScopeFilter(parsed.value),
       });
-      chartProducts = scope.totalSize ?? scope.results?.length ?? 0;
+      categoryProducts = scope.totalSize ?? scope.results?.length ?? 0;
     }
 
     return Response.json({
@@ -106,16 +115,19 @@ export async function GET(request: Request) {
       pages,
       truncated: Boolean(pageToken),
       outOfScope,
-      filter,
-      tolerances,
-      chartProducts,
+      categoryProducts,
+      ...sent,
     });
   } catch (error) {
     const field = unsupportedFitField(error);
     if (field) {
+      const measurement = field.match(/^attributes\.fit_(.+)_cm$/)?.[1];
+      const label = measurement && isMeasurement(measurement) ? MEASUREMENTS[measurement].label.toLowerCase() : field;
       return Response.json(
         {
-          error: `ACS has no ${field} field yet: no synced product carries that sizing, so it cannot be filtered on.`,
+          error:
+            `No published product carries ${label} sizing yet, so ACS cannot filter on it. ` +
+            "Products here need a matched size chart (see Active Overview) before they can be found by fit.",
           reason: "unsupported_field",
           field,
         },

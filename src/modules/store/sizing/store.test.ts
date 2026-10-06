@@ -15,13 +15,21 @@ function gap(overrides: Partial<ChartGap> = {}): ChartGap {
     researchNote: null,
     reason: "Private label — no public chart exists to find",
     sampleSkus: [],
+    missingLeaves: [],
+    missingLeafCounts: {},
+    partial: false,
     ...overrides,
   };
 }
 
 describe("manual private-chart target", () => {
   afterEach(() => {
-    useSizingStore.setState({ chartLeafCounts: [], manualChartTarget: null });
+    useSizingStore.setState({
+      chartLeafCounts: [],
+      chartGapsNotFound: [],
+      chartGapsNoBrand: [],
+      manualChartTarget: null,
+    });
   });
 
   it("offers only exact leaves carried by this brand and parent", () => {
@@ -41,6 +49,43 @@ describe("manual private-chart target", () => {
       "men:footwear:sneaker",
       "men:footwear:dress-shoe",
     ]);
+  });
+
+  it("seeds a gap from the leaves the server says are still uncovered", () => {
+    useSizingStore.setState({
+      chartLeafCounts: [
+        { brandKey: "moustache", leafKey: "men:footwear:sneaker", skuCount: 20 },
+        { brandKey: "moustache", leafKey: "men:footwear:dress-shoe", skuCount: 17 },
+      ],
+    });
+
+    useSizingStore.getState().openManualChart(gap({ missingLeaves: ["men:footwear:dress-shoe"], partial: true }));
+
+    expect(useSizingStore.getState().manualChartTarget?.coversLeaves).toEqual(["men:footwear:dress-shoe"]);
+  });
+
+  it("lets an edited chart add the brand's still-uncovered leaves without pre-selecting them", () => {
+    useSizingStore.setState({
+      chartGapsNotFound: [gap({ missingLeaves: ["men:footwear:dress-shoe"], partial: true })],
+    });
+
+    useSizingStore.getState().editManualChart({
+      id: "chart-1",
+      brand: "MOUSTACHE Men Shoes",
+      brandKey: "moustache",
+      sizingCategory: "footwear",
+      variantName: "Men - Sneaker",
+      audience: "mens",
+      shared: false,
+      skuCount: 20,
+      chartRows: [],
+      coversLeaves: ["men:footwear:sneaker"],
+    } as unknown as Parameters<ReturnType<typeof useSizingStore.getState>["editManualChart"]>[0]);
+
+    const target = useSizingStore.getState().manualChartTarget;
+    expect(target?.coversLeaves).toEqual(["men:footwear:sneaker", "men:footwear:dress-shoe"]);
+    expect(target?.selectedLeaves).toEqual(["men:footwear:sneaker"]);
+    expect(target?.chartId).toBe("chart-1");
   });
 });
 

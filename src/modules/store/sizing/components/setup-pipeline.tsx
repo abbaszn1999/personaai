@@ -17,6 +17,9 @@ import { ManualChartModal } from "./manual-chart-modal";
 import { LAST_STAGE } from "../types";
 import { readStoredSizingStage, storeSizingStage } from "../stage-storage";
 
+/** Connections whose Stage 5 preview this page session has already asked the server to build. */
+const warmedPreviews = new Set<string>();
+
 /**
  * The setup pipeline that turns a connected catalog into size intelligence.
  *
@@ -41,6 +44,12 @@ export function SetupPipeline() {
   const chartBrands = useSizingStore((s) => s.chartBrands);
   const chartTotals = useSizingStore((s) => s.chartTotals);
   const run = useSizingStore((s) => s.run);
+  const lastPublishedAt = useSizingStore((s) => s.lastPublishedAt);
+  const personaMappingUpdatedAt = useSizingStore((s) => s.personaMappingUpdatedAt);
+  const mappingNewerThanPublish =
+    lastPublishedAt !== null &&
+    personaMappingUpdatedAt !== null &&
+    Date.parse(personaMappingUpdatedAt) > Date.parse(lastPublishedAt);
   const brandMappingStatus = useSizingStore((s) => s.brandMappingStatus);
   const brandMappingEditing = useSizingStore((s) => s.brandMappingEditing);
   const mappingApproved = useStoreConnectionStore((s) => s.acsMapping.approved);
@@ -67,6 +76,18 @@ export function SetupPipeline() {
   React.useEffect(() => {
     if (restoredConnectionId === connectionId && connectionId) storeSizingStage(connectionId, stage);
   }, [connectionId, restoredConnectionId, stage]);
+
+  // Once the scan is done, have the server build the Stage 5 preview while the merchant works on
+  // brands and charts. Its slow part is reading every product from the store; with that done early,
+  // Active Overview — and every re-resolution after a chart edit — opens without the wait.
+  const scanSettled = run !== null && run.stage !== "scan" && run.stage !== "classify";
+  React.useEffect(() => {
+    if (!connectionId || !scanSettled || stage < 3 || warmedPreviews.has(connectionId)) return;
+    warmedPreviews.add(connectionId);
+    void fetch("/api/store-connection/sizing/resolution-summary", { cache: "no-store" }).catch(() => {
+      warmedPreviews.delete(connectionId);
+    });
+  }, [connectionId, scanSettled, stage]);
 
   const approveAndReadCatalog = React.useCallback(async () => {
     if (!mappingApproved && !(await approveMapping())) return;
@@ -135,6 +156,21 @@ export function SetupPipeline() {
         highestReachedStage={highestStage}
         onSelectStage={goToStage}
       />
+
+      {mappingNewerThanPublish && (
+        <div className="flex items-start gap-2.5 rounded-[var(--radius-lg)] border border-[var(--color-warning-border)] bg-[var(--color-warning-light)] px-4 py-3">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-warning)]" />
+          <div>
+            <p className="text-sm font-bold text-[var(--color-text-primary)]">
+              Your category mapping changed after the last publish
+            </p>
+            <p className="mt-0.5 text-xs text-[var(--color-text-secondary)]">
+              Shoppers still see the catalog you published on {new Date(lastPublishedAt!).toLocaleString()}. Walk
+              through the steps again and publish in Stage 5 to bring the new mapping live.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div>
         {stage === 1 && (

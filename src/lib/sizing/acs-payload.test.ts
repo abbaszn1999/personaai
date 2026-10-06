@@ -48,16 +48,15 @@ describe("buildAcsSizingPayload", () => {
     expect(payload.entries.some((entry) => entry.rowJson.includes("body_length"))).toBe(false);
   });
 
-  it("builds recall-preserving envelopes for every category measurement", () => {
-    expect(buildAcsSizingPayload(resolution()).envelopes).toMatchObject({
-      chest_min: 84,
-      chest_max: 99,
-      waist_min: 70,
-      waist_max: 86,
-    });
+  it("keeps each stocked row's own bounds for the indexed measurements", () => {
+    const entries = buildAcsSizingPayload(resolution()).entries;
+    expect(entries.map((entry) => entry.bounds)).toEqual([
+      { chest: { min: 84, max: 89 }, waist: { min: 70, max: 75 } },
+      { chest: { min: 94, max: 99 }, waist: { min: 80, max: 86 } },
+    ]);
   });
 
-  it("publishes every bottoms measurement, including hip and inseam", () => {
+  it("indexes bottoms on waist only; hip and inseam stay in the row payload", () => {
     const input = resolution();
     const row: SizeChartRow = {
       size: "33",
@@ -72,30 +71,25 @@ describe("buildAcsSizingPayload", () => {
     input.chart.chartRows = [row];
     input.sizeMatches = [{ raw: "33", canonical: "33", row }];
 
-    expect(buildAcsSizingPayload(input).envelopes).toEqual({
-      waist_min: 85,
-      waist_max: 86,
-      hip_min: 101,
-      hip_max: 102,
-      inseam_min: 81,
-      inseam_max: 83,
-    });
+    const [entry] = buildAcsSizingPayload(input).entries;
+    expect(entry.bounds).toEqual({ waist: { min: 85, max: 86 } });
+    expect(entry.rowJson).toContain('"hip":[101,102]');
+    expect(entry.rowJson).toContain('"inseam":[81,83]');
   });
 
-  it("publishes the footwear length envelope", () => {
+  it("indexes the footwear length", () => {
     const input = resolution();
     const row: SizeChartRow = { size: "41", foot_length_min: 25.5, foot_length_max: 26 };
     input.chart.sizingCategory = "footwear";
     input.chart.chartRows = [row];
     input.sizeMatches = [{ raw: "41", canonical: "41", row }];
 
-    expect(buildAcsSizingPayload(input).envelopes).toEqual({
-      foot_length_min: 25.5,
-      foot_length_max: 26,
+    expect(buildAcsSizingPayload(input).entries[0].bounds).toEqual({
+      foot_length: { min: 25.5, max: 26 },
     });
   });
 
-  it("publishes every kids full-body dimension and normalizes age to months", () => {
+  it("indexes kids on height too, and normalizes age to months in the row payload", () => {
     const input = resolution();
     const row: SizeChartRow = {
       size: "8-9Y",
@@ -115,17 +109,10 @@ describe("buildAcsSizingPayload", () => {
     input.sizeMatches = [{ raw: "8-9Y", canonical: "8-9Y", row }];
 
     const payload = buildAcsSizingPayload(input);
-    expect(payload.envelopes).toMatchObject({
-      chest_min: 66,
-      chest_max: 72,
-      waist_min: 58,
-      waist_max: 62,
-      hip_min: 72,
-      hip_max: 78,
-      height_min: 128,
-      height_max: 140,
-      age_months_min: 96,
-      age_months_max: 119,
+    expect(payload.entries[0].bounds).toEqual({
+      chest: { min: 66, max: 72 },
+      waist: { min: 58, max: 62 },
+      height: { min: 128, max: 140 },
     });
     expect(payload.entries[0].rowJson).toContain('"age_months":[96,119]');
   });
@@ -152,20 +139,18 @@ describe("buildAcsSizingPayload", () => {
     input.chart.chartRows = [threeMonths, sixMonths];
     input.sizeMatches = [{ raw: "6M", canonical: "6M", row: sixMonths }];
 
-    expect(buildAcsSizingPayload(input).envelopes).toMatchObject({
-      age_months_min: 4,
-      age_months_max: 6,
-    });
+    expect(buildAcsSizingPayload(input).entries[0].rowJson).toContain('"age_months":[4,6]');
   });
 
-  it("uses a wide sentinel for an open end", () => {
+  it("keeps an open end open", () => {
     const input = resolution();
     input.sizeMatches = [{
       raw: "XXL",
       canonical: "XXL",
       row: { size: "XXL", chest_min: 114 },
     }];
-    expect(buildAcsSizingPayload(input).envelopes.chest_max).toBe(1_000);
-    expect(buildAcsSizingPayload(input).entries[0].rowJson).toContain('"chest":[114,null]');
+    const [entry] = buildAcsSizingPayload(input).entries;
+    expect(entry.bounds?.chest).toEqual({ min: 114, max: null });
+    expect(entry.rowJson).toContain('"chest":[114,null]');
   });
 });

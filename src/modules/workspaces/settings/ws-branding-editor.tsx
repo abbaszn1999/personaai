@@ -33,6 +33,7 @@ import {
   RADIUS_MIN,
   RADIUS_ROUNDED,
   RADIUS_SQUARE,
+  MAX_LOGO_DATA_URL_CHARS,
   normalizeQuickReplies,
 } from "@/modules/workspaces/branding-schema";
 import { useWorkspaceStore } from "@/modules/workspaces/store";
@@ -47,6 +48,35 @@ import { BrandingAgentPreview, type PreviewDevice, type PreviewScreen } from "./
 
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+/** The widget never shows the logo larger than this, and it travels with every widget load. */
+const LOGO_MAX_PX = 256;
+
+/** A raster logo resized to at most `LOGO_MAX_PX` on its longer side, transparency kept. A 2 MB
+ *  upload becomes a few tens of KB, which is what every shopper's first paint downloads. */
+function shrinkLogo(dataUrl: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const scale = Math.min(1, LOGO_MAX_PX / Math.max(image.naturalWidth, image.naturalHeight));
+      const width = Math.max(1, Math.round(image.naturalWidth * scale));
+      const height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        reject(new Error("Canvas unavailable"));
+        return;
+      }
+      context.drawImage(image, 0, 0, width, height);
+      // WebP where the browser can encode it (falls back to PNG otherwise); both keep transparency.
+      const small = canvas.toDataURL("image/webp", 0.9);
+      resolve(small.length < dataUrl.length ? small : dataUrl.length <= MAX_LOGO_DATA_URL_CHARS ? dataUrl : small);
+    };
+    image.onerror = () => reject(new Error("Unreadable image"));
+    image.src = dataUrl;
+  });
+}
 
 const SECTIONS = [
   { id: "identity", label: "Identity", icon: Sparkles },
@@ -132,7 +162,19 @@ export function WsBrandingEditor({ workspace }: Props) {
     }
     const reader = new FileReader();
     reader.onload = () => {
-      if (typeof reader.result === "string") update({ logoUrl: reader.result });
+      if (typeof reader.result !== "string") return;
+      const dataUrl = reader.result;
+      if (file.type === "image/svg+xml") {
+        if (dataUrl.length > MAX_LOGO_DATA_URL_CHARS) {
+          setLogoError("That SVG is too large. Use one under 250 KB, or a PNG.");
+          return;
+        }
+        update({ logoUrl: dataUrl });
+        return;
+      }
+      void shrinkLogo(dataUrl)
+        .then((small) => update({ logoUrl: small }))
+        .catch(() => setLogoError("Couldn't read that image. Try a different file."));
     };
     reader.onerror = () => setLogoError("Failed to read that file. Try again.");
     reader.readAsDataURL(file);

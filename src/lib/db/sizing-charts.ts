@@ -295,32 +295,14 @@ export async function upsertSharedChart(input: ChartWrite): Promise<boolean> {
   return true;
 }
 
-/** Writes one store's private-label or unbranded chart to the isolated private table. */
-export async function upsertPrivateChart(
-  input: ChartWrite & { connectionId: string },
-): Promise<boolean> {
-  if (!isSizingGroup(input.sizingCategory)) return false;
-  const chartRows = parseSizeChart(
-    input.chartRows,
-    input.sizingCategory,
-    input.audience,
-    input.decidingMeasurements,
-  );
-  const { error: deleteError } = await db
-    .from("sizing_charts_private")
-    .delete()
-    .eq("connection_id", input.connectionId)
-    .eq("brand_key", input.brandKey)
-    .eq("sizing_category", input.sizingCategory)
-    .eq("variant_name", input.variantName);
+export type PrivateChartWriteResult =
+  | { ok: true; id: string }
+  | { ok: false; reason: "name_conflict" | "not_found" | "invalid" | "error" };
 
-  if (deleteError) {
-    console.error("[db/sizing-charts upsertPrivateChart delete]", input.brandKey, input.sizingCategory, deleteError);
-    return false;
-  }
+const UNIQUE_VIOLATION = "23505";
 
-  const { error } = await db.from("sizing_charts_private").insert({
-    connection_id: input.connectionId,
+function privateChartPayload(input: ChartWrite, chartRows: SizeChartRow[]) {
+  return {
     brand_key: input.brandKey,
     sizing_category: input.sizingCategory,
     variant_name: input.variantName,
@@ -335,14 +317,72 @@ export async function upsertPrivateChart(
     confidence: input.confidence,
     source_url: input.sourceUrl,
     provenance: input.provenance,
-  });
+  };
+}
+
+/**
+ * Adds one store's private-label or unbranded chart. A second chart with the same
+ * (brand, category, name) is refused rather than replaced: the previous delete-then-insert silently
+ * destroyed a chart the merchant had saved for different subcategories under a reused name, and a
+ * failed insert after the delete lost the old one outright.
+ */
+export async function insertPrivateChart(
+  input: ChartWrite & { connectionId: string },
+): Promise<PrivateChartWriteResult> {
+  if (!isSizingGroup(input.sizingCategory)) return { ok: false, reason: "invalid" };
+  const chartRows = parseSizeChart(
+    input.chartRows,
+    input.sizingCategory,
+    input.audience,
+    input.decidingMeasurements,
+  );
+
+  const { data, error } = await db
+    .from("sizing_charts_private")
+    .insert({ connection_id: input.connectionId, ...privateChartPayload(input, chartRows) })
+    .select("id")
+    .single();
 
   if (error) {
-    console.error("[db/sizing-charts upsertPrivateChart insert]", input.brandKey, input.sizingCategory, error);
-    return false;
+    if (error.code === UNIQUE_VIOLATION) return { ok: false, reason: "name_conflict" };
+    console.error("[db/sizing-charts insertPrivateChart]", input.brandKey, input.sizingCategory, error);
+    return { ok: false, reason: "error" };
   }
 
-  return true;
+  return { ok: true, id: (data as { id: string }).id };
+}
+
+/** Edits a private chart in place by id, so renaming it or changing its coverage never needs a delete. */
+export async function updatePrivateChartById(
+  connectionId: string,
+  chartId: string,
+  input: ChartWrite,
+): Promise<PrivateChartWriteResult> {
+  if (!isSizingGroup(input.sizingCategory)) return { ok: false, reason: "invalid" };
+  const chartRows = parseSizeChart(
+    input.chartRows,
+    input.sizingCategory,
+    input.audience,
+    input.decidingMeasurements,
+  );
+
+  const { data, error } = await db
+    .from("sizing_charts_private")
+    .update({ ...privateChartPayload(input, chartRows), updated_at: new Date().toISOString() })
+    .eq("id", chartId)
+    .eq("connection_id", connectionId)
+    .eq("brand_key", input.brandKey)
+    .eq("sizing_category", input.sizingCategory)
+    .select("id");
+
+  if (error) {
+    if (error.code === UNIQUE_VIOLATION) return { ok: false, reason: "name_conflict" };
+    console.error("[db/sizing-charts updatePrivateChartById]", chartId, error);
+    return { ok: false, reason: "error" };
+  }
+
+  const rows = (data as Array<{ id: string }> | null) ?? [];
+  return rows.length > 0 ? { ok: true, id: rows[0].id } : { ok: false, reason: "not_found" };
 }
 
 /**

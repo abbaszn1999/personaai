@@ -22,6 +22,7 @@ import {
 import {
   normalizeWordPressUrl,
   verifyWordPressCredentials,
+  fetchWooStoreCurrency,
   getWordPressProductCount,
   getWordPressCategories,
   registerWooWebhooks,
@@ -37,7 +38,9 @@ import { MAPPER_VERSION } from "@/lib/catalog/acs/map-product";
 import { hasApprovedCurrentMapping } from "@/lib/catalog/acs/field-overrides";
 import { STYLE_GUIDE_MAX_LENGTH, type StorePlatform, type StoreCategory } from "@/modules/store/types";
 
-const VALID_PLATFORMS: StorePlatform[] = ["shopify", "woocommerce", "wordpress", "custom"];
+/** The platforms with a real integration behind them. `woocommerce` is connected as `wordpress`, and
+ *  `custom` once simulated a connection with an invented product count, so neither is accepted. */
+const CONNECTABLE_PLATFORMS: StorePlatform[] = ["shopify", "wordpress"];
 
 /** Strips control characters other than tab/newline/carriage-return. Length is validated
  *  separately (rejected, not silently truncated) so a merchant knows their guide was cut off
@@ -157,10 +160,13 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { platform, storeUrl, apiKey, clientId, clientSecret, wpUsername, wpAppPassword } = await req.json();
+    const { platform, storeUrl, clientId, clientSecret, wpUsername, wpAppPassword } = await req.json();
 
-    if (!VALID_PLATFORMS.includes(platform)) {
-      return Response.json({ error: "Invalid platform" }, { status: 400 });
+    if (!CONNECTABLE_PLATFORMS.includes(platform)) {
+      return Response.json(
+        { error: "Only Shopify and WordPress (WooCommerce) stores can be connected." },
+        { status: 400 }
+      );
     }
     if (typeof storeUrl !== "string" || storeUrl.trim().length < 4) {
       return Response.json({ error: "Please enter a valid store URL" }, { status: 400 });
@@ -171,6 +177,7 @@ export async function POST(req: NextRequest) {
     let productCount = 0;
     let categories: StoreCategory[] = [];
     let apiKeyEncrypted: string | null = null;
+    let storeCurrency: string | null = null;
 
     if (platform === "shopify") {
       const trimmedClientId = typeof clientId === "string" ? clientId.trim() : "";
@@ -217,6 +224,7 @@ export async function POST(req: NextRequest) {
         trimmedUrl = siteUrl.replace(/^https?:\/\//, "");
         productCount = await getWordPressProductCount(siteUrl, trimmedUsername, trimmedAppPassword);
         categories = await getWordPressCategories(siteUrl, trimmedUsername, trimmedAppPassword);
+        storeCurrency = await fetchWooStoreCurrency(siteUrl, trimmedUsername, trimmedAppPassword);
         apiKeyEncrypted = encodeCredentials({ wpUsername: trimmedUsername, wpAppPassword: trimmedAppPassword });
       } catch (err) {
         console.error("[store-connection POST wordpress]", err);
@@ -226,12 +234,6 @@ export async function POST(req: NextRequest) {
             : "Could not connect to WordPress — check your site URL, username, and Application Password";
         const status = err instanceof WooCommerceApiError && err.status === 401 ? 401 : 400;
         return Response.json({ error: message }, { status });
-      }
-    } else {
-      // No real integration yet for this platform — simulate an initial catalog sync.
-      productCount = Math.floor(Math.random() * 300) + 50;
-      if (typeof apiKey === "string" && apiKey.trim().length > 0) {
-        apiKeyEncrypted = encodeCredentials({ apiKey: apiKey.trim() });
       }
     }
 
@@ -243,6 +245,7 @@ export async function POST(req: NextRequest) {
       apiKeyEncrypted,
       productCount,
       categories,
+      storeCurrency,
     });
 
     if (!row) {
@@ -344,6 +347,8 @@ export async function PATCH(req: NextRequest) {
           const siteUrl = normalizeWordPressUrl(current.storeUrl);
           patch.productCount = await getWordPressProductCount(siteUrl, wpUsername, wpAppPassword);
           patch.categories = await getWordPressCategories(siteUrl, wpUsername, wpAppPassword);
+          const currency = await fetchWooStoreCurrency(siteUrl, wpUsername, wpAppPassword);
+          if (currency) patch.storeCurrency = currency;
           patch.syncedAt = new Date().toISOString();
         } catch (err) {
           console.error("[store-connection PATCH sync wordpress]", err);
@@ -351,9 +356,10 @@ export async function PATCH(req: NextRequest) {
           return Response.json({ error: message }, { status: 502 });
         }
       } else {
-        // Simulated re-sync for platforms without a real integration yet.
-        patch.productCount = current.productCount + Math.floor(Math.random() * 5);
-        patch.syncedAt = new Date().toISOString();
+        return Response.json(
+          { error: "This store's platform has no integration to sync from. Reconnect it as Shopify or WordPress." },
+          { status: 400 }
+        );
       }
     }
 

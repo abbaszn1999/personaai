@@ -4,7 +4,6 @@ import * as React from "react";
 import { Check, Plug, Store, Lock, ShieldCheck, RefreshCw } from "lucide-react";
 import type { StorePlatform } from "@/modules/store/types";
 import { PLATFORM_LABELS } from "@/modules/store/constants";
-import { PLATFORM_API_LABEL } from "../mocks/connections";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils/cn";
@@ -51,9 +50,9 @@ const PILL_TONE_CLASSES: Record<PlatformMeta["pillTone"], string> = {
   neutral: "bg-[var(--color-surface-elevated)] text-[var(--color-text-secondary)]",
 };
 
-// Persona's 3 real, working integrations only — no BigCommerce tile like the demo has, since
-// there is nothing behind it here.
-const PLATFORMS: StorePlatform[] = ["shopify", "wordpress", "custom"];
+// Persona's real, working integrations only. A "custom" platform used to be offered here and
+// simulated a connection with a made-up product count, which then failed at the first real read.
+const PLATFORMS: StorePlatform[] = ["shopify", "wordpress"];
 
 const VERIFY_STEPS = [
   "Validating API credentials and endpoint security…",
@@ -93,7 +92,6 @@ interface ConnectStoreFormProps {
 export function ConnectStoreForm({
   platform,
   storeUrl,
-  apiKey,
   clientId,
   clientSecret,
   wpUsername,
@@ -201,17 +199,7 @@ export function ConnectStoreForm({
                     onChange={(e) => onChange({ wpAppPassword: e.target.value })}
                   />
                 </>
-              ) : (
-                <Input
-                  label={PLATFORM_API_LABEL[platform]}
-                  type="password"
-                  icon={<Lock className="h-3.5 w-3.5" />}
-                  placeholder="Paste your API key here"
-                  value={apiKey}
-                  onChange={(e) => onChange({ apiKey: e.target.value })}
-                  hint="This platform's integration is currently simulated — no real API calls are made yet."
-                />
-              )}
+              ) : null}
             </div>
           </div>
         )}

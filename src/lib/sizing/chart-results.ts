@@ -81,6 +81,58 @@ export interface ChartGapResult {
   researchNote: string | null;
   reason: string;
   sampleSkus: { sku: string | null; title: string; imageUrl: string | null }[];
+  /**
+   * The Persona leaves this store stocks for the brand and category that no chart claims, most
+   * stocked first. Empty only when the scan recorded no leaf-level coverage for the pair.
+   */
+  missingLeaves: string[];
+  /** Products per missing leaf, so the screen can say "Men · Polo-Shirt, 45 items". */
+  missingLeafCounts: Record<string, number>;
+  /** True when the pair already holds at least one chart and the gap is only part of it. */
+  partial: boolean;
+}
+
+/**
+ * What the store actually stocks, per (brand x sizing category), at the grain products resolve on:
+ * the Persona leaf. Keyed `brandKey|sizingCategory`, valued leaf -> products. Optional everywhere it
+ * is accepted, because a scan from before leaf coverage was recorded has nothing to offer here and
+ * must keep behaving as the parent-level join always did.
+ */
+export type StockedLeaves = Map<string, Map<string, number>>;
+
+export function stockedLeavesKey(brandKey: string, sizingCategory: string): string {
+  return lookupKey(brandKey, sizingCategory);
+}
+
+/**
+ * Whether a stocked leaf is claimed by the charts' combined `covers_leaves`.
+ *
+ * A kids-unisex leaf is a merchant filing choice, not a body: a product on it is sized through the
+ * boys' or girls' chart when it states which it is (`hintedLeaf` in `product-chart.ts`). So it only
+ * counts as covered here when its own key is claimed, or when both department charts are — a boys'
+ * chart alone would leave every girls' product on that leaf without one.
+ */
+export function leafIsCovered(leaf: string, covered: ReadonlySet<string>): boolean {
+  if (covered.has(leaf)) return true;
+  const [department, category, sub] = leaf.split(":");
+  if (department !== "kids-unisex") return false;
+  return covered.has(`kids-boys:${category}:${sub}`) && covered.has(`kids-girls:${category}:${sub}`);
+}
+
+export function missingLeavesFor(
+  stocked: ReadonlyMap<string, number> | undefined,
+  charts: readonly SizingChartRow[]
+): { leaves: string[]; counts: Record<string, number>; skus: number } {
+  if (!stocked || stocked.size === 0) return { leaves: [], counts: {}, skus: 0 };
+  const covered = new Set(charts.flatMap((chart) => chart.coversLeaves));
+  const entries = [...stocked]
+    .filter(([leaf, count]) => count > 0 && !leafIsCovered(leaf, covered))
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  return {
+    leaves: entries.map(([leaf]) => leaf),
+    counts: Object.fromEntries(entries),
+    skus: entries.reduce((sum, [, count]) => sum + count, 0),
+  };
 }
 
 export interface ChartResults {
@@ -132,6 +184,11 @@ export interface BrandResearchResult {
   /** The sizing parents this store carries the brand in, and how many of them have a chart. */
   sizingCategories: string[];
   chartedCategories: number;
+  /** Parents that hold a chart which still leaves some stocked subcategories without one. */
+  partialCategories: number;
+  /** Stocked subcategories no chart of this brand claims, and the products sitting in them. */
+  missingLeaves: string[];
+  missingSkuCount: number;
   /** Charts stored for this brand, across every parent and variant. */
   chartCount: number;
   /** Whatever the last pass recorded, verbatim — the only place a merchant learns that a guide was
@@ -232,28 +289,45 @@ function gapReason(row: SizingCoverageRow): string {
   }
 }
 
-function toGap(row: SizingCoverageRow): ChartGapResult {
+function toGap(
+  row: SizingCoverageRow,
+  missing: { leaves: string[]; counts: Record<string, number>; skus: number } = { leaves: [], counts: {}, skus: 0 },
+  partial = false
+): ChartGapResult {
   const unbranded = row.brandKey === UNKNOWN_BRAND_KEY;
+  const noun = missing.leaves.length === 1 ? "subcategory" : "subcategories";
+  const reason = partial
+    ? row.brandType === "global"
+      ? `The shared chart does not cover ${missing.leaves.length} ${noun} this store sells`
+      : `Chart saved, but ${missing.leaves.length} ${noun} still need one`
+    : gapReason(row);
   return {
     id: row.id,
     brandKey: row.brandKey,
     brandName: unbranded ? "No brand" : (row.brandName ?? row.brandKey),
     brandType: row.brandType,
     sizingCategory: row.sizingCategory,
-    skuCount: row.skuCount,
+    skuCount: partial ? Math.min(row.skuCount, missing.skus) : row.skuCount,
     storeCategoryPaths: row.storeCategoryPaths,
     researchStatus: row.researchStatus,
     researchNote: row.researchNote,
-    reason: gapReason(row),
+    reason,
     sampleSkus: row.sampleSkus.map((sample) => ({
       sku: sample.sku,
       title: sample.title,
       imageUrl: sample.imageUrl ?? null,
     })),
+    missingLeaves: missing.leaves,
+    missingLeafCounts: missing.counts,
+    partial,
   };
 }
 
-export function buildChartResults(coverage: SizingCoverageRow[], charts: SizingChartRow[]): ChartResults {
+export function buildChartResults(
+  coverage: SizingCoverageRow[],
+  charts: SizingChartRow[],
+  stocked?: StockedLeaves
+): ChartResults {
   const byKey = indexCharts(charts);
 
   // A stored chart is itself proof a pass ran, so it counts alongside a recorded status. Without
@@ -283,23 +357,39 @@ export function buildChartResults(coverage: SizingCoverageRow[], charts: SizingC
     if (!isSizingCategory(row.sizingCategory)) continue;
     const group = row.sizingCategory;
 
-    const charts = byKey.get(lookupKey(row.brandKey, row.sizingCategory)) ?? [];
+    const key = lookupKey(row.brandKey, row.sizingCategory);
+    const charts = byKey.get(key) ?? [];
+    const stockedForPair = stocked?.get(key);
 
     if (charts.length === 0) {
       gapSkus += row.skuCount;
+      const everything = missingLeavesFor(stockedForPair, []);
       if (row.brandKey === UNKNOWN_BRAND_KEY || row.brandType === "none") {
-        noBrand.push(toGap(row));
+        noBrand.push(toGap(row, everything));
       } else if (row.brandType === "global" && row.researchStatus === "pending") {
         pendingGlobalPairs += 1;
       } else {
-        notFound.push(toGap(row));
+        notFound.push(toGap(row, everything));
       }
       continue;
     }
 
     chartedBrands.add(row.brandKey);
-    chartedPairs += 1;
-    chartedSkus += row.skuCount;
+
+    // A pair holding a chart is only done when every subcategory the store stocks is claimed by one.
+    // Judged at the parent, `Men > Tops` with a t-shirt table read as charted while the polos the
+    // store also sells matched nothing at publish.
+    const missing = missingLeavesFor(stockedForPair, charts);
+    if (missing.leaves.length > 0) {
+      const gap = toGap(row, missing, true);
+      if (row.brandKey === UNKNOWN_BRAND_KEY || row.brandType === "none") noBrand.push(gap);
+      else notFound.push(gap);
+      gapSkus += gap.skuCount;
+      chartedSkus += row.skuCount - gap.skuCount;
+    } else {
+      chartedPairs += 1;
+      chartedSkus += row.skuCount;
+    }
 
     for (const chart of charts) {
       const { headers, rows } = chartTable(chart.chartRows, group, chart.audience);
@@ -382,7 +472,8 @@ export function buildChartResults(coverage: SizingCoverageRow[], charts: SizingC
 export function buildBrandResearch(
   coverage: SizingCoverageRow[],
   charts: SizingChartRow[],
-  live: { scopedBrandKeys?: readonly string[]; currentBrandKey?: string | null } = {}
+  live: { scopedBrandKeys?: readonly string[]; currentBrandKey?: string | null } = {},
+  stocked?: StockedLeaves
 ): BrandResearchResult[] {
   const scoped = new Set(live.scopedBrandKeys ?? []);
   const byKey = indexCharts(charts);
@@ -408,6 +499,9 @@ export function buildBrandResearch(
         skuCount: 0,
         sizingCategories: [],
         chartedCategories: 0,
+        partialCategories: 0,
+        missingLeaves: [],
+        missingSkuCount: 0,
         chartCount: chartsPerBrand.get(row.brandKey) ?? 0,
         note: null,
         statuses: [],
@@ -417,7 +511,18 @@ export function buildBrandResearch(
 
     brand.skuCount += row.skuCount;
     if (!brand.sizingCategories.includes(row.sizingCategory)) brand.sizingCategories.push(row.sizingCategory);
-    if ((byKey.get(lookupKey(row.brandKey, row.sizingCategory)) ?? []).length > 0) brand.chartedCategories += 1;
+    const key = lookupKey(row.brandKey, row.sizingCategory);
+    const pairCharts = byKey.get(key) ?? [];
+    if (pairCharts.length > 0) {
+      const missing = missingLeavesFor(stocked?.get(key), pairCharts);
+      if (missing.leaves.length === 0) {
+        brand.chartedCategories += 1;
+      } else {
+        brand.partialCategories += 1;
+        brand.missingLeaves.push(...missing.leaves);
+        brand.missingSkuCount += Math.min(row.skuCount, missing.skus);
+      }
+    }
     brand.statuses.push(row.researchStatus);
     // First note wins, and coverage arrives biggest-pair-first, so the note a merchant sees belongs to
     // the parent most of their stock is in rather than whichever row happened to be written last.
@@ -437,7 +542,7 @@ export function buildBrandResearch(
 }
 
 function brandStatus(
-  brand: { sizingCategories: string[]; chartedCategories: number },
+  brand: { sizingCategories: string[]; chartedCategories: number; partialCategories: number },
   statuses: readonly ResearchStatus[],
   live: { researching: boolean; queued: boolean }
 ): BrandResearchStatus {
@@ -449,7 +554,7 @@ function brandStatus(
   if (brand.chartedCategories >= brand.sizingCategories.length && brand.sizingCategories.length > 0) {
     return "done";
   }
-  if (brand.chartedCategories > 0) return "partial";
+  if (brand.chartedCategories > 0 || brand.partialCategories > 0) return "partial";
   if (statuses.includes("failed")) return "failed";
   // Every parent still `pending` means nothing has looked yet. Anything else — `not_found`,
   // `not_covered` — means a pass ran and came back with nothing this store can use.

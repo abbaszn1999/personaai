@@ -47,8 +47,53 @@ export function isVariantRole(value: unknown): value is VariantRole {
 
 // ─── Built-in name matching ───────────────────────────────────────────────────
 
-const COLOR_OPTION_NAMES = new Set(["color", "colour"]);
-const SIZE_OPTION_NAMES = new Set(["size"]);
+/**
+ * The words stores use for a size or colour option, in the languages Persona's merchants publish in.
+ * Compared after `optionNameTokens`, which lowercases, drops accents and expands `ß`, so `Größe`,
+ * `GROSSE` and `grosse` are one entry. One list serves the indexer, Stage 1's default mapping, the
+ * variant pickers and add-to-cart, so a store whose option is called `Taille` is a size everywhere or
+ * nowhere rather than a size to the cart and a custom attribute to the catalog.
+ */
+const SIZE_WORDS = new Set([
+  "size", "sizes", "taille", "tailles", "pointure", "talla", "tallas", "tamano", "tamanho",
+  "tamanhos", "grosse", "groesse", "grossen", "maat", "maten", "taglia", "taglie", "storlek", "rozmiar",
+  "مقاس", "المقاس", "مقاسات", "حجم", "الحجم", "قياس", "المقاسات",
+]);
+const COLOR_WORDS = new Set([
+  "color", "colors", "colour", "colours", "couleur", "couleurs", "farbe", "farben", "colore", "colori",
+  "kleur", "kleuren", "cor", "cores", "farg", "kolor", "renk",
+  "لون", "اللون", "الوان", "ألوان", "الألوان",
+]);
+
+/** Lowercase words of an option name, with accents removed and `ß` written `ss`. Splits on anything
+ *  that is not a letter or digit, which is also what peels a WooCommerce `pa_` / `attribute_pa_`
+ *  prefix off the attribute slug. */
+export function optionNameTokens(name: string): string[] {
+  return name
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/ß/g, "ss")
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean);
+}
+
+export function isSizeOptionName(name: string): boolean {
+  return optionNameTokens(name).some((token) => SIZE_WORDS.has(token));
+}
+
+export function isColorOptionName(name: string): boolean {
+  return optionNameTokens(name).some((token) => COLOR_WORDS.has(token));
+}
+
+/** What a storefront's option name means to the shopper-facing variant pickers. Size outranks colour,
+ *  so an option named "Size / Color" is still offered as the size it has to be chosen as. */
+export function variantTypeForOptionName(name: string): "size" | "color" | "style" {
+  if (isSizeOptionName(name)) return "size";
+  if (isColorOptionName(name)) return "color";
+  return "style";
+}
+
 const MATERIAL_OPTION_NAMES = new Set(["material", "materials", "fabric"]);
 const PATTERN_OPTION_NAMES = new Set(["pattern", "patterns", "print"]);
 const GENDER_OPTION_NAMES = new Set(["gender", "genders", "sex"]);
@@ -67,8 +112,8 @@ export function normalizeOptionGroupName(name: string): string {
  * group's name, so they only ever arrive as an explicit override.
  */
 export function detectDefaultVariantRole(normalizedName: string): OptionRole {
-  if (COLOR_OPTION_NAMES.has(normalizedName)) return "color";
-  if (SIZE_OPTION_NAMES.has(normalizedName)) return "size";
+  if (isSizeOptionName(normalizedName)) return "size";
+  if (isColorOptionName(normalizedName)) return "color";
   if (MATERIAL_OPTION_NAMES.has(normalizedName)) return "material";
   if (PATTERN_OPTION_NAMES.has(normalizedName)) return "pattern";
   if (GENDER_OPTION_NAMES.has(normalizedName)) return "gender";

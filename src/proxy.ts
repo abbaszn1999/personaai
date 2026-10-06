@@ -3,6 +3,7 @@ import { getIronSession, unsealData } from "iron-session";
 import { adminSessionOptions, type AdminSessionData } from "@/modules/auth/lib/admin-session-options";
 import { sessionOptions, type SessionData } from "@/modules/auth/lib/session";
 import { SESSION_HINT_COOKIE, applySessionHint } from "@/modules/auth/lib/session-hint";
+import { isSessionLive } from "@/modules/auth/lib/session-validity";
 
 const PUBLIC_PATHS = [
   "/lamp",
@@ -127,6 +128,19 @@ async function route(req: NextRequest, pathname: string): Promise<NextResponse> 
     const signIn = new URL("/sign-in", req.url);
     signIn.searchParams.set("from", pathname);
     return NextResponse.redirect(signIn);
+  }
+
+  // A sealed cookie whose session was revoked (signed out elsewhere, password changed, account
+  // deleted) is cleared and treated exactly like no cookie.
+  if (!(await isSessionLive(session.sid, session.userId))) {
+    if (pathname.startsWith("/api/")) {
+      const denied = NextResponse.json({ error: "Your session has ended. Please sign in again." }, { status: 401 });
+      denied.cookies.delete(sessionOptions.cookieName);
+      return denied;
+    }
+    const signIn = NextResponse.redirect(new URL("/sign-in", req.url));
+    signIn.cookies.delete(sessionOptions.cookieName);
+    return signIn;
   }
 
   if (!pathname.startsWith("/api/") && pathname !== "/onboarding") {

@@ -1,4 +1,5 @@
 import { db } from "@/lib/supabase/server";
+import { sealCode } from "@/modules/auth/lib/one-time-code";
 
 /** Raw DB row shape for the `users` table (snake_case, as stored). */
 export interface UserRow {
@@ -79,7 +80,7 @@ export async function createCredentialsUser(input: CreateCredentialsUserInput) {
       last_name: input.lastName ?? null,
       provider: "credentials",
       email_verified: false,
-      email_verification_token: input.verificationToken,
+      email_verification_token: sealCode(input.verificationToken),
       email_verification_expiry: input.verificationExpiry,
     })
     .select("id, email, first_name, last_name, provider, email_verified, has_completed_onboarding, created_at")
@@ -127,24 +128,65 @@ export async function createGoogleUser(input: CreateGoogleUserInput): Promise<Us
 export interface LinkGoogleAccountInput {
   googleId: string;
   profileImageUrl?: string | null;
+  /** Drop the row's password. Used when Google proves ownership of an inbox whose password account
+   *  was never verified — that password was set by whoever typed the address, not necessarily its
+   *  owner, and must not keep working once the owner arrives. */
+  revokePassword?: boolean;
 }
 
 export async function linkGoogleAccount(id: string, input: LinkGoogleAccountInput): Promise<void> {
   const patch: Record<string, unknown> = {
     google_id: input.googleId,
     email_verified: true,
+    email_verification_token: null,
+    email_verification_expiry: null,
     updated_at: new Date().toISOString(),
   };
   if (input.profileImageUrl !== undefined) patch.profile_image_url = input.profileImageUrl;
+  if (input.revokePassword) {
+    patch.password_hash = null;
+    patch.password_reset_token = null;
+    patch.password_reset_expiry = null;
+    patch.provider = "google";
+  }
 
-  await db.from("users").update(patch).eq("id", id);
+  const { error } = await db.from("users").update(patch).eq("id", id);
+  if (error) console.error("[db/users linkGoogleAccount]", error);
 }
 
 export async function setEmailVerificationCode(id: string, token: string, expiry: string): Promise<void> {
   await db
     .from("users")
-    .update({ email_verification_token: token, email_verification_expiry: expiry })
+    .update({ email_verification_token: sealCode(token), email_verification_expiry: expiry })
     .eq("id", id);
+}
+
+export type OneTimeCodeColumn = "email_verification_token" | "password_reset_token";
+
+/**
+ * Replaces a stored one-time code with `next` only if it still equals `expected`, so concurrent
+ * checks cannot all spend the same attempt. `next` null retires the code and its expiry.
+ */
+export async function spendOneTimeCode(
+  id: string,
+  column: OneTimeCodeColumn,
+  expected: string,
+  next: string | null,
+): Promise<boolean> {
+  const expiryColumn = column === "email_verification_token" ? "email_verification_expiry" : "password_reset_expiry";
+  const patch: Record<string, unknown> = { [column]: next };
+  if (next === null) patch[expiryColumn] = null;
+  const { data, error } = await db
+    .from("users")
+    .update(patch)
+    .eq("id", id)
+    .eq(column, expected)
+    .select("id");
+  if (error) {
+    console.error("[db/users spendOneTimeCode]", error);
+    return false;
+  }
+  return Array.isArray(data) && data.length === 1;
 }
 
 export async function markEmailVerified(id: string): Promise<void> {
@@ -162,7 +204,7 @@ export async function markEmailVerified(id: string): Promise<void> {
 export async function setPasswordResetCode(id: string, token: string, expiry: string): Promise<void> {
   await db
     .from("users")
-    .update({ password_reset_token: token, password_reset_expiry: expiry, updated_at: new Date().toISOString() })
+    .update({ password_reset_token: sealCode(token), password_reset_expiry: expiry, updated_at: new Date().toISOString() })
     .eq("id", id);
 }
 

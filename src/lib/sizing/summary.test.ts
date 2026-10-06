@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { labelFor, summarizeCoverage } from "./summary";
+import { attachPersonaLeaves, labelFor, summarizeCoverage } from "./summary";
 import type { SizingCoverageRow } from "@/lib/db/sizing-coverage";
 
 function coverage(overrides: Partial<SizingCoverageRow> = {}): SizingCoverageRow {
@@ -117,5 +117,38 @@ describe("labelFor", () => {
 
   it("falls back to the raw key for an unrecognised value", () => {
     expect(labelFor("mystery")).toBe("mystery");
+  });
+});
+
+describe("attachPersonaLeaves", () => {
+  it("lists a private label's Persona subcategories by stock and ignores global brands", () => {
+    const summary = summarizeCoverage([
+      coverage({ id: "own", brandKey: "own-label", brandName: "Own Label", brandType: "private", sizingCategory: "tops" }),
+      coverage({ id: "nike", brandKey: "nike", brandType: "global", sizingCategory: "tops" }),
+    ]);
+    const result = attachPersonaLeaves(summary, [
+      { brandKey: "own-label", categoryId: "women:top:blouse", sizingCategory: "tops", skuCount: 2 },
+      { brandKey: "own-label", categoryId: "women:top:t-shirt", sizingCategory: "tops", skuCount: 9 },
+      { brandKey: "nike", categoryId: "men:top:shirt", sizingCategory: "tops", skuCount: 4 },
+    ]);
+
+    const own = result.brands.find((brand) => brand.brandKey === "own-label");
+    const nike = result.brands.find((brand) => brand.brandKey === "nike");
+    expect(own?.personaLeaves).toEqual(["women:top:t-shirt", "women:top:blouse"]);
+    expect(nike?.personaLeaves).toBeUndefined();
+  });
+
+  it("matches an unbranded row on its single sizing category", () => {
+    const summary = summarizeCoverage([
+      coverage({ id: "shoes", brandKey: "", brandName: null, brandType: "none", sizingCategory: "footwear" }),
+      coverage({ id: "tops", brandKey: "", brandName: null, brandType: "none", sizingCategory: "tops" }),
+    ]);
+    const result = attachPersonaLeaves(summary, [
+      { brandKey: "", categoryId: "women:shoes:sneakers", sizingCategory: "footwear", skuCount: 3 },
+      { brandKey: "", categoryId: "women:top:blouse", sizingCategory: "tops", skuCount: 5 },
+    ]);
+
+    const byCategory = Object.fromEntries(result.brands.map((brand) => [brand.sizingCategories[0], brand.personaLeaves]));
+    expect(byCategory).toEqual({ footwear: ["women:shoes:sneakers"], tops: ["women:top:blouse"] });
   });
 });

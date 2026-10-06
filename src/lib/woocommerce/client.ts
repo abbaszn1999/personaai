@@ -3,6 +3,7 @@ import type { Product, ProductVariant } from "@/modules/commerce/types";
 import type { CatalogPageOptions, RawCatalogProduct, RawCatalogVariant, VariantOptionGroups } from "@/lib/catalog/sync-types";
 import { createTimeoutSignal, sleep } from "@/lib/catalog/timeout";
 import { pickSizedVariant } from "@/lib/sizing/cart-variant";
+import { variantTypeForOptionName } from "@/lib/catalog/option-groups";
 
 const API_BASE = "/wp-json/wc/v3";
 
@@ -270,22 +271,34 @@ interface WooCommerceProduct {
 }
 
 /**
- * WooCommerce has no per-product currency field (it's a single site-wide setting) — the
- * app doesn't yet fetch that setting, so real WooCommerce results default to USD like every
- * other price shown in this app today. Revisit if a merchant using a non-USD store connects.
+ * WooCommerce has no per-product currency field — it is one site-wide setting, read once through
+ * `fetchWooStoreCurrency` and saved on the connection. This is only what a price carries when that
+ * setting has not been read (a legacy connection, or a store that would not answer).
  */
-const WOOCOMMERCE_DEFAULT_CURRENCY = "USD";
+const WOOCOMMERCE_FALLBACK_CURRENCY = "USD";
+
+/** The store's configured currency as an ISO 4217 code, or null when it cannot be read. */
+export async function fetchWooStoreCurrency(
+  siteUrl: string,
+  username: string,
+  appPassword: string,
+  signal?: AbortSignal
+): Promise<string | null> {
+  try {
+    const { data } = await wooFetch<{ code?: string }>(siteUrl, username, appPassword, "/data/currencies/current", signal);
+    const code = typeof data?.code === "string" ? data.code.trim().toUpperCase() : "";
+    return /^[A-Z]{3}$/.test(code) ? code : null;
+  } catch {
+    return null;
+  }
+}
 
 /** WooCommerce reports stock at the product level only via this basic search — a size-level
  *  attribute option is shown as available whenever the product overall is in stock, since a
  *  per-variation stock lookup would require a second request per product. */
 function mapWooProductToProductVariants(attributes: WooCommerceProductAttribute[], inStock: boolean): ProductVariant[] {
   return attributes.flatMap((attr) => {
-    const type: ProductVariant["type"] = attr.name.toLowerCase().includes("size")
-      ? "size"
-      : attr.name.toLowerCase().includes("color") || attr.name.toLowerCase().includes("colour")
-        ? "color"
-        : "style";
+    const type: ProductVariant["type"] = variantTypeForOptionName(attr.name);
     return attr.options.map((option) => ({
       id: `${attr.name}-${option}`,
       label: option,
@@ -300,7 +313,7 @@ function stripHtml(html: string): string {
   return html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 }
 
-function mapWooProduct(product: WooCommerceProduct): Product | null {
+function mapWooProduct(product: WooCommerceProduct, currency: string): Product | null {
   // A product with no photo has nothing useful to show in this visual UI — skip it rather
   // than rendering a broken image.
   const imageUrl = product.images[0]?.src;
@@ -313,7 +326,7 @@ function mapWooProduct(product: WooCommerceProduct): Product | null {
     name: product.name,
     description: stripHtml(product.short_description || product.description),
     price: Number(product.price) || 0,
-    currency: WOOCOMMERCE_DEFAULT_CURRENCY,
+    currency,
     imageUrl,
     categoryId: product.categories[0] ? String(product.categories[0].id) : "",
     tags: product.tags.map((t) => t.name),
@@ -619,7 +632,7 @@ function wooBarcodeFromMeta(meta: Array<{ key: string; value: unknown }> | undef
 /** The one synthetic variant a "simple" (or grouped/external) product gets, mirroring its own
  *  parent-level price/sku/stock/image exactly — see `RawCatalogVariant`'s doc comment for why
  *  every product, variable or not, carries at least one entry here. */
-function syntheticWooVariant(product: WooCatalogProduct, images: string[]): RawCatalogVariant {
+function syntheticWooVariant(product: WooCatalogProduct, images: string[], currency: string): RawCatalogVariant {
   return {
     externalId: String(product.id),
     sku: product.sku?.trim() || null,
@@ -630,7 +643,7 @@ function syntheticWooVariant(product: WooCatalogProduct, images: string[]): RawC
       product.regular_price?.trim() && product.regular_price !== product.price
         ? Number(product.regular_price) || null
         : null,
-    currency: WOOCOMMERCE_DEFAULT_CURRENCY,
+    currency,
     inStock: product.stock_status === "instock",
     inventoryQuantity: typeof product.stock_quantity === "number" ? product.stock_quantity : null,
     imageUrl: images[0] ?? null,
@@ -642,7 +655,7 @@ function syntheticWooVariant(product: WooCatalogProduct, images: string[]): RawC
   };
 }
 
-function toWooCatalogVariant(variation: WooCommerceVariation, fallbackImage: string | null): RawCatalogVariant {
+function toWooCatalogVariant(variation: WooCommerceVariation, fallbackImage: string | null, currency: string): RawCatalogVariant {
   const selectedOptions: Record<string, string> = {};
   for (const attribute of variation.attributes ?? []) {
     if (attribute.name && attribute.option) selectedOptions[attribute.name] = attribute.option;
@@ -658,7 +671,7 @@ function toWooCatalogVariant(variation: WooCommerceVariation, fallbackImage: str
       variation.regular_price?.trim() && variation.regular_price !== variation.price
         ? Number(variation.regular_price) || null
         : null,
-    currency: WOOCOMMERCE_DEFAULT_CURRENCY,
+    currency,
     inStock: variation.stock_status === "instock",
     inventoryQuantity: typeof variation.stock_quantity === "number" ? variation.stock_quantity : null,
     imageUrl: variation.image?.src ?? fallbackImage,
@@ -695,12 +708,13 @@ async function fetchWooVariants(
   product: WooCatalogProduct,
   images: string[],
   signal?: AbortSignal,
-  skipVariants?: boolean
+  skipVariants?: boolean,
+  currency: string = WOOCOMMERCE_FALLBACK_CURRENCY
 ): Promise<RawCatalogVariant[]> {
   // No network call at all in this case — see `CatalogPageOptions.skipVariants`. This is what
   // actually removes the per-product request rather than just capping how many run at once.
-  if (skipVariants) return [syntheticWooVariant(product, images)];
-  if (product.type !== "variable") return [syntheticWooVariant(product, images)];
+  if (skipVariants) return [syntheticWooVariant(product, images, currency)];
+  if (product.type !== "variable") return [syntheticWooVariant(product, images, currency)];
 
   const all: WooCommerceVariation[] = [];
   for (let page = 1; page <= WOO_VARIATION_MAX_PAGES; page++) {
@@ -719,19 +733,23 @@ async function fetchWooVariants(
       // or the synthetic entry, rather than dropping the product's variant data entirely.
       console.error(`[woocommerce fetchWooVariants] variations failed for product ${product.id}`, err);
       return all.length > 0
-        ? all.map((variation) => toWooCatalogVariant(variation, images[0] ?? null))
-        : [syntheticWooVariant(product, images)];
+        ? all.map((variation) => toWooCatalogVariant(variation, images[0] ?? null, currency))
+        : [syntheticWooVariant(product, images, currency)];
     }
 
     all.push(...data);
     if (data.length < WOO_PAGE_SIZE) break;
   }
 
-  if (all.length === 0) return [syntheticWooVariant(product, images)];
-  return all.map((variation) => toWooCatalogVariant(variation, images[0] ?? null));
+  if (all.length === 0) return [syntheticWooVariant(product, images, currency)];
+  return all.map((variation) => toWooCatalogVariant(variation, images[0] ?? null, currency));
 }
 
-function mapWooCatalogProduct(product: WooCatalogProduct, variants: RawCatalogVariant[]): RawCatalogProduct {
+function mapWooCatalogProduct(
+  product: WooCatalogProduct,
+  variants: RawCatalogVariant[],
+  currency: string
+): RawCatalogProduct {
   const images = product.images.map((image) => image.src).filter(Boolean);
 
   return {
@@ -744,7 +762,7 @@ function mapWooCatalogProduct(product: WooCatalogProduct, variants: RawCatalogVa
     rawCategories: product.categories.map((category) => decodeHtmlEntities(category.name)),
     sourceCategoryIds: product.categories.map((category) => String(category.id)),
     price: Number(product.price) || null,
-    currency: WOOCOMMERCE_DEFAULT_CURRENCY,
+    currency,
     inStock: product.stock_status === "instock",
     productUrl: product.permalink || null,
     imageUrl: images[0] ?? null,
@@ -765,9 +783,10 @@ export async function listWooCatalogPage(
   siteUrl: string,
   username: string,
   appPassword: string,
-  options: CatalogPageOptions & { page: number },
+  options: CatalogPageOptions & { page: number; currency?: string | null },
   signal?: AbortSignal
 ): Promise<{ products: RawCatalogProduct[]; hasMore: boolean }> {
+  const currency = options.currency ?? WOOCOMMERCE_FALLBACK_CURRENCY;
   const perPage = Math.min(options.pageSize ?? WOO_PAGE_SIZE, WOO_PAGE_SIZE);
   const params = new URLSearchParams({
     per_page: String(perPage),
@@ -795,8 +814,17 @@ export async function listWooCatalogPage(
 
   const products = await mapWithConcurrency(data, WOO_VARIANT_FETCH_CONCURRENCY, async (product) => {
     const images = product.images.map((image) => image.src).filter(Boolean);
-    const variants = await fetchWooVariants(siteUrl, username, appPassword, product, images, signal, options.skipVariants);
-    return mapWooCatalogProduct(product, variants);
+    const variants = await fetchWooVariants(
+      siteUrl,
+      username,
+      appPassword,
+      product,
+      images,
+      signal,
+      options.skipVariants,
+      currency
+    );
+    return mapWooCatalogProduct(product, variants, currency);
   });
 
   return {
@@ -819,9 +847,11 @@ export async function listWooProductsByIds(
   username: string,
   appPassword: string,
   externalIds: readonly string[],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  currency: string | null = null
 ): Promise<RawCatalogProduct[]> {
   if (externalIds.length === 0) return [];
+  const priceCurrency = currency ?? WOOCOMMERCE_FALLBACK_CURRENCY;
 
   const params = new URLSearchParams({
     include: externalIds.join(","),
@@ -839,8 +869,17 @@ export async function listWooProductsByIds(
 
   return mapWithConcurrency(data, WOO_VARIANT_FETCH_CONCURRENCY, async (product) => {
     const images = product.images.map((image) => image.src).filter(Boolean);
-    const variants = await fetchWooVariants(siteUrl, username, appPassword, product, images, signal);
-    return mapWooCatalogProduct(product, variants);
+    const variants = await fetchWooVariants(
+      siteUrl,
+      username,
+      appPassword,
+      product,
+      images,
+      signal,
+      undefined,
+      priceCurrency
+    );
+    return mapWooCatalogProduct(product, variants, priceCurrency);
   });
 }
 
@@ -889,7 +928,8 @@ export async function hydrateWooProducts(
   username: string,
   appPassword: string,
   externalIds: string[],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  currency: string | null = null
 ): Promise<LiveWooProductFacts[]> {
   if (externalIds.length === 0) return [];
 
@@ -909,14 +949,15 @@ export async function hydrateWooProducts(
   return data.map((product) => ({
     externalId: String(product.id),
     price: Number(product.price) || null,
-    currency: WOOCOMMERCE_DEFAULT_CURRENCY,
+    currency: currency ?? WOOCOMMERCE_FALLBACK_CURRENCY,
     inStock: product.stock_status === "instock",
   }));
 }
 
 /** WooCommerce webhooks deliver the same product object the REST list endpoint returns, so
  *  the two feeds share one mapper — unlike Shopify, where they differ. */
-export function mapWooWebhookProduct(payload: unknown): RawCatalogProduct | null {
+export function mapWooWebhookProduct(payload: unknown, currency: string | null = null): RawCatalogProduct | null {
+  const priceCurrency = currency ?? WOOCOMMERCE_FALLBACK_CURRENCY;
   const product = payload as WooCatalogProduct;
   if (!product?.id || !product.name) return null;
   const normalized: WooCatalogProduct = {
@@ -935,9 +976,9 @@ export function mapWooWebhookProduct(payload: unknown): RawCatalogProduct | null
   // catalog path (`fetchWooVariants`), mirroring the existing bound-metafield refetch. Every
   // other product type's variant data is already complete on the parent object itself, so its
   // one synthetic variant is built synchronously with no gap to fill in later.
-  const variants = normalized.type === "variable" ? [] : [syntheticWooVariant(normalized, images)];
+  const variants = normalized.type === "variable" ? [] : [syntheticWooVariant(normalized, images, priceCurrency)];
 
-  return mapWooCatalogProduct(normalized, variants);
+  return mapWooCatalogProduct(normalized, variants, priceCurrency);
 }
 
 const WOO_WEBHOOK_TOPICS = ["product.created", "product.updated", "product.deleted"];
@@ -1159,6 +1200,8 @@ export interface SearchWordPressProductsInput {
   /** WooCommerce category id (as stored in `StoreCategory.id`) to scope the search to. */
   categoryId?: string;
   limit?: number;
+  /** The store's own currency, from the connection. Prices read USD when it is unknown. */
+  currency?: string | null;
 }
 
 /** WordPress's hard `per_page` ceiling for this REST endpoint — a single request can't go
@@ -1204,5 +1247,6 @@ export async function searchWordPressProducts(
     if (data.length < perPage) break;
   }
 
-  return all.map(mapWooProduct).filter((p): p is Product => p !== null);
+  const currency = input.currency ?? WOOCOMMERCE_FALLBACK_CURRENCY;
+  return all.map((product) => mapWooProduct(product, currency)).filter((p): p is Product => p !== null);
 }

@@ -1,5 +1,12 @@
 import { NextRequest } from "next/server";
 import { hashPassword, generateCode, sendVerificationEmail } from "@/modules/auth/lib/helpers";
+import {
+  AUTH_LIMITS,
+  allowAuthAttempt,
+  clientIp,
+  passwordProblem,
+  tooManyAttempts,
+} from "@/modules/auth/lib/rate-limit";
 import { emailExists, createCredentialsUser } from "@/lib/db/users";
 
 export async function POST(req: NextRequest) {
@@ -8,6 +15,11 @@ export async function POST(req: NextRequest) {
 
     if (!email || !password) {
       return Response.json({ error: "Email and password are required" }, { status: 400 });
+    }
+    const problem = passwordProblem(password);
+    if (problem) return Response.json({ error: problem }, { status: 400 });
+    if (!allowAuthAttempt([`register:${clientIp(req)}`, AUTH_LIMITS.registerPerIp])) {
+      return tooManyAttempts();
     }
 
     if (await emailExists(email)) {

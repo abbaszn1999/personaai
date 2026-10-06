@@ -21,9 +21,18 @@ type LoadState =
   | { status: "error"; message: string }
   | { status: "ready"; branding: WorkspaceBranding; audiences?: TryOnAudience[] };
 
+/** The settings request main.tsx starts before the page has finished loading. */
+export interface PrefetchedEmbedConfig {
+  origin: string;
+  embedToken: string;
+  result: Promise<{ ok: boolean; data: EmbedConfigResponse } | null>;
+}
+
 interface EmbedAppProps {
   origin: string;
   embedToken: string;
+  /** Used instead of a fresh request when present; a failed prefetch falls back to one. */
+  prefetchedConfig?: PrefetchedEmbedConfig["result"];
   /** Lets this component switch the host <div>'s own footprint on the merchant's page once
    *  branding loads — see applyDisplayMode in main.tsx. */
   onDisplayModeChange?: (mode: "fullpage" | "floating" | "compact") => void;
@@ -33,7 +42,7 @@ interface EmbedAppProps {
  *  render logic exactly, since both are just different mount points for the same public
  *  no-login experience (this one lives inside a merchant page's Shadow DOM instead of its
  *  own standalone page). */
-export function EmbedApp({ origin, embedToken, onDisplayModeChange }: EmbedAppProps) {
+export function EmbedApp({ origin, embedToken, prefetchedConfig, onDisplayModeChange }: EmbedAppProps) {
   const [state, setState] = React.useState<LoadState>({ status: "loading" });
   const [rootRef, viewportMode] = useResponsiveViewportMode<HTMLDivElement>();
   const [fillViewport, setFillViewport] = React.useState(false);
@@ -49,11 +58,15 @@ export function EmbedApp({ origin, embedToken, onDisplayModeChange }: EmbedAppPr
     let active = true;
     async function load() {
       try {
-        const res = await fetch(`${origin}/api/embed/workspace/${embedToken}`);
-        const data: EmbedConfigResponse = await res.json().catch(() => ({}));
+        let loaded = prefetchedConfig ? await prefetchedConfig : null;
+        if (!loaded) {
+          const res = await fetch(`${origin}/api/embed/workspace/${encodeURIComponent(embedToken)}`);
+          loaded = { ok: res.ok, data: (await res.json().catch(() => ({}))) as EmbedConfigResponse };
+        }
+        const data = loaded.data;
         if (!active) return;
 
-        if (!res.ok || !data.branding) {
+        if (!loaded.ok || !data.branding) {
           setState({ status: "error", message: data.error || "This shopping assistant isn't available." });
           return;
         }
@@ -74,7 +87,7 @@ export function EmbedApp({ origin, embedToken, onDisplayModeChange }: EmbedAppPr
     return () => {
       active = false;
     };
-  }, [origin, embedToken]);
+  }, [origin, embedToken, prefetchedConfig]);
 
   if (state.status === "loading") {
     return (

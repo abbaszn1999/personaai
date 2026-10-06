@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils/cn";
 import { labelFor } from "@/lib/sizing/summary";
+import { formatPersonaSegments, leafLabel } from "@/modules/store/mapping/persona-taxonomy";
 import { useSizingStore } from "../store";
 import { isScanIncomplete, type CoverageBrand, type ServerBrandType } from "../server-types";
 import { StageHeaderBanner } from "./stage-header-banner";
@@ -375,6 +376,76 @@ function RouteSummary({
   );
 }
 
+/**
+ * Lets the merchant overrule Gemini's Global / Private call for one brand. Gemini only sees a name, so
+ * it is the merchant who knows that "Atelier 9" is their own label — and that decides whether the brand
+ * is researched on the web or hand-filled.
+ */
+function BrandTypeControl({ brand }: { brand: CoverageBrand }) {
+  const loadRun = useSizingStore((s) => s.loadRun);
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  async function change(next: "global" | "private") {
+    if (next === brand.brandType) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/store-connection/sizing/brand-type", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brandKey: brand.brandKey, brandType: next }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setError(data.error ?? "Could not change the brand type.");
+        return;
+      }
+      await loadRun();
+    } catch {
+      setError("Could not reach the server.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-1.5">
+      <select
+        aria-label={`Brand type for ${brand.name ?? brand.brandKey}`}
+        value={brand.brandType === "global" || brand.brandType === "private" ? brand.brandType : ""}
+        disabled={saving}
+        onChange={(event) => void change(event.target.value as "global" | "private")}
+        className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-base)] px-1.5 py-0.5 text-[11px] text-[var(--color-text-secondary)] focus:border-[var(--color-brand)] focus:outline-none disabled:opacity-60"
+      >
+        {brand.brandType === "unclassified" && (
+          <option value="" disabled>
+            Choose…
+          </option>
+        )}
+        <option value="global">Global brand</option>
+        <option value="private">Private label</option>
+      </select>
+      {error && <p className="mt-1 max-w-[220px] text-[10px] text-[var(--color-error)]">{error}</p>}
+    </div>
+  );
+}
+
+/** Where a hand-filled brand's stock sits in the merchant's Persona taxonomy, which is what the chart
+ *  they will be asked for has to cover. */
+function PersonaLeafList({ leaves }: { leaves: string[] }) {
+  const shown = leaves.slice(0, 3);
+  return (
+    <p
+      className="mt-0.5 truncate text-[11px] text-[var(--color-text-muted)]"
+      title={leaves.map(leafLabel).join(", ")}
+    >
+      {shown.map(leafLabel).join(", ")}
+      {leaves.length > shown.length && ` +${leaves.length - shown.length} more`}
+    </p>
+  );
+}
+
 function BrandTableRow({ brand }: { brand: CoverageBrand }) {
   const meta = TYPE_META[brand.brandType];
   const tone = TONE_CLASSES[meta.tone];
@@ -397,17 +468,26 @@ function BrandTableRow({ brand }: { brand: CoverageBrand }) {
           {isUnbranded && <span className="text-[10px] italic text-[var(--color-text-muted)]">(Catalog fallback)</span>}
         </div>
         {isUnbranded ? (
-          <p className="mt-0.5 truncate text-[11px] text-[var(--color-text-muted)]" title={brand.storeCategoryPaths.map((path) => path.join(" › ")).join(", ")}>
-            {brand.storeCategoryPaths.length > 0
-              ? brand.storeCategoryPaths[0].join(" › ")
-              : "Path not mapped"}
-            {brand.storeCategoryPaths.length > 1 && ` +${brand.storeCategoryPaths.length - 1} more path${brand.storeCategoryPaths.length > 2 ? "s" : ""}`}
-          </p>
+          brand.personaLeaves && brand.personaLeaves.length > 0 ? (
+            <PersonaLeafList leaves={brand.personaLeaves} />
+          ) : (
+            <p className="mt-0.5 truncate text-[11px] text-[var(--color-text-muted)]" title={brand.storeCategoryPaths.map(formatPersonaSegments).join(", ")}>
+              {brand.storeCategoryPaths.length > 0
+                ? formatPersonaSegments(brand.storeCategoryPaths[0])
+                : "Path not mapped"}
+              {brand.storeCategoryPaths.length > 1 && ` +${brand.storeCategoryPaths.length - 1} more path${brand.storeCategoryPaths.length > 2 ? "s" : ""}`}
+            </p>
+          )
         ) : (
-          <p className="mt-0.5 truncate text-[11px] text-[var(--color-text-muted)]">
-            {brand.sizingCategories.length} categor{brand.sizingCategories.length === 1 ? "y" : "ies"} ·{" "}
-            {brand.rawFormatCount} size format{brand.rawFormatCount === 1 ? "" : "s"}
-          </p>
+          <>
+            <p className="mt-0.5 truncate text-[11px] text-[var(--color-text-muted)]">
+              {brand.sizingCategories.length} categor{brand.sizingCategories.length === 1 ? "y" : "ies"} ·{" "}
+              {brand.rawFormatCount} size format{brand.rawFormatCount === 1 ? "" : "s"}
+            </p>
+            {brand.brandType === "private" && brand.personaLeaves && brand.personaLeaves.length > 0 && (
+              <PersonaLeafList leaves={brand.personaLeaves} />
+            )}
+          </>
         )}
       </td>
       <td className="whitespace-nowrap px-4 py-3.5">
@@ -422,6 +502,7 @@ function BrandTableRow({ brand }: { brand: CoverageBrand }) {
           <span className={cn("h-2 w-2 rounded-full", tone.dot)} />
           {meta.label}
         </span>
+        {!isUnbranded && <BrandTypeControl brand={brand} />}
       </td>
       <td className="px-6 py-3.5 font-mono text-[var(--color-text-secondary)]">{brand.skuCount.toLocaleString()}</td>
       <td className="px-6 py-3.5 font-mono text-[var(--color-text-secondary)]">{brand.sizingCategories.length}</td>

@@ -223,7 +223,13 @@ async function searchWordPressCatalog(connection: StoreConnectionRow, input: One
       siteUrl,
       wpUsername,
       wpAppPassword,
-      { query: input.query, maxPrice: input.maxPrice, categoryId: input.categoryId, limit: input.limit },
+      {
+        query: input.query,
+        maxPrice: input.maxPrice,
+        categoryId: input.categoryId,
+        limit: input.limit,
+        currency: connection.storeCurrency,
+      },
       signal
     );
   } catch (err) {

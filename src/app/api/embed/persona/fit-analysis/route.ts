@@ -10,7 +10,7 @@ export async function OPTIONS() {
 export async function POST(req: NextRequest) {
   try {
     const body: FitAnalysisRequest & { embedToken?: unknown } = await req.json().catch(() => ({}));
-    const resolution = await resolveEmbedRequest(body.embedToken);
+    const resolution = await resolveEmbedRequest(body.embedToken, { req, kind: "paid" });
     if ("error" in resolution) return resolution.error;
 
     const fit = await buildLookFitAnalysis(resolution.workspace.ownerId, body);

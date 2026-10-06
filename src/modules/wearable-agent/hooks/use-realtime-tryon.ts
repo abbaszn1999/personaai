@@ -5,7 +5,7 @@ import type { DecartSDKError, RealTimeClient } from "@decartai/sdk";
 import { loadDecartRuntime } from "./decart-runtime";
 import type { Product } from "@/modules/commerce/types";
 import type { EmbedRuntimeConfig } from "./use-try-on-agent";
-import { getOrCreateEmbedSessionId } from "@/lib/embed/client/embed-storage";
+import { embedRequestHeaders, getOrCreateEmbedSessionId } from "@/lib/embed/client/embed-storage";
 import { LIVE_SESSION_PRODUCT_ID, LIVE_SESSION_PRODUCT_NAME } from "@/lib/billing/live-session";
 import { resolveGarmentSlot } from "../utils/fit-metrics";
 
@@ -81,7 +81,7 @@ async function getReferenceImage(
     const url = embed?.apiBase ? `${embed.apiBase}/persona/reference-image` : "/api/agents/persona/reference-image";
     const response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: embed?.embedToken ? embedRequestHeaders(embed.embedToken) : { "Content-Type": "application/json" },
       body: JSON.stringify({
         ...(embed?.embedToken ? { embedToken: embed.embedToken } : { workspaceId }),
         imageUrl: product.imageUrl,
@@ -298,7 +298,7 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
           : "/api/agents/persona/live-token";
         const tokenResponse = await fetch(tokenUrl, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: embedToken ? embedRequestHeaders(embedToken) : { "Content-Type": "application/json" },
           body: JSON.stringify(embedToken ? { embedToken } : workspaceId ? { workspaceId } : {}),
         });
         const tokenData: TokenResponse = await tokenResponse.json().catch(() => ({}));

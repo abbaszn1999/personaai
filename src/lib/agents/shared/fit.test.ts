@@ -75,16 +75,16 @@ describe("bodyMeasurements", () => {
 });
 
 describe("fitGroupClause", () => {
-  it("sends one required measurement per group, widened by its fixed tolerance", () => {
+  it("sends one required measurement per group, as every value within its fixed tolerance", () => {
     const body = { chest: 95, waist: 84, hip: 99, foot_length: 27 };
     expect(fitGroupClause("tops", body, false)).toBe(
-      '(attributes.fit_group: ANY("tops") AND attributes.fit_chest_min: IN(*, 97i) AND attributes.fit_chest_max: IN(93i, *))'
+      '(attributes.fit_group: ANY("tops") AND attributes.fit_chest_cm: ANY("93", "94", "95", "96", "97"))'
     );
     expect(fitGroupClause("bottoms", body, false)).toBe(
-      '(attributes.fit_group: ANY("bottoms") AND attributes.fit_waist_min: IN(*, 86i) AND attributes.fit_waist_max: IN(82i, *))'
+      '(attributes.fit_group: ANY("bottoms") AND attributes.fit_waist_cm: ANY("82", "83", "84", "85", "86"))'
     );
     expect(fitGroupClause("footwear", body, false)).toBe(
-      '(attributes.fit_group: ANY("footwear") AND attributes.fit_foot_length_min: IN(*, 27.3i) AND attributes.fit_foot_length_max: IN(26.7i, *))'
+      '(attributes.fit_group: ANY("footwear") AND attributes.fit_foot_length_cm: ANY("26.7", "26.8", "26.9", "27.0", "27.1", "27.2", "27.3"))'
     );
   });
 
@@ -96,7 +96,7 @@ describe("fitGroupClause", () => {
 
   it("is null without the required measurement or an indexed field", () => {
     expect(fitGroupClause("tops", { waist: 84 }, false)).toBeNull();
-    expect(fitGroupClause("tops", { chest: 95 }, false, new Set(["attributes.fit_chest_max"]))).toBeNull();
+    expect(fitGroupClause("tops", { chest: 95 }, false, new Set(["attributes.fit_chest_cm"]))).toBeNull();
   });
 });
 
@@ -106,24 +106,25 @@ describe("fitFilterClause", () => {
   it("adds one branch per group on its required measurement", () => {
     const clause = fitFilterClause(body, false);
     expect(clause).toContain(
-      '(attributes.fit_group: ANY("tops") AND attributes.fit_chest_min: IN(*, 102i) AND attributes.fit_chest_max: IN(98i, *))'
+      '(attributes.fit_group: ANY("tops") AND attributes.fit_chest_cm: ANY("98", "99", "100", "101", "102"))'
     );
     expect(clause).toContain(
-      '(attributes.fit_group: ANY("bottoms") AND attributes.fit_waist_min: IN(*, 86i) AND attributes.fit_waist_max: IN(82i, *))'
+      '(attributes.fit_group: ANY("bottoms") AND attributes.fit_waist_cm: ANY("82", "83", "84", "85", "86"))'
     );
-    expect(clause).toContain('attributes.fit_group: ANY("footwear") AND attributes.fit_foot_length_min: IN(*, 27.3i)');
+    expect(clause).toContain('attributes.fit_group: ANY("footwear") AND attributes.fit_foot_length_cm: ANY("26.7"');
     expect(clause.split(" OR ")).toHaveLength(5);
   });
 
   it("uses height for every kids' group", () => {
     const clause = fitFilterClause({ height: 120, chest: 60 }, true);
-    expect(clause).toContain('(attributes.fit_group: ANY("tops") AND attributes.fit_height_min: IN(*, 125i)');
+    expect(clause).toContain('(attributes.fit_group: ANY("tops") AND attributes.fit_height_cm: ANY("115"');
+    expect(clause).toContain('"125")');
     expect(clause).not.toContain("fit_chest");
   });
 
   it("drops a group whose required measurement is missing or not indexed", () => {
     expect(fitFilterClause({ chest: 100 }, false)).not.toContain('"bottoms"');
-    expect(fitFilterClause(body, false, new Set(["attributes.fit_foot_length_min"]))).not.toContain('"footwear"');
+    expect(fitFilterClause(body, false, new Set(["attributes.fit_foot_length_cm"]))).not.toContain('"footwear"');
     expect(fitFilterClause({}, false)).toBe("");
   });
 });

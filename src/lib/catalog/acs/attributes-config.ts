@@ -1,6 +1,7 @@
 import { getAcsAccessToken } from "./auth";
 import { catalogPath, getAcsConfig, isAcsConfigured } from "./config";
 import { MERCHANT_ID_ATTRIBUTE } from "./isolation";
+import { FIT_INDEX_ATTRIBUTES } from "@/lib/sizing/fit-index";
 
 /**
  * Registers the custom attributes this app filters on against the catalog's `attributesConfig`.
@@ -26,7 +27,7 @@ interface RequiredAttribute {
   /** `fit_rows` is payload-only; every other required attribute may appear in a filter. */
   indexable?: boolean;
   /**
-   * ACS permits at most 30 retrievable attributes per catalog. Identity and envelope fields are
+   * ACS permits at most 30 retrievable attributes per catalog. Identity and fit-value fields are
    * used in server-side filters and do not need to be returned in every result; the exact fitter
    * only needs `fit_size_labels` and `fit_rows`.
    */
@@ -40,6 +41,12 @@ const REQUIRED_ATTRIBUTES: RequiredAttribute[] = [
   { name: "product_group_id", purpose: "variant lookups (getProductGroup)" },
   { name: "sku", purpose: "exact-match product lookups (support tooling)" },
   { name: "primary_external_id", purpose: "finding a product's VARIANT children (getAcsVariantIds)" },
+  {
+    name: "persona_publish_id",
+    purpose: "retiring products a later publish no longer writes",
+    indexable: false,
+    retrievable: false,
+  },
   { name: "sizing_chart_key", purpose: "targeted sizing republishes", retrievable: false },
   { name: "fit_leaf", purpose: "resolved Persona leaf diagnostics", retrievable: false },
   { name: "fit_group", purpose: "sizing-group filters", retrievable: false },
@@ -47,18 +54,9 @@ const REQUIRED_ATTRIBUTES: RequiredAttribute[] = [
   { name: "fit_chart_variant", purpose: "resolved chart diagnostics", retrievable: false },
   { name: "fit_size_labels", purpose: "canonical in-stock size filters" },
   { name: "fit_rows", purpose: "exact per-size fit payload", indexable: false },
-  ...[
-    "fit_chest_min", "fit_chest_max",
-    "fit_waist_min", "fit_waist_max",
-    "fit_hip_min", "fit_hip_max",
-    "fit_inseam_min", "fit_inseam_max",
-    "fit_height_min", "fit_height_max",
-    "fit_foot_length_min", "fit_foot_length_max",
-    "fit_age_months_min", "fit_age_months_max",
-  ].map((name) => ({
+  ...FIT_INDEX_ATTRIBUTES.map((name) => ({
     name,
-    purpose: "recall-preserving sizing envelope",
-    type: "NUMERICAL" as const,
+    purpose: "exact in-stock size values the fit filter matches (fit-index.ts)",
     retrievable: false,
   })),
 ];

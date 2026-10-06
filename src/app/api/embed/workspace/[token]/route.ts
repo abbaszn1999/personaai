@@ -36,10 +36,11 @@ export async function GET(_req: Request, { params }: RouteParams) {
       console.error("[api/embed/workspace GET audiences]", err);
     }
 
-    return embedJson({
-      branding: workspace.branding,
-      audiences,
-    });
+    // Never cached anywhere: a merchant who saves branding must see it on the next page load.
+    return embedJson(
+      { branding: workspace.branding, audiences },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   } catch (err) {
     console.error("[api/embed/workspace GET]", err);
     return embedJson({ error: "Internal server error" }, { status: 500 });

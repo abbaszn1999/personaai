@@ -1,7 +1,6 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   User,
   Users,
@@ -24,34 +23,174 @@ import {
   Loader2,
   Eye,
   X,
+  AlertTriangle,
+  type LucideIcon,
 } from 'lucide-react';
+import { MEASUREMENTS, type Measurement, type SizingGroup } from '@/lib/sizing/measurements';
+import { SIZING_TARGETS, type SizingTarget } from '@/lib/sizing/sizing-target';
+import { formatPersonaSegments } from '@/modules/store/mapping/persona-taxonomy';
 import type {
   MultiSystemRow,
   SizingTesterOptionsResponse,
   TesterBrand,
 } from '@/modules/store/sizing/tester/options';
 import {
+  assignChart,
+  brandCategoriesFor,
+  categoryFilterPreview,
   chartRowFits,
-  productFitsSize,
-  summarizeSearch,
+  fittingRowIndexes,
+  groupBySubcategory,
+  measurementRole,
+  rowBounds,
+  summarizeChart,
   testerSearchParams,
+  type AssignedProduct,
+  type TesterMeasurements,
   type TesterSearchResponse,
 } from '@/modules/store/sizing/tester/acs-result';
 
-export type PersonaTarget = 'men' | 'women' | 'kid';
-export type UnitSystem = 'metric' | 'imperial';
-export type ParentCategoryKey = 'tops' | 'bottoms' | 'footwear' | 'outerwear' | 'dresses';
 type SizingSystemMode = 'us' | 'eu' | 'uk';
 
-/** What Found Sizes got back for one chart: the request it was for and ACS's answer (or failure). */
-interface ChartRun {
+/** What Found Sizes got back for one category: the request it was for and ACS's answer (or failure). */
+interface CategoryRun {
   key: string;
   data?: TesterSearchResponse;
   error?: string;
 }
 
-/** How many charts are asked at the same time. */
-const SEARCH_CONCURRENCY = 4;
+const ALL_SUBCATEGORIES = '__all__';
+const OTHER_SUBCATEGORY = '__other__';
+
+const TARGET_OPTIONS: Record<SizingTarget, { label: string; hint: string; icon: LucideIcon }> = {
+  men: { label: 'Men', hint: 'Men + Unisex', icon: User },
+  women: { label: 'Women', hint: 'Women + Unisex', icon: Users },
+  kid: { label: 'Kid', hint: 'Boys, Girls, Kids', icon: Baby },
+};
+
+const CATEGORY_ICONS: Record<SizingGroup, LucideIcon> = {
+  tops: Shirt,
+  bottoms: Scissors,
+  footwear: Footprints,
+  outerwear: Shield,
+  dresses: Sparkles,
+};
+
+const SHORT_CATEGORY_LABELS: Record<SizingGroup, string> = {
+  tops: 'Tops',
+  outerwear: 'Outerwear',
+  bottoms: 'Bottoms',
+  dresses: 'Dresses',
+  footwear: 'Footwear',
+};
+
+/** The body columns each category's chart table shows, filtering measurement first. */
+const BODY_COLUMNS: Record<SizingGroup, Array<{ label: string; measurement: Measurement }>> = {
+  tops: [{ label: 'Chest', measurement: 'chest' }, { label: 'Waist', measurement: 'waist' }],
+  outerwear: [{ label: 'Chest', measurement: 'chest' }, { label: 'Waist', measurement: 'waist' }],
+  bottoms: [{ label: 'Waist', measurement: 'waist' }, { label: 'Hips', measurement: 'hip' }],
+  dresses: [
+    { label: 'Bust', measurement: 'chest' },
+    { label: 'Waist', measurement: 'waist' },
+    { label: 'Hips', measurement: 'hip' },
+  ],
+  footwear: [{ label: 'Foot length', measurement: 'foot_length' }],
+};
+
+const ADULT_DEFAULTS = {
+  men: { chest: 98, waist: 84, hips: 99, height: 178, weight: 75, foot: 27.0 },
+  women: { chest: 88, waist: 70, hips: 95, height: 166, weight: 61, foot: 24.2 },
+} as const;
+const KID_DEFAULTS = { age: 7, height: 124, chest: 63, waist: 58, hips: 66, foot: 19.8 } as const;
+
+function leafIdOf(leafKey: string | null): string {
+  return leafKey ?? OTHER_SUBCATEGORY;
+}
+
+function listCategories(groups: readonly SizingGroup[]): string {
+  return groups.map((group) => SHORT_CATEGORY_LABELS[group]).join(', ');
+}
+
+function formatRange(bounds: [number | null, number | null] | null): string {
+  if (!bounds) return '—';
+  const [min, max] = bounds;
+  if (min !== null && max !== null) return min === max ? `${min}` : `${min}–${max}`;
+  if (min !== null) return `${min}+`;
+  if (max !== null) return `≤ ${max}`;
+  return '—';
+}
+
+function formatSizeForMode(row: MultiSystemRow, mode: SizingSystemMode): string {
+  if (mode === 'us') return row.usSize || row.sizeLabel;
+  if (mode === 'eu') return row.euSize || row.sizeLabel;
+  return row.ukSize || row.sizeLabel;
+}
+
+function ageDisplay(row: MultiSystemRow): string {
+  if (row.ageLabel) return row.ageLabel;
+  if (row.ageMin && row.ageMax) return row.ageMin === row.ageMax ? `${row.ageMin} Yrs` : `${row.ageMin}–${row.ageMax} Yrs`;
+  return row.sizeLabel.match(/\d+-\d+Y|\d+Y/i)?.[0] ?? '—';
+}
+
+type NoteTone = 'filter' | 'rank' | 'unused';
+
+interface MeasurementFieldProps {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+  min: number;
+  max: number;
+  step?: number;
+  unit: string;
+  note?: { text: string; tone: NoteTone };
+}
+
+function MeasurementField({ label, value, onChange, min, max, step = 1, unit, note }: MeasurementFieldProps) {
+  const toneClass = note?.tone === 'filter'
+    ? 'text-purple-700'
+    : note?.tone === 'rank'
+      ? 'text-slate-500'
+      : 'text-slate-400';
+  return (
+    <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs font-semibold text-slate-700">{label}</span>
+        <div className="flex items-center gap-2">
+          <input
+            type="range"
+            min={min}
+            max={max}
+            step={step}
+            value={value}
+            aria-label={label}
+            onChange={(event) => onChange(Number(event.target.value))}
+            className="w-24 accent-purple-600 cursor-pointer"
+          />
+          <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 w-20 shadow-2xs">
+            <input
+              type="number"
+              step={step}
+              value={value}
+              aria-label={`${label} value`}
+              onChange={(event) => {
+                const next = Number(event.target.value);
+                if (event.target.value !== '' && Number.isFinite(next) && next > 0) onChange(next);
+              }}
+              className="w-full text-center font-bold text-xs text-slate-800 focus:outline-none"
+            />
+            <span className="text-[10px] text-slate-400 font-semibold ml-0.5">{unit}</span>
+          </div>
+        </div>
+      </div>
+      {note && (
+        <p className={`mt-1 text-[10px] font-semibold ${toneClass}`}>
+          {note.tone === 'filter' && <span className="inline-block w-1.5 h-1.5 rounded-full bg-purple-500 mr-1 align-middle" />}
+          {note.text}
+        </p>
+      )}
+    </div>
+  );
+}
 
 export function SizingTesterView() {
   const searchRequestId = useRef(0);
@@ -59,62 +198,40 @@ export function SizingTesterView() {
   const [optionsLoading, setOptionsLoading] = useState(true);
   const [optionsError, setOptionsError] = useState<string | null>(null);
 
-  // Target Persona
-  const [persona, setPersona] = useState<PersonaTarget>('men');
+  const [target, setTarget] = useState<SizingTarget>('men');
 
-  // Units
-  const [unit, setUnit] = useState<UnitSystem>('metric');
+  const [adultChest, setAdultChest] = useState<number>(ADULT_DEFAULTS.men.chest);
+  const [adultWaist, setAdultWaist] = useState<number>(ADULT_DEFAULTS.men.waist);
+  const [adultHips, setAdultHips] = useState<number>(ADULT_DEFAULTS.men.hips);
+  const [adultHeight, setAdultHeight] = useState<number>(ADULT_DEFAULTS.men.height);
+  const [adultWeight, setAdultWeight] = useState<number>(ADULT_DEFAULTS.men.weight);
+  const [adultFootLength, setAdultFootLength] = useState<number>(ADULT_DEFAULTS.men.foot);
 
-  // Adult Inputs (Men / Women) in Metric base
-  const [adultChest, setAdultChest] = useState<number>(98);
-  const [adultWaist, setAdultWaist] = useState<number>(84);
-  const [adultHips, setAdultHips] = useState<number>(99);
-  const [adultLength, setAdultLength] = useState<number>(178);
-  const [adultWeight, setAdultWeight] = useState<number>(75);
-  const [adultFootLength, setAdultFootLength] = useState<number>(27.0);
+  const [kidAge, setKidAge] = useState<number>(KID_DEFAULTS.age);
+  const [kidHeight, setKidHeight] = useState<number>(KID_DEFAULTS.height);
+  const [kidChest, setKidChest] = useState<number>(KID_DEFAULTS.chest);
+  const [kidWaist, setKidWaist] = useState<number>(KID_DEFAULTS.waist);
+  const [kidHips, setKidHips] = useState<number>(KID_DEFAULTS.hips);
+  const [kidFootLength, setKidFootLength] = useState<number>(KID_DEFAULTS.foot);
 
-  // Kid Inputs in Metric base
-  const [kidAge, setKidAge] = useState<number>(7);
-  const [kidHeight, setKidHeight] = useState<number>(124);
-  const [kidChest, setKidChest] = useState<number>(63);
-  const [kidWaist, setKidWaist] = useState<number>(58);
-  const [kidHips, setKidHips] = useState<number>(66);
-  const [kidFootLength, setKidFootLength] = useState<number>(19.8);
-
-  // Selected Brand on right
   const [selectedBrandId, setSelectedBrandId] = useState<string>('');
-
-  // Selected Category on right
-  const [selectedCategoryKey, setSelectedCategoryKey] = useState<ParentCategoryKey>('tops');
-
-  // Selected Subcategory on right
-  const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<string>('');
-
-  // Sizing standard mode: US, EU, UK
+  const [selectedCategoryKey, setSelectedCategoryKey] = useState<SizingGroup | null>(null);
+  const [selectedLeaf, setSelectedLeaf] = useState<string>(ALL_SUBCATEGORIES);
+  const [selectedChartId, setSelectedChartId] = useState<string | null>(null);
   const [sizingMode, setSizingMode] = useState<SizingSystemMode>('us');
 
-  // The last Found Sizes run: one answer per chart (subcategory id) of the brand and persona
-  const [chartRuns, setChartRuns] = useState<Record<string, ChartRun>>({});
+  // The last Found Sizes run: one answer per garment category of the brand.
+  const [runs, setRuns] = useState<Partial<Record<SizingGroup, CategoryRun>>>({});
   const [isSearching, setIsSearching] = useState<boolean>(false);
-  const [searchProgress, setSearchProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
 
-  // Popup Modal for the ACS products of one size (row) or of the whole answer (row = null)
-  const [activeSizeItemsModal, setActiveSizeItemsModal] = useState<{
-    sizeLabel: string | null;
-    formattedSize: string;
-    row: MultiSystemRow | null;
-  } | null>(null);
+  // The ACS products of one chart row (rowIndex) or of the whole subcategory selection (null).
+  const [itemsModal, setItemsModal] = useState<{ rowIndex: number | null } | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
-
     async function loadOptions() {
-      setOptionsLoading(true);
-      setOptionsError(null);
       try {
-        const response = await fetch('/api/store-connection/sizing/tester/options', {
-          signal: controller.signal,
-        });
+        const response = await fetch('/api/store-connection/sizing/tester/options', { signal: controller.signal });
         const body = await response.json() as SizingTesterOptionsResponse & { error?: string };
         if (!response.ok) throw new Error(body.error || 'Could not load Sizing Tester options.');
         if (!Array.isArray(body.brands)) throw new Error('Sizing Tester options were invalid.');
@@ -126,302 +243,232 @@ export function SizingTesterView() {
         if (!controller.signal.aborted) setOptionsLoading(false);
       }
     }
-
     void loadOptions();
     return () => controller.abort();
   }, []);
 
-  // Filter brands that support the current persona (or all brands if they have at least 1 category)
-  const availableBrands = useMemo(() => {
-    return testerBrands.filter((brand) =>
-      brand.categories.some((cat) =>
-        cat.subcategories.some((sub) => (sub.rowsByPersona[persona]?.length ?? 0) > 0)
-      )
-    );
-  }, [persona, testerBrands]);
-
-  // Current active brand
-  const currentBrand = useMemo(() => {
-    return availableBrands.find((b) => b.id === selectedBrandId) || availableBrands[0] || testerBrands[0];
-  }, [availableBrands, selectedBrandId, testerBrands]);
-
-  // Ensure selected brand is in available brands
-  React.useEffect(() => {
-    if (!availableBrands.some((b) => b.id === selectedBrandId)) {
-      if (availableBrands[0]) {
-        setSelectedBrandId(availableBrands[0].id);
-      }
-    }
-  }, [availableBrands, selectedBrandId]);
-
-  // Available categories for current brand and persona
-  const brandCategories = useMemo(() => {
-    if (!currentBrand) return [];
-    return currentBrand.categories.filter((cat) =>
-      cat.subcategories.some((sub) => (sub.rowsByPersona[persona]?.length ?? 0) > 0)
-    );
-  }, [currentBrand, persona]);
-
-  // Ensure selected category is valid for this brand & persona
-  React.useEffect(() => {
-    if (!brandCategories.some((c) => c.key === selectedCategoryKey)) {
-      if (brandCategories[0]) {
-        setSelectedCategoryKey(brandCategories[0].key);
-      }
-    }
-  }, [brandCategories, selectedCategoryKey]);
-
-  // Active category object
-  const currentCategory = useMemo(() => {
-    return (
-      brandCategories.find((c) => c.key === selectedCategoryKey) ||
-      brandCategories[0]
-    );
-  }, [brandCategories, selectedCategoryKey]);
-
-  // Available subcategories under the active category for current persona
-  const availableSubcategories = useMemo(() => {
-    if (!currentCategory) return [];
-    return currentCategory.subcategories.filter(
-      (sub) => (sub.rowsByPersona[persona]?.length ?? 0) > 0
-    );
-  }, [currentCategory, persona]);
-
-  // Ensure selected subcategory is valid
-  React.useEffect(() => {
-    if (!availableSubcategories.some((s) => s.id === selectedSubcategoryId)) {
-      if (availableSubcategories[0]) {
-        setSelectedSubcategoryId(availableSubcategories[0].id);
-      }
-    }
-  }, [availableSubcategories, selectedSubcategoryId]);
-
-  // Active subcategory object
-  const currentSubcategory = useMemo(() => {
-    return (
-      availableSubcategories.find((s) => s.id === selectedSubcategoryId) ||
-      availableSubcategories[0]
-    );
-  }, [availableSubcategories, selectedSubcategoryId]);
-
-  // Rows for the active subcategory
-  const activeRows: MultiSystemRow[] = useMemo(() => {
-    if (!currentSubcategory) return [];
-    return currentSubcategory.rowsByPersona[persona] || [];
-  }, [currentSubcategory, persona]);
-
-  // Helper conversions
-  const cmToIn = (cm: number) => Number((cm / 2.54).toFixed(1));
-  const inToCm = (inches: number) => Number((inches * 2.54).toFixed(1));
-  const kgToLbs = (kg: number) => Math.round(kg * 2.20462);
-  const lbsToKg = (lbs: number) => Math.round(lbs / 2.20462);
-
-  // Category Icon Resolver
-  const getCategoryIcon = (key: ParentCategoryKey) => {
-    switch (key) {
-      case 'tops':
-        return Shirt;
-      case 'bottoms':
-        return Scissors;
-      case 'footwear':
-        return Footprints;
-      case 'outerwear':
-        return Shield;
-      case 'dresses':
-        return Sparkles;
-      default:
-        return Shirt;
-    }
-  };
-
-  // Sizing System Display Formatter
-  const formatSizeForMode = (row: MultiSystemRow, mode: SizingSystemMode): string => {
-    if (!row) return '—';
-    if (mode === 'us') return row.usSize || row.sizeLabel;
-    if (mode === 'eu') return row.euSize || row.sizeLabel;
-    if (mode === 'uk') return row.ukSize || row.sizeLabel;
-    return row.sizeLabel;
-  };
-
-  const testerMeasurements = useMemo(() => ({
-    adultChest,
-    adultWaist,
-    adultHips,
-    adultFootLength,
-    kidHeight,
-    kidChest,
-    kidWaist,
-    kidHips,
-    kidFootLength,
-  }), [
-    adultChest,
-    adultWaist,
-    adultHips,
-    adultFootLength,
-    kidHeight,
-    kidChest,
-    kidWaist,
-    kidHips,
-    kidFootLength,
-  ]);
-
-  // The request Found Sizes sends for the inputs on screen. It holds exactly what reaches ACS, so
-  // a slider that does not change it (weight, an adult's height) never makes an answer stale.
-  // Every chart of the selected brand and persona: Found Sizes asks ACS about all of them, so
-  // switching category or subcategory afterwards shows that chart's own answer.
-  const chartTargets = useMemo(() => {
-    if (!currentBrand) return [];
-    return brandCategories.flatMap((category) =>
-      category.subcategories
-        .filter((subcategory) => (subcategory.rowsByPersona[persona]?.length ?? 0) > 0)
-        .map((subcategory) => ({
-          category,
-          subcategory,
-          key: testerSearchParams({
-            brand: currentBrand,
-            group: category.key,
-            audience: subcategory.audience,
-            chartVariant: subcategory.name,
-            persona,
-            measurements: testerMeasurements,
-          }).toString(),
-        })),
-    );
-  }, [currentBrand, brandCategories, persona, testerMeasurements]);
-
-  // The answer to a chart counts only while its request is still what the inputs on screen would send.
-  const chartResults = useMemo(() => {
-    const results = new Map<string, {
-      run: ChartRun;
-      counts: number[];
-      bestLabel: string | null;
-      productCount: number;
-    }>();
-    for (const target of chartTargets) {
-      const run = chartRuns[target.subcategory.id];
-      if (!run || run.key !== target.key) continue;
-      const rows = target.subcategory.rowsByPersona[persona] ?? [];
-      if (!run.data) {
-        results.set(target.subcategory.id, { run, counts: rows.map(() => 0), bestLabel: null, productCount: 0 });
-        continue;
-      }
-      const deciding = Object.fromEntries(run.data.tolerances.map((entry) => [entry.measurement, entry.value]));
-      const summary = summarizeSearch(rows, target.category.key, target.subcategory.audience, deciding, run.data.products);
-      results.set(target.subcategory.id, {
-        run,
-        counts: summary.counts,
-        bestLabel: summary.bestIndex >= 0 ? rows[summary.bestIndex]?.sizeLabel ?? null : null,
-        productCount: run.data.products.length,
-      });
-    }
-    return results;
-  }, [chartTargets, chartRuns, persona]);
-
-  const currentResult = currentSubcategory ? chartResults.get(currentSubcategory.id) ?? null : null;
-  const freshRun = useMemo(
-    () => (currentResult?.run.data ? { data: currentResult.run.data } : null),
-    [currentResult],
-  );
-  const shownSearchError = currentResult?.run.error ?? null;
-  const searchParamsReady = chartTargets.length > 0;
-  const acsProducts = useMemo(() => freshRun?.data.products ?? [], [freshRun]);
-
-  const searchSummary = useMemo(() => {
-    return {
-      counts: currentResult?.counts ?? activeRows.map(() => 0),
-      bestIndex: currentResult?.bestLabel
-        ? activeRows.findIndex((row) => row.sizeLabel === currentResult.bestLabel)
-        : -1,
+  useEffect(() => {
+    if (!itemsModal) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setItemsModal(null);
     };
-  }, [currentResult, activeRows]);
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [itemsModal]);
+
+  // Targets with at least one brand chart; the others cannot be tested and are disabled.
+  const testableTargets = useMemo(
+    () => new Set(SIZING_TARGETS.filter((item) => testerBrands.some((brand) => brandCategoriesFor(brand, item).length > 0))),
+    [testerBrands],
+  );
+  const activeTarget: SizingTarget = testableTargets.has(target)
+    ? target
+    : SIZING_TARGETS.find((item) => testableTargets.has(item)) ?? target;
+
+  const availableBrands = useMemo(
+    () => testerBrands.filter((brand) => brandCategoriesFor(brand, activeTarget).length > 0),
+    [testerBrands, activeTarget],
+  );
+  const currentBrand = availableBrands.find((brand) => brand.id === selectedBrandId) ?? availableBrands[0] ?? null;
+
+  const measurements: TesterMeasurements = useMemo(() => ({
+    adultChest,
+    adultWaist,
+    adultHips,
+    adultFootLength,
+    kidHeight,
+    kidChest,
+    kidWaist,
+    kidHips,
+    kidFootLength,
+  }), [adultChest, adultWaist, adultHips, adultFootLength, kidHeight, kidChest, kidWaist, kidHips, kidFootLength]);
+
+  // One request per garment category the brand has charts in for this target. The key is exactly
+  // what reaches ACS, so an input that does not change it (weight, an adult's height) never makes
+  // an answer stale.
+  const requests = useMemo(() => {
+    if (!currentBrand) return [];
+    return brandCategoriesFor(currentBrand, activeTarget).map((plan) => ({
+      ...plan,
+      key: testerSearchParams({ brand: currentBrand, group: plan.category.key, target: activeTarget, measurements }).toString(),
+    }));
+  }, [currentBrand, activeTarget, measurements]);
+
+  const results = useMemo(
+    () => requests.map((request) => {
+      const run = runs[request.category.key];
+      return { ...request, run: run && run.key === request.key ? run : undefined };
+    }),
+    [requests, runs],
+  );
+  const brandGroups = useMemo(() => requests.map((request) => request.category.key), [requests]);
+  const answeredCount = results.filter((result) => result.run).length;
+  const hadRun = Object.keys(runs).length > 0;
+  const current = results.find((result) => result.category.key === selectedCategoryKey) ?? results[0] ?? null;
+
+  const detail = useMemo(() => {
+    const data = current?.run?.data;
+    if (!current || !data) return null;
+    const assigned: AssignedProduct[] = data.products.map((product) => ({
+      product,
+      assignment: assignChart(product, current.charts, activeTarget),
+    }));
+    return { data, assigned, subcategories: groupBySubcategory(data.products) };
+  }, [current, activeTarget]);
+
+  const leaf = detail && detail.subcategories.some((group) => leafIdOf(group.leafKey) === selectedLeaf)
+    ? selectedLeaf
+    : ALL_SUBCATEGORIES;
+
+  const visible = useMemo(
+    () => detail?.assigned.filter((item) => leaf === ALL_SUBCATEGORIES || leafIdOf(item.product.leafKey) === leaf) ?? [],
+    [detail, leaf],
+  );
+
+  // The category's charts, the one holding most of the shown products first. With a subcategory
+  // picked, only the charts its products were sized on (or that cover it) are offered.
+  const chartOptions = useMemo(() => {
+    if (!current) return [];
+    const counts = new Map<string, number>();
+    for (const item of visible) {
+      if (item.assignment) counts.set(item.assignment.chartId, (counts.get(item.assignment.chartId) ?? 0) + 1);
+    }
+    const ranked = current.charts
+      .map((chart, order) => ({
+        chart,
+        count: counts.get(chart.id) ?? 0,
+        covers: leaf !== ALL_SUBCATEGORIES && chart.coversLeaves.includes(leaf),
+        order,
+      }))
+      .sort((left, right) => right.count - left.count || Number(right.covers) - Number(left.covers) || left.order - right.order);
+    if (leaf === ALL_SUBCATEGORIES) return ranked;
+    const relevant = ranked.filter((option) => option.count > 0 || option.covers);
+    return relevant.length > 0 ? relevant : ranked;
+  }, [current, visible, leaf]);
+
+  const currentChart = chartOptions.find((option) => option.chart.id === selectedChartId)?.chart ?? chartOptions[0]?.chart ?? null;
+  const activeRows = useMemo<MultiSystemRow[]>(
+    () => currentChart?.rowsByPersona[activeTarget] ?? [],
+    [currentChart, activeTarget],
+  );
+  const chartProducts = useMemo(
+    () => (currentChart ? visible.filter((item) => item.assignment?.chartId === currentChart.id) : []),
+    [visible, currentChart],
+  );
+  const currentGroup = current?.category.key ?? null;
+
+  const summary = useMemo(() => {
+    if (!detail || !currentChart || !currentGroup) return { counts: activeRows.map(() => 0), bestIndex: -1 };
+    return summarizeChart(activeRows, currentGroup, currentChart.audience, detail.data.measurements, chartProducts);
+  }, [detail, currentChart, currentGroup, activeRows, chartProducts]);
 
   const rowFits = useMemo(() => {
-    if (!freshRun || !currentCategory || !currentSubcategory) return activeRows.map(() => null);
-    return chartRowFits(activeRows, currentCategory.key, currentSubcategory.audience, freshRun.data.tolerances);
-  }, [freshRun, currentCategory, currentSubcategory, activeRows]);
+    if (!detail || !currentChart || !currentGroup) return activeRows.map(() => null);
+    return chartRowFits(activeRows, currentGroup, currentChart.audience, detail.data.tolerances);
+  }, [detail, currentChart, currentGroup, activeRows]);
 
-  const bestRow = searchSummary.bestIndex >= 0 ? activeRows[searchSummary.bestIndex] ?? null : null;
-  const productsWithFit = acsProducts.filter((product) => product.fitSizes.length > 0).length;
+  const bestRow = summary.bestIndex >= 0 ? activeRows[summary.bestIndex] ?? null : null;
+  const visibleWithFit = visible.filter((item) => item.product.fitSizes.length > 0).length;
+  const unassigned = visible.filter((item) => !item.assignment).length;
 
-  /** The badge a category chip shows once Found Sizes ran: how many of its charts got a best size. */
-  const categoryBadge = (category: (typeof brandCategories)[number]) => {
-    const targets = chartTargets.filter((target) => target.category.key === category.key);
-    const answered = targets.map((target) => chartResults.get(target.subcategory.id)).filter((result) => result !== undefined);
-    if (answered.length === 0) return null;
-    const matched = answered.filter((result) => result.bestLabel !== null).length;
-    const failed = answered.filter((result) => result.run.error !== undefined).length;
-    return { matched, total: targets.length, failed };
+  const modalItems = useMemo(() => {
+    if (!itemsModal) return [];
+    const items = itemsModal.rowIndex === null
+      ? visible
+      : chartProducts.filter((item) => fittingRowIndexes(item).has(itemsModal.rowIndex!));
+    return [...items].sort((left, right) => Number(right.product.fitSizes.length > 0) - Number(left.product.fitSizes.length > 0));
+  }, [itemsModal, visible, chartProducts]);
+
+  const chartNameById = useMemo(
+    () => new Map((current?.charts ?? []).map((chart) => [chart.id, chart.name])),
+    [current],
+  );
+
+  const resetSelection = () => {
+    setSelectedCategoryKey(null);
+    setSelectedLeaf(ALL_SUBCATEGORIES);
+    setSelectedChartId(null);
+    setItemsModal(null);
   };
 
-  const handleRunTest = async () => {
-    if (chartTargets.length === 0) return;
-    const targets = chartTargets;
+  const chooseTarget = (next: SizingTarget) => {
+    setTarget(next);
+    resetSelection();
+  };
+
+  const chooseBrand = (brandId: string) => {
+    setSelectedBrandId(brandId);
+    resetSelection();
+  };
+
+  const chooseCategory = (group: SizingGroup) => {
+    setSelectedCategoryKey(group);
+    setSelectedLeaf(ALL_SUBCATEGORIES);
+    setSelectedChartId(null);
+  };
+
+  const chooseLeaf = (leafId: string) => {
+    setSelectedLeaf(leafId);
+    setSelectedChartId(null);
+  };
+
+  const handleFoundSizes = async () => {
+    if (requests.length === 0) return;
+    const batch = requests;
     const requestId = ++searchRequestId.current;
     setIsSearching(true);
-    setChartRuns({});
-    setSearchProgress({ done: 0, total: targets.length });
+    setRuns({});
+    setItemsModal(null);
 
-    let next = 0;
-    let done = 0;
-    const worker = async () => {
-      while (next < targets.length) {
-        const target = targets[next++];
-        let run: ChartRun;
-        try {
-          const response = await fetch(`/api/store-connection/sizing/tester/products?${target.key}`);
-          const body = await response.json() as TesterSearchResponse;
-          if (!response.ok) throw new Error(body.error || 'ACS did not answer the fit search.');
-          if (!Array.isArray(body.products)) throw new Error('The ACS answer was invalid.');
-          run = { key: target.key, data: body };
-        } catch (error) {
-          run = { key: target.key, error: error instanceof Error ? error.message : 'ACS did not answer the fit search.' };
-        }
-        // A newer run replaced this one: drop its answers.
-        if (requestId !== searchRequestId.current) return;
-        done += 1;
-        setChartRuns((current) => ({ ...current, [target.subcategory.id]: run }));
-        setSearchProgress({ done, total: targets.length });
+    await Promise.all(batch.map(async (request) => {
+      let run: CategoryRun;
+      try {
+        const response = await fetch(`/api/store-connection/sizing/tester/products?${request.key}`);
+        const body = await response.json() as TesterSearchResponse;
+        if (!response.ok) run = { key: request.key, error: body.error || 'ACS did not answer the fit search.' };
+        else if (!Array.isArray(body.products)) run = { key: request.key, error: 'The ACS answer was invalid.' };
+        else run = { key: request.key, data: body };
+      } catch {
+        run = { key: request.key, error: 'ACS did not answer the fit search.' };
       }
-    };
-
-    await Promise.all(Array.from({ length: Math.min(SEARCH_CONCURRENCY, targets.length) }, worker));
+      // A newer run replaced this one: drop its answers.
+      if (requestId !== searchRequestId.current) return;
+      setRuns((existing) => ({ ...existing, [request.category.key]: run }));
+    }));
     if (requestId === searchRequestId.current) setIsSearching(false);
   };
 
   const handleResetDefaults = () => {
-    if (persona === 'men') {
-      setAdultChest(98);
-      setAdultWaist(84);
-      setAdultHips(99);
-      setAdultLength(178);
-      setAdultWeight(75);
-      setAdultFootLength(27.0);
-    } else if (persona === 'women') {
-      setAdultChest(88);
-      setAdultWaist(70);
-      setAdultHips(95);
-      setAdultLength(166);
-      setAdultWeight(61);
-      setAdultFootLength(24.2);
-    } else {
-      setKidAge(7);
-      setKidHeight(124);
-      setKidChest(63);
-      setKidWaist(58);
-      setKidHips(66);
-      setKidFootLength(19.8);
+    if (activeTarget === 'kid') {
+      setKidAge(KID_DEFAULTS.age);
+      setKidHeight(KID_DEFAULTS.height);
+      setKidChest(KID_DEFAULTS.chest);
+      setKidWaist(KID_DEFAULTS.waist);
+      setKidHips(KID_DEFAULTS.hips);
+      setKidFootLength(KID_DEFAULTS.foot);
+      return;
     }
+    const defaults = ADULT_DEFAULTS[activeTarget];
+    setAdultChest(defaults.chest);
+    setAdultWaist(defaults.waist);
+    setAdultHips(defaults.hips);
+    setAdultHeight(defaults.height);
+    setAdultWeight(defaults.weight);
+    setAdultFootLength(defaults.foot);
   };
 
-  // The products one chart row stands for in the ACS answer, or all of them for row = null.
-  const modalProducts = useMemo(() => {
-    const label = activeSizeItemsModal?.sizeLabel;
-    return label ? acsProducts.filter((product) => productFitsSize(product, label)) : acsProducts;
-  }, [acsProducts, activeSizeItemsModal]);
+  const noteFor = (measurement: Measurement): { text: string; tone: NoteTone } => {
+    const { filters, ranks } = measurementRole(measurement, activeTarget, brandGroups);
+    if (filters.length > 0) return { text: `Filters ${listCategories(filters)}`, tone: 'filter' };
+    if (ranks.length > 0) return { text: `Only ranks sizes in ${listCategories(ranks)}`, tone: 'rank' };
+    return { text: `Not used by ${currentBrand?.name ?? 'this brand'}'s categories`, tone: 'unused' };
+  };
+  const unusedNote = { text: 'Not used for size matching', tone: 'unused' as const };
+
   if (optionsLoading || optionsError || !currentBrand) {
     const message = optionsLoading
       ? 'Loading available size charts...'
-      : optionsError || 'No published size charts are available for this sizing target.';
+      : optionsError || 'No published size charts are available yet. Publish sizing first.';
     return (
       <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6 max-w-7xl mx-auto">
         <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs min-h-[620px] flex items-center justify-center p-8 text-center">
@@ -434,9 +481,22 @@ export function SizingTesterView() {
     );
   }
 
+  const brandTypeLabel = (brand: TesterBrand) =>
+    brand.coverageType === 'none' ? 'No brand' : brand.coverageType === 'global' ? 'Global brand' : 'Private label';
+
+  const filterColumn = currentGroup
+    ? (activeTarget === 'kid' && currentGroup !== 'footwear' ? 'height' : BODY_COLUMNS[currentGroup][0]?.measurement)
+    : undefined;
+  const tableColumns: Array<{ label: string; measurement: Measurement }> = currentGroup
+    ? [
+        ...(activeTarget === 'kid' && currentGroup !== 'footwear' ? [{ label: 'Height', measurement: 'height' as const }] : []),
+        ...BODY_COLUMNS[currentGroup],
+      ]
+    : [];
+
   return (
     <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6 max-w-7xl mx-auto">
-      {/* Top Banner & Header */}
+      {/* Header */}
       <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200/80 pb-5">
         <div>
           <div className="flex items-center gap-2 mb-1">
@@ -451,17 +511,15 @@ export function SizingTesterView() {
             Sizing Tester &amp; Fit Simulator
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Send body measurements to ACS as the real fit filter and see exactly what it returns for a brand&apos;s size chart.
+            Pick who it is for, their body and a brand. Found Sizes sends one fit filter per garment category to ACS and shows exactly what it returns.
           </p>
         </div>
 
-        {/* Global Controls: Metric Standard & Reset */}
         <div className="flex items-center gap-2.5 self-start sm:self-auto">
           <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100/90 text-slate-700 border border-slate-200 text-xs font-semibold">
             <span className="w-2 h-2 rounded-full bg-purple-600" />
             <span>Metric (cm / kg)</span>
           </span>
-
           <button
             type="button"
             onClick={handleResetDefaults}
@@ -474,1285 +532,795 @@ export function SizingTesterView() {
         </div>
       </div>
 
-      {/* Main Grid: Left Side Controls | Right Side Size Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* ========================================================================= */}
-        {/* LEFT COLUMN: Persona Selection & Dimension Inputs                         */}
-        {/* ========================================================================= */}
+        {/* LEFT: sizing target, body, brand, Found Sizes */}
         <div className="lg:col-span-5 space-y-5">
           <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-5">
-            {/* Step 1: Who is sizing for? */}
+            {/* 1. Sizing target */}
             <div className="mb-5">
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2.5">
                 1. Sizing Target
               </label>
               <div className="grid grid-cols-3 gap-2.5">
-                {/* Men */}
-                <button
-                  type="button"
-                  onClick={() => setPersona('men')}
-                  className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all cursor-pointer ${
-                    persona === 'men'
-                      ? 'bg-purple-50/80 border-purple-400 text-purple-950 shadow-2xs ring-2 ring-purple-200'
-                      : 'border-slate-200 hover:border-slate-300 bg-slate-50/50 text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  <User className={`w-5 h-5 mb-1.5 ${persona === 'men' ? 'text-purple-600' : 'text-slate-500'}`} />
-                  <span className="text-xs font-bold">Men</span>
-                  <span className="text-[10px] text-slate-400">Adult Menswear</span>
-                </button>
-
-                {/* Women */}
-                <button
-                  type="button"
-                  onClick={() => setPersona('women')}
-                  className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all cursor-pointer ${
-                    persona === 'women'
-                      ? 'bg-purple-50/80 border-purple-400 text-purple-950 shadow-2xs ring-2 ring-purple-200'
-                      : 'border-slate-200 hover:border-slate-300 bg-slate-50/50 text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  <Users className={`w-5 h-5 mb-1.5 ${persona === 'women' ? 'text-purple-600' : 'text-slate-500'}`} />
-                  <span className="text-xs font-bold">Women</span>
-                  <span className="text-[10px] text-slate-400">Adult Fashion</span>
-                </button>
-
-                {/* Kid */}
-                <button
-                  type="button"
-                  onClick={() => setPersona('kid')}
-                  className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all cursor-pointer ${
-                    persona === 'kid'
-                      ? 'bg-purple-50/80 border-purple-400 text-purple-950 shadow-2xs ring-2 ring-purple-200'
-                      : 'border-slate-200 hover:border-slate-300 bg-slate-50/50 text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  <Baby className={`w-5 h-5 mb-1.5 ${persona === 'kid' ? 'text-purple-600' : 'text-slate-500'}`} />
-                  <span className="text-xs font-bold">Kid</span>
-                  <span className="text-[10px] text-slate-400">Junior &amp; Toddler</span>
-                </button>
+                {SIZING_TARGETS.map((item) => {
+                  const option = TARGET_OPTIONS[item];
+                  const Icon = option.icon;
+                  const selected = activeTarget === item;
+                  const testable = testableTargets.has(item);
+                  return (
+                    <button
+                      key={item}
+                      type="button"
+                      onClick={() => chooseTarget(item)}
+                      disabled={!testable}
+                      aria-pressed={selected}
+                      title={testable ? undefined : `No published size chart for ${option.label.toLowerCase()} yet`}
+                      className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-45 ${
+                        selected
+                          ? 'bg-purple-50/80 border-purple-400 text-purple-950 shadow-2xs ring-2 ring-purple-200'
+                          : 'border-slate-200 hover:border-slate-300 bg-slate-50/50 text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <Icon className={`w-5 h-5 mb-1.5 ${selected ? 'text-purple-600' : 'text-slate-500'}`} />
+                      <span className="text-xs font-bold">{option.label}</span>
+                      <span className="text-[10px] text-slate-400">{option.hint}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            {/* Step 2: Input Dimensions */}
-            <div>
+            {/* 2. Body dimensions */}
+            <div className="mb-5">
               <div className="flex items-center justify-between mb-3">
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                  2. Body Dimensions (Metric cm, kg)
+                  2. Body Dimensions (cm, kg)
                 </label>
                 <span className="text-[11px] text-slate-400 font-medium">Sent to ACS on Found Sizes</span>
               </div>
 
-              {persona === 'kid' ? (
-                /* KID INPUTS: Age, Height, Chest, Waist, Hip, Foot Length */
-                <div className="space-y-3.5">
-                  {/* Age */}
-                  <div className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
-                    <span className="text-xs font-semibold text-slate-700">Child Age</span>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="range"
-                        min="2"
-                        max="16"
-                        step="1"
-                        value={kidAge}
-                        onChange={(e) => setKidAge(Number(e.target.value))}
-                        className="w-24 accent-purple-600 cursor-pointer"
-                      />
-                      <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 w-20 shadow-2xs">
-                        <input
-                          type="number"
-                          min="2"
-                          max="16"
-                          value={kidAge}
-                          onChange={(e) => setKidAge(Math.max(2, Math.min(16, Number(e.target.value))))}
-                          className="w-full text-center font-bold text-xs text-slate-800 focus:outline-none"
-                        />
-                        <span className="text-[10px] text-slate-400 font-semibold ml-0.5">yr</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Height */}
-                  <div className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
-                    <span className="text-xs font-semibold text-slate-700">Child Height</span>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="range"
-                        min={unit === 'metric' ? 85 : 33}
-                        max={unit === 'metric' ? 170 : 67}
-                        step="1"
-                        value={unit === 'metric' ? kidHeight : cmToIn(kidHeight)}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          setKidHeight(unit === 'metric' ? val : inToCm(val));
-                        }}
-                        className="w-24 accent-purple-600 cursor-pointer"
-                      />
-                      <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 w-20 shadow-2xs">
-                        <input
-                          type="number"
-                          value={unit === 'metric' ? kidHeight : cmToIn(kidHeight)}
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            setKidHeight(unit === 'metric' ? val : inToCm(val));
-                          }}
-                          className="w-full text-center font-bold text-xs text-slate-800 focus:outline-none"
-                        />
-                        <span className="text-[10px] text-slate-400 font-semibold ml-0.5">
-                          {unit === 'metric' ? 'cm' : 'in'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Chest */}
-                  <div className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
-                    <span className="text-xs font-semibold text-slate-700">Chest Circumference</span>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="range"
-                        min={unit === 'metric' ? 48 : 19}
-                        max={unit === 'metric' ? 88 : 35}
-                        step="1"
-                        value={unit === 'metric' ? kidChest : cmToIn(kidChest)}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          setKidChest(unit === 'metric' ? val : inToCm(val));
-                        }}
-                        className="w-24 accent-purple-600 cursor-pointer"
-                      />
-                      <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 w-20 shadow-2xs">
-                        <input
-                          type="number"
-                          value={unit === 'metric' ? kidChest : cmToIn(kidChest)}
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            setKidChest(unit === 'metric' ? val : inToCm(val));
-                          }}
-                          className="w-full text-center font-bold text-xs text-slate-800 focus:outline-none"
-                        />
-                        <span className="text-[10px] text-slate-400 font-semibold ml-0.5">
-                          {unit === 'metric' ? 'cm' : 'in'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Waist */}
-                  <div className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
-                    <span className="text-xs font-semibold text-slate-700">Waist</span>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="range"
-                        min={unit === 'metric' ? 46 : 18}
-                        max={unit === 'metric' ? 76 : 30}
-                        step="1"
-                        value={unit === 'metric' ? kidWaist : cmToIn(kidWaist)}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          setKidWaist(unit === 'metric' ? val : inToCm(val));
-                        }}
-                        className="w-24 accent-purple-600 cursor-pointer"
-                      />
-                      <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 w-20 shadow-2xs">
-                        <input
-                          type="number"
-                          value={unit === 'metric' ? kidWaist : cmToIn(kidWaist)}
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            setKidWaist(unit === 'metric' ? val : inToCm(val));
-                          }}
-                          className="w-full text-center font-bold text-xs text-slate-800 focus:outline-none"
-                        />
-                        <span className="text-[10px] text-slate-400 font-semibold ml-0.5">
-                          {unit === 'metric' ? 'cm' : 'in'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Hip */}
-                  <div className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
-                    <span className="text-xs font-semibold text-slate-700">Hips</span>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="range"
-                        min={unit === 'metric' ? 50 : 20}
-                        max={unit === 'metric' ? 88 : 35}
-                        step="1"
-                        value={unit === 'metric' ? kidHips : cmToIn(kidHips)}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          setKidHips(unit === 'metric' ? val : inToCm(val));
-                        }}
-                        className="w-24 accent-purple-600 cursor-pointer"
-                      />
-                      <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 w-20 shadow-2xs">
-                        <input
-                          type="number"
-                          value={unit === 'metric' ? kidHips : cmToIn(kidHips)}
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            setKidHips(unit === 'metric' ? val : inToCm(val));
-                          }}
-                          className="w-full text-center font-bold text-xs text-slate-800 focus:outline-none"
-                        />
-                        <span className="text-[10px] text-slate-400 font-semibold ml-0.5">
-                          {unit === 'metric' ? 'cm' : 'in'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Foot Length */}
-                  <div className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
-                    <span className="text-xs font-semibold text-slate-700">Foot Length</span>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="range"
-                        min={unit === 'metric' ? 14 : 5.5}
-                        max={unit === 'metric' ? 24 : 9.5}
-                        step="0.5"
-                        value={unit === 'metric' ? kidFootLength : cmToIn(kidFootLength)}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          setKidFootLength(unit === 'metric' ? val : inToCm(val));
-                        }}
-                        className="w-24 accent-purple-600 cursor-pointer"
-                      />
-                      <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 w-20 shadow-2xs">
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={unit === 'metric' ? kidFootLength : cmToIn(kidFootLength)}
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            setKidFootLength(unit === 'metric' ? val : inToCm(val));
-                          }}
-                          className="w-full text-center font-bold text-xs text-slate-800 focus:outline-none"
-                        />
-                        <span className="text-[10px] text-slate-400 font-semibold ml-0.5">
-                          {unit === 'metric' ? 'cm' : 'in'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
+              {activeTarget === 'kid' ? (
+                <div className="space-y-2.5">
+                  <MeasurementField label="Child Height" value={kidHeight} onChange={setKidHeight} min={50} max={175} unit="cm" note={noteFor('height')} />
+                  <MeasurementField label="Chest" value={kidChest} onChange={setKidChest} min={40} max={95} unit="cm" note={noteFor('chest')} />
+                  <MeasurementField label="Waist" value={kidWaist} onChange={setKidWaist} min={40} max={85} unit="cm" note={noteFor('waist')} />
+                  <MeasurementField label="Hips" value={kidHips} onChange={setKidHips} min={40} max={95} unit="cm" note={noteFor('hip')} />
+                  <MeasurementField label="Foot Length" value={kidFootLength} onChange={setKidFootLength} min={8} max={26} step={0.1} unit="cm" note={noteFor('foot_length')} />
+                  <MeasurementField
+                    label="Child Age"
+                    value={kidAge}
+                    onChange={(next) => setKidAge(Math.max(0, Math.min(16, Math.round(next))))}
+                    min={0}
+                    max={16}
+                    unit="yr"
+                    note={unusedNote}
+                  />
                 </div>
               ) : (
-                /* MEN / WOMEN INPUTS: Chest, Waist, Hips, Length, Weight, Foot Length */
-                <div className="space-y-3.5">
-                  {/* Chest / Bust */}
-                  <div className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
-                    <span className="text-xs font-semibold text-slate-700">
-                      {persona === 'women' ? 'Bust / Chest' : 'Chest Circumference'}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="range"
-                        min={unit === 'metric' ? 75 : 30}
-                        max={unit === 'metric' ? 135 : 54}
-                        step="1"
-                        value={unit === 'metric' ? adultChest : cmToIn(adultChest)}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          setAdultChest(unit === 'metric' ? val : inToCm(val));
-                        }}
-                        className="w-24 accent-purple-600 cursor-pointer"
-                      />
-                      <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 w-20 shadow-2xs">
-                        <input
-                          type="number"
-                          value={unit === 'metric' ? adultChest : cmToIn(adultChest)}
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            setAdultChest(unit === 'metric' ? val : inToCm(val));
-                          }}
-                          className="w-full text-center font-bold text-xs text-slate-800 focus:outline-none"
-                        />
-                        <span className="text-[10px] text-slate-400 font-semibold ml-0.5">
-                          {unit === 'metric' ? 'cm' : 'in'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Waist */}
-                  <div className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
-                    <span className="text-xs font-semibold text-slate-700">Natural Waist</span>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="range"
-                        min={unit === 'metric' ? 58 : 23}
-                        max={unit === 'metric' ? 120 : 48}
-                        step="1"
-                        value={unit === 'metric' ? adultWaist : cmToIn(adultWaist)}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          setAdultWaist(unit === 'metric' ? val : inToCm(val));
-                        }}
-                        className="w-24 accent-purple-600 cursor-pointer"
-                      />
-                      <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 w-20 shadow-2xs">
-                        <input
-                          type="number"
-                          value={unit === 'metric' ? adultWaist : cmToIn(adultWaist)}
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            setAdultWaist(unit === 'metric' ? val : inToCm(val));
-                          }}
-                          className="w-full text-center font-bold text-xs text-slate-800 focus:outline-none"
-                        />
-                        <span className="text-[10px] text-slate-400 font-semibold ml-0.5">
-                          {unit === 'metric' ? 'cm' : 'in'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Hips */}
-                  <div className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
-                    <span className="text-xs font-semibold text-slate-700">Hips / Seat</span>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="range"
-                        min={unit === 'metric' ? 80 : 31}
-                        max={unit === 'metric' ? 135 : 53}
-                        step="1"
-                        value={unit === 'metric' ? adultHips : cmToIn(adultHips)}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          setAdultHips(unit === 'metric' ? val : inToCm(val));
-                        }}
-                        className="w-24 accent-purple-600 cursor-pointer"
-                      />
-                      <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 w-20 shadow-2xs">
-                        <input
-                          type="number"
-                          value={unit === 'metric' ? adultHips : cmToIn(adultHips)}
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            setAdultHips(unit === 'metric' ? val : inToCm(val));
-                          }}
-                          className="w-full text-center font-bold text-xs text-slate-800 focus:outline-none"
-                        />
-                        <span className="text-[10px] text-slate-400 font-semibold ml-0.5">
-                          {unit === 'metric' ? 'cm' : 'in'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Body Length / Height */}
-                  <div className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
-                    <span className="text-xs font-semibold text-slate-700">Body Height / Length</span>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="range"
-                        min={unit === 'metric' ? 150 : 59}
-                        max={unit === 'metric' ? 205 : 81}
-                        step="1"
-                        value={unit === 'metric' ? adultLength : cmToIn(adultLength)}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          setAdultLength(unit === 'metric' ? val : inToCm(val));
-                        }}
-                        className="w-24 accent-purple-600 cursor-pointer"
-                      />
-                      <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 w-20 shadow-2xs">
-                        <input
-                          type="number"
-                          value={unit === 'metric' ? adultLength : cmToIn(adultLength)}
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            setAdultLength(unit === 'metric' ? val : inToCm(val));
-                          }}
-                          className="w-full text-center font-bold text-xs text-slate-800 focus:outline-none"
-                        />
-                        <span className="text-[10px] text-slate-400 font-semibold ml-0.5">
-                          {unit === 'metric' ? 'cm' : 'in'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Weight */}
-                  <div className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
-                    <span className="text-xs font-semibold text-slate-700">Body Weight</span>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="range"
-                        min={unit === 'metric' ? 45 : 99}
-                        max={unit === 'metric' ? 130 : 286}
-                        step="1"
-                        value={unit === 'metric' ? adultWeight : kgToLbs(adultWeight)}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          setAdultWeight(unit === 'metric' ? val : lbsToKg(val));
-                        }}
-                        className="w-24 accent-purple-600 cursor-pointer"
-                      />
-                      <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 w-20 shadow-2xs">
-                        <input
-                          type="number"
-                          value={unit === 'metric' ? adultWeight : kgToLbs(adultWeight)}
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            setAdultWeight(unit === 'metric' ? val : lbsToKg(val));
-                          }}
-                          className="w-full text-center font-bold text-xs text-slate-800 focus:outline-none"
-                        />
-                        <span className="text-[10px] text-slate-400 font-semibold ml-0.5">
-                          {unit === 'metric' ? 'kg' : 'lbs'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Foot Length */}
-                  <div className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
-                    <span className="text-xs font-semibold text-slate-700">Foot Length</span>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="range"
-                        min={unit === 'metric' ? 21.0 : 8.2}
-                        max={unit === 'metric' ? 31.0 : 12.2}
-                        step="0.2"
-                        value={unit === 'metric' ? adultFootLength : cmToIn(adultFootLength)}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          setAdultFootLength(unit === 'metric' ? val : inToCm(val));
-                        }}
-                        className="w-24 accent-purple-600 cursor-pointer"
-                      />
-                      <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 w-20 shadow-2xs">
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={unit === 'metric' ? adultFootLength : cmToIn(adultFootLength)}
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            setAdultFootLength(unit === 'metric' ? val : inToCm(val));
-                          }}
-                          className="w-full text-center font-bold text-xs text-slate-800 focus:outline-none"
-                        />
-                        <span className="text-[10px] text-slate-400 font-semibold ml-0.5">
-                          {unit === 'metric' ? 'cm' : 'in'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
+                <div className="space-y-2.5">
+                  <MeasurementField
+                    label={activeTarget === 'women' ? 'Bust / Chest' : 'Chest'}
+                    value={adultChest}
+                    onChange={setAdultChest}
+                    min={70}
+                    max={150}
+                    unit="cm"
+                    note={noteFor('chest')}
+                  />
+                  <MeasurementField label="Natural Waist" value={adultWaist} onChange={setAdultWaist} min={50} max={140} unit="cm" note={noteFor('waist')} />
+                  <MeasurementField label="Hips / Seat" value={adultHips} onChange={setAdultHips} min={70} max={150} unit="cm" note={noteFor('hip')} />
+                  <MeasurementField label="Foot Length" value={adultFootLength} onChange={setAdultFootLength} min={20} max={32} step={0.1} unit="cm" note={noteFor('foot_length')} />
+                  <MeasurementField label="Body Height" value={adultHeight} onChange={setAdultHeight} min={140} max={210} unit="cm" note={unusedNote} />
+                  <MeasurementField label="Body Weight" value={adultWeight} onChange={setAdultWeight} min={35} max={160} unit="kg" note={unusedNote} />
                 </div>
               )}
+            </div>
 
-              {/* Action Button: Found Sizes */}
-              <div className="mt-5 pt-4 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => void handleRunTest()}
-                  disabled={isSearching || !searchParamsReady}
-                  className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold text-sm shadow-md shadow-purple-600/20 transition-all cursor-pointer transform active:scale-[0.99] disabled:opacity-85"
-                >
-                  {isSearching ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin text-purple-200" />
-                      <span>Asking ACS... {searchProgress.done}/{searchProgress.total}</span>
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-4 h-4" />
-                      <span>Found Sizes</span>
-                      <ArrowRight className="w-4 h-4 ml-1" />
-                    </>
-                  )}
-                </button>
+            {/* 3. Brand */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label htmlFor="tester-brand" className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                  <Building2 className="w-3.5 h-3.5 text-purple-600" />
+                  3. Brand
+                </label>
+                <span className="text-[11px] text-slate-400 font-medium">
+                  {availableBrands.length} {availableBrands.length === 1 ? 'brand' : 'brands'} in this store
+                </span>
               </div>
+              <div className="relative">
+                <select
+                  id="tester-brand"
+                  value={currentBrand.id}
+                  onChange={(event) => chooseBrand(event.target.value)}
+                  className="w-full appearance-none bg-white border border-slate-300 hover:border-purple-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 rounded-xl px-3.5 py-2.5 pr-9 text-xs font-bold text-slate-900 shadow-2xs transition-all cursor-pointer"
+                >
+                  {availableBrands.map((brand) => (
+                    <option key={brand.id} value={brand.id}>
+                      {brand.name} ({brandTypeLabel(brand)})
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+              <div className="mt-2.5">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                  Found Sizes will ask ACS about
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {requests.map(({ category, charts }) => {
+                    const Icon = CATEGORY_ICONS[category.key];
+                    return (
+                      <span
+                        key={category.key}
+                        title={`${charts.length} size ${charts.length === 1 ? 'chart' : 'charts'} · ${category.skuCount} SKUs`}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-50 border border-purple-200 text-[11px] font-semibold text-purple-900"
+                      >
+                        <Icon className="w-3.5 h-3.5 text-purple-600" />
+                        {SHORT_CATEGORY_LABELS[category.key]}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Found Sizes */}
+            <div className="mt-5 pt-4 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => void handleFoundSizes()}
+                disabled={isSearching || requests.length === 0}
+                className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold text-sm shadow-md shadow-purple-600/20 transition-all cursor-pointer transform active:scale-[0.99] disabled:opacity-85 disabled:cursor-not-allowed"
+              >
+                {isSearching ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-purple-200" />
+                    <span>Asking ACS... {answeredCount}/{requests.length}</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    <span>Found Sizes</span>
+                    <ArrowRight className="w-4 h-4 ml-1" />
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>
 
-        {/* ========================================================================= */}
-        {/* RIGHT COLUMN: Brand > Horizontal Categories > Subcategory & Size Chart   */}
-        {/* ========================================================================= */}
+        {/* RIGHT: what will be sent, the loading state, then ACS's answer per category */}
         <div className="lg:col-span-7 space-y-4">
           <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden relative min-h-[620px]">
             {isSearching ? (
-              <div className="py-32 px-6 flex flex-col items-center justify-center text-center bg-white min-h-[620px]">
+              <div className="py-24 px-6 flex flex-col items-center justify-center text-center bg-white min-h-[620px]">
                 <div className="relative mb-6">
                   <div className="w-16 h-16 rounded-2xl bg-purple-50 border border-purple-200/90 flex items-center justify-center text-purple-600 shadow-sm">
                     <Loader2 className="w-8 h-8 animate-spin text-purple-600" />
                   </div>
                   <div className="absolute -inset-2 rounded-3xl bg-purple-500/15 blur-lg -z-10 animate-pulse" />
                 </div>
-                <div className="flex items-center gap-2 mb-2">
-                  <Sparkles className="w-4 h-4 text-purple-600 animate-bounce" />
-                  <h3 className="text-base font-black text-slate-900">
-                    Sending the fit filter to ACS...
-                  </h3>
-                </div>
+                <h3 className="text-base font-black text-slate-900 mb-1">Sending the fit filters to ACS...</h3>
                 <p className="text-xs text-slate-500 max-w-md mb-6 leading-relaxed">
-                  Searching the published catalog for every size chart of {currentBrand.name} ({searchProgress.total} charts across {brandCategories.length} categories) that fit your measurements. The answers are exactly what ACS returns.
+                  One request per garment category of {currentBrand.name}, all at once. The answers are exactly what ACS returns.
                 </p>
-                {/* Progress bar: charts answered so far */}
-                <div className="w-72 h-2.5 bg-slate-100 rounded-full overflow-hidden p-0.5 border border-slate-200 mb-2">
-                  <div
-                    className="h-full bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-600 rounded-full transition-all"
-                    style={{ width: `${searchProgress.total > 0 ? Math.max(6, (searchProgress.done / searchProgress.total) * 100) : 6}%` }}
-                  />
+                <div className="w-full max-w-sm space-y-2 text-left">
+                  {results.map(({ category, run }) => {
+                    const Icon = CATEGORY_ICONS[category.key];
+                    const preview = categoryFilterPreview(category.key, activeTarget, measurements);
+                    return (
+                      <div key={category.key} className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/60">
+                        <span className="flex items-center gap-2 text-xs font-bold text-slate-800">
+                          <Icon className="w-4 h-4 text-purple-600" />
+                          {SHORT_CATEGORY_LABELS[category.key]}
+                          <span className="font-medium text-slate-400">
+                            {preview.map((entry) => `${MEASUREMENTS[entry.measurement].label.toLowerCase()} ${entry.value} ± ${entry.tolerance}`).join(', ')}
+                          </span>
+                        </span>
+                        {!run ? (
+                          <Loader2 className="w-4 h-4 animate-spin text-purple-500" />
+                        ) : run.error ? (
+                          <AlertTriangle className="w-4 h-4 text-rose-500" />
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700">
+                            <CheckCircle2 className="w-4 h-4" />
+                            {run.data?.products.length ?? 0}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-                <p className="text-[11px] font-semibold text-slate-500 mb-4">
-                  {searchProgress.done} of {searchProgress.total} charts answered
+              </div>
+            ) : answeredCount === 0 ? (
+              <div className="p-6 min-h-[620px] flex flex-col">
+                <div className="flex items-center gap-2 mb-1">
+                  <Layers className="w-4 h-4 text-purple-600" />
+                  <h3 className="text-sm font-black text-slate-900">What Found Sizes will ask ACS</h3>
+                </div>
+                <p className="text-xs text-slate-500 mb-4">
+                  {currentBrand.name} ({brandTypeLabel(currentBrand)}) for {TARGET_OPTIONS[activeTarget].label.toLowerCase()}: one request per category, each with its own fit measurement.
                 </p>
-                <div className="flex items-center gap-3 text-[11px] font-semibold text-slate-400">
-                  <span className="flex items-center gap-1 text-purple-700 font-bold"><CheckCircle2 className="w-3.5 h-3.5 text-purple-600" /> Fit filter</span>
-                  <span>•</span>
-                  <span className="flex items-center gap-1 text-purple-700 font-bold"><CheckCircle2 className="w-3.5 h-3.5 text-purple-600" /> Brand &amp; chart scope</span>
-                  <span>•</span>
-                  <span className="flex items-center gap-1 text-purple-700 font-bold"><CheckCircle2 className="w-3.5 h-3.5 text-purple-600" /> ACS answer</span>
+                {hadRun && (
+                  <div className="mb-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-900">
+                    <Info className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-600" />
+                    <span>The inputs changed since the last search. Press Found Sizes to ask ACS again.</span>
+                  </div>
+                )}
+                <div className="space-y-2.5">
+                  {requests.map(({ category, charts }) => {
+                    const Icon = CATEGORY_ICONS[category.key];
+                    const preview = categoryFilterPreview(category.key, activeTarget, measurements);
+                    return (
+                      <div key={category.key} className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl border border-slate-200 bg-slate-50/60">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-xl bg-white border border-slate-200 flex items-center justify-center flex-shrink-0">
+                            <Icon className="w-4 h-4 text-purple-600" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-slate-900">{category.label}</p>
+                            <p className="text-[11px] text-slate-500">
+                              {charts.length} size {charts.length === 1 ? 'chart' : 'charts'} · {category.skuCount} SKUs
+                            </p>
+                          </div>
+                        </div>
+                        <span className="text-[11px] font-mono font-semibold text-purple-800 bg-purple-50 border border-purple-200 px-2 py-1 rounded-lg whitespace-nowrap">
+                          {preview.map((entry) => `${MEASUREMENTS[entry.measurement].label} ${entry.value} ± ${entry.tolerance} cm`).join(' · ')}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
+                <p className="mt-auto pt-6 text-[11px] text-slate-400">
+                  Each request also carries the brand, the {TARGET_OPTIONS[activeTarget].hint} departments and in stock only. Other measurements never remove a product; they only rank sizes.
+                </p>
               </div>
             ) : (
               <>
-                {/* Header Control Panel: Brand & Sizing Mode */}
-                <div className="p-4 bg-slate-50/90 border-b border-slate-200/80 space-y-3">
-                  {/* Top Row: Brand Picker & Mode Switcher */}
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    {/* Brand Selector */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                          <Building2 className="w-3 h-3 text-purple-600" />
-                          <span>Brand Size Chart</span>
-                        </label>
-                        <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                          {currentBrand.confidence}% Verified • {currentBrand.skuCount} Patterns
-                        </span>
-                      </div>
-                      <div className="relative">
-                        <select
-                          value={selectedBrandId}
-                          onChange={(e) => setSelectedBrandId(e.target.value)}
-                          className="w-full appearance-none bg-white border border-slate-300 hover:border-purple-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 rounded-xl px-3.5 py-2 pr-9 text-xs font-bold text-slate-900 shadow-2xs transition-all cursor-pointer"
-                        >
-                          {availableBrands.map((b) => (
-                            <option key={b.id} value={b.id}>
-                              {b.name} ({b.type === 'global' ? 'Global Brand' : 'Private Label'})
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                      </div>
-                    </div>
-
-                    {/* Sizing Standard Mode: US, EU, UK */}
-                    <div className="sm:w-auto">
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 flex items-center gap-1.5">
-                        <Globe className="w-3 h-3 text-purple-600" />
-                        <span>Sizing Standard</span>
-                      </label>
-                      <div className="inline-flex items-center bg-white p-1 rounded-xl border border-slate-200/90 shadow-2xs">
-                        {(['us', 'eu', 'uk'] as SizingSystemMode[]).map((mode) => {
-                          const isActive = sizingMode === mode;
-                          return (
-                            <button
-                              key={mode}
-                              type="button"
-                              onClick={() => setSizingMode(mode)}
-                              className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all cursor-pointer ${
-                                isActive
-                                  ? 'bg-purple-600 text-white shadow-xs'
-                                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                              }`}
-                            >
-                              {mode.toUpperCase()}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
+                {/* Brand + sizing standard */}
+                <div className="p-4 bg-slate-50/90 border-b border-slate-200/80 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                      <Building2 className="w-3 h-3 text-purple-600" />
+                      ACS answer
+                    </p>
+                    <p className="text-sm font-black text-slate-900 truncate">
+                      {currentBrand.name}
+                      <span className="ml-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-600 align-middle">
+                        {brandTypeLabel(currentBrand)}
+                      </span>
+                      <span className="ml-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 border border-purple-200 text-purple-800 align-middle">
+                        {TARGET_OPTIONS[activeTarget].label}
+                      </span>
+                    </p>
                   </div>
-
-                  {/* Quick Brand Badges for fast 1-click preview */}
-                  <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 pt-0.5 scrollbar-none">
-                    <span className="text-[10px] font-bold uppercase text-slate-400 whitespace-nowrap mr-1">
-                      Popular:
+                  <div>
+                    <span className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                      <Globe className="w-3 h-3 text-purple-600" />
+                      Sizing Standard
                     </span>
-                    {availableBrands.slice(0, 8).map((b) => {
-                      const isSelected = b.id === selectedBrandId;
-                      return (
+                    <div className="inline-flex items-center bg-white p-1 rounded-xl border border-slate-200/90 shadow-2xs">
+                      {(['us', 'eu', 'uk'] as SizingSystemMode[]).map((mode) => (
                         <button
-                          key={b.id}
+                          key={mode}
                           type="button"
-                          onClick={() => setSelectedBrandId(b.id)}
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap ${
-                            isSelected
-                              ? 'bg-purple-100 text-purple-900 border border-purple-300 font-bold shadow-2xs'
-                              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                          onClick={() => setSizingMode(mode)}
+                          aria-pressed={sizingMode === mode}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all cursor-pointer ${
+                            sizingMode === mode ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                           }`}
                         >
-                          <span className="w-4 h-4 rounded-full bg-slate-100 text-[9px] font-black flex items-center justify-center text-slate-700">
-                            {b.logoInitials}
-                          </span>
-                          <span>{b.name}</span>
+                          {mode.toUpperCase()}
                         </button>
-                      );
-                    })}
+                      ))}
+                    </div>
                   </div>
                 </div>
 
-                {/* HORIZONTAL CATEGORIES BAR - Smart, Mature, Clean Layout */}
+                {/* Garment categories */}
                 <div className="bg-slate-50/80 border-b border-slate-200/80 px-4 py-3">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
                       <Layers className="w-3.5 h-3.5 text-purple-600" />
-                      <span>Garment Category</span>
+                      Garment Category
                     </span>
-                    <span className="text-[11px] text-slate-400 font-medium">
-                      {brandCategories.length} categories available
-                    </span>
+                    <span className="text-[11px] text-slate-400 font-medium">{results.length} asked</span>
                   </div>
                   <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-                    {brandCategories.map((cat) => {
-                      const Icon = getCategoryIcon(cat.key);
-                      const isSelected = selectedCategoryKey === cat.key;
-                      const badge = categoryBadge(cat);
-
+                    {results.map(({ category, run }) => {
+                      const Icon = CATEGORY_ICONS[category.key];
+                      const selected = current?.category.key === category.key;
+                      const fitting = run?.data?.products.filter((product) => product.fitSizes.length > 0).length ?? 0;
+                      const badge = !run
+                        ? { text: '—', title: 'Inputs changed: press Found Sizes', tone: 'bg-slate-100 text-slate-500 border-slate-200' }
+                        : run.error
+                          ? { text: '!', title: run.error, tone: 'bg-rose-50 text-rose-700 border-rose-200' }
+                          : fitting > 0
+                            ? { text: String(fitting), title: `${fitting} products with a fitting size in stock`, tone: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
+                            : { text: '0', title: 'No product with a fitting size in stock', tone: 'bg-amber-50 text-amber-700 border-amber-200' };
                       return (
                         <button
-                          key={cat.key}
+                          key={category.key}
                           type="button"
-                          onClick={() => setSelectedCategoryKey(cat.key)}
+                          onClick={() => chooseCategory(category.key)}
+                          aria-pressed={selected}
                           className={`inline-flex items-center gap-2.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                            isSelected
+                            selected
                               ? 'bg-white text-purple-950 border border-purple-300 shadow-xs ring-2 ring-purple-400/20'
                               : 'bg-white/80 text-slate-600 hover:text-slate-900 hover:bg-white border border-slate-200/80 shadow-2xs'
                           }`}
                         >
-                          <Icon className={`w-4 h-4 flex-shrink-0 ${isSelected ? 'text-purple-600' : 'text-slate-400'}`} />
-                          <span className="font-semibold">{cat.label}</span>
-                          {badge && (
-                            <span
-                              title={`${badge.matched} of ${badge.total} charts got a best size from ACS${badge.failed > 0 ? `; ${badge.failed} failed` : ''}`}
-                              className={`px-1.5 py-0.5 rounded-full text-[10px] font-black border ${
-                                badge.failed > 0 && badge.matched === 0
-                                  ? 'bg-rose-50 text-rose-700 border-rose-200'
-                                  : badge.matched > 0
-                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                    : 'bg-amber-50 text-amber-700 border-amber-200'
-                              }`}
-                            >
-                              {badge.matched}/{badge.total}
-                            </span>
-                          )}
+                          <Icon className={`w-4 h-4 flex-shrink-0 ${selected ? 'text-purple-600' : 'text-slate-400'}`} />
+                          <span className="font-semibold">{category.label}</span>
+                          <span title={badge.title} className={`px-1.5 py-0.5 rounded-full text-[10px] font-black border ${badge.tone}`}>
+                            {badge.text}
+                          </span>
                         </button>
                       );
                     })}
                   </div>
                 </div>
 
-                {/* Subcategory Silhouette & Recommendation Bar */}
-                <div className="px-5 py-3.5 bg-slate-50/50 border-b border-slate-200/70 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                  {/* Subcategory selector */}
-                  <div className="flex-1 min-w-0 max-w-sm">
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 flex items-center gap-1.5">
-                      <Tag className="w-3 h-3 text-purple-600" />
-                      <span>Subcategory Silhouette</span>
-                    </label>
-                    {availableSubcategories.length > 0 ? (
-                      <div className="relative">
-                        <select
-                          value={selectedSubcategoryId}
-                          onChange={(e) => setSelectedSubcategoryId(e.target.value)}
-                          className="w-full appearance-none bg-white border border-slate-300 hover:border-purple-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 rounded-xl px-3.5 py-2 pr-8 text-xs font-bold text-slate-800 shadow-2xs transition-all cursor-pointer"
+                {!current?.run ? (
+                  <div className="p-10 text-center">
+                    <Info className="w-6 h-6 text-amber-500 mx-auto mb-2" />
+                    <p className="text-sm font-semibold text-slate-700">The inputs for this category changed since the last search.</p>
+                    <p className="text-xs text-slate-500 mt-1">Press Found Sizes to ask ACS again.</p>
+                  </div>
+                ) : current.run.error ? (
+                  <div className="m-5 flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
+                    <AlertTriangle className="w-5 h-5 text-rose-600 flex-shrink-0" />
+                    <div>
+                      <p className="text-xs font-extrabold text-rose-950">ACS search failed for {current.category.label}</p>
+                      <p className="text-[11px] text-rose-800 mt-0.5">{current.run.error}</p>
+                    </div>
+                  </div>
+                ) : detail && currentGroup ? (
+                  <>
+                    {/* Subcategories found in the answer */}
+                    <div className="px-5 py-3 border-b border-slate-200/70 bg-white">
+                      <span className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                        <Tag className="w-3 h-3 text-purple-600" />
+                        Subcategory
+                      </span>
+                      {detail.subcategories.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {[{ id: ALL_SUBCATEGORIES, label: 'All', count: detail.data.products.length }, ...detail.subcategories.map((group) => ({
+                            id: leafIdOf(group.leafKey),
+                            label: group.label,
+                            count: group.products.length,
+                          }))].map((option) => (
+                            <button
+                              key={option.id}
+                              type="button"
+                              onClick={() => chooseLeaf(option.id)}
+                              aria-pressed={leaf === option.id}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-all cursor-pointer ${
+                                leaf === option.id
+                                  ? 'bg-purple-100 text-purple-900 border-purple-300 font-bold'
+                                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                              }`}
+                            >
+                              {option.label}
+                              <span className="font-mono text-[10px] text-slate-500">{option.count}</span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-400 font-medium">ACS returned no products for this category.</p>
+                      )}
+                    </div>
+
+                    {/* Chart picker + ACS answer callout */}
+                    <div className="px-5 py-3.5 bg-slate-50/50 border-b border-slate-200/70 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                      <div className="flex-1 min-w-0 max-w-sm">
+                        <label
+                          htmlFor={chartOptions.length > 1 ? 'tester-chart' : undefined}
+                          className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 flex items-center gap-1.5"
                         >
-                          {availableSubcategories.map((sub) => {
-                            const result = chartResults.get(sub.id);
-                            const note = !result
-                              ? ''
-                              : result.run.error
-                                ? ' — failed'
-                                : result.bestLabel
-                                  ? ` — Best ${result.bestLabel}`
-                                  : ' — no match';
-                            return (
-                              <option key={sub.id} value={sub.id}>
-                                {sub.name} ({sub.fitType}){note}
-                              </option>
-                            );
-                          })}
-                        </select>
-                        <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                      </div>
-                    ) : (
-                      <div className="text-xs text-slate-400 font-medium">Standard Fit Profile</div>
-                    )}
-                  </div>
-
-                  {/* ACS answer callout */}
-                  {(() => {
-                    const tone = shownSearchError
-                      ? 'rose'
-                      : !freshRun
-                        ? 'slate'
-                        : bestRow
-                          ? 'emerald'
-                          : 'amber';
-                    const toneClasses = {
-                      rose: { box: 'bg-rose-50/95 border-rose-200/90', icon: 'bg-rose-600', title: 'text-rose-950', text: 'text-rose-800' },
-                      slate: { box: 'bg-slate-50 border-slate-200', icon: 'bg-slate-500', title: 'text-slate-800', text: 'text-slate-500' },
-                      emerald: { box: 'bg-emerald-50/95 border-emerald-200/90', icon: 'bg-emerald-600', title: 'text-emerald-950', text: 'text-emerald-800' },
-                      amber: { box: 'bg-amber-50/95 border-amber-200/90', icon: 'bg-amber-600', title: 'text-amber-950', text: 'text-amber-800' },
-                    }[tone];
-                    return (
-                      <div className={`flex items-center gap-3 border rounded-xl px-4 py-2.5 shadow-2xs self-stretch md:self-auto ${toneClasses.box}`}>
-                        <div className={`w-9 h-9 rounded-xl text-white flex items-center justify-center shadow-xs flex-shrink-0 ${toneClasses.icon}`}>
-                          {tone === 'emerald'
-                            ? <CheckCircle2 className="w-5 h-5 text-white" />
-                            : <Info className="w-5 h-5 text-white" />}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className={`text-xs font-extrabold ${toneClasses.title}`}>
-                              {shownSearchError
-                                ? 'ACS search failed'
-                                : !freshRun
-                                  ? 'Not sent to ACS yet'
-                                  : bestRow
-                                    ? 'Best Fit:'
-                                    : freshRun.data.chartProducts === 0
-                                      ? 'No products on this chart'
-                                      : 'No fitting size in stock'}
-                            </span>
-                            {bestRow && (
-                              <>
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-700 text-white text-xs font-black tracking-wide shadow-2xs">
-                                  {formatSizeForMode(bestRow, sizingMode)}
-                                </span>
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-200/90 text-emerald-950 border border-emerald-300">
-                                  {searchSummary.counts[searchSummary.bestIndex]} ACS items
-                                </span>
-                              </>
-                            )}
+                          <Layers className="w-3 h-3 text-purple-600" />
+                          Size chart
+                        </label>
+                        {chartOptions.length > 1 ? (
+                          <div className="relative">
+                            <select
+                              id="tester-chart"
+                              value={currentChart?.id ?? ''}
+                              onChange={(event) => setSelectedChartId(event.target.value)}
+                              className="w-full appearance-none bg-white border border-slate-300 hover:border-purple-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 rounded-xl px-3.5 py-2 pr-8 text-xs font-bold text-slate-800 shadow-2xs transition-all cursor-pointer"
+                            >
+                              {chartOptions.map((option) => (
+                                <option key={option.chart.id} value={option.chart.id}>
+                                  {option.chart.name} ({option.chart.fitType}) — {option.count} {option.count === 1 ? 'product' : 'products'}
+                                </option>
+                              ))}
+                            </select>
+                            <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                           </div>
-                          <p className={`text-[11px] font-medium max-w-sm mt-0.5 ${toneClasses.text}`}>
-                            {shownSearchError
-                              ? shownSearchError
-                              : !freshRun
-                                ? 'Press Found Sizes to send these measurements to ACS.'
-                                : bestRow
-                                  ? `ACS returned ${acsProducts.length} products; ${productsWithFit} have a fitting size in stock.`
-                                  : acsProducts.length === 0
-                                    ? freshRun.data.chartProducts === 0
-                                      ? `No in-stock product of this store is matched to this chart, with or without your measurements.${
-                                          rowFits.includes('inside')
-                                            ? ` By the chart your size is ${formatSizeForMode(activeRows[rowFits.indexOf('inside')], sizingMode)}.`
-                                            : ''
-                                        }`
-                                      : `ACS has ${freshRun.data.chartProducts ?? 'some'} in-stock products on this chart, none within tolerance.`
-                                    : `ACS returned ${acsProducts.length} products but none has a stocked size within tolerance.`}
-                          </p>
-                        </div>
+                        ) : (
+                          <p className="text-xs font-bold text-slate-800">{currentChart?.name ?? 'No chart'}</p>
+                        )}
                       </div>
-                    );
-                  })()}
-                </div>
-                {/* Subcategory Description Bar */}
-                {currentSubcategory?.fitDescription && (
-                  <div className="px-5 py-2 bg-slate-50/70 border-b border-slate-200/60 flex items-center gap-2 text-xs text-slate-600">
-                    <Info className="w-3.5 h-3.5 text-purple-600 flex-shrink-0" />
-                    <span className="font-medium">
-                      <strong className="text-slate-800">{currentSubcategory.name}:</strong> {currentSubcategory.fitDescription}
-                    </span>
-                  </div>
-                )}
 
-                {/* What was sent to ACS and what it answered */}
-                {(freshRun || shownSearchError) && (
-                  <div className="px-5 py-3 bg-white border-b border-slate-200/70 space-y-2 text-xs">
-                    {freshRun && (
+                      {(() => {
+                        const tone = bestRow ? 'emerald' : 'amber';
+                        const toneClasses = {
+                          emerald: { box: 'bg-emerald-50/95 border-emerald-200/90', icon: 'bg-emerald-600', title: 'text-emerald-950', text: 'text-emerald-800' },
+                          amber: { box: 'bg-amber-50/95 border-amber-200/90', icon: 'bg-amber-600', title: 'text-amber-950', text: 'text-amber-800' },
+                        }[tone];
+                        const insideIndex = rowFits.indexOf('inside');
+                        return (
+                          <div className={`flex items-center gap-3 border rounded-xl px-4 py-2.5 shadow-2xs self-stretch md:self-auto ${toneClasses.box}`}>
+                            <div className={`w-9 h-9 rounded-xl text-white flex items-center justify-center shadow-xs flex-shrink-0 ${toneClasses.icon}`}>
+                              {bestRow ? <CheckCircle2 className="w-5 h-5 text-white" /> : <Info className="w-5 h-5 text-white" />}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className={`text-xs font-extrabold ${toneClasses.title}`}>
+                                  {bestRow
+                                    ? 'Best Fit:'
+                                    : detail.data.products.length === 0 && detail.data.categoryProducts === 0
+                                      ? 'Nothing in this category'
+                                      : 'No fitting size in stock'}
+                                </span>
+                                {bestRow && (
+                                  <>
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-700 text-white text-xs font-black tracking-wide shadow-2xs">
+                                      {formatSizeForMode(bestRow, sizingMode)}
+                                    </span>
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-200/90 text-emerald-950 border border-emerald-300">
+                                      {summary.counts[summary.bestIndex]} ACS items
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                              <p className={`text-[11px] font-medium max-w-sm mt-0.5 ${toneClasses.text}`}>
+                                {bestRow
+                                  ? `ACS returned ${visible.length} products here; ${visibleWithFit} have a fitting size in stock.`
+                                  : detail.data.products.length === 0
+                                    ? detail.data.categoryProducts === 0
+                                      ? `${currentBrand.name} has no sized, in-stock ${SHORT_CATEGORY_LABELS[currentGroup].toLowerCase()} for ${TARGET_OPTIONS[activeTarget].label.toLowerCase()}, with or without your measurements.`
+                                      : `ACS has ${detail.data.categoryProducts ?? 'some'} in-stock products here, none within tolerance.${
+                                          insideIndex >= 0 ? ` By the chart your size is ${formatSizeForMode(activeRows[insideIndex]!, sizingMode)}.` : ''
+                                        }`
+                                    : chartProducts.length === 0
+                                      ? 'None of the products ACS returned here were sized on this chart. Pick another chart or subcategory.'
+                                      : `ACS returned ${chartProducts.length} products on this chart but none has a stocked size within tolerance.`}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    {currentChart?.fitDescription && (
+                      <div className="px-5 py-2 bg-slate-50/70 border-b border-slate-200/60 flex items-center gap-2 text-xs text-slate-600">
+                        <Info className="w-3.5 h-3.5 text-purple-600 flex-shrink-0" />
+                        <span className="font-medium">
+                          <strong className="text-slate-800">{currentChart.name}:</strong> {currentChart.fitDescription}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* What was sent and what ACS answered */}
+                    <div className="px-5 py-3 bg-white border-b border-slate-200/70 space-y-2 text-xs">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-600">
                           <span className="font-bold text-slate-900">ACS answered</span>
-                          <span><strong>{acsProducts.length}</strong> products</span>
-                          <span><strong>{productsWithFit}</strong> with a fitting size in stock</span>
-                          {acsProducts.length - productsWithFit > 0 && (
-                            <span className="text-amber-700">
-                              <strong>{acsProducts.length - productsWithFit}</strong> returned on their all-sizes range only
+                          <span><strong>{visible.length}</strong> products</span>
+                          <span><strong>{visibleWithFit}</strong> with a fitting size in stock</span>
+                          {visible.length - visibleWithFit > 0 && (
+                            <span className="text-amber-700" title="ACS returned these, but no single stocked size row is within tolerance. Usually a product whose sizing index is out of date: republish sizing.">
+                              <strong>{visible.length - visibleWithFit}</strong> with no fitting size row
+                            </span>
+                          )}
+                          {unassigned > 0 && (
+                            <span className="text-slate-500" title="Their indexed size rows match none of this brand's charts for this target.">
+                              <strong>{unassigned}</strong> on no listed chart
                             </span>
                           )}
                           <span className="text-slate-400">
-                            {freshRun.data.hitCount} hits{freshRun.data.totalSize !== null ? ` · ACS total ${freshRun.data.totalSize}` : ''}
-                            {freshRun.data.truncated ? ' · more pages not read' : ''}
+                            {detail.data.hitCount} hits{detail.data.totalSize !== null ? ` · ACS total ${detail.data.totalSize}` : ''}
+                            {detail.data.truncated ? ' · more pages not read' : ''}
                           </span>
                         </div>
                         <button
                           type="button"
-                          onClick={() => setActiveSizeItemsModal({ sizeLabel: null, formattedSize: 'all sizes', row: null })}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-slate-200 bg-white hover:bg-purple-50 hover:border-purple-300 text-slate-700 font-semibold cursor-pointer"
+                          onClick={() => setItemsModal({ rowIndex: null })}
+                          disabled={visible.length === 0}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-slate-200 bg-white hover:bg-purple-50 hover:border-purple-300 text-slate-700 font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                           <Eye className="w-3.5 h-3.5" />
-                          View all {acsProducts.length}
+                          View all {visible.length}
                         </button>
                       </div>
-                    )}
-                    {freshRun && (
                       <p className="text-slate-500">
-                        Tolerance:{' '}
-                        {freshRun.data.tolerances.map((entry, index) => (
+                        Filter:{' '}
+                        {detail.data.tolerances.map((entry, index) => (
                           <span key={entry.measurement}>
                             {index > 0 && ', '}
-                            {entry.measurement.replace('_', ' ')} {entry.value} ± {entry.tolerance} cm
+                            {MEASUREMENTS[entry.measurement].label.toLowerCase()} {entry.value} ± {entry.tolerance} cm
                           </span>
                         ))}
-                        {freshRun.data.outOfScope > 0 && ` · ${freshRun.data.outOfScope} branded hits left out of "No brand"`}
+                        {detail.data.outOfScope > 0 && ` · ${detail.data.outOfScope} branded hits left out of "No brand"`}
                       </p>
-                    )}
-                    {freshRun && (
                       <details>
                         <summary className="cursor-pointer text-slate-500 font-semibold">Filter sent to ACS</summary>
                         <code className="mt-1.5 block whitespace-pre-wrap break-all rounded-lg bg-slate-900 text-slate-100 p-3 text-[11px] leading-relaxed">
-                          {freshRun.data.filter}
+                          {detail.data.filter}
                         </code>
                         <p className="mt-1 text-[11px] text-slate-400">
                           The merchant isolation and category scope clauses are always added in front of this by the search client.
                         </p>
                       </details>
+                    </div>
+
+                    {/* The chart with ACS's answer on each size */}
+                    {currentChart && (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-slate-50 text-slate-600 font-bold uppercase tracking-wider border-b border-slate-200">
+                            <tr>
+                              <th className="px-4 py-3 whitespace-nowrap text-purple-950 bg-purple-50/70 font-black">
+                                {sizingMode.toUpperCase()} Size
+                              </th>
+                              {activeTarget === 'kid' && <th className="px-4 py-3 whitespace-nowrap text-purple-900 bg-purple-50/30">Age</th>}
+                              {tableColumns.map((column) => (
+                                <th key={column.measurement} className="px-4 py-3 whitespace-nowrap">
+                                  {column.label} (cm)
+                                  {column.measurement === filterColumn && (
+                                    <span className="ml-1 normal-case text-[9px] font-black text-purple-700 bg-purple-100 border border-purple-200 px-1 py-0.5 rounded">filter</span>
+                                  )}
+                                </th>
+                              ))}
+                              {(currentGroup === 'tops' || currentGroup === 'outerwear') && <th className="px-4 py-3 whitespace-nowrap">Garment Length</th>}
+                              {currentGroup === 'bottoms' && <th className="px-4 py-3 whitespace-nowrap">Inseam</th>}
+                              <th className="px-4 py-3 text-right">Status</th>
+                              <th className="px-4 py-3 text-center w-24">Items</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {activeRows.map((row, index) => {
+                              const isBest = index === summary.bestIndex;
+                              const count = summary.counts[index] ?? 0;
+                              // The chart says this is the shopper's size, but ACS has no stocked product in it.
+                              const chartOnly = !isBest && count === 0 ? rowFits[index] : null;
+                              return (
+                                <tr
+                                  key={`${row.sizeLabel}-${index}`}
+                                  className={`transition-all duration-300 ${
+                                    isBest
+                                      ? 'bg-emerald-50/95 hover:bg-emerald-100/90 font-semibold ring-2 ring-emerald-500 ring-inset shadow-xs'
+                                      : chartOnly === 'inside'
+                                        ? 'bg-amber-50/70 hover:bg-amber-50 text-slate-800 ring-1 ring-amber-300 ring-inset'
+                                        : 'hover:bg-slate-50/70 text-slate-700'
+                                  }`}
+                                >
+                                  <td className={`px-4 py-3.5 whitespace-nowrap ${isBest ? 'font-black text-emerald-950 text-sm bg-emerald-100/60' : 'font-bold text-slate-900 bg-slate-50/40'}`}>
+                                    <div className="flex items-center gap-2">
+                                      {isBest && <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />}
+                                      <span>{formatSizeForMode(row, sizingMode)}</span>
+                                    </div>
+                                  </td>
+                                  {activeTarget === 'kid' && (
+                                    <td className="px-4 py-3.5 whitespace-nowrap">
+                                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${isBest ? 'bg-emerald-200/70 text-emerald-950' : 'bg-purple-50 text-purple-900'}`}>
+                                        {ageDisplay(row)}
+                                      </span>
+                                    </td>
+                                  )}
+                                  {tableColumns.map((column) => (
+                                    <td
+                                      key={column.measurement}
+                                      className={`px-4 py-3.5 whitespace-nowrap ${column.measurement === filterColumn ? 'font-bold' : 'font-medium'}`}
+                                    >
+                                      {formatRange(rowBounds(row, column.measurement))}
+                                    </td>
+                                  ))}
+                                  {(currentGroup === 'tops' || currentGroup === 'outerwear') && (
+                                    <td className="px-4 py-3.5 whitespace-nowrap text-slate-500">{row.lengthCm ? `${row.lengthCm} cm` : '—'}</td>
+                                  )}
+                                  {currentGroup === 'bottoms' && (
+                                    <td className="px-4 py-3.5 whitespace-nowrap text-slate-500">{row.inseamCm ? `${row.inseamCm} cm` : '—'}</td>
+                                  )}
+                                  <td className="px-4 py-3.5 text-right whitespace-nowrap">
+                                    {isBest ? (
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-black bg-emerald-600 text-white shadow-2xs">
+                                        <Sparkles className="w-3 h-3" />
+                                        Best Fit
+                                      </span>
+                                    ) : chartOnly ? (
+                                      <span
+                                        title="This chart row fits your measurement, but ACS returned no in-stock product in this size."
+                                        className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold border ${
+                                          chartOnly === 'inside' ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-white text-amber-700 border-amber-200'
+                                        }`}
+                                      >
+                                        {chartOnly === 'inside' ? 'Your size · no stock' : 'Near · no stock'}
+                                      </span>
+                                    ) : (
+                                      <span className={`text-[11px] font-medium ${count > 0 ? 'text-emerald-700 font-bold' : 'text-slate-400'}`}>
+                                        {count > 0 ? 'ACS match' : 'No ACS items'}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3.5 text-center whitespace-nowrap">
+                                    <button
+                                      type="button"
+                                      disabled={count === 0}
+                                      onClick={() => setItemsModal({ rowIndex: index })}
+                                      title={count > 0 ? `View the ACS products with size ${formatSizeForMode(row, sizingMode)}` : 'ACS returned no product in this size'}
+                                      className={`inline-flex items-center justify-center gap-1.5 p-1.5 sm:px-2.5 sm:py-1 rounded-md border text-xs font-semibold transition-all duration-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                                        isBest
+                                          ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-xs'
+                                          : 'bg-white hover:bg-purple-50 text-slate-700 hover:text-purple-700 border-slate-200 hover:border-purple-300'
+                                      }`}
+                                    >
+                                      <Eye className="w-3.5 h-3.5" />
+                                      <span className="hidden sm:inline">Items</span>
+                                      <span className="font-mono">{count}</span>
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
                     )}
-                  </div>
-                )}
 
-                {/* Size Chart Table with Sizing Standard & Highlighted Match Row */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 text-slate-600 font-bold uppercase tracking-wider border-b border-slate-200">
-                  <tr>
-                    {/* Primary Size Column based on selected sizing standard */}
-                    <th className="px-4 py-3 whitespace-nowrap text-purple-950 bg-purple-50/70 font-black">
-                      {sizingMode.toUpperCase()} Size
-                    </th>
-
-                    {/* Age Column (Displayed specifically for kids persona) */}
-                    {persona === 'kid' && (
-                      <th className="px-4 py-3 whitespace-nowrap text-purple-900 bg-purple-50/30">
-                        Age
-                      </th>
+                    {currentChart && (
+                      <div className="p-4 bg-slate-50/90 border-t border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-slate-500">
+                        <span>
+                          Source: <strong className="text-slate-700">{currentChart.sourceTitle || 'Connection chart'}</strong>
+                          {currentChart.confidence > 0 && <> • Confidence <strong className="text-emerald-700">{currentChart.confidence}%</strong></>}
+                        </span>
+                        <span className="font-medium">
+                          US / EU / UK only relabel sizes; ACS is asked in body measurements.
+                        </span>
+                      </div>
                     )}
-
-                    {/* Dimension Columns depending on category */}
-                    {selectedCategoryKey === 'footwear' ? (
-                      <>
-                        <th className="px-4 py-3 whitespace-nowrap">Foot Length ({unit === 'metric' ? 'cm' : 'in'})</th>
-                        <th className="px-4 py-3 whitespace-nowrap">Dual Dimension</th>
-                      </>
-                    ) : selectedCategoryKey === 'bottoms' ? (
-                      <>
-                        <th className="px-4 py-3 whitespace-nowrap">Waist ({unit === 'metric' ? 'cm' : 'in'})</th>
-                        <th className="px-4 py-3 whitespace-nowrap">Hips ({unit === 'metric' ? 'cm' : 'in'})</th>
-                        <th className="px-4 py-3 whitespace-nowrap">Inseam</th>
-                      </>
-                    ) : selectedCategoryKey === 'dresses' ? (
-                      <>
-                        <th className="px-4 py-3 whitespace-nowrap">Bust ({unit === 'metric' ? 'cm' : 'in'})</th>
-                        <th className="px-4 py-3 whitespace-nowrap">Waist ({unit === 'metric' ? 'cm' : 'in'})</th>
-                        <th className="px-4 py-3 whitespace-nowrap">Hips ({unit === 'metric' ? 'cm' : 'in'})</th>
-                      </>
-                    ) : (
-                      <>
-                        <th className="px-4 py-3 whitespace-nowrap">Chest ({unit === 'metric' ? 'cm' : 'in'})</th>
-                        <th className="px-4 py-3 whitespace-nowrap">Waist ({unit === 'metric' ? 'cm' : 'in'})</th>
-                        <th className="px-4 py-3 whitespace-nowrap">Garment Length</th>
-                      </>
-                    )}
-
-                    {/* Status Badge */}
-                    <th className="px-4 py-3 text-right">Status</th>
-
-                    {/* Action: View Suitable Items */}
-                    <th className="px-4 py-3 text-center w-24">Items</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {activeRows.map((row, idx) => {
-                    const isHighlighted = idx === searchSummary.bestIndex;
-                    // The chart says this is the shopper's size, but ACS has no stocked product in it.
-                    const chartOnly = !isHighlighted && searchSummary.counts[idx] === 0 ? rowFits[idx] : null;
-
-                    // Formatted age label for kids
-                    const ageDisplay = row.ageLabel
-                      ? row.ageLabel
-                      : row.ageMin && row.ageMax
-                      ? row.ageMin === row.ageMax
-                        ? `${row.ageMin} Yrs`
-                        : `${row.ageMin}–${row.ageMax} Yrs`
-                      : row.sizeLabel.match(/\d+-\d+Y|\d+Y/i)
-                      ? row.sizeLabel.match(/\d+-\d+Y|\d+Y/i)?.[0]
-                      : '—';
-
-                    return (
-                      <tr
-                        key={row.sizeLabel + idx}
-                        className={`transition-all duration-300 ${
-                          isHighlighted
-                            ? 'bg-emerald-50/95 hover:bg-emerald-100/90 font-semibold ring-2 ring-emerald-500 ring-inset shadow-xs'
-                            : chartOnly === 'inside'
-                              ? 'bg-amber-50/70 hover:bg-amber-50 text-slate-800 ring-1 ring-amber-300 ring-inset'
-                              : 'hover:bg-slate-50/70 text-slate-700'
-                        }`}
-                      >
-                        {/* Primary Size Column (Formatted strictly for selected sizingMode) */}
-                        <td
-                          className={`px-4 py-3.5 whitespace-nowrap ${
-                            isHighlighted
-                              ? 'font-black text-emerald-950 text-sm bg-emerald-100/60'
-                              : 'font-bold text-slate-900 bg-slate-50/40'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            {isHighlighted && (
-                              <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
-                            )}
-                            <span>{formatSizeForMode(row, sizingMode)}</span>
-                          </div>
-                        </td>
-
-                        {/* Age Column for Kids */}
-                        {persona === 'kid' && (
-                          <td className={`px-4 py-3.5 whitespace-nowrap font-medium ${isHighlighted ? 'text-emerald-950 font-bold' : 'text-slate-700'}`}>
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${
-                              isHighlighted ? 'bg-emerald-200/70 text-emerald-950' : 'bg-purple-50 text-purple-900'
-                            }`}>
-                              {ageDisplay}
-                            </span>
-                          </td>
-                        )}
-
-                        {/* Dimension Columns */}
-                        {selectedCategoryKey === 'footwear' ? (
-                          <>
-                            <td className="px-4 py-3.5 whitespace-nowrap font-medium">
-                              {unit === 'metric' ? `${row.footLengthCm || '—'} cm` : `${row.footLengthIn || '—'}"`}
-                            </td>
-                            <td className="px-4 py-3.5 whitespace-nowrap text-slate-500 font-mono text-[11px]">
-                              {row.footLengthCm} cm / {row.footLengthIn}&quot;
-                            </td>
-                          </>
-                        ) : selectedCategoryKey === 'bottoms' ? (
-                          <>
-                            <td className="px-4 py-3.5 whitespace-nowrap font-medium">
-                              {unit === 'metric' ? `${row.waistCm || '—'} cm` : `${row.waistIn || '—'}"`}
-                            </td>
-                            <td className="px-4 py-3.5 whitespace-nowrap font-medium">
-                              {unit === 'metric' ? `${row.hipsCm || '—'} cm` : `${row.hipsIn || '—'}"`}
-                            </td>
-                            <td className="px-4 py-3.5 whitespace-nowrap text-slate-500">
-                              {row.inseamCm ? `${row.inseamCm} cm (${row.inseamIn}")` : 'Standard Inseam'}
-                            </td>
-                          </>
-                        ) : selectedCategoryKey === 'dresses' ? (
-                          <>
-                            <td className="px-4 py-3.5 whitespace-nowrap font-medium">
-                              {unit === 'metric' ? `${row.chestCm || '—'} cm` : `${row.chestIn || '—'}"`}
-                            </td>
-                            <td className="px-4 py-3.5 whitespace-nowrap font-medium">
-                              {unit === 'metric' ? `${row.waistCm || '—'} cm` : `${row.waistIn || '—'}"`}
-                            </td>
-                            <td className="px-4 py-3.5 whitespace-nowrap font-medium">
-                              {unit === 'metric' ? `${row.hipsCm || '—'} cm` : `${row.hipsIn || '—'}"`}
-                            </td>
-                          </>
-                        ) : (
-                          <>
-                            <td className="px-4 py-3.5 whitespace-nowrap font-medium">
-                              {unit === 'metric' ? `${row.chestCm || '—'} cm` : `${row.chestIn || '—'}"`}
-                            </td>
-                            <td className="px-4 py-3.5 whitespace-nowrap font-medium">
-                              {row.waistCm ? (unit === 'metric' ? `${row.waistCm} cm` : `${row.waistIn}"`) : '—'}
-                            </td>
-                            <td className="px-4 py-3.5 whitespace-nowrap text-slate-500">
-                              {row.lengthCm ? `${row.lengthCm} cm (${row.lengthIn}")` : 'Regular Cut'}
-                            </td>
-                          </>
-                        )}
-
-                        {/* Status Column */}
-                        <td className="px-4 py-3.5 text-right whitespace-nowrap">
-                          {isHighlighted ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-black bg-emerald-600 text-white shadow-2xs">
-                              <Sparkles className="w-3 h-3" />
-                              Best Fit
-                            </span>
-                          ) : chartOnly ? (
-                            <span
-                              title="This chart row fits your measurement, but ACS returned no in-stock product in this size."
-                              className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold border ${
-                                chartOnly === 'inside'
-                                  ? 'bg-amber-100 text-amber-800 border-amber-300'
-                                  : 'bg-white text-amber-700 border-amber-200'
-                              }`}
-                            >
-                              {chartOnly === 'inside' ? 'Your size · no stock' : 'Near · no stock'}
-                            </span>
-                          ) : (
-                            <span className={`text-[11px] font-medium ${
-                              freshRun && searchSummary.counts[idx] > 0 ? 'text-emerald-700 font-bold' : 'text-slate-400'
-                            }`}>
-                              {!freshRun
-                                ? '—'
-                                : searchSummary.counts[idx] > 0
-                                  ? 'ACS match'
-                                  : 'No ACS items'}
-                            </span>
-                          )}
-                        </td>
-
-                        {/* Action Column: Eye icon to view suitable products */}
-                        <td className="px-4 py-3.5 text-center whitespace-nowrap">
-                          <button
-                            type="button"
-                            id={`btn-view-items-${idx}`}
-                            disabled={!freshRun}
-                            onClick={() => {
-                              setActiveSizeItemsModal({
-                                sizeLabel: row.sizeLabel,
-                                formattedSize: formatSizeForMode(row, sizingMode),
-                                row: row,
-                              });
-                            }}
-                            title={freshRun
-                              ? `View the ACS products with size ${formatSizeForMode(row, sizingMode)}`
-                              : 'Press Found Sizes first'}
-                            className={`inline-flex items-center justify-center gap-1.5 p-1.5 sm:px-2.5 sm:py-1 rounded-md border text-xs font-semibold transition-all duration-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
-                              isHighlighted
-                                ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-xs'
-                                : 'bg-white hover:bg-purple-50 text-slate-700 hover:text-purple-700 border-slate-200 hover:border-purple-300'
-                            }`}
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                            <span className="hidden sm:inline">Items</span>
-                            {freshRun && <span className="font-mono">{searchSummary.counts[idx]}</span>}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Table Footer: Brand Fit Philosophy & Multi-System Note */}
-            <div className="p-4 bg-slate-50/90 border-t border-slate-200/80 space-y-2">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-600">
-                <div className="flex items-center gap-2">
-                  <Info className="w-4 h-4 text-purple-600 flex-shrink-0" />
-                  <span>
-                    <strong className="text-slate-800">{currentBrand.name} Fit Philosophy:</strong> {currentBrand.fitPhilosophy}
-                  </span>
-                </div>
-                <div className="flex items-center gap-3 self-end sm:self-auto font-mono text-[11px] whitespace-nowrap">
-                  <span className={`flex items-center gap-1 font-bold ${
-                    bestRow ? 'text-emerald-700' : 'text-slate-500'
-                  }`}>
-                    <span className={`w-2.5 h-2.5 rounded-full inline-block ${
-                      bestRow ? 'bg-emerald-500' : 'bg-slate-300'
-                    }`}></span>
-                    {bestRow ? 'Best Fit (from the ACS answer)' : 'No ACS answer yet'}
-                  </span>
-                  <span className="flex items-center gap-1 text-slate-400">
-                    <span className="w-2.5 h-2.5 rounded-full bg-slate-300 inline-block"></span>
-                    Other Sizes
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[11px] text-slate-400 pt-1 border-t border-slate-200/60">
-                <span>
-                  Source: <strong className="text-slate-600">{currentBrand.sourceNote}</strong> • Confidence Index: <strong className="text-emerald-700">{currentBrand.confidence}%</strong>
-                </span>
-                <span className="text-slate-500 font-medium">
-                  Switching sizing standards (US, EU, UK) only changes how sizes are labelled; ACS is asked in chart sizes.
-                </span>
-              </div>
-            </div>
-          </>
-        )}
+                  </>
+                ) : null}
+              </>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Popup Modal: Suitable Items Found for Clicked Size */}
-      {activeSizeItemsModal && (
+      {/* ACS products for one size, or everything in the subcategory selection */}
+      {itemsModal && current && (
         <div
-          id="modal-size-items-backdrop"
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200"
-          onClick={() => setActiveSizeItemsModal(null)}
+          onClick={() => setItemsModal(null)}
         >
           <div
-            id="modal-size-items-content"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="tester-items-title"
             className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
-            onClick={(e) => e.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
           >
-            {/* Modal Header */}
             <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-gradient-to-r from-purple-50 via-white to-slate-50">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-purple-100 border border-purple-200 flex items-center justify-center text-purple-700 shadow-2xs">
                   <Eye className="w-5 h-5" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-base font-bold text-slate-900">
-                      {activeSizeItemsModal.sizeLabel
-                        ? <>ACS products for size: <span className="text-purple-700 font-extrabold">{activeSizeItemsModal.formattedSize}</span></>
-                        : <>Everything ACS returned</>}
-                    </h3>
-                    <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-purple-100 text-purple-800 font-semibold border border-purple-200">
-                      {sizingMode.toUpperCase()} Standard
-                    </span>
-                  </div>
+                  <h3 id="tester-items-title" className="text-base font-bold text-slate-900">
+                    {itemsModal.rowIndex !== null && activeRows[itemsModal.rowIndex]
+                      ? <>ACS products for size <span className="text-purple-700 font-extrabold">{formatSizeForMode(activeRows[itemsModal.rowIndex]!, sizingMode)}</span></>
+                      : <>Everything ACS returned</>}
+                  </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    {currentBrand.name} • {currentCategory?.label || selectedCategoryKey} • {currentSubcategory?.name || 'Garments'}
+                    {currentBrand.name} • {current.category.label}
+                    {itemsModal.rowIndex !== null && currentChart ? ` • ${currentChart.name}` : ''}
+                    {leaf !== ALL_SUBCATEGORIES
+                      ? ` • ${detail?.subcategories.find((group) => leafIdOf(group.leafKey) === leaf)?.label ?? ''}`
+                      : ''}
                   </p>
                 </div>
               </div>
               <button
                 type="button"
-                id="btn-close-size-items-modal"
-                onClick={() => setActiveSizeItemsModal(null)}
+                onClick={() => setItemsModal(null)}
                 className="w-8 h-8 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 flex items-center justify-center transition-colors cursor-pointer"
-                title="Close popup"
+                aria-label="Close"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Modal Subheader: Size Dimensions & Fit Spec */}
-            <div className="px-6 py-2.5 bg-slate-50/80 border-b border-slate-200 text-xs text-slate-600 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3 font-medium">
-                <span className="text-slate-500">Size Spec:</span>
-                {activeSizeItemsModal.row?.chestCm && (
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-200">
-                    Chest: <strong>{activeSizeItemsModal.row?.chestCm} cm</strong>
-                  </span>
-                )}
-                {activeSizeItemsModal.row?.waistCm && (
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-200">
-                    Waist: <strong>{activeSizeItemsModal.row?.waistCm} cm</strong>
-                  </span>
-                )}
-                {activeSizeItemsModal.row?.footLengthCm && (
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-200">
-                    Foot: <strong>{activeSizeItemsModal.row?.footLengthCm} cm</strong>
-                  </span>
-                )}
-                {activeSizeItemsModal.row?.fitNote && (
-                  <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded font-semibold">
-                    {activeSizeItemsModal.row?.fitNote}
-                  </span>
-                )}
-              </div>
-              <span className="text-[11px] text-purple-700 font-medium">
-                {modalProducts.length} products from ACS
-              </span>
-            </div>
-
-            {/* Modal Body: List of Suitable Items */}
             <div className="p-6 overflow-y-auto space-y-3 divide-y divide-slate-100">
-              {(() => {
-                if (modalProducts.length === 0) {
-                  return (
-                    <div className="text-center py-10">
-                      <p className="text-sm font-semibold text-slate-700">
-                        {activeSizeItemsModal.sizeLabel
-                          ? `ACS returned no product with size ${activeSizeItemsModal.formattedSize} in stock.`
-                          : 'ACS returned no products for this filter.'}
-                      </p>
-                      <p className="text-xs text-slate-400 mt-1">This is the answer to the filter shown above the size table.</p>
-                    </div>
-                  );
-                }
-
-                return modalProducts.map((product) => {
-                  const isCurrentBrand = currentBrand.coverageType === 'none'
-                    ? product.brand === null
-                    : product.brand?.toLowerCase() === currentBrand.name.toLowerCase();
-                  const price = product.price === null
-                    ? 'Price unavailable'
-                    : `${product.currency ? `${product.currency} ` : ''}${product.price.toFixed(2)}`;
-                  const availability = product.availability.replaceAll('_', ' ').toLowerCase();
-                  return (
-                    <div
-                      key={product.id}
-                      className="pt-3 first:pt-0 flex items-center justify-between gap-4 group hover:bg-slate-50/80 p-2.5 rounded-xl transition-colors"
-                    >
-                      <div className="flex items-center gap-3.5 min-w-0">
-                        {product.image ? (
-                          <img
-                            src={product.image}
-                            alt={product.title}
-                            className="w-14 h-14 object-cover rounded-lg border border-slate-200 shrink-0 bg-slate-100"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <div className="w-14 h-14 rounded-lg border border-slate-200 shrink-0 bg-slate-100" />
-                        )}
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                              isCurrentBrand
-                                ? 'bg-purple-100 text-purple-800 font-extrabold'
-                                : 'bg-slate-100 text-slate-600'
-                            }`}>
-                              {product.brand || 'No brand'}
-                            </span>
-                            <span className="text-[11px] font-mono text-slate-400">{product.sku || 'SKU unavailable'}</span>
-                          </div>
-                          <h4 className="text-sm font-semibold text-slate-900 truncate mt-0.5 group-hover:text-purple-700 transition-colors">
+              {modalItems.length === 0 ? (
+                <div className="text-center py-10">
+                  <p className="text-sm font-semibold text-slate-700">ACS returned no products here.</p>
+                  <p className="text-xs text-slate-400 mt-1">This is the answer to the filter shown above the size table.</p>
+                </div>
+              ) : modalItems.map(({ product, assignment }) => {
+                const price = product.price === null
+                  ? 'Price unavailable'
+                  : `${product.currency ? `${product.currency} ` : ''}${product.price.toFixed(2)}`;
+                const path = product.personaPath ? formatPersonaSegments(product.personaPath.split(' > ')) : 'Category unavailable';
+                const chartName = assignment ? chartNameById.get(assignment.chartId) : null;
+                return (
+                  <div key={product.id} className="pt-3 first:pt-0 flex items-center justify-between gap-4 group hover:bg-slate-50/80 p-2.5 rounded-xl transition-colors">
+                    <div className="flex items-center gap-3.5 min-w-0">
+                      {product.image ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={product.image}
+                          alt={product.title}
+                          className="w-14 h-14 object-cover rounded-lg border border-slate-200 shrink-0 bg-slate-100"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="w-14 h-14 rounded-lg border border-slate-200 shrink-0 bg-slate-100" />
+                      )}
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-800">
+                            {product.brand || 'No brand'}
+                          </span>
+                          <span className="text-[11px] font-mono text-slate-400">{product.sku || 'SKU unavailable'}</span>
+                        </div>
+                        {product.uri ? (
+                          <a
+                            href={product.uri}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="block text-sm font-semibold text-slate-900 truncate mt-0.5 hover:text-purple-700 transition-colors"
+                          >
                             {product.title}
-                          </h4>
-                          <p className="text-xs text-slate-500 truncate mt-0.5">
-                            {product.category || 'Category unavailable'}
-                          </p>
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="text-xs font-black text-slate-900">{price}</span>
-                            <span className="text-slate-300">•</span>
-                            <span className="text-[11px] text-slate-500">
-                              Available Sizes: {product.sizes.length > 0 ? product.sizes.join(', ') : 'Not listed'}
-                            </span>
-                          </div>
+                          </a>
+                        ) : (
+                          <h4 className="text-sm font-semibold text-slate-900 truncate mt-0.5">{product.title}</h4>
+                        )}
+                        <p className="text-xs text-slate-500 truncate mt-0.5">
+                          {path}
+                          {chartName ? ` • Chart: ${chartName}` : ''}
+                        </p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-xs font-black text-slate-900">{price}</span>
+                          <span className="text-slate-300">•</span>
+                          <span className="text-[11px] text-slate-500">
+                            Available Sizes: {product.sizes.length > 0 ? product.sizes.join(', ') : 'Not listed'}
+                          </span>
                         </div>
                       </div>
-
-                      <div className="flex flex-col items-end shrink-0 gap-1.5">
-                        {product.fitSizes.length > 0 ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
-                            <Check className="w-3 h-3 text-emerald-600" />
-                            Fits: {product.fitSizes.join(', ')}
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
-                            <Info className="w-3 h-3 text-amber-600" />
-                            No stocked size fits
-                          </span>
-                        )}
-                        <span className="text-[11px] text-slate-400 font-mono">
-                          {availability}
-                        </span>
-                      </div>
                     </div>
-                  );
-                });
-              })()}
+
+                    <div className="flex flex-col items-end shrink-0 gap-1.5">
+                      {product.fitSizes.length > 0 ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
+                          <Check className="w-3 h-3 text-emerald-600" />
+                          Fits: {product.fitSizes.join(', ')}
+                        </span>
+                      ) : (
+                        <span
+                          title="ACS matched it on the range of all its sizes together, but no single stocked size fits."
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md"
+                        >
+                          <Info className="w-3 h-3 text-amber-600" />
+                          No stocked size fits
+                        </span>
+                      )}
+                      <span className="text-[11px] text-slate-400 font-mono">in stock</span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
-            {/* Modal Footer */}
             <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs">
               <span className="text-slate-500">
-                {activeSizeItemsModal.sizeLabel
-                  ? <>Products ACS returned that have <strong>{activeSizeItemsModal.formattedSize}</strong> ({activeSizeItemsModal.sizeLabel}) in stock within tolerance</>
-                  : <>Exactly the products ACS returned for the filter above</>}
+                {itemsModal.rowIndex !== null
+                  ? 'Products ACS returned that have this size in stock within tolerance'
+                  : 'Exactly the products ACS returned for the filter above'}
               </span>
               <button
                 type="button"
-                onClick={() => setActiveSizeItemsModal(null)}
+                onClick={() => setItemsModal(null)}
                 className="px-4 py-1.5 rounded-lg bg-slate-900 text-white font-semibold text-xs hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 Close
