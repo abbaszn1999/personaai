@@ -36,7 +36,7 @@ export interface StructuredCallInput {
 
 export interface StructuredCallResult<T> {
   value: T;
-  usage: GeminiTokenUsage & { cachedTokens: number };
+  usage: GeminiTokenUsage;
 }
 
 function isMissingCacheError(error: unknown): boolean {
@@ -118,8 +118,7 @@ export async function callStructured<T>(request: StructuredCallInput): Promise<S
   }
 
   const usage = readGeminiTokenUsage(response.usageMetadata);
-  const cachedTokens = response.usageMetadata?.cachedContentTokenCount ?? 0;
-  addTokenCost(input.meter, usage.inputTokens, usage.outputTokens);
+  addTokenCost(input.meter, usage);
 
   const text = response.text?.trim();
   if (!text) throw new GeminiChatError(`${input.label}: the model returned no content.`);
@@ -129,7 +128,7 @@ export async function callStructured<T>(request: StructuredCallInput): Promise<S
   } catch {
     throw new GeminiChatError(`${input.label}: the model returned invalid JSON.`);
   }
-  return { value, usage: { ...usage, cachedTokens } };
+  return { value, usage };
 }
 
 function toAgentError(error: unknown): GeminiChatError {

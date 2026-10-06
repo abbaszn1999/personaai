@@ -487,7 +487,7 @@ export function SyncView({
                                 isCompleted
                                   ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/20'
                                   : isCurrent
-                                  ? 'bg-gradient-to-br from-[#8B5CF6] to-[#EC4899] text-white shadow-md shadow-purple-500/25 ring-3 ring-purple-100 ring-offset-1 scale-105'
+                                  ? 'bg-gradient-to-br from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-white shadow-md shadow-purple-500/25 ring-3 ring-purple-100 ring-offset-1 scale-105'
                                   : 'bg-slate-100 text-slate-500 border border-slate-200 group-hover:border-slate-300'
                               }`}
                             >

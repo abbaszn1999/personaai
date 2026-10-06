@@ -457,6 +457,54 @@ h1, h2, h3, h4, h5, .font-display {
   --color-indigo-700: #991b1b;
 }
 
+/* The Store → Sync tab is a copy of the demo, whose accent is a purple→pink gradient. This scope
+ * remaps the whole purple / violet / indigo / pink family onto Persona's orange→red identity so the
+ * copy's markup can stay untouched. Orange takes the purple role and the brand red takes pink's,
+ * which keeps every `from-purple-* to-pink-*` gradient reading as the logo's orange→red. */
+.sync-brand {
+  --color-purple-50:  #fff7ed;
+  --color-purple-100: #ffedd5;
+  --color-purple-200: #fed7aa;
+  --color-purple-300: #fdba74;
+  --color-purple-400: #fb923c;
+  --color-purple-500: #f97316;
+  --color-purple-600: var(--color-brand-from);
+  --color-purple-700: #d9480f;
+  --color-purple-800: #9a3412;
+  --color-purple-900: #7c2d12;
+  --color-purple-950: #431407;
+
+  --color-violet-50:  var(--color-purple-50);
+  --color-violet-100: var(--color-purple-100);
+  --color-violet-200: var(--color-purple-200);
+  --color-violet-300: var(--color-purple-300);
+  --color-violet-400: var(--color-purple-400);
+  --color-violet-500: var(--color-purple-500);
+  --color-violet-600: var(--color-purple-600);
+  --color-violet-700: var(--color-purple-700);
+  --color-violet-800: var(--color-purple-800);
+  --color-violet-900: var(--color-purple-900);
+  --color-violet-950: var(--color-purple-950);
+
+  --color-indigo-50:  #fef2f2;
+  --color-indigo-100: #fee2e2;
+  --color-indigo-200: #fecaca;
+  --color-indigo-600: var(--color-brand-to);
+  --color-indigo-700: #991b1b;
+
+  --color-pink-50:  #fef2f2;
+  --color-pink-100: #fee2e2;
+  --color-pink-200: #fecaca;
+  --color-pink-300: #fca5a5;
+  --color-pink-400: #f87171;
+  --color-pink-500: #ef4444;
+  --color-pink-600: var(--color-brand-to);
+  --color-pink-700: #991b1b;
+  --color-pink-800: #7f1d1d;
+  --color-pink-900: #5f1717;
+  --color-pink-950: #450a0a;
+}
+
 /* Mapping is intentionally opaque: depth comes from color, borders and motion—not transparency. */
 .mapping-panel {
   border-color: var(--color-mapping-border) !important;

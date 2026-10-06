@@ -212,7 +212,15 @@ describe("readGeminiTokenUsage", () => {
   it("bills thoughts as output and treats a missing report as zero", () => {
     expect(
       readGeminiTokenUsage({ promptTokenCount: 100, candidatesTokenCount: 20, thoughtsTokenCount: 5 })
-    ).toEqual({ inputTokens: 100, outputTokens: 25 });
-    expect(readGeminiTokenUsage(undefined)).toEqual({ inputTokens: 0, outputTokens: 0 });
+    ).toEqual({ inputTokens: 100, outputTokens: 25, cachedTokens: 0 });
+    expect(readGeminiTokenUsage(undefined)).toEqual({ inputTokens: 0, outputTokens: 0, cachedTokens: 0 });
+  });
+
+  it("reports the cached part of the prompt, never more than the prompt itself", () => {
+    expect(
+      readGeminiTokenUsage({ promptTokenCount: 17_047, candidatesTokenCount: 0, cachedContentTokenCount: 16_293 })
+    ).toEqual({ inputTokens: 17_047, outputTokens: 0, cachedTokens: 16_293 });
+    expect(readGeminiTokenUsage({ promptTokenCount: 100, cachedContentTokenCount: 900 }).cachedTokens).toBe(100);
+    expect(readGeminiTokenUsage({ promptTokenCount: 100, cachedContentTokenCount: -4 }).cachedTokens).toBe(0);
   });
 });

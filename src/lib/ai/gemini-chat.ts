@@ -68,23 +68,30 @@ interface CreateChatCompletionOpts {
  *  tokens as output, and a structured call that asked for "minimal" thinking can still report
  *  a non-zero `thoughtsTokenCount`. */
 export interface GeminiTokenUsage {
+  /** `promptTokenCount`, which includes the cached part. */
   inputTokens: number;
   outputTokens: number;
+  /** The part of `inputTokens` served from a context cache (billed at a tenth of the price). */
+  cachedTokens: number;
 }
 
 export function readGeminiTokenUsage(metadata: {
   promptTokenCount?: number | null;
   candidatesTokenCount?: number | null;
   thoughtsTokenCount?: number | null;
+  cachedContentTokenCount?: number | null;
 } | null | undefined): GeminiTokenUsage {
   const inputTokens = metadata?.promptTokenCount ?? 0;
   const candidateTokens = metadata?.candidatesTokenCount ?? 0;
   const thoughtTokens = metadata?.thoughtsTokenCount ?? 0;
+  const cachedTokens = metadata?.cachedContentTokenCount ?? 0;
+  const input = Number.isFinite(inputTokens) ? inputTokens : 0;
   return {
-    inputTokens: Number.isFinite(inputTokens) ? inputTokens : 0,
+    inputTokens: input,
     outputTokens:
       (Number.isFinite(candidateTokens) ? candidateTokens : 0) +
       (Number.isFinite(thoughtTokens) ? thoughtTokens : 0),
+    cachedTokens: Number.isFinite(cachedTokens) ? Math.min(Math.max(cachedTokens, 0), Math.max(input, 0)) : 0,
   };
 }
 
