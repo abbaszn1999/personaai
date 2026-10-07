@@ -18,8 +18,9 @@ vi.mock("@/lib/catalog/acs/sync", () => ({
 vi.mock("@/lib/catalog/pager", () => ({
   createCatalogPager: vi.fn(async () => ({ fetchByIds })),
 }));
+const getAcsPublishStampId = vi.fn(async (): Promise<string | null> => "run-live");
 vi.mock("@/lib/db/sizing-runs", () => ({
-  getAcsPublishStampId: vi.fn(async () => null),
+  getAcsPublishStampId: () => getAcsPublishStampId(),
 }));
 
 const { indexSingleProduct, indexProductIfInScope, resolveCategoryPaths, resolveGarmentCategory } = await import(
@@ -156,6 +157,13 @@ describe("indexProductIfInScope", () => {
 
   it("reports out-of-scope when the merchant has selected nothing", async () => {
     const outcome = await indexProductIfInScope({ ...scopedConnection, selectedCategoryIds: [] }, product);
+    expect(outcome).toBe("out-of-scope");
+    expect(syncProductToAcs).not.toHaveBeenCalled();
+  });
+
+  it("writes nothing to ACS for a store that has never published, such as one started from scratch", async () => {
+    getAcsPublishStampId.mockResolvedValueOnce(null);
+    const outcome = await indexProductIfInScope(scopedConnection, product);
     expect(outcome).toBe("out-of-scope");
     expect(syncProductToAcs).not.toHaveBeenCalled();
   });

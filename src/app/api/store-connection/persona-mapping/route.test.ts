@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import type { StoreConnectionRow } from "@/lib/db/store-connections";
 import { EMPTY_ACS_MAPPING } from "@/lib/catalog/acs-mapping";
+import { IDLE_SETUP_RESET } from "@/lib/catalog/setup-reset-state";
 
 process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://test.supabase.co";
 process.env.SUPABASE_SECRET_KEY ??= "test-key";
@@ -92,6 +93,7 @@ function row(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRow {
     cmsColumnDiscoveryUpdatedAt: null,
     ordersAccess: null,
     storeCurrency: null,
+    setupReset: IDLE_SETUP_RESET,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides,

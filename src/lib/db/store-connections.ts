@@ -17,6 +17,7 @@ import { mappedSourceCategoryIds, parsePersonaCategoryMap, parsePersonaScope } f
 import { parseStoreBrandMapping, type StoreBrandMapping } from "@/lib/sizing/brand-mapping";
 import { parseSizeSettings, type SizeSettings } from "@/lib/sizing/size-types";
 import { parseSizingSource, type SizingSource } from "@/lib/sizing/sizing-source";
+import { parseSetupResetState, type SetupResetState } from "@/lib/catalog/setup-reset-state";
 
 /**
  * Where the catalog is in its enrichment/embedding lifecycle. Retrieval falls back to the
@@ -111,6 +112,8 @@ export interface StoreConnectionRow {
   /** ISO 4217 code the store sells in. Only WooCommerce needs it — Shopify reports a currency on
    *  every product. Null until read, in which case Woo prices fall back to USD. */
   storeCurrency: string | null;
+  /** The last "Start from scratch" and its background ACS cleanup. */
+  setupReset: SetupResetState;
   createdAt: string;
   updatedAt: string;
 }
@@ -159,6 +162,7 @@ function rowToConnection(row: Record<string, unknown>): StoreConnectionRow {
     cmsColumnDiscoveryUpdatedAt: (row.cms_column_discovery_updated_at as string | null) ?? null,
     ordersAccess: row.orders_access === "active" || row.orders_access === "missing" ? row.orders_access : null,
     storeCurrency: (row.store_currency as string | null) ?? null,
+    setupReset: parseSetupResetState(row),
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
   };

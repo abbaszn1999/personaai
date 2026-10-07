@@ -201,6 +201,11 @@ export async function indexProductIfInScope(
     return removed ? "removed" : "out-of-scope";
   }
 
+  // Nothing of this store's is in ACS until a Stage 5 publish puts it there, and a store started
+  // from scratch has none. Writing one product on an edit would put it back early, sized by a setup
+  // that no longer exists; the next publish writes it with everything else.
+  if ((await getAcsPublishStampId(connection.id)) === null) return "out-of-scope";
+
   return indexSingleProduct(
     connection.id,
     { ...product, sourceCategoryIds: membership, customFields, variants },

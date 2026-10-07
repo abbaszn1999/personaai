@@ -92,8 +92,25 @@ describe("deleteAllAcsProductsForConnection", () => {
     expect(deleteSpy).toHaveBeenCalledWith(`${CONNECTION_ID}_a`);
     expect(deleteSpy).toHaveBeenCalledWith("legacy-a");
     expect(deleteSpy).not.toHaveBeenCalledWith("other_b");
-    expect(listSpy).toHaveBeenNthCalledWith(1, undefined);
-    expect(listSpy).toHaveBeenNthCalledWith(2, "page-2");
+    // Only the fields ownership and ordering read, since this walks every tenant's documents.
+    const ownershipMask = { readMask: "id,type,primaryProductId,attributes" };
+    expect(listSpy).toHaveBeenNthCalledWith(1, undefined, ownershipMask);
+    expect(listSpy).toHaveBeenNthCalledWith(2, "page-2", ownershipMask);
+  });
+
+  it("reports progress after every batch it deletes", async () => {
+    vi.spyOn(client, "listProducts").mockResolvedValueOnce({
+      products: [
+        { id: `${CONNECTION_ID}_a`, type: "PRIMARY" },
+        { id: `${CONNECTION_ID}_b`, type: "PRIMARY" },
+      ],
+    } as never);
+    vi.spyOn(client, "deleteProduct").mockResolvedValue(true);
+    const onProgress = vi.fn();
+
+    await deleteAllAcsProductsForConnection(CONNECTION_ID, { onProgress });
+
+    expect(onProgress).toHaveBeenLastCalledWith(2);
   });
 
   it("deletes every variant before deleting its parent", async () => {

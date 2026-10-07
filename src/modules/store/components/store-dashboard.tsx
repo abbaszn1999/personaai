@@ -14,6 +14,7 @@ import { SyncTab } from "../sync/sync-tab";
 import { useStoreConnect } from "../hooks/use-store-connect";
 import { useSizingStore } from "../sizing/store";
 import { storeSizingStage } from "../sizing/stage-storage";
+import { SetupResetBanner, StartFromScratchButton } from "./start-from-scratch";
 
 /**
  * Connection → Mapping → Setup → Sizing Tester → Style Guide, which is the order the work actually
@@ -73,6 +74,17 @@ function StoreDashboardInner() {
       <DashboardPageHeader
         title="Store"
         description="Connect and manage your e-commerce platform"
+        actions={
+          connection && (activeTab === "setup" || activeTab === "mapping") ? (
+            <StartFromScratchButton
+              key={activeTab}
+              scope={activeTab}
+              connectionId={connection.id}
+              storeName={connection.storeName || connection.storeUrl}
+              returnHref={`${pathname}?section=${activeTab}`}
+            />
+          ) : undefined
+        }
       />
       {/* `store-theme` re-tunes the semantic colors for a dark surface (see globals.css). Scoped
        *  here rather than on `.dashboard-theme` so only the store pages move for now. Dialogs
@@ -85,6 +97,8 @@ function StoreDashboardInner() {
         )}
 
         <div className="w-full min-w-0 animate-fade-in">
+          {connection && (activeTab === "setup" || activeTab === "mapping") && <SetupResetBanner />}
+
           {activeTab === "connection" && (
             <ConnectStoreView
               store={store}

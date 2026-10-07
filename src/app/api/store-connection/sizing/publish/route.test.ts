@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { StoreConnectionRow } from "@/lib/db/store-connections";
+import { IDLE_SETUP_RESET } from "@/lib/catalog/setup-reset-state";
 import { POST } from "./route";
 
 vi.mock("@/modules/auth/lib/get-user", () => ({ getCurrentUser: vi.fn() }));
@@ -38,7 +39,9 @@ describe("POST /api/store-connection/sizing/publish", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getCurrentUser).mockResolvedValue({ id: "user-1" } as never);
-    vi.mocked(getStoreConnectionByOwner).mockResolvedValue({ id: "connection-1" } as unknown as StoreConnectionRow);
+    vi.mocked(getStoreConnectionByOwner).mockResolvedValue(
+      { id: "connection-1", setupReset: IDLE_SETUP_RESET } as unknown as StoreConnectionRow,
+    );
     vi.mocked(getLatestSizingRun).mockResolvedValue({
       id: "run-1",
       stage: "assign",
@@ -50,6 +53,18 @@ describe("POST /api/store-connection/sizing/publish", () => {
       missingRawSizeFormat: 0,
     } as never);
     vi.mocked(updateSizingRun).mockResolvedValue({ id: "run-1", stage: "resolve", status: "pending" } as never);
+  });
+
+  it("waits while Start from scratch is still removing the store's old products from ACS", async () => {
+    vi.mocked(getStoreConnectionByOwner).mockResolvedValue({
+      id: "connection-1",
+      setupReset: { ...IDLE_SETUP_RESET, status: "running", startedAt: new Date().toISOString() },
+    } as unknown as StoreConnectionRow);
+
+    const response = await POST(post({}));
+
+    expect(response.status).toBe(409);
+    expect(updateSizingRun).not.toHaveBeenCalled();
   });
 
   it("queues the publish when every product has a chart", async () => {

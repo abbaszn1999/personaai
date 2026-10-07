@@ -24,6 +24,7 @@ const SYSTEM_VISITOR_ID = "system:catalog-read";
 /** Deletes kept in flight at once during a full-catalog sweep. A few hundred concurrent DELETEs
  *  against one API is a self-inflicted rate limit; a bounded window stays well inside quota. */
 const DELETE_CONCURRENCY = 20;
+const OWNERSHIP_READ_MASK = "id,type,primaryProductId,attributes";
 
 function chunk<T>(items: readonly T[], size: number): T[][] {
   const out: T[][] = [];
@@ -317,7 +318,10 @@ export async function retireStaleAcsProducts(connectionId: string, runId: string
  * selection — so it is built on `merchantFilterClause` alone rather than going through
  * `searchProducts`'s mandatory (and here, unwanted) inclusion-scope clause.
  */
-export async function deleteAllAcsProductsForConnection(connectionId: string): Promise<number> {
+export async function deleteAllAcsProductsForConnection(
+  connectionId: string,
+  options: { onProgress?: (deleted: number) => Promise<void> | void } = {},
+): Promise<number> {
   if (!isAcsConfigured()) return 0;
 
   // ProductService.ListProducts reads the catalog's source of truth. SearchService was previously
@@ -330,7 +334,8 @@ export async function deleteAllAcsProductsForConnection(connectionId: string): P
   let pageToken: string | undefined;
 
   do {
-    const response = await listProducts(pageToken);
+    // Only what ownership and the variant-first ordering read: this walks every tenant's documents.
+    const response = await listProducts(pageToken, { readMask: OWNERSHIP_READ_MASK });
     for (const product of response.products ?? []) {
       const merchantIds = product.attributes?.merchant_id?.text ?? [];
       if (product.id.startsWith(`${connectionId}_`) || merchantIds.includes(connectionId)) {
@@ -362,6 +367,7 @@ export async function deleteAllAcsProductsForConnection(connectionId: string): P
 
       const failure = removed.find((result) => result.status === "rejected");
       if (failure) throw failure.reason;
+      await options.onProgress?.(deleted);
     }
   }
 

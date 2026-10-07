@@ -3,6 +3,7 @@ import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
 import { getSizingProductSnapshotHealth } from "@/lib/db/sizing-product-records";
 import { getLatestSizingRun, rewindRun, updateSizingRun } from "@/lib/db/sizing-runs";
 import { summarizeGeneratedSizing } from "@/lib/catalog/acs/stage-five-preview";
+import { setupResetRunning } from "@/lib/catalog/setup-reset-state";
 
 export async function POST(request: Request) {
   try {
@@ -11,6 +12,14 @@ export async function POST(request: Request) {
 
     const connection = await getStoreConnectionByOwner(user.id);
     if (!connection) return Response.json({ error: "Store connection not found" }, { status: 404 });
+
+    // A cleanup still deleting this store's documents would delete the new catalog with them.
+    if (setupResetRunning(connection.setupReset)) {
+      return Response.json(
+        { error: "Old products are still being removed from ACS after Start from scratch. Publish once that finishes." },
+        { status: 409 },
+      );
+    }
 
     const run = await getLatestSizingRun(connection.id);
     if (!run) return Response.json({ error: "Run sizing setup before publishing." }, { status: 409 });
