@@ -16,6 +16,7 @@ import { storeSizingStage } from "../sizing/stage-storage";
 import { resetSteps, type ResetStepState } from "./reset-steps";
 
 const POLL_MS = 2000;
+const RETRY_READ_MS = 5000;
 /** A finished cleanup stays announced this long, so a merchant returning to the tab sees it ended. */
 const DONE_VISIBLE_MS = 60 * 60_000;
 /** Long enough to read that everything finished before the page moves to the first step. */
@@ -40,16 +41,28 @@ const useResetStatus = create<ResetStatusState>((set, get) => ({
   load: async () => {
     if (pollTimer) clearTimeout(pollTimer);
     pollTimer = null;
+    let read = false;
     try {
       const res = await fetch("/api/store-connection/start-from-scratch", { cache: "no-store" });
       if (res.ok) {
         const data = (await res.json()) as { reset?: SetupResetState; live?: boolean };
         set({ reset: data.reset ?? IDLE_SETUP_RESET, live: data.live === true, loaded: true });
+        read = true;
+      } else if (res.status < 500) {
+        // Signed out or no store: asking again will not change the answer.
+        set({ loaded: true });
+        return;
       }
     } catch {
-      // The next poll or page load reads it again; a screen one beat late misleads nobody.
+      // Handled below with every other failed read.
     }
-    if (get().reset.status === "running") pollTimer = setTimeout(() => void get().load(), POLL_MS);
+    // A failed read must not hold Setup and Mapping on a loading screen forever. They open on the
+    // last state known, the server still refuses changes to a store being reset, and the read is
+    // tried again until it lands.
+    if (!read) set({ loaded: true });
+    if (!read || get().reset.status === "running") {
+      pollTimer = setTimeout(() => void get().load(), read ? POLL_MS : RETRY_READ_MS);
+    }
   },
   retry: async () => {
     let problem: string | null = null;
