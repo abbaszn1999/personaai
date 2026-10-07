@@ -14,12 +14,11 @@ export default async function RootPage() {
     redirect("/onboarding");
   }
 
-  // Every account has at most one project — send it straight to the flat try-on page instead
-  // of a project-scoped route.
+  // Every account has at most one project — land on its analytics instead of a project-scoped route.
   const workspaces = await getWorkspacesByOwner(user.id);
 
   if (workspaces.length > 0) {
-    redirect("/try-on");
+    redirect("/analytics");
   }
 
   // If somehow no project exists yet, go to a setup page

@@ -61,7 +61,6 @@ export function StageChartResearch() {
   const error = useSizingStore((s) => s.chartsError);
   const loadCharts = useSizingStore((s) => s.loadCharts);
   const loadRun = useSizingStore((s) => s.loadRun);
-  const stopPolling = useSizingStore((s) => s.stopPolling);
   const openChartModal = useSizingStore((s) => s.openChartModal);
   const mappedLeaves = useSizingStore((s) => s.mappedLeaves);
   const openBrandMappingEditor = useSizingStore((s) => s.openBrandMappingEditor);
@@ -73,34 +72,23 @@ export function StageChartResearch() {
   const researching = isRunWorking(run) && run?.stage === "research";
 
   React.useEffect(() => {
-    void loadRun();
-    return () => stopPolling();
-  }, [loadRun, stopPolling]);
+    void loadRun({ ifStale: true });
+  }, [loadRun]);
 
   React.useEffect(() => {
     if (!researching) void loadCharts();
   }, [researching, loadCharts]);
 
   // Research persists each brand's outcome as it finishes, so progress is a re-read of real rows
-  // rather than an animated timer. Only while a pass is live: this response carries every chart's
-  // measurement table, and polling it at rest would make the pipeline's largest response its most
-  // frequent one.
+  // rather than an animated timer. Read when the run says research moved — a brand started, a
+  // brand left the queue — rather than on a timer: this response carries every chart's measurement
+  // table, and the run poll already reports exactly those moments.
+  const researchProgress = researching
+    ? `${run?.researchCurrentBrandKey ?? ""}|${run?.researchBrandKeys.length ?? 0}`
+    : null;
   React.useEffect(() => {
-    if (!researching) return;
-
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const poll = async () => {
-      await loadCharts({ force: true });
-      if (!cancelled) timer = setTimeout(() => void poll(), 3_000);
-    };
-    void poll();
-
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [researching, loadCharts]);
+    if (researchProgress !== null) void loadCharts({ force: true });
+  }, [researchProgress, loadCharts]);
 
   // One last read on the transition out, because the final brand's charts are written after the poll
   // above has stopped.

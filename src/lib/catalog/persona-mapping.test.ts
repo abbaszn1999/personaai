@@ -3,6 +3,7 @@ import {
   buildPersonaMappingConfig,
   effectiveMappingFor,
   mappedSourceCategoryIds,
+  personaPathConflict,
   personaPathLabel,
   resolvePersonaPaths,
   storeCategoryTrail,
@@ -104,6 +105,13 @@ describe("hierarchy-aware resolution", () => {
     expect(resolvePersonaPaths(["bottoms", "tops"], config)[0]?.key).toBe("women:bottom:jean");
   });
 
+  it("still lets a deeper category win over what the title suggests", () => {
+    const config = buildPersonaMappingConfig(scope, { polos: jeans, sale: tops }, tree);
+
+    expect(resolvePersonaPaths(["sale", "polos"], config, { title: "Printed T-shirt" })[0]?.key)
+      .toBe("women:bottom:jean");
+  });
+
   it("names the ancestor an inherited mapping came from", () => {
     const config = buildPersonaMappingConfig(scope, { tops }, tree);
 
@@ -123,6 +131,81 @@ describe("hierarchy-aware resolution", () => {
       sourceCategoryId: "bottoms",
       inheritedFromCategoryId: null,
     });
+  });
+});
+
+describe("flat collections (Shopify)", () => {
+  const collections: StoreCategory[] = [
+    { id: "454406701298", name: "tom tailor all", productCount: 29 },
+    { id: "462482112754", name: "tom tailor t-shirt women w26", productCount: 29 },
+    { id: "465211883762", name: "tom tailor women pullover w26", productCount: 3 },
+    { id: "487860633842", name: "Women Pullover w27", productCount: 47 },
+  ];
+  const flatScope = {
+    configured: true,
+    enabledDeptIds: ["men", "women", "unisex"],
+    enabledLeafKeys: ["men:bottom:jean", "women:top:t-shirt", "women:outerwear:cardigan", "women:top:sweater", "unisex:top:t-shirt"],
+    customLeaves: [],
+    customCategories: [],
+  };
+  const config = buildPersonaMappingConfig(flatScope, {
+    "454406701298": { status: "mapped", departmentId: "men", categoryId: "bottom", subCategory: "jean" },
+    "462482112754": { status: "mapped", departmentId: "women", categoryId: "top", subCategory: "t-shirt" },
+    "465211883762": { status: "mapped", departmentId: "women", categoryId: "outerwear", subCategory: "cardigan" },
+    "487860633842": { status: "mapped", departmentId: "women", categoryId: "top", subCategory: "sweater" },
+  }, collections);
+  const both = ["454406701298", "462482112754"];
+
+  it("sizes a T-shirt as a T-shirt when a catch-all collection mapped to jeans sorts first", () => {
+    const paths = resolvePersonaPaths(both, config, { title: "Tom Tailor Soft Organic Cotton Printed T-shirt" });
+
+    expect(paths.map((path) => path.key)).toEqual(["women:top:t-shirt", "men:bottom:jean"]);
+  });
+
+  it("keeps the jeans path for the jeans that share the same catch-all", () => {
+    expect(resolvePersonaPaths(both, config, { title: "Tom Tailor Light Stone Blue Denim Regular Fit Jeans" })[0]?.key)
+      .toBe("men:bottom:jean");
+  });
+
+  it("prefers the exact subcategory the title names over a path that only shares its group", () => {
+    const pullover = ["465211883762", "487860633842"];
+
+    expect(resolvePersonaPaths(pullover, config, { title: "tom tailor women pullover w26" })[0]?.key)
+      .toBe("women:top:sweater");
+    expect(resolvePersonaPaths(pullover, config, { title: "Navy Cardigan with Concealed Button Placket" })[0]?.key)
+      .toBe("women:outerwear:cardigan");
+  });
+
+  it("falls back to collection id when the title says nothing either way", () => {
+    expect(resolvePersonaPaths(both, config, { title: "Gift card" })[0]?.key).toBe("men:bottom:jean");
+    expect(resolvePersonaPaths(both, config)[0]?.key).toBe("men:bottom:jean");
+  });
+
+  it("flags paths that disagree on size group or body, and not ones that merely differ in subcategory", () => {
+    const tee = resolvePersonaPaths(both, config, { title: "Printed T-shirt" });
+    expect(personaPathConflict(tee)).toMatchObject({ kind: "group" });
+
+    const pullover = resolvePersonaPaths(["487860633842", "462482112754"], config);
+    expect(personaPathConflict(pullover)).toBeNull();
+
+    const unisexConfig = buildPersonaMappingConfig(flatScope, {
+      a: { status: "mapped", departmentId: "women", categoryId: "top", subCategory: "t-shirt" },
+      b: { status: "mapped", departmentId: "unisex", categoryId: "top", subCategory: "t-shirt" },
+    }, [{ id: "a", name: "A", productCount: 1 }, { id: "b", name: "B", productCount: 1 }]);
+    expect(personaPathConflict(resolvePersonaPaths(["a", "b"], unisexConfig))).toBeNull();
+  });
+
+  it("flags a men's and a women's path in the same group as a department conflict", () => {
+    const mixed = buildPersonaMappingConfig(
+      { ...flatScope, enabledLeafKeys: [...flatScope.enabledLeafKeys, "men:top:t-shirt"] },
+      {
+        a: { status: "mapped", departmentId: "women", categoryId: "top", subCategory: "t-shirt" },
+        b: { status: "mapped", departmentId: "men", categoryId: "top", subCategory: "t-shirt" },
+      },
+      [{ id: "a", name: "A", productCount: 1 }, { id: "b", name: "B", productCount: 1 }],
+    );
+
+    expect(personaPathConflict(resolvePersonaPaths(["a", "b"], mixed))).toMatchObject({ kind: "department" });
   });
 });
 

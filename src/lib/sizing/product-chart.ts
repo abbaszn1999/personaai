@@ -5,7 +5,7 @@ import { personaSizingGroup } from "@/modules/store/mapping/persona-taxonomy";
 import { canonicalLabelForRow, matchRawFormat } from "./canonical";
 import {
   brandMappingIsCurrent,
-  resolveMappedBrandKey,
+  resolveChartBrandKey,
   type StoreBrandMapping,
 } from "./brand-mapping";
 import { chartKey, normalizeSizeLabel, splitRawSizeValue } from "./keys";
@@ -208,8 +208,9 @@ export function resolveProductChart(
 ): ProductChartResolution {
   const leafKey = input.primaryPersonaLeafKey;
   const brandType = context.brandTypes.get(input.brandKey) ?? "unclassified";
-  const mapped = resolveMappedBrandKey(input.brandKey, null, context.brandMapping);
-  const canonicalBrandKey = brandType === "global" ? mapped.brandKey : input.brandKey;
+  const canonicalBrandKey = brandType === "unclassified"
+    ? input.brandKey
+    : resolveChartBrandKey(input.brandKey, brandType, context.brandMapping);
 
   if (!leafKey) {
     return unresolved("no-leaf", leafKey, canonicalBrandKey);
@@ -348,14 +349,16 @@ export async function loadSizingResolutionContext(
   for (const row of coverage) brandTypes.set(row.brandKey, row.brandType);
 
   const globalKeys = [...brandTypes].filter(([, type]) => type === "global").map(([key]) => key);
-  const privateKeys = [...brandTypes]
-    .filter(([, type]) => type === "private" || type === "none")
-    .map(([key]) => key);
+  const privateKeys = [...new Set(
+    [...brandTypes]
+      .filter(([, type]) => type === "private" || type === "none")
+      .map(([key, type]) => resolveChartBrandKey(key, type, connection.sizingBrandMapping)),
+  )];
   const brandMappingCurrent =
     globalKeys.length === 0 || brandMappingIsCurrent(globalKeys, connection.sizingBrandMapping);
   const canonicalGlobalKeys = brandMappingCurrent
     ? [...new Set(globalKeys.map((key) =>
-        resolveMappedBrandKey(key, null, connection.sizingBrandMapping).brandKey))]
+        resolveChartBrandKey(key, "global", connection.sizingBrandMapping)))]
     : [];
 
   const [sharedCharts, privateCharts] = await Promise.all([

@@ -16,6 +16,13 @@ export interface StoreBrandMapping {
   sourceFingerprint: string;
   observed: Record<string, string[]>;
   aliases: Record<string, BrandAliasMapping>;
+  /**
+   * The same grouping for the store's own labels ("Moustache Men", "Moustache Women", a misspelt
+   * "Moutache Men"), so one set of private charts serves all of them. Kept apart from `aliases`:
+   * global aliases point at the shared chart registry and gate Phase 4 through
+   * `brandMappingIsCurrent`, while a private label missing here simply keeps its own identity.
+   */
+  privateAliases: Record<string, BrandAliasMapping>;
 }
 
 export interface DiscoveredBrand {
@@ -44,6 +51,7 @@ const EMPTY_MAPPING: StoreBrandMapping = {
   sourceFingerprint: "",
   observed: {},
   aliases: {},
+  privateAliases: {},
 };
 
 const QUALIFIER_TOKENS = new Set([
@@ -88,41 +96,44 @@ function cleanObserved(value: unknown): Record<string, string[]> {
   return observed;
 }
 
+function parseAliases(value: unknown, observed: Record<string, string[]>): Record<string, BrandAliasMapping> {
+  const aliases: Record<string, BrandAliasMapping> = {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) return aliases;
+  for (const [key, rawAlias] of Object.entries(value as Record<string, unknown>)) {
+    if (!rawAlias || typeof rawAlias !== "object" || Array.isArray(rawAlias)) continue;
+    const rawKey = normalizeBrandKey(key);
+    const alias = rawAlias as Record<string, unknown>;
+    const canonicalKey = normalizeBrandKey(
+      typeof alias.canonicalKey === "string" ? alias.canonicalKey : "",
+    );
+    const canonicalName =
+      typeof alias.canonicalName === "string" ? alias.canonicalName.trim().replace(/\s+/g, " ") : "";
+    if (!rawKey || !canonicalKey || !canonicalName) continue;
+    const labels = cleanLabels(alias.labels);
+    aliases[rawKey] = {
+      canonicalKey,
+      canonicalName,
+      labels: labels.length > 0 ? labels : observed[rawKey] ?? [key],
+      skuCount: typeof alias.skuCount === "number" && alias.skuCount >= 0 ? alias.skuCount : 0,
+      sizingCategories: cleanLabels(alias.sizingCategories),
+    };
+  }
+  return aliases;
+}
+
 /** Defensive parser for the JSONB document. Invalid entries are omitted rather than trusted. */
 export function parseStoreBrandMapping(value: unknown): StoreBrandMapping {
   if (!value || typeof value !== "object" || Array.isArray(value)) return structuredClone(EMPTY_MAPPING);
   const input = value as Record<string, unknown>;
   const observed = cleanObserved(input.observed);
-  const aliases: Record<string, BrandAliasMapping> = {};
-
-  if (input.aliases && typeof input.aliases === "object" && !Array.isArray(input.aliases)) {
-    for (const [key, rawAlias] of Object.entries(input.aliases as Record<string, unknown>)) {
-      if (!rawAlias || typeof rawAlias !== "object" || Array.isArray(rawAlias)) continue;
-      const rawKey = normalizeBrandKey(key);
-      const alias = rawAlias as Record<string, unknown>;
-      const canonicalKey = normalizeBrandKey(
-        typeof alias.canonicalKey === "string" ? alias.canonicalKey : "",
-      );
-      const canonicalName =
-        typeof alias.canonicalName === "string" ? alias.canonicalName.trim().replace(/\s+/g, " ") : "";
-      if (!rawKey || !canonicalKey || !canonicalName) continue;
-      const labels = cleanLabels(alias.labels);
-      aliases[rawKey] = {
-        canonicalKey,
-        canonicalName,
-        labels: labels.length > 0 ? labels : observed[rawKey] ?? [key],
-        skuCount: typeof alias.skuCount === "number" && alias.skuCount >= 0 ? alias.skuCount : 0,
-        sizingCategories: cleanLabels(alias.sizingCategories),
-      };
-    }
-  }
 
   return {
     version: BRAND_MAPPING_VERSION,
     confirmedAt: typeof input.confirmedAt === "string" && input.confirmedAt ? input.confirmedAt : null,
     sourceFingerprint: typeof input.sourceFingerprint === "string" ? input.sourceFingerprint : "",
     observed,
-    aliases,
+    aliases: parseAliases(input.aliases, observed),
+    privateAliases: parseAliases(input.privateAliases, observed),
   };
 }
 
@@ -169,6 +180,39 @@ export function resolveMappedBrandKey(
   return alias
     ? { brandKey: alias.canonicalKey, brandName: alias.canonicalName }
     : { brandKey: normalized, brandName: rawName?.trim() || normalized };
+}
+
+/**
+ * The brand key a product's charts are filed and looked up under, for every brand type.
+ *
+ * Global brands resolve through the confirmed shared-registry aliases; private labels through the
+ * store's own grouping; anything else, and every label nobody grouped, keeps its raw key. One
+ * function so the chart writer, the stocked-leaf counts and publish-time routing cannot disagree on
+ * which brand a private chart belongs to.
+ */
+export function resolveChartBrandKey(
+  rawKey: string,
+  brandType: string | undefined,
+  mapping: StoreBrandMapping,
+): string {
+  if (brandType === "global") return resolveMappedBrandKey(rawKey, null, mapping).brandKey;
+  const normalized = normalizeBrandKey(rawKey);
+  if (normalized === UNKNOWN_BRAND_KEY || brandType !== "private") return normalized;
+  return mapping.privateAliases?.[normalized]?.canonicalKey ?? normalized;
+}
+
+/** The display name that goes with `resolveChartBrandKey`, when a grouping supplied one. */
+export function resolveChartBrandName(
+  rawKey: string,
+  rawName: string | null | undefined,
+  brandType: string | undefined,
+  mapping: StoreBrandMapping,
+): string | null {
+  if (brandType === "global") return resolveMappedBrandKey(rawKey, rawName, mapping).brandName;
+  const normalized = normalizeBrandKey(rawKey);
+  if (normalized === UNKNOWN_BRAND_KEY) return null;
+  const alias = brandType === "private" ? mapping.privateAliases?.[normalized] : undefined;
+  return alias?.canonicalName ?? rawName?.trim() ?? normalized;
 }
 
 function compact(value: string): string {
@@ -306,4 +350,45 @@ export function mappingFromGroups(
     sourceFingerprint: brandSourceFingerprint([...expected]),
     aliases,
   };
+}
+
+/**
+ * The store's grouping of its own private labels. Optional per label — one left out keeps its own
+ * charts — but a label may join only one group, and a group may not take a global brand's key: both
+ * pools are keyed by brand, so sharing a key would make one brand's coverage read as the other's.
+ */
+export function privateAliasesFromGroups(
+  current: StoreBrandMapping,
+  brands: readonly DiscoveredBrand[],
+  groups: readonly BrandMappingGroup[],
+  reservedKeys: ReadonlySet<string>,
+): Record<string, BrandAliasMapping> {
+  const byKey = new Map(brands.map((brand) => [brand.rawKey, brand]));
+  const assigned = new Set<string>();
+  const aliases: Record<string, BrandAliasMapping> = {};
+
+  for (const group of groups) {
+    const canonicalKey = normalizeBrandKey(group.canonicalKey);
+    const canonicalName = group.canonicalName.trim().replace(/\s+/g, " ");
+    if (!canonicalKey || !canonicalName) throw new Error("Every private brand group needs a name.");
+    if (reservedKeys.has(canonicalKey)) {
+      throw new Error(`"${canonicalName}" is already a global brand. Choose a different name for your own label.`);
+    }
+    for (const key of group.rawKeys) {
+      const rawKey = normalizeBrandKey(key);
+      const brand = byKey.get(rawKey);
+      if (!brand) throw new Error(`Unknown private store brand: ${key}`);
+      if (assigned.has(rawKey)) throw new Error(`Store brand ${key} is assigned more than once.`);
+      assigned.add(rawKey);
+      aliases[rawKey] = {
+        canonicalKey,
+        canonicalName,
+        labels: current.observed[rawKey] ?? brand.labels,
+        skuCount: brand.skuCount,
+        sizingCategories: brand.sizingCategories,
+      };
+    }
+  }
+
+  return aliases;
 }

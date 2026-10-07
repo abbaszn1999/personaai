@@ -81,7 +81,7 @@ function row(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRow {
     acsMapperVersionApproved: null,
     acsFieldMapping: EMPTY_ACS_MAPPING,
     sizingSource: "ai_pipeline",
-    sizingBrandMapping: { version: 1, confirmedAt: null, sourceFingerprint: "", observed: {}, aliases: {} },
+    sizingBrandMapping: { version: 1, confirmedAt: null, sourceFingerprint: "", observed: {}, aliases: {}, privateAliases: {} },
     sizingStagesSkippedAt: null,
     acsFieldOverridesApprovedHash: null,
     cmsColumnDiscoveryStatus: "idle",

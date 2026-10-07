@@ -123,18 +123,14 @@ export function StageBrandDiscovery() {
   const summary = useSizingStore((s) => s.summary);
   const runLoading = useSizingStore((s) => s.runLoading);
   const loadRun = useSizingStore((s) => s.loadRun);
-  const stopPolling = useSizingStore((s) => s.stopPolling);
 
   const [typeFilter, setTypeFilter] = React.useState<BrandTypeFilter>("all");
   const [query, setQuery] = React.useState("");
   const [showAll, setShowAll] = React.useState(false);
 
   React.useEffect(() => {
-    void loadRun();
-    // The poll chain reschedules itself, so leaving this stage has to break it explicitly or it
-    // keeps requesting in the background for as long as the dashboard stays open.
-    return () => stopPolling();
-  }, [loadRun, stopPolling]);
+    void loadRun({ ifStale: true });
+  }, [loadRun]);
 
   const brands = summary.brands;
   // "Brands" for the header count and stat cards — the unbranded sentinel isn't a brand, it's a
@@ -383,6 +379,7 @@ function RouteSummary({
  */
 function BrandTypeControl({ brand }: { brand: CoverageBrand }) {
   const loadRun = useSizingStore((s) => s.loadRun);
+  const invalidateBrandDerived = useSizingStore((s) => s.invalidateBrandDerived);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -401,6 +398,7 @@ function BrandTypeControl({ brand }: { brand: CoverageBrand }) {
         setError(data.error ?? "Could not change the brand type.");
         return;
       }
+      invalidateBrandDerived();
       await loadRun();
     } catch {
       setError("Could not reach the server.");

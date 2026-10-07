@@ -30,6 +30,7 @@ import {
   isScanIncomplete,
   SAMPLE_PAGE_SIZES as PAGE_SIZES,
   type ServerBrandType,
+  type SizingSamplePathConflict,
   type SizingSampleRow,
 } from "../server-types";
 import { StageHeaderBanner } from "./stage-header-banner";
@@ -107,7 +108,6 @@ export function StageItemPreview() {
   const run = useSizingStore((s) => s.run);
   const runLoading = useSizingStore((s) => s.runLoading);
   const loadRun = useSizingStore((s) => s.loadRun);
-  const stopPolling = useSizingStore((s) => s.stopPolling);
   const rows = useSizingStore((s) => s.sample);
   const loading = useSizingStore((s) => s.sampleLoading);
   const error = useSizingStore((s) => s.sampleError);
@@ -138,11 +138,8 @@ export function StageItemPreview() {
   const observedScan = React.useRef(scanning);
 
   React.useEffect(() => {
-    void loadRun();
-    // The poll chain reschedules itself, so leaving this stage has to break it explicitly or it
-    // keeps requesting in the background for as long as the dashboard stays open.
-    return () => stopPolling();
-  }, [loadRun, stopPolling]);
+    void loadRun({ ifStale: true });
+  }, [loadRun]);
 
   React.useEffect(() => {
     // The merchant asked for one complete reveal: no partial table while the catalog is walking,
@@ -582,6 +579,7 @@ export function StageItemPreview() {
  */
 function ParentCell({ row }: { row: SizingSampleRow }) {
   const setSkuParent = useStoreConnectionStore((s) => s.setSkuParent);
+  const invalidateSamplePages = useSizingStore((s) => s.invalidateSamplePages);
   const override = useStoreConnectionStore((s) => s.skuParentOverrides[row.externalId]);
   const [saving, setSaving] = React.useState(false);
 
@@ -594,6 +592,8 @@ function ParentCell({ row }: { row: SizingSampleRow }) {
   async function choose(group: SizingGroup | null) {
     setSaving(true);
     await setSkuParent(row.externalId, group);
+    // A cached page filtered by parent would still list (or miss) this product under its old one.
+    invalidateSamplePages();
     setSaving(false);
   }
 
@@ -626,6 +626,28 @@ function ParentCell({ row }: { row: SizingSampleRow }) {
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * A product whose categories disagree on its size group or body. The path above is the one it is
+ * sized on — chosen by depth, then by its own title — and the others are named with the merchant
+ * category they came from, since that category's mapping is what needs correcting.
+ */
+function PathConflictNote({ conflict }: { conflict: SizingSamplePathConflict }) {
+  const others = conflict.paths.slice(1);
+  const what = conflict.kind === "group" ? "a different size group" : "a different department";
+  const detail = others
+    .map((path) => `${path.personaPath}${path.storeCategory ? ` (from "${path.storeCategory}")` : ""}`)
+    .join("; ");
+  return (
+    <span
+      className="mt-0.5 flex items-center gap-1 truncate text-[10px] font-semibold text-[var(--color-warning)]"
+      title={`Also filed as ${what}: ${detail}. Sized on the path above. If that other category is a catch-all or mapped wrong, exclude or remap it in the Mapping tab.`}
+    >
+      <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
+      <span className="truncate">Also filed as {others[0]?.personaPath}</span>
+    </span>
   );
 }
 
@@ -761,6 +783,7 @@ function ProductTableRow({ row }: { row: SizingSampleRow }) {
             Not mapped
           </span>
         )}
+        {row.pathConflict && <PathConflictNote conflict={row.pathConflict} />}
       </td>
 
       <td className="px-3">

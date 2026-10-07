@@ -27,7 +27,7 @@ import { leafLabel, mappedPersonaLeaves } from "@/modules/store/mapping/persona-
 import {
   brandMappingIsCurrent,
   parseStoreBrandMapping,
-  resolveMappedBrandKey,
+  resolveChartBrandKey,
 } from "@/lib/sizing/brand-mapping";
 
 /**
@@ -106,9 +106,7 @@ export async function GET() {
 
     const leafCounts = new Map<string, number>();
     for (const path of pathCoverage) {
-      const brandKey = types.get(path.brandKey) === "global"
-        ? resolveMappedBrandKey(path.brandKey, path.brandName, brandMapping).brandKey
-        : path.brandKey;
+      const brandKey = resolveChartBrandKey(path.brandKey, types.get(path.brandKey), brandMapping);
       const key = `${brandKey}\u0000${path.categoryId}`;
       leafCounts.set(key, (leafCounts.get(key) ?? 0) + path.skuCount);
     }
@@ -201,11 +199,14 @@ export async function POST(request: Request) {
     const brandKeyInput = typeof body.brandKey === "string" ? body.brandKey.trim() : "";
     const coverage = await listSizingCoverage(connection.id);
     const brandMapping = parseStoreBrandMapping(connection.sizingBrandMapping);
-    const known = coverage.find(
+    // Every store label filed under this chart brand: a private group spans several raw labels, and
+    // all of them are sized by what is saved here.
+    const members = coverage.filter(
       (row) =>
-        resolveMappedBrandKey(row.brandKey, row.brandName, brandMapping).brandKey ===
-          brandKeyInput && row.sizingCategory === sizingCategory
+        resolveChartBrandKey(row.brandKey, row.brandType, brandMapping) === brandKeyInput &&
+        row.sizingCategory === sizingCategory
     );
+    const known = members.find((row) => row.brandType === "private" || row.brandType === "none") ?? members[0];
 
     const unbranded = brandKeyInput === UNKNOWN_BRAND_KEY;
     if (!known) {
@@ -308,7 +309,11 @@ export async function POST(request: Request) {
       pairCharts.filter((chart) => chart.sizingCategory === sizingCategory)
     );
     if (remaining.leaves.length === 0) {
-      await setResearchOutcomes(connection.id, known.brandKey, [sizingCategory], "found", "Filled in by hand.");
+      await Promise.all(
+        [...new Set(members.map((row) => row.brandKey))].map((rawKey) =>
+          setResearchOutcomes(connection.id, rawKey, [sizingCategory], "found", "Filled in by hand."),
+        ),
+      );
     }
 
     return Response.json({

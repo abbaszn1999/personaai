@@ -48,6 +48,7 @@ const mapping: StoreBrandMapping = {
       sizingCategories: ["tops"],
     },
   },
+  privateAliases: {},
 };
 
 describe("buildBrandMappingState", () => {
@@ -85,5 +86,34 @@ describe("buildBrandMappingState", () => {
     });
     expect(state.status).toBe("needs_mapping");
     expect(state.brands.some((brand) => brand.rawKey === "tom_tailor_women")).toBe(true);
+  });
+
+  it("suggests grouping the store's own audience labels without making them block readiness", () => {
+    const house = (brandKey: string, brandName: string, skuCount: number) =>
+      coverage({ id: `coverage-${brandKey}`, brandKey, brandName, brandType: "private", brandCanonicalName: null, skuCount });
+    const state = buildBrandMappingState({
+      coverage: [
+        coverage(),
+        coverage({ id: "coverage-2", brandKey: "tom_tailor_men", brandName: "Tom Tailor Men", skuCount: 4 }),
+        house("moustache", "Moustache", 1),
+        house("moustache_men", "Moustache Men", 894),
+        house("moustache_women", "Moustache Women", 995),
+        house("moustache_suit", "Moustache Suit", 14),
+      ],
+      mapping,
+      sharedBrandKeys: ["tom_tailor"],
+    });
+
+    expect(state.status).toBe("ready");
+    expect(state.privateBrands.map((brand) => brand.rawKey)).toEqual([
+      "moustache",
+      "moustache_men",
+      "moustache_suit",
+      "moustache_women",
+    ]);
+    expect(state.privateGroups.map((group) => [group.canonicalKey, group.rawKeys])).toEqual([
+      ["moustache", ["moustache", "moustache_men", "moustache_women"]],
+      ["moustache_suit", ["moustache_suit"]],
+    ]);
   });
 });

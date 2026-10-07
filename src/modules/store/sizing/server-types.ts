@@ -161,6 +161,9 @@ export interface BrandMappingResponse {
   brands: DiscoveredBrandMapping[];
   groups: CanonicalBrandGroup[];
   targets: CanonicalBrandOption[];
+  /** The store's own labels and how they are grouped. Optional to group; never blocks `ready`. */
+  privateBrands: DiscoveredBrandMapping[];
+  privateGroups: CanonicalBrandGroup[];
 }
 
 // ─── Stage 4: researched charts and the gaps between them ─────────────────────
@@ -331,6 +334,16 @@ export const EMPTY_CHARTS_RESPONSE: SizingChartsResponse = {
   leafCounts: [],
 };
 
+/**
+ * A product filed in categories that disagree about what it is: a T-shirt that is also in a
+ * collection mapped to jeans, or a men's and a women's path. `paths[0]` is the one it is sized on.
+ */
+export interface SizingSamplePathConflict {
+  /** `group`: different measurements decide the size. `department`: different bodies. */
+  kind: "group" | "department";
+  paths: Array<{ personaPath: string; storeCategory: string }>;
+}
+
 export interface SizingSampleRow {
   externalId: string;
   sku: string | null;
@@ -358,6 +371,8 @@ export interface SizingSampleRow {
   personaLeafKey: string | null;
   /** The merchant ancestor the mapping came from, when the product's own category has none. */
   mappingInheritedFrom: string[] | null;
+  /** Set when the product's categories map to different size groups or bodies. */
+  pathConflict: SizingSamplePathConflict | null;
   /** Present only when Stage 5 requests `include=resolution`. */
   primaryLeafKey?: string | null;
   canonicalBrandKey?: string;

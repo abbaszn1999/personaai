@@ -22,7 +22,7 @@ const chart: SizingChartRow = {
 
 const context: SizingResolutionContext = {
   brandTypes: new Map([["brand", "global"]]),
-  brandMapping: { version: 1, confirmedAt: "2026-10-01", sourceFingerprint: "", observed: {}, aliases: {} },
+  brandMapping: { version: 1, confirmedAt: "2026-10-01", sourceFingerprint: "", observed: {}, aliases: {}, privateAliases: {} },
   brandMappingCurrent: true,
   sizeSettings: { default: "Alpha", overrides: {} },
   sharedCharts: [chart],

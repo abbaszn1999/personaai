@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ChartGap, SizingRun } from "./server-types";
-import { useSizingStore } from "./store";
+import { clearSamplePages, useSizingStore } from "./store";
 
 function gap(overrides: Partial<ChartGap> = {}): ChartGap {
   return {
@@ -172,5 +172,128 @@ describe("persisted setup stage restoration", () => {
     expect(useSizingStore.getState().stage).toBe(4);
     expect(useSizingStore.getState().highestStage).toBe(5);
     expect(useSizingStore.getState().stageRestored).toBe(true);
+  });
+
+  it("lets a stage mount reuse a run read moments ago, but never a write's read-back", async () => {
+    stubCompletedRunResponse();
+    await useSizingStore.getState().loadRun();
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockClear();
+
+    await useSizingStore.getState().loadRun({ ifStale: true });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await useSizingStore.getState().loadRun();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-reads on mount when the run is still working, so a broken poll chain restarts", async () => {
+    stubCompletedRunResponse();
+    await useSizingStore.getState().loadRun();
+    useSizingStore.setState({ run: { ...completedRun(), status: "running", stage: "scan" } });
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockClear();
+
+    await useSizingStore.getState().loadRun({ ifStale: true });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("shares one request between screens mounting together", async () => {
+    stubCompletedRunResponse();
+    useSizingStore.setState({ run: { ...completedRun(), status: "running", stage: "scan" } });
+    const fetchMock = vi.mocked(fetch);
+
+    await Promise.all([
+      useSizingStore.getState().loadRun({ ifStale: true }),
+      useSizingStore.getState().loadRun({ ifStale: true }),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+function samplePageResponse(rows: number, nextCursor: string | null) {
+  return new Response(
+    JSON.stringify({
+      rows: Array.from({ length: rows }, (_, index) => ({ externalId: `p${index}`, title: `Product ${index}` })),
+      nextCursor,
+      pageSize: 25,
+      selectionTotal: 50,
+      selectionTotalExact: true,
+      filteredTotal: null,
+      typeCounts: null,
+      typeItemCounts: null,
+      parentCounts: null,
+      filtering: false,
+      scanned: true,
+    }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
+  );
+}
+
+describe("Item Preview page cache", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    clearSamplePages();
+    useSizingStore.setState({
+      sample: [],
+      samplePage: 1,
+      sampleCursors: [null],
+      sampleNextCursor: null,
+      sampleTotal: null,
+      sampleLoaded: false,
+      sampleBrandType: null,
+      sampleParent: null,
+      sampleQuery: "",
+    });
+  });
+
+  function stubPages() {
+    const fetchMock = vi.fn((url: string) => {
+      const cursor = new URL(url, "http://localhost").searchParams.get("cursor");
+      return Promise.resolve(cursor ? samplePageResponse(2, null) : samplePageResponse(3, "25"));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  const sampleRequests = (fetchMock: ReturnType<typeof stubPages>) =>
+    fetchMock.mock.calls.filter(([url]) => String(url).includes("/sizing/sample"));
+
+  it("reads the next page ahead and pages back without asking the server again", async () => {
+    const fetchMock = stubPages();
+
+    await useSizingStore.getState().goToSamplePage(1);
+    await vi.waitFor(() => expect(sampleRequests(fetchMock)).toHaveLength(2));
+
+    await useSizingStore.getState().goToSamplePage(2);
+    expect(useSizingStore.getState().sample).toHaveLength(2);
+    await useSizingStore.getState().goToSamplePage(1);
+    expect(useSizingStore.getState().sample).toHaveLength(3);
+
+    expect(sampleRequests(fetchMock)).toHaveLength(2);
+  });
+
+  it("reads again after anything that changes what a page holds", async () => {
+    const fetchMock = stubPages();
+    await useSizingStore.getState().goToSamplePage(1);
+    await vi.waitFor(() => expect(sampleRequests(fetchMock)).toHaveLength(2));
+
+    useSizingStore.getState().invalidateSamplePages();
+    await useSizingStore.getState().goToSamplePage(1);
+
+    expect(sampleRequests(fetchMock).length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("re-reads the store when the merchant presses refresh", async () => {
+    const fetchMock = stubPages();
+    await useSizingStore.getState().goToSamplePage(1);
+    useSizingStore.setState({ sampleLoaded: true });
+
+    await useSizingStore.getState().loadSample({ force: true });
+
+    const fresh = sampleRequests(fetchMock).filter(([url]) => String(url).includes("fresh=1"));
+    expect(fresh).toHaveLength(1);
   });
 });

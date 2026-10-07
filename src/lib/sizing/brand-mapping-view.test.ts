@@ -71,4 +71,47 @@ describe("canonical Phase 4 view", () => {
       { brandKey: "tomtailor_women", brandName: "TOMTAILOR WOMEN", skuCount: 2 },
     ]);
   });
+
+  it("groups private labels through the store's own grouping and lists their members", () => {
+    const alias = (canonicalName: string) => ({
+      canonicalKey: "moustache",
+      canonicalName,
+      labels: [],
+      skuCount: 0,
+      sizingCategories: ["tops"],
+    });
+    const withPrivate = parseStoreBrandMapping({
+      ...mapping,
+      privateAliases: { moustache_men: alias("Moustache"), moutache_men: alias("Moustache") },
+    });
+    const source = [
+      { ...coverage("moustache_men", "Moustache Men", 7), brandType: "private" as const },
+      { ...coverage("moutache_men", "Moutache Men", 2), brandType: "private" as const },
+      { ...coverage("moustache_suit", "Moustache Suit", 1), brandType: "private" as const },
+    ];
+
+    const view = canonicalizeCoverageForCharts(source, withPrivate);
+
+    expect(view.rows.map((row) => [row.brandKey, row.brandName, row.skuCount])).toEqual([
+      ["moustache", "Moustache", 9],
+      ["moustache_suit", "Moustache Suit", 1],
+    ]);
+    expect(view.membersByCanonicalKey.get("moustache")?.map((member) => member.brandKey))
+      .toEqual(["moustache_men", "moutache_men"]);
+  });
+
+  it("never merges a private label into a global brand that shares its key", () => {
+    const clash = parseStoreBrandMapping({
+      ...mapping,
+      privateAliases: {
+        house: { canonicalKey: "tom_tailor", canonicalName: "Tom Tailor", labels: [], skuCount: 0, sizingCategories: [] },
+      },
+    });
+    const view = canonicalizeCoverageForCharts(
+      [coverage("tom_tailor_women", "Tom Tailor Women", 3), { ...coverage("house", "House", 4), brandType: "private" }],
+      clash,
+    );
+
+    expect(view.rows).toHaveLength(2);
+  });
 });

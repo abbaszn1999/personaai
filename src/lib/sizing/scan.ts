@@ -127,7 +127,7 @@ export async function runSizingScan(connection: StoreConnectionRow, run: SizingR
         // gets a chart researched against sizes that never reach ACS.
         const variants = extractVariantAttributes(raw, connection.acsFieldMapping);
         const storeCategoryPaths = resolveCategoryPaths({ ...raw, sourceCategoryIds }, connection);
-        const personaPaths = resolvePersonaPaths(sourceCategoryIds, personaConfig);
+        const personaPaths = resolvePersonaPaths(sourceCategoryIds, personaConfig, { title: raw.title });
         const primaryPersonaPath = personaPaths[0] ?? null;
         const override = connection.skuParentOverrides[raw.externalId];
 
@@ -191,13 +191,16 @@ export async function runSizingScan(connection: StoreConnectionRow, run: SizingR
       storeCategoryPaths: row.storeCategoryPaths,
       imageUrl: row.imageUrl,
     });
-    for (const personaPath of row.personaPaths) {
+    // The primary path only: it is the one the product's chart is chosen from, so counting a second
+    // collection's leaf would ask the merchant for a chart no product is ever routed to.
+    const primaryPath = row.personaPaths[0];
+    if (primaryPath) {
       paths.addPersonaPath({
         externalId: row.externalId,
         brand: row.brandField,
-        sizingGroup: row.sizingGroup ?? personaPath.sizingGroup,
-        pathKey: personaPath.key,
-        path: personaPath.segments,
+        sizingGroup: row.sizingGroup ?? primaryPath.sizingGroup,
+        pathKey: primaryPath.key,
+        path: primaryPath.segments,
       });
     }
   }

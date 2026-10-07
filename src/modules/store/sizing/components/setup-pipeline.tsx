@@ -20,6 +20,11 @@ import { readStoredSizingStage, storeSizingStage } from "../stage-storage";
 /** Connections whose Stage 5 preview this page session has already asked the server to build. */
 const warmedPreviews = new Set<string>();
 
+/** Connections whose setup progress this page session has already restored. Coming back to Setup
+ *  for one of them paints from the store at once and refreshes behind it, instead of holding the
+ *  whole pipeline behind a spinner for a read whose answer is already on screen. */
+const restoredConnections = new Set<string>();
+
 /**
  * The setup pipeline that turns a connected catalog into size intelligence.
  *
@@ -60,12 +65,20 @@ export function SetupPipeline() {
   /** Set while the merchant is being shown what leaving stage 4 early actually costs. */
   const [confirmingGaps, setConfirmingGaps] = React.useState(false);
   const [restoredConnectionId, setRestoredConnectionId] = React.useState<string | null>(null);
+  const restored =
+    connectionId !== null && (restoredConnectionId === connectionId || restoredConnections.has(connectionId));
+  const stopPolling = useSizingStore((s) => s.stopPolling);
 
   React.useEffect(() => {
     if (!connectionId) return;
+    if (restoredConnections.has(connectionId)) {
+      void loadRun({ ifStale: true });
+      return;
+    }
     let cancelled = false;
     const preferredStage = readStoredSizingStage(connectionId) ?? undefined;
     void loadRun({ restoreStage: true, preferredStage }).finally(() => {
+      restoredConnections.add(connectionId);
       if (!cancelled) setRestoredConnectionId(connectionId);
     });
     return () => {
@@ -73,9 +86,20 @@ export function SetupPipeline() {
     };
   }, [connectionId, loadRun]);
 
+  // Setup owns the run poll: it keeps running across stage changes while the run works, and stops
+  // when the merchant leaves Setup rather than requesting in the background on other tabs.
+  React.useEffect(() => () => stopPolling(), [stopPolling]);
+
+  // Stage 4 decides between the brand-mapping editor and research from this status, so it is read
+  // on entry whenever a brand-type change has dropped the held copy.
+  const loadBrandMapping = useSizingStore((s) => s.loadBrandMapping);
   React.useEffect(() => {
-    if (restoredConnectionId === connectionId && connectionId) storeSizingStage(connectionId, stage);
-  }, [connectionId, restoredConnectionId, stage]);
+    if (stage === 4) void loadBrandMapping();
+  }, [stage, loadBrandMapping]);
+
+  React.useEffect(() => {
+    if (restored && connectionId) storeSizingStage(connectionId, stage);
+  }, [connectionId, restored, stage]);
 
   // Once the scan is done, have the server build the Stage 5 preview while the merchant works on
   // brands and charts. Its slow part is reading every product from the store; with that done early,
@@ -141,7 +165,7 @@ export function SetupPipeline() {
     advance();
   }, [stage, blockedByBrandMapping, unresearchedBrands, advance]);
 
-  if (restoredConnectionId !== connectionId) {
+  if (!restored) {
     return (
       <div className="rounded-2xl border border-slate-200 bg-white px-6 py-14 text-center text-sm font-semibold text-slate-500 shadow-sm">
         Restoring your setup progress…

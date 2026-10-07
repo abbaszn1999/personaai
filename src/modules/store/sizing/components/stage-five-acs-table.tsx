@@ -241,6 +241,18 @@ export function StageFiveAcsTable({
       setResponse(body);
       setShowingRequested(true);
       writeCached(cacheKey, body);
+      // Read the next page ahead, into the cache only, so Next paints at once. Skipped while the
+      // server is still rebuilding, since that page would be replaced moments later anyway.
+      if (!body.refreshing && page * pageSize < body.total) {
+        const nextParams = new URLSearchParams(params);
+        nextParams.set("offset", String(page * pageSize));
+        const nextKey = `${cacheScope}:${refreshKey ?? "draft"}:products:${nextParams}`;
+        if (!readCached(nextKey)) {
+          void fetch(`/api/store-connection/sizing/acs-products?${nextParams}`, { cache: "no-store" })
+            .then(async (next) => (next.ok ? writeCached(nextKey, await next.json()) : undefined))
+            .catch(() => undefined);
+        }
+      }
       if (body.refreshing) {
         window.setTimeout(() => {
           if (requestController.current === null) setPollTick((tick) => tick + 1);

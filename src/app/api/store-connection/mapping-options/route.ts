@@ -262,7 +262,7 @@ function categoriesSampleFor(connection: StoreConnectionRow, products: readonly 
   const config = buildPersonaMappingConfig(connection.personaTaxonomyScope, connection.personaCategoryMap, connection.categories);
 
   for (const product of products) {
-    const [path] = resolvePersonaPaths(product.sourceCategoryIds, config);
+    const [path] = resolvePersonaPaths(product.sourceCategoryIds, config, { title: product.title });
     if (path) return personaPathLabel(path, config);
   }
   return null;

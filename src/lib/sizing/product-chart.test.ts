@@ -22,6 +22,7 @@ const mapping: StoreBrandMapping = {
       sizingCategories: ["tops"],
     },
   },
+  privateAliases: {},
 };
 
 function chart(overrides: Partial<SizingChartRow> = {}): SizingChartRow {
@@ -126,6 +127,38 @@ describe("resolveProductChart", () => {
     );
     expect(result.status).toBe("matched");
     if (result.status === "matched") expect(result.chart.connectionId).toBe("connection-1");
+  });
+
+  it("routes a grouped private label to its group's private chart", () => {
+    const groupChart = chart({ connectionId: "connection-1", brandKey: "moustache" });
+    const alias = { canonicalKey: "moustache", canonicalName: "Moustache", labels: [], skuCount: 1, sizingCategories: ["tops"] };
+    const result = resolveProductChart(
+      { ...product, brandKey: "moutache_men" },
+      context("private", {
+        brandTypes: new Map([["moutache_men", "private"]]),
+        brandMapping: { ...mapping, privateAliases: { moutache_men: alias } },
+        sharedCharts: [],
+        privateCharts: [groupChart],
+      }),
+    );
+
+    expect(result.status).toBe("matched");
+    if (result.status !== "matched") return;
+    expect(result.canonicalBrandKey).toBe("moustache");
+    expect(result.chart.id).toBe(groupChart.id);
+  });
+
+  it("leaves an ungrouped private label on its own charts", () => {
+    const result = resolveProductChart(
+      { ...product, brandKey: "moutache_men" },
+      context("private", {
+        brandTypes: new Map([["moutache_men", "private"]]),
+        sharedCharts: [],
+        privateCharts: [chart({ connectionId: "connection-1", brandKey: "moustache" })],
+      }),
+    );
+
+    expect(result.status).toBe("no-chart");
   });
 
   it("requires a current confirmed mapping for global brands", () => {

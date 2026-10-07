@@ -64,7 +64,7 @@ export function resolveCategoryPaths(product: RawCatalogProduct, connection: Cat
     connection.personaCategoryMap,
     connection.categories,
   );
-  return resolvePersonaPaths(product.sourceCategoryIds, config).map((path) => path.segments);
+  return resolvePersonaPaths(product.sourceCategoryIds, config, { title: product.title }).map((path) => path.segments);
 }
 
 /**

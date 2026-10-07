@@ -117,7 +117,23 @@ export async function importProducts(products: AcsProduct[]): Promise<void> {
       body: JSON.stringify(body),
     });
 
-    await awaitImportOperation(operation);
+    const rejected = await awaitImportOperation(operation);
+    await withMirror(async (mirror) => {
+      await mirror.mirrorImported(batch);
+      // The rejected documents are not identifiable from the samples, so the mirror is re-checked
+      // against ACS instead of trusted to have them right.
+      if (rejected > 0) await mirror.mirrorUntrusted(batch);
+    });
+  }
+}
+
+/** Keeps the Stage 5 mirror in step with a write ACS has accepted. Never fails that write: a mirror
+ *  that missed it is re-checked against ACS before it is trusted again. */
+async function withMirror(update: (mirror: typeof import("./mirror")) => Promise<void>): Promise<void> {
+  try {
+    await update(await import("./mirror"));
+  } catch (error) {
+    console.warn("[acs/client mirror]", error instanceof Error ? error.message : error);
   }
 }
 
@@ -136,7 +152,7 @@ const IMPORT_POLL_INTERVAL_MS = 1_000;
  * an index holding nothing. Failing here instead lets `syncProductsToAcs` report the batch as
  * failed, which is what leaves its messages on the queue to be retried.
  */
-async function awaitImportOperation(operation: AcsOperation): Promise<void> {
+async function awaitImportOperation(operation: AcsOperation): Promise<number> {
   const deadline = Date.now() + IMPORT_POLL_TIMEOUT_MS;
   let current = operation;
 
@@ -159,6 +175,7 @@ async function awaitImportOperation(operation: AcsOperation): Promise<void> {
     const detail = samples.slice(0, 3).map((sample) => sample.message ?? JSON.stringify(sample));
     console.error(`[acs/client importProducts] ACS rejected ${samples.length} product(s) in this batch:`, detail);
   }
+  return samples.length;
 }
 
 /** A masked patch only ever needs `id` plus whatever fields `updateMask` names — the full
@@ -185,6 +202,7 @@ export async function patchProduct(product: AcsProductPatch, updateMask?: string
  */
 export async function markOutOfStock(acsProductId: string): Promise<void> {
   await patchProduct({ id: acsProductId, availability: "OUT_OF_STOCK" }, ["availability"]);
+  await withMirror((mirror) => mirror.mirrorAvailability(acsProductId, "OUT_OF_STOCK"));
 }
 
 /**
@@ -198,13 +216,16 @@ export async function markOutOfStock(acsProductId: string): Promise<void> {
  */
 export async function deleteProduct(acsProductId: string): Promise<boolean> {
   const config = getAcsConfig();
+  let removed: boolean;
   try {
     await acsFetch(productPath(config, acsProductId), { method: "DELETE" });
-    return true;
+    removed = true;
   } catch (err) {
-    if (err instanceof AcsApiError && err.status === 404) return false;
-    throw err;
+    if (!(err instanceof AcsApiError && err.status === 404)) throw err;
+    removed = false;
   }
+  await withMirror((mirror) => mirror.mirrorDeleted(acsProductId));
+  return removed;
 }
 
 /**

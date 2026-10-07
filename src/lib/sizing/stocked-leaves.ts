@@ -1,5 +1,5 @@
 import type { BrandType } from "@/lib/db/sizing-coverage";
-import { resolveMappedBrandKey, type StoreBrandMapping } from "@/lib/sizing/brand-mapping";
+import { resolveChartBrandKey, type StoreBrandMapping } from "@/lib/sizing/brand-mapping";
 import { stockedLeavesKey, type StockedLeaves } from "@/lib/sizing/chart-results";
 import type { SizingPathCoverageRow } from "@/lib/db/sizing-path-coverage";
 import { ALL_PERSONA_LEAF_KEYS, personaSizingGroup } from "@/modules/store/mapping/persona-taxonomy";
@@ -29,10 +29,7 @@ export function buildStockedLeaves(
     const group = personaSizingGroup(leaf.split(":")[1] ?? "");
     if (!group) continue;
 
-    const brandKey =
-      brandTypes.get(path.brandKey) === "global"
-        ? resolveMappedBrandKey(path.brandKey, path.brandName, brandMapping).brandKey
-        : path.brandKey;
+    const brandKey = resolveChartBrandKey(path.brandKey, brandTypes.get(path.brandKey), brandMapping);
 
     const key = stockedLeavesKey(brandKey, group);
     let leaves = stocked.get(key);

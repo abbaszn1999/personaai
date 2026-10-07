@@ -70,19 +70,47 @@ interface CategoryMappingViewProps {
 type FilterStatus = "all" | "unmapped" | "mapped" | "excluded";
 type SortOption = "unmapped_first" | "products_desc" | "name_asc";
 type MappingScanCounts = { total: number; byLeaf: Record<string, number> };
+type MappingResponse = {
+  categories?: StoreCategoryItem[];
+  scope?: SerializedTaxonomyScope;
+  scanCounts?: MappingScanCounts | null;
+  autoMatchCompletedAt?: string | null;
+};
+
+/**
+ * The last mapping read per connection this page session. Returning to the tab paints it at once and
+ * re-reads behind it; every write (save, auto-match, clear) drops it, so the next visit reads what
+ * the server actually stored.
+ */
+const mappingResponses = new Map<string, MappingResponse>();
+
+function scopeStateFrom(scope: SerializedTaxonomyScope): TaxonomyScopeState {
+  return {
+    enabledDeptIds: new Set(scope.enabledDeptIds ?? []),
+    enabledLeafKeys: new Set(scope.enabledLeafKeys ?? []),
+    customLeaves: scope.customLeaves ?? [],
+    customCategories: scope.customCategories ?? [],
+  };
+}
 
 export function CategoryMappingView({ connection, onContinueToSetup }: CategoryMappingViewProps) {
   const refreshConnection = useStoreConnectionStore((state) => state.load);
-  const [categories, setCategories] = React.useState<StoreCategoryItem[]>([]);
-  const [initialCategoriesJson, setInitialCategoriesJson] = React.useState("[]");
+  // The last read this session, painted at once on return; the effect below re-reads behind it.
+  const [cachedOnMount] = React.useState(() => mappingResponses.get(connection.id) ?? null);
+  const [categories, setCategories] = React.useState<StoreCategoryItem[]>(() => cachedOnMount?.categories ?? []);
+  const [initialCategoriesJson, setInitialCategoriesJson] = React.useState(() =>
+    JSON.stringify(cachedOnMount?.categories ?? []),
+  );
   const [saveSuccessMessage, setSaveSuccessMessage] = React.useState<string | null>(null);
-  const [isLoadingMapping, setIsLoadingMapping] = React.useState(true);
+  const [isLoadingMapping, setIsLoadingMapping] = React.useState(() => cachedOnMount === null);
   const [isSavingMapping, setIsSavingMapping] = React.useState(false);
   const [isAutoMatching, setIsAutoMatching] = React.useState(false);
-  const [scanCounts, setScanCounts] = React.useState<MappingScanCounts | null>(null);
+  const [scanCounts, setScanCounts] = React.useState<MappingScanCounts | null>(() => cachedOnMount?.scanCounts ?? null);
   /** Non-null once Auto-Match has successfully run and saved for this mapping configuration.
    *  Auto-Match is a one-shot action — clearing the mapping is the only way to reset this. */
-  const [autoMatchCompletedAt, setAutoMatchCompletedAt] = React.useState<string | null>(null);
+  const [autoMatchCompletedAt, setAutoMatchCompletedAt] = React.useState<string | null>(
+    () => cachedOnMount?.autoMatchCompletedAt ?? null,
+  );
 
   const [searchQuery, setSearchQuery] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState<FilterStatus>("all");
@@ -106,9 +134,11 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
     "kids-unisex:top": true, "kids-unisex:bottom": true,
   });
 
-  const [isScopeConfigured, setIsScopeConfigured] = React.useState(false);
+  const [isScopeConfigured, setIsScopeConfigured] = React.useState(() => cachedOnMount?.scope?.configured === true);
   const [isScopeModalOpen, setIsScopeModalOpen] = React.useState(false);
-  const [scopeState, setScopeState] = React.useState<TaxonomyScopeState>(getDefaultScopeState);
+  const [scopeState, setScopeState] = React.useState<TaxonomyScopeState>(() =>
+    cachedOnMount?.scope?.configured ? scopeStateFrom(cachedOnMount.scope) : getDefaultScopeState(),
+  );
 
   const [actionFeedback, setActionFeedback] = React.useState<{ message: string; type: "success" | "info" | "warn" } | null>(null);
   const [highlightedCategoryId, setHighlightedCategoryId] = React.useState<string | null>(null);
@@ -125,34 +155,40 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
     setTimeout(() => setActionFeedback((current) => (current?.message === message ? null : current)), 3500);
   }
 
+  // What the merchant has edited since the mapping on screen was loaded. A background re-read must
+  // not overwrite those edits, so it only replaces an untouched copy.
+  const editedRef = React.useRef(false);
+
   React.useEffect(() => {
     let cancelled = false;
+    function apply(data: MappingResponse) {
+      const loadedCategories = data.categories ?? [];
+      const savedScope = data.scope;
+      setCategories(loadedCategories);
+      setInitialCategoriesJson(JSON.stringify(loadedCategories));
+      setScanCounts(data.scanCounts ?? null);
+      setAutoMatchCompletedAt(data.autoMatchCompletedAt ?? null);
+      if (savedScope?.configured) {
+        setScopeState(scopeStateFrom(savedScope));
+        setIsScopeConfigured(true);
+      } else {
+        setScopeState(getDefaultScopeState());
+        setIsScopeConfigured(false);
+      }
+    }
+
+    // Already painted from it by the state initializers above.
+    const cached = mappingResponses.get(connection.id);
+
     async function loadMapping() {
-      setIsLoadingMapping(true);
+      if (!cached) setIsLoadingMapping(true);
       try {
         const response = await fetch("/api/store-connection/persona-mapping", { cache: "no-store" });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error ?? "Could not load category mappings");
-        if (cancelled) return;
-
-        const loadedCategories = (data.categories ?? []) as StoreCategoryItem[];
-        const savedScope = data.scope as SerializedTaxonomyScope | undefined;
-        setCategories(loadedCategories);
-        setInitialCategoriesJson(JSON.stringify(loadedCategories));
-        setScanCounts((data.scanCounts as MappingScanCounts | null) ?? null);
-        setAutoMatchCompletedAt((data.autoMatchCompletedAt as string | null) ?? null);
-        if (savedScope?.configured) {
-          setScopeState({
-            enabledDeptIds: new Set(savedScope.enabledDeptIds ?? []),
-            enabledLeafKeys: new Set(savedScope.enabledLeafKeys ?? []),
-            customLeaves: savedScope.customLeaves ?? [],
-            customCategories: savedScope.customCategories ?? [],
-          });
-          setIsScopeConfigured(true);
-        } else {
-          setScopeState(getDefaultScopeState());
-          setIsScopeConfigured(false);
-        }
+        mappingResponses.set(connection.id, data as MappingResponse);
+        if (cancelled || (cached && editedRef.current)) return;
+        apply(data as MappingResponse);
       } catch (error) {
         if (!cancelled) showFeedback(error instanceof Error ? error.message : "Could not load category mappings", "warn");
       } finally {
@@ -250,6 +286,9 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
   }, [selectedIds]);
 
   const hasUnsavedChanges = JSON.stringify(categories) !== initialCategoriesJson;
+  React.useEffect(() => {
+    editedRef.current = hasUnsavedChanges;
+  }, [hasUnsavedChanges]);
   const totalCount = categories.length;
   const excludedCount = categories.filter((c) => c.status === "excluded").length;
   const fashionTotal = totalCount - excludedCount;
@@ -533,6 +572,7 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
       }),
     });
     const data = await response.json();
+    mappingResponses.delete(connection.id);
     if (!response.ok) {
       showFeedback(data.error ?? "Could not save category mappings", "warn");
       return false;
@@ -581,6 +621,7 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
     try {
       const response = await fetch("/api/store-connection/persona-mapping", { method: "DELETE" });
       const data = await response.json();
+      mappingResponses.delete(connection.id);
       if (!response.ok) {
         showFeedback(data.error ?? "Could not clear category mappings", "warn");
         return;

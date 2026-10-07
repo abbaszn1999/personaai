@@ -24,7 +24,7 @@ const context: SizingResolutionContext = {
   brandTypes: new Map(
     ["tom_tailor", "penti", "tommy_hilfiger", "xint"].map((key) => [key, "global" as const]),
   ),
-  brandMapping: { version: 1, confirmedAt: "2026-10-05T00:00:00.000Z", sourceFingerprint: "x", observed: {}, aliases: {} },
+  brandMapping: { version: 1, confirmedAt: "2026-10-05T00:00:00.000Z", sourceFingerprint: "x", observed: {}, aliases: {}, privateAliases: {} },
   brandMappingCurrent: true,
   sizeSettings: { default: "Alpha", overrides: {} },
   sharedCharts: Object.values(CHART_SEEDS)
