@@ -54,7 +54,8 @@ const EMPTY_MAPPING: StoreBrandMapping = {
   privateAliases: {},
 };
 
-const QUALIFIER_TOKENS = new Set([
+/** Words a store appends to a brand to name who a line is for (`Moustache Men`). */
+export const QUALIFIER_TOKENS: ReadonlySet<string> = new Set([
   "men",
   "mens",
   "man",

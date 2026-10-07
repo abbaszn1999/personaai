@@ -13,6 +13,7 @@
 // Supabase import, and this is a type-only import that is erased before bundling. Re-declaring
 // `SizeChartRow` here would mean two definitions of the row shape that the whole filter depends on.
 import type { SizeChartRow } from "@/lib/sizing/chart-schema";
+import type { LeafSourceLink } from "@/lib/catalog/storefront-links";
 // Stage numbering lives in `./types.ts`, which imports nothing at all, so this direction is safe.
 import { LAST_STAGE, type StageNumber } from "./types";
 
@@ -256,6 +257,8 @@ export interface ChartGap {
   missingLeaves: string[];
   /** Products per missing leaf. */
   missingLeafCounts: Record<string, number>;
+  /** Why the brand's own source has nothing for a missing leaf, where that has been verified. */
+  missingLeafReasons?: Record<string, string>;
   /** True when the pair already has a chart and only some subcategories are still uncovered. */
   partial: boolean;
 }
@@ -303,9 +306,11 @@ export interface SizingChartsResponse {
   /** Global brands only. Private and unbranded rows keep their manual-fill tabs, because a web search
    *  cannot help either and offering Generate there would only waste a paid request. */
   brands: BrandResearchRow[];
-  /** Global brands whose research produced nothing, plus every private label — both route to manual
-   *  fill per doc Tab 3, which is why one tab holds them together. */
+  /** Private labels needing a hand-filled chart. */
   notFound: ChartGap[];
+  /** Global brands' categories and subcategories the shared registry does not cover. Shown on the
+   *  Global brands tab under the brand's charted row; only support can add them. */
+  globalGaps: ChartGap[];
   /** The unbranded sentinel's rows, grouped by category rather than brand. */
   noBrand: ChartGap[];
   totals: {
@@ -321,17 +326,21 @@ export interface SizingChartsResponse {
   researched: boolean;
   mappedLeaves: string[];
   leafCounts: Array<{ brandKey: string; leafKey: string; skuCount: number }>;
+  /** The store collections or categories each leaf was mapped from, with their storefront links. */
+  leafSources: Record<string, LeafSourceLink[]>;
 }
 
 export const EMPTY_CHARTS_RESPONSE: SizingChartsResponse = {
   charts: [],
   brands: [],
   notFound: [],
+  globalGaps: [],
   noBrand: [],
   totals: { chartsFound: 0, brandsCharted: 0, chartedSkus: 0, pairsNeeded: 0, gapSkus: 0 },
   researched: false,
   mappedLeaves: [],
   leafCounts: [],
+  leafSources: {},
 };
 
 /**

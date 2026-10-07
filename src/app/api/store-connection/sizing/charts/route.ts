@@ -23,6 +23,7 @@ import { canonicalizeCoverageForCharts } from "@/lib/sizing/brand-mapping-view";
 import { listSizingPathCoverage } from "@/lib/db/sizing-path-coverage";
 import { buildStockedLeaves } from "@/lib/sizing/stocked-leaves";
 import { clearGeneratedStageFiveCache } from "@/lib/catalog/acs/stage-five-preview";
+import { leafSourceLinks } from "@/lib/catalog/storefront-links";
 import { leafLabel, mappedPersonaLeaves } from "@/modules/store/mapping/persona-taxonomy";
 import {
   brandMappingIsCurrent,
@@ -119,6 +120,12 @@ export async function GET() {
         const [brandKey, leafKey] = key.split("\u0000");
         return { brandKey, leafKey, skuCount };
       }),
+      leafSources: leafSourceLinks(
+        connection.personaCategoryMap,
+        connection.categories,
+        connection.platform,
+        connection.storeUrl,
+      ),
     });
   } catch (err) {
     console.error("[store-connection sizing/charts GET]", err);

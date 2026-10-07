@@ -338,6 +338,14 @@ export function leafLabel(leafKey: string): string {
   return dept ? `${dept.shortLabel} · ${subLabel}` : subLabel || leafKey;
 }
 
+/** `women:top:shirt` → `"Women · Shirts & Blouses"`: the department, then the leaf's display name. */
+export function leafDisplayName(leafKey: string): string {
+  const [deptId, , sub] = leafKey.split(":");
+  const dept = PERSONA_DEPARTMENTS.find((d) => d.id === deptId);
+  if (!dept || !sub) return leafLabel(leafKey);
+  return `${dept.shortLabel} · ${formatLeafLabel(sub, deptId)}`;
+}
+
 export function derivePersonaValues(deptId: PersonaDepartmentId, catId: PersonaCategoryId): PersonaDerivedValues {
   let gender: PersonaDerivedValues["gender"] = "male+female";
   if (deptId === "women" || deptId === "kids-girls") gender = "female";

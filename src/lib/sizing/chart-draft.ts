@@ -63,9 +63,11 @@ export function draftColumnsFor(group: SizingGroup, audience?: Audience): ChartD
   }));
 }
 
-/** A blank grid to start from. */
-export function emptyDraftRows(group: SizingGroup, count = 5): ChartDraftRow[] {
-  const seed = group === "footwear" ? FOOTWEAR_SEED : ALPHA_SEED;
+/** A blank grid to start from, labelled the way this group and audience is usually sized. */
+export function emptyDraftRows(group: SizingGroup, audience?: Audience, count = 5): ChartDraftRow[] {
+  const child = audience !== undefined && isChildAudience(audience);
+  const seed =
+    group === "footwear" ? (child ? KIDS_FOOTWEAR_SEED : FOOTWEAR_SEED) : child ? KIDS_SEED : ALPHA_SEED;
   return Array.from({ length: count }, (_, index) => ({
     size: seed[index] ?? "",
     values: {},
@@ -76,6 +78,8 @@ export function emptyDraftRows(group: SizingGroup, count = 5): ChartDraftRow[] {
 // overwritten; pre-filling a measurement would be inventing body data attributed to the merchant.
 const ALPHA_SEED = ["XS", "S", "M", "L", "XL"];
 const FOOTWEAR_SEED = ["38", "39", "40", "41", "42"];
+const KIDS_SEED = ["104", "110", "116", "122", "128"];
+const KIDS_FOOTWEAR_SEED = ["28", "29", "30", "31", "32"];
 
 /**
  * Turns a stored chart back into an editable grid — doc Part 6's "editable as a table", and the

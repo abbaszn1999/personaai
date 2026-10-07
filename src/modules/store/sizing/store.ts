@@ -167,10 +167,13 @@ interface SizingUiState {
   /** Global brands research came back empty on, plus every private label — doc Tab 3 sends both to
    *  the same manual-fill queue, so they share a tab. */
   chartGapsNotFound: ChartGap[];
+  /** What the shared registry leaves uncovered for each global brand, for the Global brands tab. */
+  chartGapsGlobal: ChartGap[];
   /** The unbranded rows, grouped by category instead of brand. */
   chartGapsNoBrand: ChartGap[];
   chartTotals: SizingChartsResponse["totals"];
   chartLeafCounts: SizingChartsResponse["leafCounts"];
+  chartLeafSources: SizingChartsResponse["leafSources"];
   /** False until a research pass has recorded an outcome — what separates "no gaps" from "not run". */
   chartsResearched: boolean;
   chartsLoading: boolean;
@@ -461,9 +464,11 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
         chartBrands: [],
         charts: [],
         chartGapsNotFound: [],
+        chartGapsGlobal: [],
         chartGapsNoBrand: [],
         chartTotals: EMPTY_CHARTS_RESPONSE.totals,
         chartLeafCounts: [],
+        chartLeafSources: {},
         chartsResearched: false,
         chartsLoaded: false,
       });
@@ -495,9 +500,11 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
   chartBrands: [],
   charts: [],
   chartGapsNotFound: [],
+  chartGapsGlobal: [],
   chartGapsNoBrand: [],
   chartTotals: EMPTY_CHARTS_RESPONSE.totals,
   chartLeafCounts: [],
+  chartLeafSources: {},
   chartsResearched: false,
   chartsLoading: false,
   chartsError: null,
@@ -523,9 +530,11 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
         chartBrands: data.brands ?? [],
         charts: data.charts ?? [],
         chartGapsNotFound: data.notFound ?? [],
+        chartGapsGlobal: data.globalGaps ?? [],
         chartGapsNoBrand: data.noBrand ?? [],
         chartTotals: data.totals ?? EMPTY_CHARTS_RESPONSE.totals,
         chartLeafCounts: data.leafCounts ?? [],
+        chartLeafSources: data.leafSources ?? {},
         mappedLeaves: data.mappedLeaves ?? [],
         chartsResearched: data.researched ?? false,
         chartsLoading: false,

@@ -91,19 +91,20 @@ describe("buildChartResults", () => {
     );
 
     expect(result.charts).toHaveLength(0);
-    expect(result.notFound).toHaveLength(1);
-    expect(result.notFound[0].reason).toBe("No official size guide found for this brand");
-    expect(result.notFound[0].researchNote).toBe("No official size guide could be found.");
+    expect(result.notFound).toHaveLength(0);
+    expect(result.globalGaps).toHaveLength(1);
+    expect(result.globalGaps[0].reason).toBe("No official size guide found for this brand");
+    expect(result.globalGaps[0].researchNote).toBe("No official size guide could be found.");
   });
 
   it("distinguishes a guide that skipped the category from one that was never found", () => {
     const result = buildChartResults([coverage({ researchStatus: "not_covered" })], []);
-    expect(result.notFound[0].reason).toBe("Guide found, but it does not cover this category");
+    expect(result.globalGaps[0].reason).toBe("Guide found, but it does not cover this category");
   });
 
   it("marks a failure as retryable rather than as a gap to hand-fill", () => {
     const result = buildChartResults([coverage({ researchStatus: "failed" })], []);
-    expect(result.notFound[0].reason).toBe("Research failed — can be retried");
+    expect(result.globalGaps[0].reason).toBe("Research failed — can be retried");
   });
 
   it("explains a private label by its routing, not by research it never had", () => {
@@ -149,7 +150,7 @@ describe("buildChartResults", () => {
   it("surfaces the two tables disagreeing instead of smoothing it over", () => {
     // Status says a chart was written; no chart is there. Worth seeing, not hiding.
     const result = buildChartResults([coverage({ researchStatus: "found" })], []);
-    expect(result.notFound[0].reason).toBe("Recorded as found, but no chart is stored");
+    expect(result.globalGaps[0].reason).toBe("Recorded as found, but no chart is stored");
   });
 
   it("prefers this store's own chart over the shared one", () => {
@@ -234,7 +235,7 @@ describe("buildChartResults", () => {
       coverage({ id: "big", sizingCategory: "bottoms", skuCount: 88, researchStatus: "not_found" }),
     ];
 
-    expect(buildChartResults(rows, []).notFound.map((gap) => gap.id)).toEqual(["big", "small"]);
+    expect(buildChartResults(rows, []).globalGaps.map((gap) => gap.id)).toEqual(["big", "small"]);
   });
 
   it("separates 'nothing found' from 'never run'", () => {
@@ -286,7 +287,7 @@ describe("buildChartResults", () => {
   });
 
   it("still lists a global brand once research has actually run and come back empty", () => {
-    expect(buildChartResults([coverage({ researchStatus: "not_found" })], []).notFound[0].reason).toBe(
+    expect(buildChartResults([coverage({ researchStatus: "not_found" })], []).globalGaps[0].reason).toBe(
       "No official size guide found for this brand"
     );
   });
@@ -398,6 +399,55 @@ describe("leaf-level coverage", () => {
       stocked
     );
     expect(done.status).toBe("done");
+  });
+
+  it("files a global brand's uncovered subcategories under the brand, never with the private labels", () => {
+    const stocked = stockedFor(
+      "penti",
+      { "kids-boys:full-body:sleepsuit": 3, "kids-girls:full-body:swimsuit": 4, "women:full-body:kaftan": 2 },
+      "dresses",
+    );
+    const row = coverage({
+      brandKey: "penti",
+      brandName: "PENTI",
+      sizingCategory: "dresses",
+      skuCount: 9,
+      researchStatus: "found",
+      storeCategoryPaths: [
+        ["persona", "kids-boys", "full-body", "sleepsuit"],
+        ["persona", "women", "full-body", "kaftan"],
+        ["persona", "kids-girls", "full-body", "swimsuit"],
+      ],
+    });
+    const covering = chart({
+      brandKey: "penti",
+      sizingCategory: "dresses",
+      audience: "womens",
+      coversLeaves: ["kids-boys:full-body:sleepsuit", "women:full-body:kaftan"],
+    });
+
+    const result = buildChartResults([row], [covering], stocked);
+
+    expect(result.notFound).toHaveLength(0);
+    expect(result.globalGaps).toHaveLength(1);
+    const [gap] = result.globalGaps;
+    expect(gap.partial).toBe(true);
+    expect(gap.missingLeaves).toEqual(["kids-girls:full-body:swimsuit"]);
+    expect(gap.skuCount).toBe(4);
+    // Only where the uncovered products sit, not every path the brand's dresses are filed under.
+    expect(gap.storeCategoryPaths).toEqual([["persona", "kids-girls", "full-body", "swimsuit"]]);
+    expect(gap.missingLeafReasons["kids-girls:full-body:swimsuit"]).toContain("swimwear");
+    expect(result.totals.gapSkus).toBe(4);
+    expect(result.totals.chartedSkus).toBe(5);
+    expect(result.totals.pairsNeeded).toBe(1);
+  });
+
+  it("keeps a private label's paths whole, and gives it no source reasons", () => {
+    const stocked = stockedFor("house", { "men:top:t-shirt": 12 });
+    const [gap] = buildChartResults([privateRow()], [], stocked).notFound;
+
+    expect(gap.storeCategoryPaths).toEqual([["Clothing"]]);
+    expect(gap.missingLeafReasons).toEqual({});
   });
 });
 
