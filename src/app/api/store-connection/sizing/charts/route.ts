@@ -1,5 +1,6 @@
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
+import { refuseDuringSetupReset } from "@/lib/catalog/setup-reset-guard";
 import { listSizingCoverage, setResearchOutcomes } from "@/lib/db/sizing-coverage";
 import {
   insertPrivateChart,
@@ -151,6 +152,8 @@ export async function POST(request: Request) {
     if (!connection) {
       return Response.json({ error: "Store connection not found" }, { status: 404 });
     }
+    const resetting = refuseDuringSetupReset(connection);
+    if (resetting) return resetting;
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
 

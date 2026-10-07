@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
+import { refuseDuringSetupReset } from "@/lib/catalog/setup-reset-guard";
 import { fetchSampleRawProducts } from "@/lib/catalog/acs/preview";
 import { expandCategorySelection } from "@/lib/catalog/category-scope";
 import { parsePersonaScope, storeCategoryBreadcrumb } from "@/lib/catalog/persona-mapping";
@@ -77,6 +78,8 @@ export async function POST(req: NextRequest) {
 
     const connection = await getStoreConnectionByOwner(user.id);
     if (!connection) return Response.json({ error: "Store connection not found" }, { status: 404 });
+    const resetting = refuseDuringSetupReset(connection);
+    if (resetting) return resetting;
     const activeConnection = connection;
 
     // Auto-Match is a one-shot action per mapping configuration — enforced here, not just in the

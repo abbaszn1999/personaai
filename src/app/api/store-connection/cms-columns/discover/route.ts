@@ -1,5 +1,6 @@
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
+import { refuseDuringSetupReset } from "@/lib/catalog/setup-reset-guard";
 import { startCmsColumnDiscovery } from "@/lib/catalog/discover-cms-columns";
 
 /**
@@ -43,6 +44,8 @@ export async function POST() {
     if (!connection) {
       return Response.json({ error: "Store connection not found" }, { status: 404 });
     }
+    const resetting = refuseDuringSetupReset(connection);
+    if (resetting) return resetting;
 
     // Not gated on mapping approval, unlike the sizing scan: this walk only counts and samples
     // columns for Stage 1's own dropdowns to show, so running it before a mapping is approved is

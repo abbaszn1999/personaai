@@ -13,9 +13,7 @@ const wipeSetupTables = vi.fn(async (): Promise<string[]> => {
   calls.push("tables");
   return [];
 });
-const wipeAcsMirror = vi.fn(async () => {
-  calls.push("mirror");
-});
+const setupTablesWithRows = vi.fn(async (): Promise<string[] | null> => []);
 const purgeConnectionFromQueue = vi.fn(async () => {
   calls.push("queue");
   return 0;
@@ -28,7 +26,7 @@ vi.mock("@/lib/db/setup-reset", () => ({
   writeSetupResetState: (id: string, patch: Record<string, unknown>) => writeSetupResetState(id, patch),
   resetSetupColumns: (id: string, scope: string) => resetSetupColumns(id, scope),
   wipeSetupTables: () => wipeSetupTables(),
-  wipeAcsMirror: () => wipeAcsMirror(),
+  setupTablesWithRows: () => setupTablesWithRows(),
   claimSetupResetLease: () => claimSetupResetLease(),
   listUnclaimedSetupResets: () => listUnclaimedSetupResets(),
 }));
@@ -50,11 +48,17 @@ function patches() {
   return writeSetupResetState.mock.calls.map(([, patch]) => patch);
 }
 
+/** What a sweep of a store with nothing left in ACS returns. */
+const NOTHING_LEFT = { deleted: 0, found: 0, complete: true };
+
 beforeEach(() => {
   calls.length = 0;
   vi.clearAllMocks();
   claimSetupResetLease.mockResolvedValue({ deleted: 0 });
   listUnclaimedSetupResets.mockResolvedValue([]);
+  setupTablesWithRows.mockResolvedValue([]);
+  sweepAcsProductsForConnection.mockReset();
+  sweepAcsProductsForConnection.mockResolvedValue(NOTHING_LEFT);
 });
 
 describe("resetSetupData", () => {
@@ -86,17 +90,49 @@ describe("cleanAcsAfterReset", () => {
     expect(sweepAcsProductsForConnection).not.toHaveBeenCalled();
   });
 
-  it("finishes the cleanup and drops the mirror once nothing is left", async () => {
-    sweepAcsProductsForConnection.mockResolvedValue({ deleted: 300, found: 300, complete: true });
+  it("finishes only after a second listing proves nothing of the store is left", async () => {
+    sweepAcsProductsForConnection.mockResolvedValueOnce({ deleted: 300, found: 300, complete: true });
 
     await expect(cleanAcsAfterReset("conn-1")).resolves.toBe("done");
 
+    expect(sweepAcsProductsForConnection).toHaveBeenCalledTimes(2);
     expect(patches().at(-1)).toMatchObject({ status: "done", deleted: 300, total: 300, error: null });
-    expect(wipeAcsMirror).toHaveBeenCalled();
+  });
+
+  it("deletes what a job wrote mid-cleanup before finishing", async () => {
+    sweepAcsProductsForConnection
+      .mockResolvedValueOnce({ deleted: 300, found: 300, complete: true })
+      .mockResolvedValueOnce({ deleted: 5, found: 5, complete: true });
+
+    await expect(cleanAcsAfterReset("conn-1")).resolves.toBe("done");
+
+    expect(sweepAcsProductsForConnection).toHaveBeenCalledTimes(3);
+    expect(patches().at(-1)).toMatchObject({ status: "done", deleted: 305 });
+  });
+
+  it("clears the setup tables again and counts them empty before it reports done", async () => {
+    await cleanAcsAfterReset("conn-1");
+
+    expect(wipeSetupTables).toHaveBeenCalledTimes(1);
+    expect(setupTablesWithRows).toHaveBeenCalledTimes(1);
+    expect(patches().at(-1)).toMatchObject({ status: "done" });
+  });
+
+  it("is not done while setup rows are still there", async () => {
+    setupTablesWithRows.mockResolvedValue(["sizing_coverage"]);
+
+    await expect(cleanAcsAfterReset("conn-1")).resolves.toBe("failed");
+    expect(patches().at(-1)).toMatchObject({ status: "failed", error: expect.stringContaining("Retry") });
+  });
+
+  it("is not done when the setup tables cannot be counted", async () => {
+    setupTablesWithRows.mockResolvedValue(null);
+
+    await expect(cleanAcsAfterReset("conn-1")).resolves.toBe("failed");
   });
 
   it("stops at its time budget and leaves the rest running for the next pass", async () => {
-    sweepAcsProductsForConnection.mockResolvedValue({ deleted: 4_000, found: 19_740, complete: false });
+    sweepAcsProductsForConnection.mockResolvedValueOnce({ deleted: 4_000, found: 19_740, complete: false });
 
     await expect(cleanAcsAfterReset("conn-1")).resolves.toBe("continuing");
 
@@ -105,22 +141,24 @@ describe("cleanAcsAfterReset", () => {
     const last = patches().at(-1);
     expect(last).toMatchObject({ deleted: 4_000, total: 19_740 });
     expect(last).not.toHaveProperty("status");
-    expect(wipeAcsMirror).not.toHaveBeenCalled();
+    expect(wipeSetupTables).not.toHaveBeenCalled();
   });
 
   it("adds to what earlier passes removed, so the count and total stay whole", async () => {
     claimSetupResetLease.mockResolvedValue({ deleted: 6_000 });
-    sweepAcsProductsForConnection.mockResolvedValue({ deleted: 13_740, found: 13_740, complete: true });
+    sweepAcsProductsForConnection.mockResolvedValueOnce({ deleted: 13_740, found: 13_740, complete: true });
 
     await cleanAcsAfterReset("conn-1");
 
     expect(patches().at(-1)).toMatchObject({ status: "done", deleted: 19_740, total: 19_740 });
   });
 
-  it("reports progress on a heartbeat, extending its lease each time", async () => {
+  it("reports progress on a heartbeat, and only extends its lease while still listing", async () => {
     let now = 1_000_000;
     const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
-    sweepAcsProductsForConnection.mockImplementation(async (_id: string, options: { onProgress: Progress }) => {
+    sweepAcsProductsForConnection.mockImplementationOnce(async (_id: string, options: { onProgress: Progress }) => {
+      now += 12_000;
+      await options.onProgress({ deleted: 0, found: 200 });
       now += 2_000;
       await options.onProgress({ deleted: 100, found: 500 });
       now += 10_000;
@@ -132,11 +170,27 @@ describe("cleanAcsAfterReset", () => {
     clock.mockRestore();
 
     const beats = patches().filter((patch) => !("status" in patch));
-    expect(beats).toEqual([{ deleted: 300, total: 500, leaseUntil: expect.any(String) }]);
+    expect(beats).toEqual([
+      { leaseUntil: expect.any(String) },
+      { deleted: 300, total: 500, leaseUntil: expect.any(String) },
+      { deleted: 500, total: 500, leaseUntil: expect.any(String) },
+    ]);
+  });
+
+  it("gives up on a store whose listing never settles, instead of listing forever", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    sweepAcsProductsForConnection.mockResolvedValue({ deleted: 0, found: 3, complete: true });
+
+    const pending = cleanAcsAfterReset("conn-1");
+    await vi.runAllTimersAsync();
+    vi.useRealTimers();
+
+    await expect(pending).resolves.toBe("failed");
+    expect(sweepAcsProductsForConnection).toHaveBeenCalledTimes(3);
   });
 
   it("keeps going after a refused delete when the pass still made progress", async () => {
-    sweepAcsProductsForConnection.mockResolvedValue({
+    sweepAcsProductsForConnection.mockResolvedValueOnce({
       deleted: 1_000,
       found: 5_000,
       complete: false,
@@ -147,7 +201,7 @@ describe("cleanAcsAfterReset", () => {
   });
 
   it("marks the cleanup failed, with a retryable message, when a pass removes nothing", async () => {
-    sweepAcsProductsForConnection.mockResolvedValue({
+    sweepAcsProductsForConnection.mockResolvedValueOnce({
       deleted: 0,
       found: 5_000,
       complete: false,
@@ -176,7 +230,7 @@ describe("runSetupResetCleanupPass", () => {
 
   it("carries the oldest waiting cleanup one pass further", async () => {
     listUnclaimedSetupResets.mockResolvedValue(["conn-1"]);
-    sweepAcsProductsForConnection.mockResolvedValue({ deleted: 10, found: 10, complete: true });
+    sweepAcsProductsForConnection.mockResolvedValueOnce({ deleted: 10, found: 10, complete: true });
 
     await expect(runSetupResetCleanupPass()).resolves.toEqual([{ connectionId: "conn-1", outcome: "done" }]);
   });

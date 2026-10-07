@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { create } from "zustand";
-import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, RotateCcw, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Circle, Loader2, RefreshCw, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { cn } from "@/lib/utils/cn";
@@ -13,23 +13,26 @@ import {
   type SetupResetState,
 } from "@/lib/catalog/setup-reset-state";
 import { storeSizingStage } from "../sizing/stage-storage";
+import { resetSteps, type ResetStepState } from "./reset-steps";
 
-const POLL_MS = 3000;
+const POLL_MS = 2000;
 /** A finished cleanup stays announced this long, so a merchant returning to the tab sees it ended. */
 const DONE_VISIBLE_MS = 60 * 60_000;
-/** ACS's observed delete rate, for the time-left estimate only. */
-const REMOVED_PER_MINUTE = 1_200;
+/** Long enough to read that everything finished before the page moves to the first step. */
+const DONE_REDIRECT_MS = 1500;
 
 interface ResetStatusState {
   reset: SetupResetState;
   live: boolean;
   loaded: boolean;
   load: () => Promise<void>;
+  /** Resumes a failed cleanup. Returns the reason when it could not be restarted. */
+  retry: () => Promise<string | null>;
 }
 
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 
-/** One read shared by the header button and the banner, polled only while a cleanup runs. */
+/** One read shared by the header button, the dialog and the Setup and Mapping gate, polled only while a cleanup runs. */
 const useResetStatus = create<ResetStatusState>((set, get) => ({
   reset: IDLE_SETUP_RESET,
   live: false,
@@ -44,9 +47,25 @@ const useResetStatus = create<ResetStatusState>((set, get) => ({
         set({ reset: data.reset ?? IDLE_SETUP_RESET, live: data.live === true, loaded: true });
       }
     } catch {
-      // The next poll or page load reads it again; a banner one beat late misleads nobody.
+      // The next poll or page load reads it again; a screen one beat late misleads nobody.
     }
     if (get().reset.status === "running") pollTimer = setTimeout(() => void get().load(), POLL_MS);
+  },
+  retry: async () => {
+    let problem: string | null = null;
+    try {
+      const res = await fetch("/api/store-connection/start-from-scratch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ retry: true }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) problem = data.error ?? "Could not retry.";
+    } catch {
+      problem = "Could not reach the server.";
+    }
+    await get().load();
+    return problem;
   },
 }));
 
@@ -56,6 +75,10 @@ function useResetStatusLoaded() {
   React.useEffect(() => {
     if (!loaded) void load();
   }, [load, loaded]);
+}
+
+function isPending(reset: SetupResetState): boolean {
+  return reset.status === "running" || reset.status === "failed";
 }
 
 /**
@@ -80,7 +103,7 @@ export function StartFromScratchButton({
   useResetStatusLoaded();
   const reset = useResetStatus((s) => s.reset);
   const [open, setOpen] = React.useState(false);
-  const running = reset.status === "running";
+  const pending = isPending(reset);
 
   return (
     <>
@@ -88,8 +111,8 @@ export function StartFromScratchButton({
         variant="secondary"
         size="sm"
         onClick={() => setOpen(true)}
-        disabled={running}
-        title={running ? "The previous reset is still removing products from ACS" : undefined}
+        disabled={pending}
+        title={pending ? "The previous reset has not finished yet" : undefined}
         className="border-[var(--color-error)]/40 text-[var(--color-error)] hover:border-[var(--color-error)]"
       >
         <RotateCcw className="h-3.5 w-3.5" />
@@ -122,10 +145,30 @@ function StartFromScratchDialog({
   onClose: () => void;
 }) {
   const live = useResetStatus((s) => s.live);
+  const reset = useResetStatus((s) => s.reset);
+  const load = useResetStatus((s) => s.load);
   const [typed, setTyped] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
+  const [started, setStarted] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const confirmed = typed.trim().toUpperCase() === SETUP_RESET_CONFIRM_WORD;
+  const finished = started && reset.status === "done";
+
+  // A full reload once everything is verified gone, not a state patch: every Setup and Mapping
+  // store, and the module-level caches behind them, start from what the server now holds.
+  React.useEffect(() => {
+    if (!finished) return;
+    const timer = setTimeout(() => window.location.assign(returnHref), DONE_REDIRECT_MS);
+    return () => clearTimeout(timer);
+  }, [finished, returnHref]);
+
+  // The shared poll only runs while the server says "running"; a first read that failed would leave
+  // this dialog waiting on nothing, so it asks again until it hears how the reset stands.
+  React.useEffect(() => {
+    if (!started || reset.status !== "idle") return;
+    const timer = setTimeout(() => void load(), POLL_MS);
+    return () => clearTimeout(timer);
+  }, [started, reset, load]);
 
   const removed = [
     ...(scope === "mapping" ? ["Your category mapping and the What You Sell scope"] : []),
@@ -136,8 +179,8 @@ function StartFromScratchDialog({
   ];
   const kept =
     scope === "mapping"
-      ? "Your store connection, the shared global brand charts and your Style Guide stay."
-      : "Your category mapping stays as it is, so Setup starts again from Stage 1 on the same mapping.";
+      ? "Your store connection, the shared global brand charts and your Style Guide stay. Other stores and other accounts are never touched."
+      : "Your category mapping stays as it is, so Setup starts again from Stage 1 on the same mapping. Other stores and other accounts are never touched.";
 
   async function submit() {
     if (!confirmed) return;
@@ -156,13 +199,47 @@ function StartFromScratchDialog({
         return;
       }
       storeSizingStage(connectionId, 1);
-      // A full reload, not a state patch: every Setup and Mapping store, and the module-level caches
-      // behind them, start from what the server now holds.
-      window.location.assign(returnHref);
+      // Read before showing progress: until then the store still holds the previous reset's state,
+      // and a "done" left from that one would end this one before it began.
+      await load();
+      setStarted(true);
     } catch {
       setError("Could not reach the server.");
-      setSubmitting(false);
     }
+    setSubmitting(false);
+  }
+
+  if (started) {
+    const running = reset.status === "running";
+    return (
+      <Modal
+        isOpen
+        onClose={running || finished ? () => undefined : onClose}
+        size="md"
+        icon={<RotateCcw className="h-4 w-4" />}
+        title={finished ? "Everything is reset" : "Resetting this store"}
+        description={storeName}
+        footer={
+          finished ? (
+            <Button size="sm" onClick={() => window.location.assign(returnHref)}>
+              {scope === "mapping" ? "Start again from Mapping" : "Start again from Stage 1"}
+            </Button>
+          ) : reset.status === "failed" ? (
+            <Button variant="secondary" size="sm" onClick={onClose}>
+              Close
+            </Button>
+          ) : undefined
+        }
+      >
+        <ResetProgress reset={reset} />
+        {running && (
+          <p className="mt-4 text-[11px] text-[var(--color-text-muted)]">
+            Keep this open or close the page; the reset carries on either way, and Setup and Mapping stay
+            closed until it has finished.
+          </p>
+        )}
+      </Modal>
+    );
   }
 
   return (
@@ -196,7 +273,7 @@ function StartFromScratchDialog({
       )}
 
       <p className={cn("text-xs font-semibold text-[var(--color-text-primary)]", live && "mt-4")}>
-        This permanently deletes:
+        This permanently deletes, for this store only:
       </p>
       <ul className="mt-2 space-y-1.5">
         {removed.map((item) => (
@@ -211,9 +288,8 @@ function StartFromScratchDialog({
         {kept}
       </p>
       <p className="mt-3 text-[11px] text-[var(--color-text-muted)]">
-        Removing the products from ACS runs in the background, about a minute for every 1,000 products,
-        and carries on if you close the page. You can start again right away; publishing waits until it
-        has finished.
+        Removing the products from ACS takes about a minute for every 1,000 products. This dialog shows each
+        step until everything is confirmed gone, then takes you to the first step.
       </p>
 
       <label className="mt-4 block">
@@ -241,83 +317,109 @@ function StartFromScratchDialog({
   );
 }
 
-/**
- * Where the background ACS cleanup stands, above Setup and Mapping: removing (with a running count),
- * failed (with Retry), or finished. Nothing shows when no reset has run recently.
- */
-export function SetupResetBanner() {
-  useResetStatusLoaded();
-  const reset = useResetStatus((s) => s.reset);
-  const load = useResetStatus((s) => s.load);
+function ResetProgress({ reset }: { reset: SetupResetState }) {
+  const retry = useResetStatus((s) => s.retry);
   const [retrying, setRetrying] = React.useState(false);
   const [retryError, setRetryError] = React.useState<string | null>(null);
-  const [dismissedAt, setDismissedAt] = React.useState<string | null>(null);
-  const [now] = React.useState(() => Date.now());
 
-  async function retry() {
+  async function runRetry() {
     setRetrying(true);
     setRetryError(null);
-    try {
-      const res = await fetch("/api/store-connection/start-from-scratch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ retry: true }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) setRetryError(data.error ?? "Could not retry.");
-    } catch {
-      setRetryError("Could not reach the server.");
-    }
+    setRetryError(await retry());
     setRetrying(false);
-    await load();
   }
 
-  if (reset.status === "running") {
-    const total = reset.total ?? 0;
-    const percent = total > 0 ? Math.min(100, Math.round((reset.deleted / total) * 100)) : 0;
-    const minutesLeft = total > 0 ? Math.ceil((total - reset.deleted) / REMOVED_PER_MINUTE) : null;
-    return (
-      <Banner tone="info" icon={<Loader2 className="h-4 w-4 animate-spin" />}>
-        <p className="text-sm font-bold text-[var(--color-text-primary)]">Removing this store&apos;s old products from ACS</p>
-        <p className="mt-0.5 text-xs text-[var(--color-text-secondary)]">
-          {total > 0
-            ? `${reset.deleted.toLocaleString()} of ${total.toLocaleString()} removed${
-                minutesLeft && minutesLeft > 1 ? `, about ${minutesLeft} minutes left` : ""
-              }. `
-            : "Finding this store's products in ACS. "}
-          You can work through Setup meanwhile; publishing in Stage 5 waits until this finishes.
-        </p>
-        {total > 0 && (
-          <div className="mt-2 h-1.5 w-full max-w-md overflow-hidden rounded-full bg-[var(--color-brand)]/15">
-            <div className="h-full rounded-full bg-[var(--color-brand)] transition-[width] duration-500" style={{ width: `${percent}%` }} />
-          </div>
-        )}
-      </Banner>
-    );
-  }
+  return (
+    <div>
+      <ol className="space-y-3">
+        {resetSteps(reset).map((step) => (
+          <li key={step.label} className="flex items-start gap-2.5">
+            <StepIcon state={step.state} />
+            <div className="min-w-0 flex-1">
+              <p
+                className={cn(
+                  "text-sm font-semibold",
+                  step.state === "waiting" ? "text-[var(--color-text-muted)]" : "text-[var(--color-text-primary)]",
+                )}
+              >
+                {step.label}
+              </p>
+              {step.detail && (
+                <p
+                  className={cn(
+                    "mt-0.5 text-xs",
+                    step.state === "failed" ? "text-[var(--color-error)]" : "text-[var(--color-text-secondary)]",
+                  )}
+                >
+                  {step.detail}
+                </p>
+              )}
+              {step.percent !== undefined && step.state === "active" && (
+                <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[var(--color-brand)]/15">
+                  <div
+                    className="h-full rounded-full bg-[var(--color-brand)] transition-[width] duration-500"
+                    style={{ width: `${step.percent}%` }}
+                  />
+                </div>
+              )}
+            </div>
+          </li>
+        ))}
+      </ol>
 
-  if (reset.status === "failed") {
-    return (
-      <Banner
-        tone="error"
-        icon={<AlertTriangle className="h-4 w-4" />}
-        action={
-          <Button size="sm" variant="secondary" onClick={() => void retry()} disabled={retrying}>
+      {reset.status === "failed" && (
+        <div className="mt-4 flex items-center gap-3">
+          <Button size="sm" onClick={() => void runRetry()} disabled={retrying}>
             {retrying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
             Retry
           </Button>
-        }
-      >
-        <p className="text-sm font-bold text-[var(--color-text-primary)]">The old products were not all removed from ACS</p>
-        <p className="mt-0.5 text-xs text-[var(--color-text-secondary)]">
-          {reset.error ?? "The cleanup stopped before it finished."}
-          {reset.deleted > 0
-            ? ` ${reset.deleted.toLocaleString()}${reset.total ? ` of ${reset.total.toLocaleString()}` : ""} were removed before it stopped.`
-            : ""}{" "}
-          Publishing stays possible, but retry first so no old product is left behind.
+          <p className="text-xs text-[var(--color-text-muted)]">Retry continues from where it stopped.</p>
+        </div>
+      )}
+      {retryError && <p className="mt-2 text-xs font-semibold text-[var(--color-error)]">{retryError}</p>}
+    </div>
+  );
+}
+
+function StepIcon({ state }: { state: ResetStepState }) {
+  if (state === "done") return <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-success)]" />;
+  if (state === "active") return <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-[var(--color-brand)]" />;
+  if (state === "failed") return <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-error)]" />;
+  return <Circle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-text-muted)]" />;
+}
+
+/**
+ * Setup and Mapping, closed while a Start from scratch is unfinished. Nothing of either is shown, so
+ * no screen can load or save half-reset data; the reset's progress stands in their place, with Retry
+ * when it stopped. Once it is done the content returns, under a notice that it finished.
+ */
+export function SetupResetGate({ children }: { children: React.ReactNode }) {
+  useResetStatusLoaded();
+  const reset = useResetStatus((s) => s.reset);
+  const loaded = useResetStatus((s) => s.loaded);
+  const [dismissedAt, setDismissedAt] = React.useState<string | null>(null);
+  const [now] = React.useState(() => Date.now());
+
+  if (!loaded) {
+    return (
+      <div className="flex items-center gap-2 py-10 text-xs text-[var(--color-text-muted)]">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Loading
+      </div>
+    );
+  }
+
+  if (isPending(reset)) {
+    return (
+      <div className="mx-auto mt-6 max-w-xl rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-base)] px-6 py-5">
+        <p className="text-sm font-bold text-[var(--color-text-primary)]">
+          {reset.status === "failed" ? "The reset stopped before it finished" : "Resetting this store"}
         </p>
-        {retryError && <p className="mt-1 text-xs font-semibold text-[var(--color-error)]">{retryError}</p>}
-      </Banner>
+        <p className="mb-4 mt-0.5 text-xs text-[var(--color-text-secondary)]">
+          Setup and Mapping open again once everything is confirmed gone.
+        </p>
+        <ResetProgress reset={reset} />
+      </div>
     );
   }
 
@@ -326,56 +428,30 @@ export function SetupResetBanner() {
     reset.finishedAt !== null &&
     now - Date.parse(reset.finishedAt) < DONE_VISIBLE_MS &&
     dismissedAt !== reset.finishedAt;
-  if (recentlyDone) {
-    return (
-      <Banner
-        tone="success"
-        icon={<CheckCircle2 className="h-4 w-4" />}
-        action={
+
+  return (
+    <>
+      {recentlyDone && (
+        <div className="mb-4 flex items-start gap-2.5 rounded-[var(--radius-lg)] border border-[var(--color-success)]/30 bg-[var(--color-success-light)] px-4 py-3 text-[var(--color-success)]">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-bold text-[var(--color-text-primary)]">Started from scratch</p>
+            <p className="mt-0.5 text-xs text-[var(--color-text-secondary)]">
+              {reset.deleted.toLocaleString()} old product{reset.deleted === 1 ? "" : "s"} removed from ACS, and
+              nothing of the previous setup is left. Work through the steps and publish in Stage 5 when ready.
+            </p>
+          </div>
           <button
             type="button"
             onClick={() => setDismissedAt(reset.finishedAt)}
             aria-label="Dismiss"
-            className="text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+            className="shrink-0 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
           >
             <X className="h-4 w-4" />
           </button>
-        }
-      >
-        <p className="text-sm font-bold text-[var(--color-text-primary)]">Started from scratch</p>
-        <p className="mt-0.5 text-xs text-[var(--color-text-secondary)]">
-          {reset.deleted.toLocaleString()} old product{reset.deleted === 1 ? "" : "s"} removed from ACS. Nothing of the
-          previous setup is left; work through the steps and publish in Stage 5 when ready.
-        </p>
-      </Banner>
-    );
-  }
-
-  return null;
-}
-
-function Banner({
-  tone,
-  icon,
-  action,
-  children,
-}: {
-  tone: "info" | "error" | "success";
-  icon: React.ReactNode;
-  action?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  const toneClass =
-    tone === "error"
-      ? "border-[var(--color-error)]/40 bg-[var(--color-error-light)] text-[var(--color-error)]"
-      : tone === "success"
-        ? "border-[var(--color-success)]/30 bg-[var(--color-success-light)] text-[var(--color-success)]"
-        : "border-[var(--color-brand)]/30 bg-[var(--color-brand-light)] text-[var(--color-brand-strong)]";
-  return (
-    <div className={cn("mb-4 flex items-start gap-2.5 rounded-[var(--radius-lg)] border px-4 py-3", toneClass)}>
-      <span className="mt-0.5 shrink-0">{icon}</span>
-      <div className="min-w-0 flex-1">{children}</div>
-      {action && <div className="shrink-0">{action}</div>}
-    </div>
+        </div>
+      )}
+      {children}
+    </>
   );
 }

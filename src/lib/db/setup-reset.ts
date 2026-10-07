@@ -1,5 +1,6 @@
 import { db } from "@/lib/supabase/server";
 import { EMPTY_ACS_MAPPING } from "@/lib/catalog/acs-mapping";
+import { assertConnectionId } from "@/lib/catalog/acs/isolation";
 import { parseStoreBrandMapping } from "@/lib/sizing/brand-mapping";
 import { DEFAULT_SIZE_SETTINGS } from "@/lib/sizing/size-types";
 import { EMPTY_PERSONA_SCOPE, PERSONA_TAXONOMY_VERSION } from "@/modules/store/mapping/persona-taxonomy";
@@ -24,6 +25,7 @@ export const SETUP_TABLES = [
 
 /** Deletes this store's rows from every Setup table. Returns the tables that could not be cleared. */
 export async function wipeSetupTables(connectionId: string): Promise<string[]> {
+  assertConnectionId(connectionId);
   const failed: string[] = [];
   for (const table of SETUP_TABLES) {
     const { error } = await db.from(table).delete().eq("connection_id", connectionId);
@@ -35,12 +37,25 @@ export async function wipeSetupTables(connectionId: string): Promise<string[]> {
   return failed;
 }
 
-/** Drops the store's Stage 5 mirror of its ACS documents, which is rewritten by the next publish. */
-export async function wipeAcsMirror(connectionId: string): Promise<void> {
-  for (const table of ["acs_catalog_mirror", "acs_catalog_mirror_state"] as const) {
-    const { error } = await db.from(table).delete().eq("connection_id", connectionId);
-    if (error) console.error("[db/setup-reset wipeAcsMirror]", table, connectionId, error);
+/**
+ * The proof `wipeSetupTables` worked: the Setup tables still holding rows for this store, after
+ * counting each one. Null when a count could not be read, which proves nothing either way.
+ */
+export async function setupTablesWithRows(connectionId: string): Promise<string[] | null> {
+  assertConnectionId(connectionId);
+  const remaining: string[] = [];
+  for (const table of SETUP_TABLES) {
+    const { count, error } = await db
+      .from(table)
+      .select("connection_id", { count: "exact", head: true })
+      .eq("connection_id", connectionId);
+    if (error) {
+      console.error("[db/setup-reset setupTablesWithRows]", table, connectionId, error);
+      return null;
+    }
+    if ((count ?? 0) > 0) remaining.push(table);
   }
+  return remaining;
 }
 
 /**
@@ -52,6 +67,7 @@ export async function wipeAcsMirror(connectionId: string): Promise<void> {
  * unapproved Column Mapping.
  */
 export async function resetSetupColumns(connectionId: string, scope: SetupResetScope): Promise<boolean> {
+  assertConnectionId(connectionId);
   const patch: Record<string, unknown> = {
     acs_field_overrides: EMPTY_ACS_MAPPING,
     acs_mapping_approved_at: null,
@@ -90,6 +106,7 @@ export async function writeSetupResetState(
   connectionId: string,
   patch: Partial<SetupResetState>,
 ): Promise<boolean> {
+  assertConnectionId(connectionId);
   const update: Record<string, unknown> = {};
   if (patch.status !== undefined) update.setup_reset_status = patch.status;
   if (patch.scope !== undefined) update.setup_reset_scope = patch.scope;
@@ -117,6 +134,7 @@ export async function claimSetupResetLease(
   connectionId: string,
   leaseMs: number,
 ): Promise<{ deleted: number } | null> {
+  assertConnectionId(connectionId);
   const now = new Date();
   const patch = { setup_reset_lease_until: new Date(now.getTime() + leaseMs).toISOString() };
   const running = () =>

@@ -7,7 +7,7 @@ import {
   claimSetupResetLease,
   listUnclaimedSetupResets,
   resetSetupColumns,
-  wipeAcsMirror,
+  setupTablesWithRows,
   wipeSetupTables,
   writeSetupResetState,
 } from "@/lib/db/setup-reset";
@@ -23,6 +23,11 @@ export const SETUP_RESET_PASS_BUDGET_MS = 210_000;
 const LEASE_MS = 90_000;
 /** How often a pass records its progress, which also extends its lease. */
 const HEARTBEAT_MS = 10_000;
+/** A verifying listing of the shared catalog is not started with less time than this left in the pass. */
+const VERIFY_HEADROOM_MS = 45_000;
+/** Listings in a row that find documents every delete reports already gone, before giving up. */
+const MAX_FRUITLESS_SWEEPS = 3;
+const SETTLE_MS = 10_000;
 
 /**
  * The immediate half of "Start from scratch": the store's Setup data, and its mapping when Mapping's
@@ -83,64 +88,112 @@ export type SetupResetPassOutcome = "done" | "continuing" | "failed" | "busy";
  */
 export async function cleanAcsAfterReset(connectionId: string): Promise<SetupResetPassOutcome> {
   const passStartedAt = Date.now();
+  const until = passStartedAt + SETUP_RESET_PASS_BUDGET_MS;
   const claimed = await claimSetupResetLease(connectionId, LEASE_MS);
   if (!claimed) return "busy";
 
-  const before = claimed.deleted;
   const lease = () => new Date(Date.now() + LEASE_MS).toISOString();
-  const released = () => new Date().toISOString();
+  let removed = claimed.deleted;
   let lastBeat = passStartedAt;
+  let fruitless = 0;
+
+  const pause = async (progress: Progress): Promise<"continuing"> => {
+    await writeSetupResetState(connectionId, { ...progress, leaseUntil: new Date().toISOString() });
+    return "continuing";
+  };
 
   try {
-    const sweep = await sweepAcsProductsForConnection(connectionId, {
-      until: passStartedAt + SETUP_RESET_PASS_BUDGET_MS,
-      onProgress: async ({ deleted, found }) => {
-        if (Date.now() - lastBeat < HEARTBEAT_MS) return;
-        lastBeat = Date.now();
-        await writeSetupResetState(connectionId, {
-          deleted: before + deleted,
-          total: before + found,
-          leaseUntil: lease(),
-        });
-      },
-    });
-    const progress = { deleted: before + sweep.deleted, total: before + sweep.found };
-
-    if (sweep.complete) {
-      // The mirror is rewritten from ACS by the next publish; anything left in it now describes
-      // documents that no longer exist.
-      await wipeAcsMirror(connectionId);
-      await writeSetupResetState(connectionId, {
-        ...progress,
-        status: "done",
-        leaseUntil: released(),
-        finishedAt: new Date().toISOString(),
-        error: null,
+    // Finished means a listing found nothing of this store left. ListProducts is ACS's source of
+    // truth, so a sweep that deleted everything is followed by one more to prove it, which also
+    // catches a document written while the first was running.
+    while (Date.now() < until - VERIFY_HEADROOM_MS) {
+      const before = removed;
+      const sweep = await sweepAcsProductsForConnection(connectionId, {
+        until,
+        onProgress: async ({ deleted, found }) => {
+          if (Date.now() - lastBeat < HEARTBEAT_MS) return;
+          lastBeat = Date.now();
+          // While it is still listing, only the lease moves: a total that grows page by page would
+          // read as products appearing.
+          await writeSetupResetState(
+            connectionId,
+            deleted === 0 ? { leaseUntil: lease() } : { deleted: before + deleted, total: before + found, leaseUntil: lease() },
+          );
+        },
       });
-      return "done";
-    }
+      removed += sweep.deleted;
+      const progress = { deleted: removed, total: before + sweep.found };
 
-    if (sweep.error !== undefined) {
-      console.error("[start-from-scratch cleanAcsAfterReset]", connectionId, sweep.error);
-      if (sweep.deleted === 0) return fail(connectionId, progress);
+      if (sweep.error !== undefined) {
+        console.error("[start-from-scratch cleanAcsAfterReset]", connectionId, sweep.error);
+        return sweep.deleted === 0 ? fail(connectionId, progress) : pause(progress);
+      }
+      if (!sweep.complete) return pause(progress);
+      if (sweep.found === 0) return finish(connectionId, progress);
+
+      // Listed, yet every delete found its document already gone: ACS has not caught up with
+      // deletes it already applied. Waiting a moment settles that; a store that never settles is
+      // a fault for Retry, not something to list the shared catalog for forever.
+      if (sweep.deleted === 0) {
+        fruitless += 1;
+        if (fruitless >= MAX_FRUITLESS_SWEEPS) return fail(connectionId, progress);
+        await sleep(SETTLE_MS);
+      } else {
+        fruitless = 0;
+      }
+      lastBeat = Date.now();
+      await writeSetupResetState(connectionId, { ...progress, leaseUntil: lease() });
     }
-    await writeSetupResetState(connectionId, { ...progress, leaseUntil: released() });
-    return "continuing";
+    return pause({ deleted: removed, total: removed });
   } catch (error) {
     console.error("[start-from-scratch cleanAcsAfterReset]", connectionId, error);
     return fail(connectionId);
   }
 }
 
-async function fail(connectionId: string, progress?: { deleted: number; total: number }): Promise<"failed"> {
+type Progress = { deleted: number; total: number };
+
+/**
+ * The last step, once ACS holds nothing of the store: its Setup rows are cleared again and counted.
+ * The second clear removes whatever a job already in flight at reset time wrote afterwards; nothing
+ * the merchant made can be among it, since Setup and Mapping refuse every change until the cleanup
+ * ends. The Stage 5 mirror goes with them, as the next publish rewrites it from ACS.
+ */
+async function finish(connectionId: string, progress: Progress): Promise<"done" | "failed"> {
+  const failedTables = await wipeSetupTables(connectionId);
+  const remaining = failedTables.length > 0 ? null : await setupTablesWithRows(connectionId);
+  if (remaining === null || remaining.length > 0) {
+    console.error("[start-from-scratch finish] setup rows left", connectionId, failedTables, remaining);
+    return fail(connectionId, progress, "Some of this store's setup data could not be removed. Retry to finish the reset.");
+  }
+
+  await writeSetupResetState(connectionId, {
+    ...progress,
+    status: "done",
+    leaseUntil: new Date().toISOString(),
+    finishedAt: new Date().toISOString(),
+    error: null,
+  });
+  return "done";
+}
+
+async function fail(
+  connectionId: string,
+  progress?: Progress,
+  error = "Could not finish removing the old products from ACS. Retry to continue where it stopped.",
+): Promise<"failed"> {
   await writeSetupResetState(connectionId, {
     ...progress,
     status: "failed",
     leaseUntil: new Date().toISOString(),
     finishedAt: new Date().toISOString(),
-    error: "Could not finish removing the old products from ACS. Retry to continue where it stopped.",
+    error,
   });
   return "failed";
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**

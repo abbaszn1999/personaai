@@ -268,6 +268,19 @@ export async function updateSizingRun(runId: string, patch: SizingRunPatch): Pro
  * transition and exactly one updates a row, so the loser sees no row back and skips the run instead
  * of walking the same catalog a second time.
  */
+/**
+ * False only when the run is known to be gone, which is what Start from scratch does to a store's
+ * runs. A failed read answers true, so a database blip never throws away a finished scan.
+ */
+export async function sizingRunExists(runId: string): Promise<boolean> {
+  const { data, error } = await db.from("sizing_runs").select("id").eq("id", runId).maybeSingle();
+  if (error) {
+    console.error("[db/sizing-runs sizingRunExists]", runId, error);
+    return true;
+  }
+  return data !== null;
+}
+
 export async function claimSizingRun(runId: string): Promise<SizingRunRow | null> {
   const { data, error } = await db
     .from("sizing_runs")

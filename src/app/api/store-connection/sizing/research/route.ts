@@ -1,5 +1,6 @@
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
+import { refuseDuringSetupReset } from "@/lib/catalog/setup-reset-guard";
 import { listSizingCoverage, resetResearchOutcomes } from "@/lib/db/sizing-coverage";
 import { getActiveSizingRun, queueScopedResearch } from "@/lib/db/sizing-runs";
 import { UNKNOWN_BRAND_KEY } from "@/lib/sizing/keys";
@@ -42,6 +43,8 @@ export async function POST(request: Request) {
     if (!connection) {
       return Response.json({ error: "Store connection not found" }, { status: 404 });
     }
+    const resetting = refuseDuringSetupReset(connection);
+    if (resetting) return resetting;
 
     const body = (await request.json().catch(() => ({}))) as { brandKey?: unknown; force?: unknown };
     const requested = typeof body.brandKey === "string" && body.brandKey.trim() ? body.brandKey.trim() : null;

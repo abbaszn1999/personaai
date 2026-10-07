@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner, updateStoreConnection } from "@/lib/db/store-connections";
+import { refuseDuringSetupReset } from "@/lib/catalog/setup-reset-guard";
 import {
   buildPersonaMappingConfig,
   effectiveMappingFor,
@@ -154,6 +155,8 @@ export async function PUT(req: NextRequest) {
 
   const connection = await getStoreConnectionByOwner(user.id);
   if (!connection) return Response.json({ error: "Store connection not found" }, { status: 404 });
+  const resetting = refuseDuringSetupReset(connection);
+  if (resetting) return resetting;
 
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== "object") {
@@ -272,6 +275,8 @@ export async function DELETE() {
 
   const connection = await getStoreConnectionByOwner(user.id);
   if (!connection) return Response.json({ error: "Store connection not found" }, { status: 404 });
+  const resetting = refuseDuringSetupReset(connection);
+  if (resetting) return resetting;
 
   const updated = await resetPersonaMapping(connection);
   if (!updated) return Response.json({ error: "Could not clear category mappings" }, { status: 500 });

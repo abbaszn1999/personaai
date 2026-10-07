@@ -3,6 +3,7 @@ import {
   getStoreConnectionByOwner,
   updateSizingBrandMapping,
 } from "@/lib/db/store-connections";
+import { refuseDuringSetupReset } from "@/lib/catalog/setup-reset-guard";
 import { listSizingCoverage } from "@/lib/db/sizing-coverage";
 import { listSharedChartBrandKeys } from "@/lib/db/sizing-charts";
 import {
@@ -48,6 +49,8 @@ export async function PUT(request: Request) {
 
     const connection = await getStoreConnectionByOwner(user.id);
     if (!connection) return Response.json({ error: "Store connection not found" }, { status: 404 });
+    const resetting = refuseDuringSetupReset(connection);
+    if (resetting) return resetting;
 
     const current = await stateFor(connection);
     const body = (await request.json().catch(() => null)) as

@@ -73,3 +73,13 @@ export function effectiveSetupResetState(state: SetupResetState, now = Date.now(
 export function setupResetRunning(state: SetupResetState, now = Date.now()): boolean {
   return effectiveSetupResetState(state, now).status === "running";
 }
+
+/**
+ * Whether the last Start from scratch has not finished: still removing, or stopped with old products
+ * or setup rows left behind. Setup and Mapping stay closed, and refuse changes, until it is done.
+ */
+export function setupResetPending(state: SetupResetState | undefined, now = Date.now()): boolean {
+  if (!state) return false;
+  const status = effectiveSetupResetState(state, now).status;
+  return status === "running" || status === "failed";
+}

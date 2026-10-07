@@ -14,7 +14,7 @@ import { SyncTab } from "../sync/sync-tab";
 import { useStoreConnect } from "../hooks/use-store-connect";
 import { useSizingStore } from "../sizing/store";
 import { storeSizingStage } from "../sizing/stage-storage";
-import { SetupResetBanner, StartFromScratchButton } from "./start-from-scratch";
+import { SetupResetGate, StartFromScratchButton } from "./start-from-scratch";
 
 /**
  * Connection → Mapping → Setup → Sizing Tester → Style Guide, which is the order the work actually
@@ -97,8 +97,6 @@ function StoreDashboardInner() {
         )}
 
         <div className="w-full min-w-0 animate-fade-in">
-          {connection && (activeTab === "setup" || activeTab === "mapping") && <SetupResetBanner />}
-
           {activeTab === "connection" && (
             <ConnectStoreView
               store={store}
@@ -108,20 +106,26 @@ function StoreDashboardInner() {
           )}
 
           {activeTab === "mapping" && connection && (
-            <CategoryMappingView
-              connection={connection}
-              onContinueToSetup={() => {
-                goToSetupStageOne(1);
-                storeSizingStage(connection.id, 1);
-                goToTab("setup");
-              }}
-            />
+            <SetupResetGate>
+              <CategoryMappingView
+                connection={connection}
+                onContinueToSetup={() => {
+                  goToSetupStageOne(1);
+                  storeSizingStage(connection.id, 1);
+                  goToTab("setup");
+                }}
+              />
+            </SetupResetGate>
           )}
 
           {/* No `SettingsSection` card here, unlike the tabs below — Setup already opens with its
            *  own stepper (`SetupStepper`) and each stage's own header banner, matching the demo's
            *  Setup tab, which is the stepper and the stage content with no title card above them. */}
-          {activeTab === "setup" && connection && <SetupPipeline />}
+          {activeTab === "setup" && connection && (
+            <SetupResetGate>
+              <SetupPipeline />
+            </SetupResetGate>
+          )}
 
           {activeTab === "sizingtester" && connection && (
             <div className="sizing-tester-brand">

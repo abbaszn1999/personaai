@@ -9,6 +9,7 @@ import {
   type StoreConnectionRow,
   type UpdateStoreConnectionInput,
 } from "@/lib/db/store-connections";
+import { refuseDuringSetupReset } from "@/lib/catalog/setup-reset-guard";
 import { encodeCredentials, decodeCredentials } from "@/lib/utils/crypto";
 import {
   normalizeShopifyDomain,
@@ -287,6 +288,12 @@ export async function PATCH(req: NextRequest) {
         { error: "Legacy Categories setup is retired. Save category scope and mappings from Mapping." },
         { status: 410 },
       );
+    }
+
+    if (body.skuParentOverrides !== undefined || body.storeSizeSettings !== undefined || body.reindex === true) {
+      const current = await getStoreConnectionByOwner(user.id);
+      const resetting = current ? refuseDuringSetupReset(current) : null;
+      if (resetting) return resetting;
     }
 
     // Stage 2 corrections. Also a whole-document save: the client holds every override it knows

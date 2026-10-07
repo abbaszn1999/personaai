@@ -99,6 +99,41 @@ describe("deleteAllAcsProductsForConnection", () => {
     expect(listSpy).toHaveBeenNthCalledWith(2, "page-2", ownershipMask);
   });
 
+  it("never deletes another store's documents, however their ids look", async () => {
+    const OTHER = "22222222-2222-2222-2222-222222222222";
+    const SAME_SHOP_OTHER_ACCOUNT = "33333333-3333-3333-3333-333333333333";
+    vi.spyOn(client, "listProducts").mockResolvedValue({
+      products: [
+        product({ id: `${CONNECTION_ID}_mine`, attributes: { merchant_id: { text: [CONNECTION_ID] } } }),
+        product({ id: `${OTHER}_theirs`, attributes: { merchant_id: { text: [OTHER] } } }),
+        // Same Shopify product id, connected by a second Persona account: a different store here.
+        product({
+          id: `${SAME_SHOP_OTHER_ACCOUNT}_gid://shopify/Product/1`,
+          attributes: { merchant_id: { text: [SAME_SHOP_OTHER_ACCOUNT] } },
+        }),
+        // A tag for another store outranks an id that happens to carry this store's prefix.
+        product({ id: `${CONNECTION_ID}_mislabelled`, attributes: { merchant_id: { text: [OTHER] } } }),
+        product({ id: `${OTHER}_shared`, attributes: { merchant_id: { text: [OTHER, CONNECTION_ID] } } }),
+      ],
+    });
+    const deleteSpy = vi.spyOn(client, "deleteProduct").mockResolvedValue(true);
+
+    await expect(deleteAllAcsProductsForConnection(CONNECTION_ID)).resolves.toBe(1);
+    expect(deleteSpy.mock.calls.map(([id]) => id)).toEqual([`${CONNECTION_ID}_mine`]);
+  });
+
+  it.each(["", "conn-1", "1111", `${"1".repeat(36)}`, undefined])(
+    "refuses to sweep with a malformed connection id (%s) before reading anything",
+    async (badId) => {
+      const listSpy = vi.spyOn(client, "listProducts");
+      const deleteSpy = vi.spyOn(client, "deleteProduct");
+
+      await expect(sweepAcsProductsForConnection(badId as string)).rejects.toThrow("malformed connection id");
+      expect(listSpy).not.toHaveBeenCalled();
+      expect(deleteSpy).not.toHaveBeenCalled();
+    },
+  );
+
   it("reports progress while it lists and after every batch it deletes", async () => {
     vi.spyOn(client, "listProducts").mockResolvedValueOnce({
       products: [

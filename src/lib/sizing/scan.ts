@@ -9,7 +9,7 @@ import { replaceSizingCoverage } from "@/lib/db/sizing-coverage";
 import { replaceSizingNullRecords } from "@/lib/db/sizing-null-records";
 import { replaceSizingProductRecords } from "@/lib/db/sizing-product-records";
 import { replaceSizingPathCoverage } from "@/lib/db/sizing-path-coverage";
-import { updateSizingRun, type SizingRunRow } from "@/lib/db/sizing-runs";
+import { sizingRunExists, updateSizingRun, type SizingRunRow } from "@/lib/db/sizing-runs";
 import { isSizingGroup, type SizingGroup } from "./measurements";
 import { CoverageAggregator, toRawFormat, type AggregateStats } from "./aggregate";
 import { PathCoverageAggregator } from "./path-coverage";
@@ -208,6 +208,12 @@ export async function runSizingScan(connection: StoreConnectionRow, run: SizingR
   const rows = aggregator.rows();
   const stats = aggregator.stats();
   const pathRows = paths.result();
+
+  // A walk takes minutes, and Start from scratch can land in the middle of one. Its results belong
+  // to a setup that no longer exists, so they are dropped rather than written over the fresh one.
+  if (!(await sizingRunExists(run.id))) {
+    throw new Error("Start from scratch removed this scan's run before its results were saved.");
+  }
 
   const productsWritten = await replaceSizingProductRecords(
     connection.id,

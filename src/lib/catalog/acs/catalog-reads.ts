@@ -1,7 +1,13 @@
 import type { CatalogCandidate, CatalogFacets, CategoryPath } from "@/lib/retrieval/types";
 import { deleteProduct, getProduct, listProducts, markOutOfStock, searchProducts, searchProductsRaw } from "./client";
 import { isAcsConfigured } from "./config";
-import { buildAcsProductId, escapeFilterLiteral, merchantFilterClause } from "./isolation";
+import {
+  assertConnectionId,
+  buildAcsProductId,
+  escapeFilterLiteral,
+  merchantFilterClause,
+  ownsAcsProduct,
+} from "./isolation";
 import { toCandidate, toCandidateFromProduct } from "./search-adapter";
 import type { AcsProduct, AcsSearchResultItem } from "./types";
 
@@ -350,12 +356,13 @@ export async function sweepAcsProductsForConnection(
     onProgress?: (progress: { deleted: number; found: number }) => Promise<void> | void;
   } = {},
 ): Promise<AcsConnectionSweep> {
+  assertConnectionId(connectionId);
   if (!isAcsConfigured()) return { deleted: 0, found: 0, complete: true };
 
   // ProductService.ListProducts reads the catalog's source of truth. SearchService was previously
   // used here, but its eventual consistency made a successful disconnect capable of missing
-  // recently imported products. The deterministic id prefix is the primary ownership check;
-  // merchant_id also covers any legacy products that did not use that id convention.
+  // recently imported products. Ownership is `ownsAcsProduct`'s: the merchant_id tag, or the id
+  // prefix for documents written before the tag existed.
   const variantIds = new Set<string>();
   const parentIds = new Set<string>();
   const seenTokens = new Set<string>();
@@ -365,8 +372,7 @@ export async function sweepAcsProductsForConnection(
     // Only what ownership and the variant-first ordering read: this walks every tenant's documents.
     const response = await listProducts(pageToken, { readMask: OWNERSHIP_READ_MASK });
     for (const product of response.products ?? []) {
-      const merchantIds = product.attributes?.merchant_id?.text ?? [];
-      if (product.id.startsWith(`${connectionId}_`) || merchantIds.includes(connectionId)) {
+      if (ownsAcsProduct(connectionId, product)) {
         // ACS enforces this dependency: a PRIMARY cannot be deleted while any VARIANT points at it.
         // `type` decides whenever it is present. ACS fills a PRIMARY's `primaryProductId` with its
         // own id, so that field marks a variant only when it names another product; it and the

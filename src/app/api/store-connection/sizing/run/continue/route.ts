@@ -1,5 +1,6 @@
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
+import { refuseDuringSetupReset } from "@/lib/catalog/setup-reset-guard";
 import { advanceBlockedRun } from "@/lib/db/sizing-runs";
 
 /**
@@ -25,6 +26,8 @@ export async function POST() {
     if (!connection) {
       return Response.json({ error: "Store connection not found" }, { status: 404 });
     }
+    const resetting = refuseDuringSetupReset(connection);
+    if (resetting) return resetting;
 
     // `gap_fill` is included because runs parked there predate Stage 4 owning its own parked state.
     // They belong on the assignment stage too, and leaving them out would strand exactly the runs that
