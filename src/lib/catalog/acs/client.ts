@@ -57,17 +57,28 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** A connection that drops mid-request leaves a write's outcome unknown, so only these are resent. */
+const NETWORK_RETRY_METHODS = new Set(["GET", "DELETE"]);
+
 async function acsFetch<T>(path: string, init: RequestInit): Promise<T> {
   for (let attempt = 0; ; attempt++) {
-    const token = await getAcsAccessToken();
-    const res = await fetch(`${API_BASE}/${path}`, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        ...init.headers,
-      },
-    });
+    let res: Response;
+    try {
+      const token = await getAcsAccessToken();
+      res = await fetch(`${API_BASE}/${path}`, {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          ...init.headers,
+        },
+      });
+    } catch (error) {
+      const method = (init.method ?? "GET").toUpperCase();
+      if (!NETWORK_RETRY_METHODS.has(method) || attempt >= MAX_REQUEST_ATTEMPTS - 1) throw error;
+      await sleep(backoffMs(attempt, null));
+      continue;
+    }
 
     const text = await res.text();
     if (res.ok) return text ? (JSON.parse(text) as T) : ({} as T);

@@ -96,6 +96,8 @@ export async function writeSetupResetState(
   if (patch.startedAt !== undefined) update.setup_reset_started_at = patch.startedAt;
   if (patch.finishedAt !== undefined) update.setup_reset_finished_at = patch.finishedAt;
   if (patch.deleted !== undefined) update.setup_reset_deleted = patch.deleted;
+  if (patch.total !== undefined) update.setup_reset_total = patch.total;
+  if (patch.leaseUntil !== undefined) update.setup_reset_lease_until = patch.leaseUntil;
   if (patch.error !== undefined) update.setup_reset_error = patch.error;
 
   const { error } = await db.from("store_connections").update(update).eq("id", connectionId);
@@ -104,4 +106,49 @@ export async function writeSetupResetState(
     return false;
   }
   return true;
+}
+
+/**
+ * Takes a running cleanup for one pass, unless another pass holds it. Each attempt is one
+ * conditional update, so two passes racing for the same store cannot both win. Returns what the
+ * earlier passes removed, which this one adds to.
+ */
+export async function claimSetupResetLease(
+  connectionId: string,
+  leaseMs: number,
+): Promise<{ deleted: number } | null> {
+  const now = new Date();
+  const patch = { setup_reset_lease_until: new Date(now.getTime() + leaseMs).toISOString() };
+  const running = () =>
+    db.from("store_connections").update(patch).eq("id", connectionId).eq("setup_reset_status", "running");
+
+  for (const attempt of [
+    () => running().is("setup_reset_lease_until", null).select("setup_reset_deleted"),
+    () => running().lt("setup_reset_lease_until", now.toISOString()).select("setup_reset_deleted"),
+  ]) {
+    const { data, error } = await attempt();
+    if (error) {
+      console.error("[db/setup-reset claimSetupResetLease]", connectionId, error);
+      return null;
+    }
+    const [row] = (data ?? []) as Array<{ setup_reset_deleted: number | null }>;
+    if (row) return { deleted: row.setup_reset_deleted ?? 0 };
+  }
+  return null;
+}
+
+/** Stores whose cleanup is running with no pass at work on it, oldest reset first. */
+export async function listUnclaimedSetupResets(limit: number): Promise<string[]> {
+  const { data, error } = await db
+    .from("store_connections")
+    .select("id")
+    .eq("setup_reset_status", "running")
+    .or(`setup_reset_lease_until.is.null,setup_reset_lease_until.lt."${new Date().toISOString()}"`)
+    .order("setup_reset_started_at", { ascending: true })
+    .limit(limit);
+  if (error) {
+    console.error("[db/setup-reset listUnclaimedSetupResets]", error);
+    return [];
+  }
+  return (data ?? []).map((row) => String(row.id));
 }

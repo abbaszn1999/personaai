@@ -10,6 +10,10 @@ import {
 } from "@/lib/catalog/setup-reset-state";
 import { cleanAcsAfterReset, resetSetupData, restartAcsCleanup } from "@/lib/catalog/start-from-scratch";
 
+/** The first cleanup pass runs in `after()`, which gets this route's time limit. */
+export const runtime = "nodejs";
+export const maxDuration = 300;
+
 /**
  * "Start from scratch" for Setup and Mapping.
  *
@@ -66,7 +70,8 @@ export async function POST(request: Request) {
     if (!reset.ok) return Response.json({ error: reset.error }, { status: 500 });
 
     // Removing the store's documents walks the whole shared ACS catalog, which outlasts any
-    // reasonable request. The screen follows it through `GET`, and publishing waits for it.
+    // reasonable request. This is the first pass; the per-minute schedule runs the rest. The screen
+    // follows it through `GET`, and publishing waits for it.
     after(() => cleanAcsAfterReset(connection.id));
     return Response.json({ ok: true, scope: body.scope });
   } catch (error) {

@@ -12,8 +12,16 @@ export interface SetupResetState {
   scope: SetupResetScope | null;
   startedAt: string | null;
   finishedAt: string | null;
-  /** ACS documents removed so far. */
+  /** ACS documents removed so far, across every pass. */
   deleted: number;
+  /** The store's documents in ACS when the cleanup began; unknown until the first pass has listed them. */
+  total: number | null;
+  /**
+   * Until when the pass now removing documents holds the cleanup. A pass extends it as it works and
+   * releases it, by setting it to the moment it stopped, when it ends, so it also dates the last
+   * sign of life.
+   */
+  leaseUntil: string | null;
   error: string | null;
 }
 
@@ -23,15 +31,17 @@ export const IDLE_SETUP_RESET: SetupResetState = {
   startedAt: null,
   finishedAt: null,
   deleted: 0,
+  total: null,
+  leaseUntil: null,
   error: null,
 };
 
 /**
- * A cleanup still marked running after this long was cut off, by a deploy or a crash, since the
- * slowest real walk of the shared catalog takes a few minutes. It is then offered as failed, so the
- * merchant can retry instead of waiting on a job that no longer exists.
+ * A running cleanup with no pass at work for this long was abandoned: the schedule that carries it
+ * from one pass to the next fires every minute. It is then offered as failed, so the merchant can
+ * retry instead of waiting on a job that no longer exists.
  */
-export const SETUP_RESET_STALE_MS = 30 * 60_000;
+export const SETUP_RESET_STALE_MS = 10 * 60_000;
 
 export function isSetupResetScope(value: unknown): value is SetupResetScope {
   return value === "setup" || value === "mapping";
@@ -45,14 +55,17 @@ export function parseSetupResetState(row: Record<string, unknown>): SetupResetSt
     startedAt: typeof row.setup_reset_started_at === "string" ? row.setup_reset_started_at : null,
     finishedAt: typeof row.setup_reset_finished_at === "string" ? row.setup_reset_finished_at : null,
     deleted: typeof row.setup_reset_deleted === "number" ? row.setup_reset_deleted : 0,
+    total: typeof row.setup_reset_total === "number" ? row.setup_reset_total : null,
+    leaseUntil: typeof row.setup_reset_lease_until === "string" ? row.setup_reset_lease_until : null,
     error: typeof row.setup_reset_error === "string" ? row.setup_reset_error : null,
   };
 }
 
-/** The state as the screen should treat it: a cleanup cut off long ago reads as failed. */
+/** The state as the screen should treat it: a cleanup nothing has worked on for long reads as failed. */
 export function effectiveSetupResetState(state: SetupResetState, now = Date.now()): SetupResetState {
-  if (state.status !== "running" || !state.startedAt) return state;
-  if (now - Date.parse(state.startedAt) < SETUP_RESET_STALE_MS) return state;
+  const lastActive = state.leaseUntil ?? state.startedAt;
+  if (state.status !== "running" || !lastActive) return state;
+  if (now - Date.parse(lastActive) < SETUP_RESET_STALE_MS) return state;
   return { ...state, status: "failed", error: state.error ?? "The cleanup was interrupted before it finished." };
 }
 

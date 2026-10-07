@@ -159,6 +159,29 @@ describe("acsFetch retries", () => {
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
+
+  it("resends a delete whose connection dropped, since deleting twice changes nothing", async () => {
+    const fetchSpy = vi
+      .spyOn(global, "fetch")
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValue(json({}));
+
+    const pending = deleteProduct(`${CONNECTION_ID}_a`);
+    await vi.runAllTimersAsync();
+
+    await expect(pending).resolves.toBe(true);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not resend a POST whose connection dropped, since it may have landed", async () => {
+    const fetchSpy = vi.spyOn(global, "fetch").mockRejectedValue(new TypeError("fetch failed"));
+
+    const rejection = expect(search()).rejects.toThrow("fetch failed");
+    await vi.runAllTimersAsync();
+    await rejection;
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("importProducts", () => {

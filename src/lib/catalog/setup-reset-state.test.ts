@@ -24,7 +24,13 @@ describe("setup reset state", () => {
     });
   });
 
-  it("treats a cleanup as running only until it is old enough to have been cut off", () => {
+  it("reads the pass lease and the total", () => {
+    expect(
+      parseSetupResetState({ setup_reset_total: 19_740, setup_reset_lease_until: "2026-10-07T20:01:30.000Z" }),
+    ).toMatchObject({ total: 19_740, leaseUntil: "2026-10-07T20:01:30.000Z" });
+  });
+
+  it("treats a cleanup as running only until nothing has worked on it for too long", () => {
     const startedAt = "2026-10-07T20:00:00.000Z";
     const running = { ...IDLE_SETUP_RESET, status: "running" as const, startedAt };
     const start = Date.parse(startedAt);
@@ -35,6 +41,20 @@ describe("setup reset state", () => {
       status: "failed",
       error: expect.stringContaining("interrupted"),
     });
+  });
+
+  it("keeps a long cleanup running for as long as its passes keep reporting", () => {
+    const start = Date.parse("2026-10-07T20:00:00.000Z");
+    const lastPass = new Date(start + 40 * 60_000).toISOString();
+    const running = {
+      ...IDLE_SETUP_RESET,
+      status: "running" as const,
+      startedAt: new Date(start).toISOString(),
+      leaseUntil: lastPass,
+    };
+
+    expect(setupResetRunning(running, Date.parse(lastPass) + 60_000)).toBe(true);
+    expect(setupResetRunning(running, Date.parse(lastPass) + SETUP_RESET_STALE_MS + 1)).toBe(false);
   });
 
   it("never blocks anything once the cleanup has finished or failed", () => {

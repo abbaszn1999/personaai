@@ -3,6 +3,7 @@ import { runSizingJobPass } from "@/lib/sizing/jobs";
 import { runCatalogEnqueuePass } from "./jobs";
 import { drainCatalogQueue, settleFinishedRuns } from "./process-queue";
 import { runCmsColumnDiscoveryPass } from "./discover-cms-columns";
+import { runSetupResetCleanupPass } from "./start-from-scratch";
 
 /** Gap between idle polls. Short enough that saving a category selection feels like it starts
  *  indexing immediately, long enough that an idle install isn't querying in a tight loop. */
@@ -31,6 +32,7 @@ export function isCatalogWorkerEnabled(): boolean {
 }
 
 let running = false;
+let setupResetPass: Promise<unknown> | null = null;
 
 export function startCatalogWorker(): void {
   // Dev server module reloads re-run the startup hook; a second loop would double every
@@ -75,6 +77,14 @@ export async function runCatalogTick(): Promise<number> {
   // passes are cheap no-ops when nothing is running.
   await runSizingJobPass();
   await runCmsColumnDiscoveryPass();
+
+  // A "Start from scratch" cleanup pass deletes for minutes at a time, so it runs beside the loop
+  // rather than in it; indexing for every other store would otherwise wait on it.
+  setupResetPass ??= runSetupResetCleanupPass()
+    .catch((err) => console.error("[catalog worker] setup reset pass failed", err))
+    .finally(() => {
+      setupResetPass = null;
+    });
 
   // Checked before draining so an idle install does one cheap count instead of a queue read
   // plus the whole batch machinery.

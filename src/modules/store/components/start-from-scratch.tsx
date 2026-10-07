@@ -17,6 +17,8 @@ import { storeSizingStage } from "../sizing/stage-storage";
 const POLL_MS = 3000;
 /** A finished cleanup stays announced this long, so a merchant returning to the tab sees it ended. */
 const DONE_VISIBLE_MS = 60 * 60_000;
+/** ACS's observed delete rate, for the time-left estimate only. */
+const REMOVED_PER_MINUTE = 1_200;
 
 interface ResetStatusState {
   reset: SetupResetState;
@@ -209,8 +211,9 @@ function StartFromScratchDialog({
         {kept}
       </p>
       <p className="mt-3 text-[11px] text-[var(--color-text-muted)]">
-        Removing the products from ACS takes a few minutes and runs in the background. You can start
-        again right away; publishing waits until it has finished.
+        Removing the products from ACS runs in the background, about a minute for every 1,000 products,
+        and carries on if you close the page. You can start again right away; publishing waits until it
+        has finished.
       </p>
 
       <label className="mt-4 block">
@@ -270,13 +273,25 @@ export function SetupResetBanner() {
   }
 
   if (reset.status === "running") {
+    const total = reset.total ?? 0;
+    const percent = total > 0 ? Math.min(100, Math.round((reset.deleted / total) * 100)) : 0;
+    const minutesLeft = total > 0 ? Math.ceil((total - reset.deleted) / REMOVED_PER_MINUTE) : null;
     return (
       <Banner tone="info" icon={<Loader2 className="h-4 w-4 animate-spin" />}>
         <p className="text-sm font-bold text-[var(--color-text-primary)]">Removing this store&apos;s old products from ACS</p>
         <p className="mt-0.5 text-xs text-[var(--color-text-secondary)]">
-          {reset.deleted > 0 ? `${reset.deleted.toLocaleString()} removed so far. ` : ""}
+          {total > 0
+            ? `${reset.deleted.toLocaleString()} of ${total.toLocaleString()} removed${
+                minutesLeft && minutesLeft > 1 ? `, about ${minutesLeft} minutes left` : ""
+              }. `
+            : "Finding this store's products in ACS. "}
           You can work through Setup meanwhile; publishing in Stage 5 waits until this finishes.
         </p>
+        {total > 0 && (
+          <div className="mt-2 h-1.5 w-full max-w-md overflow-hidden rounded-full bg-[var(--color-brand)]/15">
+            <div className="h-full rounded-full bg-[var(--color-brand)] transition-[width] duration-500" style={{ width: `${percent}%` }} />
+          </div>
+        )}
       </Banner>
     );
   }
@@ -296,8 +311,10 @@ export function SetupResetBanner() {
         <p className="text-sm font-bold text-[var(--color-text-primary)]">The old products were not all removed from ACS</p>
         <p className="mt-0.5 text-xs text-[var(--color-text-secondary)]">
           {reset.error ?? "The cleanup stopped before it finished."}
-          {reset.deleted > 0 ? ` ${reset.deleted.toLocaleString()} were removed before it stopped.` : ""} Publishing
-          stays possible, but retry first so no old product is left behind.
+          {reset.deleted > 0
+            ? ` ${reset.deleted.toLocaleString()}${reset.total ? ` of ${reset.total.toLocaleString()}` : ""} were removed before it stopped.`
+            : ""}{" "}
+          Publishing stays possible, but retry first so no old product is left behind.
         </p>
         {retryError && <p className="mt-1 text-xs font-semibold text-[var(--color-error)]">{retryError}</p>}
       </Banner>

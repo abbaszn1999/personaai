@@ -7,8 +7,10 @@ const drainCatalogQueue = vi.fn(async () => drainResult());
 const settleFinishedRuns = vi.fn(async () => 0);
 const runSizingJobPass = vi.fn(async () => []);
 const runCmsColumnDiscoveryPass = vi.fn(async () => []);
+const runSetupResetCleanupPass = vi.fn(async () => []);
 
 vi.mock("./jobs", () => ({ runCatalogEnqueuePass: () => runCatalogEnqueuePass() }));
+vi.mock("./start-from-scratch", () => ({ runSetupResetCleanupPass: () => runSetupResetCleanupPass() }));
 vi.mock("@/lib/sizing/jobs", () => ({ runSizingJobPass: () => runSizingJobPass() }));
 vi.mock("./discover-cms-columns", () => ({ runCmsColumnDiscoveryPass: () => runCmsColumnDiscoveryPass() }));
 vi.mock("@/lib/db/catalog-queue", () => ({ getCatalogQueueDepth: () => getCatalogQueueDepth() }));
@@ -91,6 +93,22 @@ describe("runCatalogTick", () => {
     await runCatalogTick();
 
     expect(runCmsColumnDiscoveryPass).toHaveBeenCalledTimes(1);
+  });
+
+  it("carries a Start from scratch cleanup forward without waiting on it", async () => {
+    let finish: () => void = () => undefined;
+    runSetupResetCleanupPass.mockImplementationOnce(
+      () => new Promise<never[]>((resolve) => (finish = () => resolve([]))),
+    );
+
+    await runCatalogTick();
+    await runCatalogTick();
+    expect(runSetupResetCleanupPass).toHaveBeenCalledTimes(1);
+
+    finish();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await runCatalogTick();
+    expect(runSetupResetCleanupPass).toHaveBeenCalledTimes(2);
   });
 
   it("still concludes an unfinished run when there is nothing left to drain", async () => {
