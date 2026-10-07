@@ -366,7 +366,7 @@ describe("leaf-level coverage", () => {
   });
 
   it("routes a partial unbranded pair to the no-brand list", () => {
-    const stocked = stockedFor("", { "women:top:blouse": 5 });
+    const stocked = stockedFor("", { "women:top:shirt": 5 });
     const row = coverage({ brandKey: "", brandName: null, brandType: "none", skuCount: 5 });
 
     const result = buildChartResults(
@@ -375,7 +375,7 @@ describe("leaf-level coverage", () => {
       stocked
     );
 
-    expect(result.noBrand[0]?.missingLeaves).toEqual(["women:top:blouse"]);
+    expect(result.noBrand[0]?.missingLeaves).toEqual(["women:top:shirt"]);
     expect(result.notFound).toHaveLength(0);
   });
 

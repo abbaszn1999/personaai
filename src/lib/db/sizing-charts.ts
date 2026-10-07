@@ -8,6 +8,7 @@ import {
 } from "@/lib/sizing/chart-schema";
 import type { Audience } from "@/lib/sizing/keys";
 import { isMeasurement, isSizingGroup, type Measurement } from "@/lib/sizing/measurements";
+import { canonicalLeafKey } from "@/modules/store/mapping/persona-taxonomy";
 
 /**
  * Measurement bounds from two deliberately isolated stores:
@@ -32,7 +33,7 @@ export interface SizingChartRow {
    *  reads this string alone for the fit-class guard; `variantGarmentType`'s old job of deciding
    *  which of a brand's tables a leaf belongs to had already moved onto `coversLeaves` below. */
   variantName: string;
-  /** The Persona leaf keys ("women:top:blouse") this exact row is the authoritative chart for —
+  /** The Persona leaf keys ("women:top:shirt") this exact row is the authoritative chart for —
    *  `sizing_charts.covers_leaves`, migration `20260922020000`. Replaces the old name/tag guess
    *  (`LEAF_GARMENT_TAGS`/`VARIANT_GARMENT_PATTERNS`/`pickVariant`'s garment pass in
    *  `variant-match.ts`, deleted alongside this column) as the source of truth for which of a
@@ -87,7 +88,7 @@ function rowToChart(row: Record<string, unknown>): SizingChartRow {
     brandKey: row.brand_key as string,
     sizingCategory,
     variantName: (row.variant_name as string | null) ?? "",
-    coversLeaves: (row.covers_leaves as string[] | null) ?? [],
+    coversLeaves: [...new Set(((row.covers_leaves as string[] | null) ?? []).map(canonicalLeafKey))],
     audience,
     sourceTitle: (row.source_title as string | null) ?? "",
     sourceTableId: (row.source_table_id as string | null) ?? "",

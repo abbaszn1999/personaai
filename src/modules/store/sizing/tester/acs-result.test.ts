@@ -233,9 +233,9 @@ describe("groupBySubcategory", () => {
       product("d", [], [], null),
     ]);
     expect(groups.map((group) => [group.leafKey, group.label, group.products.length])).toEqual([
-      ["men:top:t-shirt", "T-Shirts · Men", 2],
+      ["men:top:t-shirt", "T-Shirts & Tops · Men", 2],
       [null, "Other", 1],
-      ["unisex:top:t-shirt", "T-Shirts · Unisex", 1],
+      ["unisex:top:t-shirt", "T-Shirts & Tops · Unisex", 1],
     ]);
     expect(groupBySubcategory([product("a", [], [], "men:top:shirt")])[0]?.label).toBe("Shirts");
   });

@@ -91,6 +91,22 @@ describe("variantTags", () => {
   });
 });
 
+describe("sanitizeCoverage after the v4 merge", () => {
+  it("reads coverage stored under a removed leaf as the leaf it folded into", () => {
+    expect(sanitizeCoverage(["women:top:blouse"], "womens", "tops")).toEqual(["women:top:shirt"]);
+    expect(sanitizeCoverage(["men:bottom:chino"], "mens", "bottoms")).toEqual(["men:bottom:trouser"]);
+  });
+
+  it("collapses a removed leaf and its survivor into one entry", () => {
+    expect(sanitizeCoverage(["women:top:shirt", "women:top:blouse"], "womens", "tops")).toEqual(["women:top:shirt"]);
+  });
+
+  it("still drops a converted leaf that falls outside the chart's audience or group", () => {
+    expect(sanitizeCoverage(["women:top:blouse"], "mens", "tops")).toEqual([]);
+    expect(sanitizeCoverage(["women:top:blouse"], "womens", "bottoms")).toEqual([]);
+  });
+});
+
 describe("sanitizeCoverage", () => {
   it("keeps a real leaf whose audience and group match the chart", () => {
     expect(sanitizeCoverage(["men:top:t-shirt"], "mens", "tops")).toEqual(["men:top:t-shirt"]);

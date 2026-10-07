@@ -3,6 +3,7 @@ import {
   PERSONA_CATEGORIES,
   PERSONA_DEPARTMENTS,
   PERSONA_SUB_CATEGORIES,
+  absorbedSubCategories,
   type PersonaCategoryMapping,
   type SerializedTaxonomyScope,
 } from "@/modules/store/mapping/persona-taxonomy";
@@ -60,12 +61,17 @@ function targetsForScope(scope: SerializedTaxonomyScope): PersonaMatchTarget[] {
 
       for (const subCategory of enabledSubCategories) {
         const key = `${department.id}:${category.id}:${subCategory}`;
+        // A leaf stands for the garments that were folded into it, and the model has to know that to
+        // file "Blouses" under `shirt` rather than call it unmapped.
+        const folded = absorbedSubCategories(key);
         targets.push({
           key,
           departmentId: department.id,
           categoryId: category.id,
           subCategory,
-          label: key.replaceAll(":", " > "),
+          label: folded.length > 0
+            ? `${key.replaceAll(":", " > ")}; also covers: ${folded.join(", ")}`
+            : key.replaceAll(":", " > "),
         });
       }
     }

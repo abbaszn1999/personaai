@@ -144,7 +144,7 @@ describe("flat collections (Shopify)", () => {
   const flatScope = {
     configured: true,
     enabledDeptIds: ["men", "women", "unisex"],
-    enabledLeafKeys: ["men:bottom:jean", "women:top:t-shirt", "women:outerwear:cardigan", "women:top:sweater", "unisex:top:t-shirt"],
+    enabledLeafKeys: ["men:bottom:jean", "women:top:t-shirt", "women:outerwear:cardigan", "women:top:knit", "unisex:top:t-shirt"],
     customLeaves: [],
     customCategories: [],
   };
@@ -152,7 +152,7 @@ describe("flat collections (Shopify)", () => {
     "454406701298": { status: "mapped", departmentId: "men", categoryId: "bottom", subCategory: "jean" },
     "462482112754": { status: "mapped", departmentId: "women", categoryId: "top", subCategory: "t-shirt" },
     "465211883762": { status: "mapped", departmentId: "women", categoryId: "outerwear", subCategory: "cardigan" },
-    "487860633842": { status: "mapped", departmentId: "women", categoryId: "top", subCategory: "sweater" },
+    "487860633842": { status: "mapped", departmentId: "women", categoryId: "top", subCategory: "knit" },
   }, collections);
   const both = ["454406701298", "462482112754"];
 
@@ -171,7 +171,7 @@ describe("flat collections (Shopify)", () => {
     const pullover = ["465211883762", "487860633842"];
 
     expect(resolvePersonaPaths(pullover, config, { title: "tom tailor women pullover w26" })[0]?.key)
-      .toBe("women:top:sweater");
+      .toBe("women:top:knit");
     expect(resolvePersonaPaths(pullover, config, { title: "Navy Cardigan with Concealed Button Placket" })[0]?.key)
       .toBe("women:outerwear:cardigan");
   });
@@ -230,7 +230,7 @@ describe("personaPathLabel", () => {
     );
     const [path] = resolvePersonaPaths(["tees"], config);
 
-    expect(personaPathLabel(path, config)).toBe("Women > Top > T-Shirts");
+    expect(personaPathLabel(path, config)).toBe("Women > Top > T-Shirts & Tops");
   });
 
   it("rejects a mapping that stops at the category with no leaf", () => {

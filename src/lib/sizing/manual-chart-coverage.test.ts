@@ -11,12 +11,12 @@ describe("suggestChartName", () => {
       "men:top:shirt",
       "men:top:polo-shirt",
       "men:top:t-shirt",
-      "men:top:sweater",
-      "women:top:blouse",
+      "men:top:knit",
+      "women:top:shirt",
     ]);
     expect(name).toContain("Men - ");
     expect(name).toContain("+1");
-    expect(name).toContain(" / Women - Blouse");
+    expect(name).toContain(" / Women - Shirt");
   });
 
   it("returns an empty name when nothing is selected", () => {
@@ -33,7 +33,7 @@ const paths = [
   {
     brandKey: "private-label",
     sizingCategory: "tops",
-    categoryId: "men:top:sweater",
+    categoryId: "men:top:knit",
   },
   {
     brandKey: "private-label",
@@ -61,7 +61,7 @@ describe("manual chart leaf coverage", () => {
   it("uses only exact leaf paths for the requested brand and sizing group", () => {
     expect(manualChartLeaves(paths, "private-label", "tops")).toEqual([
       "men:top:shirt",
-      "men:top:sweater",
+      "men:top:knit",
       "women:top:polo-shirt",
     ]);
   });
@@ -82,14 +82,14 @@ describe("manual chart leaf coverage", () => {
     ).toEqual([
       "men:top:shirt",
       "kids-boys:top:t-shirt",
-      "men:top:sweater",
+      "men:top:knit",
       "women:top:polo-shirt",
     ]);
   });
 
   it("surfaces mixed audiences instead of choosing one implicitly", () => {
     expect(
-      manualChartAudiences(["men:top:shirt", "women:top:t-shirt", "kids-boys:top:sweater"]),
+      manualChartAudiences(["men:top:shirt", "women:top:t-shirt", "kids-boys:top:knit"]),
     ).toEqual(["mens", "womens", "boys"]);
   });
 });

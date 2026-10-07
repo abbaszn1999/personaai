@@ -163,7 +163,7 @@ describe("toFitSearchProducts", () => {
     const { products } = toFitSearchProducts([
       result(`${CONNECTION_ID}_p1`, [{ s: "M", chest: [93, 98] }], {
         categories: [
-          "persona", "persona > women", "persona > women > top", "persona > women > top > blouse",
+          "persona", "persona > women", "persona > women > top", "persona > women > top > shirt",
           "persona > unisex", "persona > unisex > top", "persona > unisex > top > t-shirt",
         ],
       }),

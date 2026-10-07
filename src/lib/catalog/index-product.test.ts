@@ -43,13 +43,13 @@ function lookup(selectedCategoryIds: string[]): CategoryLookup {
     personaTaxonomyScope: {
       configured: true,
       enabledDeptIds: ["women"],
-      enabledLeafKeys: ["women:top:shirt", "women:top:blouse", "women:footwear:sneaker"],
+      enabledLeafKeys: ["women:top:shirt", "women:top:knit", "women:footwear:sneaker"],
       customLeaves: [],
       customCategories: [],
     },
     personaCategoryMap: {
       "12": { status: "mapped", departmentId: "women", categoryId: "top", subCategory: "shirt" },
-      "13": { status: "mapped", departmentId: "women", categoryId: "top", subCategory: "blouse" },
+      "13": { status: "mapped", departmentId: "women", categoryId: "top", subCategory: "knit" },
       "20": { status: "mapped", departmentId: "women", categoryId: "footwear", subCategory: "sneaker" },
     },
   };
@@ -259,7 +259,7 @@ describe("resolveCategoryPaths", () => {
     // "Men" is selected; the product is tagged with "Shirts", a grandchild of "Men" via "mens
     // pants". The full chain survives, root-first, so a sub-sub-category isn't lost.
     expect(resolveCategoryPaths({ ...product, sourceCategoryIds: ["13"] }, connection)).toEqual([
-      ["persona", "women", "top", "blouse"],
+      ["persona", "women", "top", "knit"],
     ]);
   });
 

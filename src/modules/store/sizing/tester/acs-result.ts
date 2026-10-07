@@ -414,7 +414,7 @@ export function groupBySubcategory(products: readonly FitSearchProductDto[]): Su
     .map(([leafKey, list]) => {
       if (!leafKey) return { leafKey, label: "Other", products: list };
       const [department, , sub] = leafKey.split(":");
-      const name = formatLeafLabel(sub ?? leafKey);
+      const name = formatLeafLabel(sub ?? leafKey, department);
       const departmentName = PERSONA_DEPARTMENTS.find((item) => item.id === department)?.name ?? department;
       return { leafKey, label: departments.size > 1 ? `${name} · ${departmentName}` : name, products: list };
     })

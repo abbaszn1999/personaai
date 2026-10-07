@@ -1,7 +1,7 @@
 import type { StoreConnectionRow } from "@/lib/db/store-connections";
 import type { BrandType } from "@/lib/db/sizing-coverage";
 import type { SizingChartRow } from "@/lib/db/sizing-charts";
-import { personaSizingGroup } from "@/modules/store/mapping/persona-taxonomy";
+import { canonicalLeafKey, personaSizingGroup } from "@/modules/store/mapping/persona-taxonomy";
 import { canonicalLabelForRow, matchRawFormat } from "./canonical";
 import {
   brandMappingIsCurrent,
@@ -221,7 +221,7 @@ export function resolveProductChart(
   }
 
   const bridgedLeaf = input.standardPersonaLeafKey ?? null;
-  const routingLeaf = bridgedLeaf || leafKey;
+  const routingLeaf = canonicalLeafKey(bridgedLeaf || leafKey);
   const parts = routingLeaf.split(":");
   const isStandardLeaf = parts.length === 3 && Boolean(parts[2]);
   if (brandType === "global" && !isStandardLeaf) {

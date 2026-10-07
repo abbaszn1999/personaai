@@ -54,7 +54,7 @@ const scope = {
 function row(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRow {
   return {
     id: "11111111-1111-1111-1111-111111111111",
-    ownerId: "user-1",
+    ownerId: "owner-1",
     platform: "shopify",
     storeName: "Store",
     storeUrl: "store.myshopify.com",

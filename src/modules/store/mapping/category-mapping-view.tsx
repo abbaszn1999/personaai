@@ -1435,7 +1435,7 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
                               const isSearchingCat = Boolean(q);
                               const filteredSubs = isSearchingCat
                                 ? enabledSubs.filter((sub) => {
-                                    const label = formatLeafLabel(sub).toLowerCase();
+                                    const label = formatLeafLabel(sub, dept.id).toLowerCase();
                                     const full = formatPersonaPath(dept.id, cat.id, sub).toLowerCase();
                                     return sub.toLowerCase().includes(q) || label.includes(q) || catDisplayName.toLowerCase().includes(q) || dept.name.toLowerCase().includes(q) || full.includes(q);
                                   })
@@ -1531,7 +1531,7 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
 
                                       {filteredSubs.map((sub) => {
                                         const fullPath = formatPersonaPath(dept.id, cat.id, sub);
-                                        const leafLabel = formatLeafLabel(sub);
+                                        const leafLabel = formatLeafLabel(sub, dept.id);
                                         const skuCount = getLeafSkuCount(dept.id, cat.id, sub);
                                         const targetKey = `${dept.id}:${cat.id}:${sub}`;
                                         const isDragOver = dragOverTargetKey === targetKey;

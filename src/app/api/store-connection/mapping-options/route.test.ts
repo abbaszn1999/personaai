@@ -174,7 +174,7 @@ describe("mapping-options GET", () => {
     const res = await GET(getRequest());
     const data = await res.json();
 
-    expect(data.categoriesSample).toBe("Women > Top > T-Shirts");
+    expect(data.categoriesSample).toBe("Women > Top > T-Shirts & Tops");
   });
 
   it("leaves the categories sample null when nothing in the sample resolves to a Persona path", async () => {

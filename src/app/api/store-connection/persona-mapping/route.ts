@@ -8,9 +8,9 @@ import {
   storeCategoryBreadcrumb,
 } from "@/lib/catalog/persona-mapping";
 import { buildCategoryIndex } from "@/lib/catalog/category-parents";
+import { resetPersonaMapping } from "@/lib/catalog/persona-mapping-reset";
 import {
   ALL_PERSONA_LEAF_KEYS,
-  EMPTY_PERSONA_SCOPE,
   PERSONA_TAXONOMY_VERSION,
   derivePersonaValues,
   formatPersonaPath,
@@ -273,32 +273,7 @@ export async function DELETE() {
   const connection = await getStoreConnectionByOwner(user.id);
   if (!connection) return Response.json({ error: "Store connection not found" }, { status: 404 });
 
-  const live = (await getLastPublishedAt(connection.id)) !== null;
-
-  const updated = await updateStoreConnection(user.id, {
-    personaTaxonomyVersion: PERSONA_TAXONOMY_VERSION,
-    personaTaxonomyScope: EMPTY_PERSONA_SCOPE,
-    personaCategoryMap: {},
-    personaMappingUpdatedAt: null,
-    // Clearing the mapping is the only way to unlock Auto-Match for another one-shot run.
-    personaAutoMatchCompletedAt: null,
-    ...(live
-      ? {}
-      : {
-          catalogSyncStatus: "idle" as const,
-          catalogSyncProgress: 0,
-          catalogSyncTotal: 0,
-          catalogPendingCategoryIds: [],
-        }),
-  });
-
+  const updated = await resetPersonaMapping(connection);
   if (!updated) return Response.json({ error: "Could not clear category mappings" }, { status: 500 });
-  await Promise.all([
-    live ? Promise.resolve(0) : deactivateAcsCatalogForRemapping(updated.id),
-    markPathConfigStale(updated.id),
-    // Nothing is mapped any more, so there is nothing for a fresh run to scan; only a live one is rewound.
-    rewindRun(updated.id, "scan"),
-  ]);
-  clearGeneratedStageFiveCache(updated.id);
   return Response.json(await responseFor(updated));
 }

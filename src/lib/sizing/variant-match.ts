@@ -1,6 +1,7 @@
 import type { Audience } from "./keys";
 import {
   ALL_PERSONA_LEAF_KEYS,
+  canonicalLeafKey,
   personaSizingGroup,
 } from "@/modules/store/mapping/persona-taxonomy";
 import type { SizingGroup } from "./measurements";
@@ -159,11 +160,15 @@ export function sanitizeCoverage(
 
   const kept: string[] = [];
   let dropped = 0;
-  for (const value of raw) {
+  for (const entry of raw) {
+    // A leaf the taxonomy has since folded into another is read as that other one, so coverage
+    // written before the merge keeps pointing at the right chart instead of silently vanishing.
+    const value = typeof entry === "string" ? canonicalLeafKey(entry) : entry;
     if (typeof value !== "string" || !ALL_PERSONA_LEAF_KEY_SET.has(value)) {
       dropped += 1;
       continue;
     }
+    if (kept.includes(value)) continue;
     const deptId = value.split(":")[0] ?? "";
     const catId = value.split(":")[1] ?? "";
     const leafAudience = audienceForPersonaPath(deptId);

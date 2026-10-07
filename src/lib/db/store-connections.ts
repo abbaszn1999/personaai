@@ -118,7 +118,7 @@ export interface StoreConnectionRow {
 function rowToConnection(row: Record<string, unknown>): StoreConnectionRow {
   const categories = (row.categories as StoreCategory[]) ?? [];
   const personaTaxonomyScope = parsePersonaScope(row.persona_taxonomy_scope);
-  const personaCategoryMap = parsePersonaCategoryMap(row.persona_category_map, categories);
+  const personaCategoryMap = parsePersonaCategoryMap(row.persona_category_map, categories, personaTaxonomyScope.customLeaves);
   return {
     id: row.id as string,
     ownerId: row.owner_id as string,
@@ -487,6 +487,18 @@ export async function listConnectedStores(): Promise<StoreConnectionRow[]> {
 
   if (error) {
     console.error("[db/store-connections listConnectedStores]", error);
+    return [];
+  }
+
+  return (data ?? []).map(rowToConnection);
+}
+
+/** Every connection still on an older Persona taxonomy, whatever its connection status. */
+export async function listConnectionsBelowTaxonomyVersion(version: number): Promise<StoreConnectionRow[]> {
+  const { data, error } = await db.from("store_connections").select("*").lt("persona_taxonomy_version", version);
+
+  if (error) {
+    console.error("[db/store-connections listConnectionsBelowTaxonomyVersion]", error);
     return [];
   }
 
