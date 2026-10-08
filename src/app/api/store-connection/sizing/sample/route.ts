@@ -166,7 +166,7 @@ export async function GET(request: Request) {
 
     const [pager, coverage] = await Promise.all([
       createCatalogPager(connection, { pageSize: STORE_FETCH_PAGE_SIZE }),
-      listSizingCoverage(connection.id),
+      listSizingCoverage(connection.id, { fresh: true }),
     ]);
 
     // Null means nothing is in scope — the merchant hasn't chosen categories yet. An empty page is

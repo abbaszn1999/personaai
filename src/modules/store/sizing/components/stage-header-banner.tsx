@@ -35,7 +35,7 @@ export function StageHeaderBanner({
   return (
     <div
       className={cn(
-        "flex flex-col gap-4 rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] p-5 shadow-[var(--shadow-elevated)] backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between",
+        "flex flex-col gap-4 rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] p-5 shadow-[var(--shadow-elevated)] sm:flex-row sm:items-center sm:justify-between",
         className
       )}
     >

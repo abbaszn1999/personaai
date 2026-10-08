@@ -764,9 +764,18 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
         if (prefetched && (get().sampleTotal !== null || prefetched.selectionTotal != null)) {
           data = prefetched;
         } else {
-          const read = await fetchSamplePage(params);
+          let read = await fetchSamplePage(params);
           // Superseded while in flight — another filter or page was requested after this one.
           if (requestId !== sampleRequestId) return;
+          // Stage 2 is only reachable once every brand is classified, so a page that still carries
+          // unclassified rows was joined against coverage from before that finished. Read it once
+          // more rather than painting the first table grey until the merchant pages away.
+          if (read.ok && hasUnclassifiedRows(read.data) && get().sampleBrandType !== "unclassified") {
+            await new Promise((resolve) => setTimeout(resolve, UNCLASSIFIED_RETRY_MS));
+            if (requestId !== sampleRequestId) return;
+            read = await fetchSamplePage(params);
+            if (requestId !== sampleRequestId) return;
+          }
           if (!read.ok) {
             set({ sampleError: read.data.error ?? "Could not load a catalog sample", sampleLoading: false });
             return;
@@ -1020,7 +1029,15 @@ function cachedSamplePage(key: string): Partial<SizingSampleResponse> | null {
   return hit.data;
 }
 
+const UNCLASSIFIED_RETRY_MS = 1200;
+
+function hasUnclassifiedRows(data: Partial<SizingSampleResponse>): boolean {
+  return (data.rows ?? []).some((row) => row.brandType === "unclassified");
+}
+
 function rememberSamplePage(key: string, data: Partial<SizingSampleResponse>): void {
+  // A page read before classification settled would be served back for five minutes.
+  if (hasUnclassifiedRows(data)) return;
   samplePages.delete(key);
   samplePages.set(key, { at: Date.now(), data });
   while (samplePages.size > MAX_SAMPLE_PAGES) {

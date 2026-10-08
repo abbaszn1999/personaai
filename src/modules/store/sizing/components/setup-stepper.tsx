@@ -37,7 +37,7 @@ export function SetupStepper({
   onSelectStage,
 }: SetupStepperProps) {
   return (
-    <div className="rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] px-3 py-3 shadow-[var(--shadow-elevated)] backdrop-blur-xl sm:px-4">
+    <div className="rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] px-3 py-3 shadow-[var(--shadow-elevated)] sm:px-4">
       <nav aria-label="Setup pipeline progress">
         <ol className="flex items-center justify-between gap-1">
           {STEPS.map((step, index) => {

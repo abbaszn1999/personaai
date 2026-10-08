@@ -220,7 +220,7 @@ export function StageItemPreview() {
         </div>
       )}
 
-      <div className="flex flex-col gap-2.5 rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] p-4 shadow-[var(--shadow-card)] backdrop-blur-xl">
+      <div className="flex flex-col gap-2.5 rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] p-4 shadow-[var(--shadow-card)]">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className="flex items-center gap-1 pl-1 text-xs font-medium text-[var(--color-text-muted)]">
@@ -383,7 +383,7 @@ export function StageItemPreview() {
         )}
       </div>
 
-      <div className="relative overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] shadow-[var(--shadow-elevated)] backdrop-blur-xl">
+      <div className="relative overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] shadow-[var(--shadow-elevated)]">
         {/* Overlaid rather than swapped in only once `rows` is empty — a filter switch keeps the
             previous filter's rows on screen until the new ones arrive, and without this a store slow
             enough to need several hops looked identical to having frozen. */}
@@ -651,7 +651,7 @@ function PathConflictNote({ conflict }: { conflict: SizingSamplePathConflict }) 
   );
 }
 
-function ProductTableRow({ row }: { row: SizingSampleRow }) {
+const ProductTableRow = React.memo(function ProductTableRow({ row }: { row: SizingSampleRow }) {
   const [imageFailed, setImageFailed] = React.useState(false);
   const isNone = row.brandType === "none";
   const isPrivate = row.brandType === "private";
@@ -664,7 +664,7 @@ function ProductTableRow({ row }: { row: SizingSampleRow }) {
     // its note underneath, and it clears 60px with room to spare.
     <tr
       className={cn(
-        "h-[60px] transition-colors",
+        "h-[60px]",
         isNone
           ? "bg-[var(--color-error-light)]/30 hover:bg-[var(--color-error-light)]/50"
           : isPrivate
@@ -827,4 +827,4 @@ function ProductTableRow({ row }: { row: SizingSampleRow }) {
       </td>
     </tr>
   );
-}
+});

@@ -199,7 +199,20 @@ async function readSizingCoverage(connectionId: string): Promise<SizingCoverageR
   return ((data as Array<Record<string, unknown>>) ?? []).map(rowToCoverage);
 }
 
-export async function listSizingCoverage(connectionId: string): Promise<SizingCoverageRow[]> {
+/**
+ * `fresh` skips the memo, for the one screen that colours rows by brand type. A page served from a
+ * memo taken before a scan or classification finished joins its rows against the previous scan's
+ * brand keys, and every brand it does not know comes back unclassified — the first table view of
+ * Stage 2 painted grey until something else forced a re-read.
+ */
+export async function listSizingCoverage(
+  connectionId: string,
+  options: { fresh?: boolean } = {}
+): Promise<SizingCoverageRow[]> {
+  if (options.fresh) {
+    forgetSizingCoverage(connectionId);
+    return readSizingCoverage(connectionId);
+  }
   if (isCacheDisabled()) return readSizingCoverage(connectionId).catch(() => []);
   const memo = coverageMemo();
   const hit = memo.get(connectionId);

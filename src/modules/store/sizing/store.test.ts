@@ -296,4 +296,41 @@ describe("Item Preview page cache", () => {
     const fresh = sampleRequests(fetchMock).filter(([url]) => String(url).includes("fresh=1"));
     expect(fresh).toHaveLength(1);
   });
+
+  function pageWithBrandTypes(types: string[]) {
+    return new Response(
+      JSON.stringify({
+        rows: types.map((brandType, index) => ({ externalId: `p${index}`, title: `P${index}`, brandType })),
+        nextCursor: null,
+        pageSize: 25,
+        selectionTotal: types.length,
+        selectionTotalExact: true,
+        filteredTotal: null,
+        scanned: true,
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  it("re-reads a first page that arrived with unclassified rows instead of painting it grey", async () => {
+    const answers = [pageWithBrandTypes(["unclassified", "private"]), pageWithBrandTypes(["private", "private"])];
+    const fetchMock = vi.fn(() => Promise.resolve(answers.shift()!));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await useSizingStore.getState().goToSamplePage(1);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(useSizingStore.getState().sample.map((row) => row.brandType)).toEqual(["private", "private"]);
+  });
+
+  it("does not remember a page that still has unclassified rows", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(pageWithBrandTypes(["unclassified"])));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await useSizingStore.getState().goToSamplePage(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await useSizingStore.getState().goToSamplePage(1);
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(2);
+  });
 });
