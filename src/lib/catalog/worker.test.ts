@@ -39,13 +39,24 @@ describe("isCatalogWorkerEnabled", () => {
   beforeEach(() => {
     delete process.env.CATALOG_WORKER;
     delete process.env.VERCEL;
+    delete process.env.RENDER;
   });
 
   afterEach(() => {
     process.env = { ...original };
   });
 
-  it("runs by default on a long-lived server", () => {
+  it("runs by default on the Render host", () => {
+    process.env.RENDER = "true";
+    expect(isCatalogWorkerEnabled()).toBe(true);
+  });
+
+  // A laptop or forgotten server pointed at the shared database would otherwise claim scans
+  // with whatever code it happens to have checked out.
+  it("stays off on any other machine unless asked for explicitly", () => {
+    expect(isCatalogWorkerEnabled()).toBe(false);
+
+    process.env.CATALOG_WORKER = "1";
     expect(isCatalogWorkerEnabled()).toBe(true);
   });
 

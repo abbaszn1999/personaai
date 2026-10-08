@@ -21,6 +21,11 @@ const ERROR_BACKOFF_MS = 30_000;
  * with `app_url` and `internal_job_secret` present in Supabase Vault. Whenever the process is
  * long-lived, calling the job functions directly is both simpler and impossible to misconfigure
  * — no URL, no shared secret, no network hop.
+ *
+ * Every copy of the app that shares a database also shares its job queue, and a copy running
+ * older code will happily claim a scan and write stale results. So the worker only starts by
+ * default where the app is actually hosted (Render sets `RENDER`); any other machine, such as
+ * a laptop running `next dev` against the shared database, must opt in with `CATALOG_WORKER=1`.
  */
 export function isCatalogWorkerEnabled(): boolean {
   const flag = process.env.CATALOG_WORKER;
@@ -28,7 +33,9 @@ export function isCatalogWorkerEnabled(): boolean {
 
   // Serverless instances are torn down between requests, so a loop started here would die
   // mid-batch and never be restarted. Those deployments are what the `pg_cron` schedule is for.
-  return !process.env.VERCEL;
+  if (process.env.VERCEL) return false;
+
+  return Boolean(process.env.RENDER);
 }
 
 let running = false;
