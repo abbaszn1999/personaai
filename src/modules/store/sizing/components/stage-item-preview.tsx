@@ -46,6 +46,7 @@ import {
   type SizingSampleRow,
 } from "../server-types";
 import { StageHeaderBanner } from "./stage-header-banner";
+import { RescanCatalogButton } from "./rescan-catalog-button";
 import { ScanProgress } from "./scan-progress";
 
 type BrandFilter = "all" | ServerBrandType;
@@ -195,8 +196,9 @@ function NarrowFilters({
         </button>
       )}
       {facets !== null && !hasCollections && (
-        <span className="pl-1 text-[11px] text-[var(--color-text-muted)]">
-          Rescan to enable collection filters
+        <span className="flex items-center gap-1.5 pl-1 text-[11px] text-[var(--color-text-muted)]">
+          Collection filters need a fresh read of your catalog.
+          <RescanCatalogButton variant="link" label="Rescan catalog" />
         </span>
       )}
     </div>

@@ -153,6 +153,9 @@ interface SizingUiState {
   openBrandMappingEditor: () => void;
   closeBrandMappingEditor: () => void;
   startRun: () => Promise<void>;
+  /** Reads the catalog again: rewinds an open run to the scan, or starts a fresh run when the last
+   *  one has finished. Charts already researched are kept. */
+  rescanCatalog: () => Promise<void>;
   /** Unblocks the run's current stage server-side, then resumes polling so the new stage's progress
    *  is visible immediately instead of waiting a full poll interval. */
   continueRun: () => Promise<void>;
@@ -406,27 +409,38 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
         return;
       }
 
-      // A new scan invalidates the cached preview and its classifications. Keeping either would show
-      // the previous run's Global/Private answers while the new complete brand list is still being
-      // classified.
-      clearSamplePages();
-      set({
-        run: data.run ?? null,
-        startingRun: false,
-        sample: [],
-        samplePage: 1,
-        sampleCursors: [null],
-        sampleNextCursor: null,
-        sampleTotal: null,
-        sampleFilteredTotal: null,
-        sampleTypeCounts: null,
-        sampleTypeItemCounts: null,
-        sampleParentCounts: null,
-        sampleLoaded: false,
-        sampleScanned: false,
-      });
-      // Straight into the poll chain so the counter starts moving without waiting an interval.
-      void get().loadRun();
+      applyStartedRun(data.run ?? null);
+    } catch {
+      set({ runError: "Could not reach the server", startingRun: false });
+    }
+  },
+
+  rescanCatalog: async () => {
+    if (get().startingRun) return;
+    set({ startingRun: true, runError: null });
+
+    try {
+      // A run that is still open is sent back to the scan; one that has finished cannot be rewound,
+      // so a fresh run starts instead, exactly as it does after a mapping change.
+      const restarted = await fetch("/api/store-connection/sizing/run/restart", { method: "POST" });
+      if (restarted.ok) {
+        const data = (await restarted.json()) as { run?: SizingRun };
+        applyStartedRun(data.run ?? null);
+        return;
+      }
+      if (restarted.status !== 409) {
+        const data = (await restarted.json().catch(() => ({}))) as { error?: string };
+        set({ runError: data.error ?? "Could not restart the scan", startingRun: false });
+        return;
+      }
+
+      const res = await fetch("/api/store-connection/sizing/run", { method: "POST" });
+      const data = (await res.json()) as { run?: SizingRun; error?: string };
+      if (!res.ok) {
+        set({ runError: data.error ?? "Could not start the scan", startingRun: false });
+        return;
+      }
+      applyStartedRun(data.run ?? null);
     } catch {
       set({ runError: "Could not reach the server", startingRun: false });
     }
@@ -1108,6 +1122,31 @@ export function clearSamplePages(): void {
   facetsGeneration += 1;
   // The filter options describe the same snapshot the pages do, so they go with them.
   if (useSizingStore.getState().sampleFacets !== null) useSizingStore.setState({ sampleFacets: null });
+}
+
+/**
+ * A new scan invalidates the cached preview and its classifications. Keeping either would show the
+ * previous run's Global/Private answers while the new complete brand list is still being classified.
+ */
+function applyStartedRun(run: SizingRun | null): void {
+  clearSamplePages();
+  useSizingStore.setState({
+    run,
+    startingRun: false,
+    sample: [],
+    samplePage: 1,
+    sampleCursors: [null],
+    sampleNextCursor: null,
+    sampleTotal: null,
+    sampleFilteredTotal: null,
+    sampleTypeCounts: null,
+    sampleTypeItemCounts: null,
+    sampleParentCounts: null,
+    sampleLoaded: false,
+    sampleScanned: false,
+  });
+  // Straight into the poll chain so the counter starts moving without waiting an interval.
+  void useSizingStore.getState().loadRun();
 }
 
 function samplePageKey(params: URLSearchParams): string {

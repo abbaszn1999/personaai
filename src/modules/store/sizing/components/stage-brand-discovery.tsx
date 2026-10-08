@@ -21,6 +21,7 @@ import { formatPersonaSegments, leafLabel } from "@/modules/store/mapping/person
 import { useSizingStore } from "../store";
 import { isScanIncomplete, type CoverageBrand, type ServerBrandType } from "../server-types";
 import { StageHeaderBanner } from "./stage-header-banner";
+import { RescanCatalogButton } from "./rescan-catalog-button";
 import { ScanProgress } from "./scan-progress";
 
 const TYPE_META: Record<
@@ -169,9 +170,12 @@ export function StageBrandDiscovery() {
         description={`Found in ${summary.totalSkus.toLocaleString()} sized items. Each brand/category pair—or unbranded category—becomes one chart, not one per product.`}
         aiPowered
         actions={
-          <Button variant="ghost" size="sm" onClick={() => void loadRun()}>
-            <RefreshCw className="h-3.5 w-3.5" /> Refresh
-          </Button>
+          <div className="flex items-center gap-1">
+            <RescanCatalogButton />
+            <Button variant="ghost" size="sm" onClick={() => void loadRun()}>
+              <RefreshCw className="h-3.5 w-3.5" /> Refresh
+            </Button>
+          </div>
         }
       />
 

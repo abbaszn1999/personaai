@@ -384,6 +384,57 @@ describe("Item Preview page cache", () => {
     expect(useSizingStore.getState().sampleFacets).toBeNull();
   });
 
+  describe("rescanCatalog", () => {
+    const pendingScan = { ...completedRun(), id: "run-new", status: "pending" as const, stage: "scan" as const };
+    const json = (status: number, body: unknown) =>
+      Promise.resolve(new Response(JSON.stringify(body), { status }));
+
+    it("rewinds a run that is still open", async () => {
+      const fetchMock = vi.fn((url: string) =>
+        String(url).endsWith("/run/restart") ? json(200, { run: pendingScan }) : json(200, {}),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      await useSizingStore.getState().rescanCatalog();
+
+      expect(String(fetchMock.mock.calls[0][0])).toContain("/sizing/run/restart");
+      expect(useSizingStore.getState().run?.id).toBe("run-new");
+      expect(useSizingStore.getState().startingRun).toBe(false);
+    });
+
+    it("starts a fresh run when the last one has finished", async () => {
+      const fetchMock = vi.fn((url: string) => {
+        if (String(url).endsWith("/run/restart")) return json(409, { reason: "no_live_run" });
+        if (String(url).endsWith("/sizing/run")) return json(200, { run: pendingScan });
+        return json(200, {});
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      await useSizingStore.getState().rescanCatalog();
+
+      const urls = fetchMock.mock.calls.map(([url]) => String(url));
+      expect(urls.slice(0, 2)).toEqual([
+        "/api/store-connection/sizing/run/restart",
+        "/api/store-connection/sizing/run",
+      ]);
+      expect(useSizingStore.getState().run?.id).toBe("run-new");
+    });
+
+    it("surfaces a failure to start", async () => {
+      const fetchMock = vi.fn((url: string) =>
+        String(url).endsWith("/run/restart")
+          ? json(409, { reason: "no_live_run" })
+          : json(409, { error: "Approve the field mapping first" }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      await useSizingStore.getState().rescanCatalog();
+
+      expect(useSizingStore.getState().runError).toBe("Approve the field mapping first");
+      expect(useSizingStore.getState().startingRun).toBe(false);
+    });
+  });
+
   it("does not remember a page that still has unclassified rows", async () => {
     const fetchMock = vi.fn(() => Promise.resolve(pageWithBrandTypes(["unclassified"])));
     vi.stubGlobal("fetch", fetchMock);
