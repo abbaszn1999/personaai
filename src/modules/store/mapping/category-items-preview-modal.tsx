@@ -306,74 +306,74 @@ function PreviewBody({
             </button>
           </div>
         ) : isLoading && items.length === 0 ? (
-          <div className="p-12 text-center text-sm font-semibold text-[var(--color-text-muted)]">Loading live products…</div>
+            <div className="p-12 text-center text-sm font-semibold text-[var(--color-text-muted)]">Loading live products…</div>
         ) : items.length === 0 ? (
           <div className="space-y-2 rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-sticky)] p-8 text-center">
             <Package className="mx-auto h-8 w-8 text-[var(--color-text-muted)]" />
             <p className="text-xs font-bold text-[var(--color-text-secondary)]">No active products in this category</p>
             <p className="text-[11px] text-[var(--color-text-muted)]">Drafts and archived products are not shown.</p>
           </div>
-        ) : filteredItems.length === 0 ? (
-          <div className="space-y-2 rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-sticky)] p-8 text-center">
-            <Package className="mx-auto h-8 w-8 text-[var(--color-text-muted)]" />
+          ) : filteredItems.length === 0 ? (
+            <div className="space-y-2 rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-sticky)] p-8 text-center">
+              <Package className="mx-auto h-8 w-8 text-[var(--color-text-muted)]" />
             <p className="text-xs font-bold text-[var(--color-text-secondary)]">Nothing on this page matches your search</p>
             <p className="text-[11px] text-[var(--color-text-muted)]">Search covers the {items.length} products on this page. Go to another page or clear the search.</p>
-            <button type="button" onClick={() => setSearch("")} className="text-xs font-bold text-[var(--color-brand-strong)] hover:underline">
-              Clear search
-            </button>
-          </div>
-        ) : viewMode === "grid" ? (
+              <button type="button" onClick={() => setSearch("")} className="text-xs font-bold text-[var(--color-brand-strong)] hover:underline">
+                Clear search
+              </button>
+            </div>
+          ) : viewMode === "grid" ? (
           <div className={cn("grid grid-cols-1 gap-3.5 sm:grid-cols-2 md:grid-cols-4", isLoading && "opacity-60")}>
-            {filteredItems.map((item) => (
+              {filteredItems.map((item) => (
               <div key={item.externalId} className="mapping-interactive group flex flex-col overflow-hidden rounded-[var(--radius-xl)] border border-[var(--color-mapping-border)] bg-[var(--color-mapping-panel-alt)] shadow-[var(--shadow-card)]">
-                <div className="relative aspect-[4/3] overflow-hidden bg-[var(--color-surface-base)]">
-                  {item.imageUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
+                  <div className="relative aspect-[4/3] overflow-hidden bg-[var(--color-surface-base)]">
+                    {item.imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
                     <img src={item.imageUrl} alt={item.title} loading="lazy" referrerPolicy="no-referrer" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
-                  ) : (
-                    <div className="flex h-full items-center justify-center text-[var(--color-text-muted)]"><Package className="h-8 w-8" /></div>
-                  )}
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-[var(--color-text-muted)]"><Package className="h-8 w-8" /></div>
+                    )}
                   {item.sku && (
                     <span className="absolute left-2 top-2 max-w-[70%] truncate rounded bg-[var(--color-surface-sticky)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--color-text-primary)]">{item.sku}</span>
                   )}
                   <span className="absolute bottom-2 right-2 rounded-[var(--radius-md)] bg-[#fff7f0] px-2 py-0.5 text-xs font-extrabold text-slate-900 shadow-[var(--shadow-card)]">{formatPrice(item)}</span>
-                </div>
-                <div className="flex flex-1 flex-col justify-between gap-2 p-3">
-                  <div>
-                    <h4 className="line-clamp-2 text-xs font-bold leading-tight text-[var(--color-text-primary)]">{item.title}</h4>
-                    <p className="mt-1 truncate text-[11px] text-[var(--color-text-muted)]">{item.brand ?? "No brand"}</p>
                   </div>
-                  <div className="flex items-center justify-between gap-1 border-t border-[var(--color-border)] pt-2 text-[11px]">
-                    <div className="flex flex-wrap items-center gap-1">
-                      {item.sizes.slice(0, 3).map((s) => (
-                        <span key={s} className="rounded bg-[var(--color-surface-base)] px-1 py-0.2 text-[9px] font-bold text-[var(--color-text-secondary)]">{s}</span>
-                      ))}
-                      {item.sizes.length > 3 && <span className="text-[9px] text-[var(--color-text-muted)]">+{item.sizes.length - 3}</span>}
+                  <div className="flex flex-1 flex-col justify-between gap-2 p-3">
+                    <div>
+                      <h4 className="line-clamp-2 text-xs font-bold leading-tight text-[var(--color-text-primary)]">{item.title}</h4>
+                    <p className="mt-1 truncate text-[11px] text-[var(--color-text-muted)]">{item.brand ?? "No brand"}</p>
                     </div>
+                    <div className="flex items-center justify-between gap-1 border-t border-[var(--color-border)] pt-2 text-[11px]">
+                      <div className="flex flex-wrap items-center gap-1">
+                        {item.sizes.slice(0, 3).map((s) => (
+                          <span key={s} className="rounded bg-[var(--color-surface-base)] px-1 py-0.2 text-[9px] font-bold text-[var(--color-text-secondary)]">{s}</span>
+                        ))}
+                        {item.sizes.length > 3 && <span className="text-[9px] text-[var(--color-text-muted)]">+{item.sizes.length - 3}</span>}
+                      </div>
                     <StockBadge inStock={item.inStock} />
                   </div>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        ) : (
+              ))}
+            </div>
+          ) : (
           <div className={cn("overflow-hidden rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-sticky)]", isLoading && "opacity-60")}>
-            <table className="w-full border-collapse text-left text-xs">
-              <thead>
-                <tr className="border-b border-[var(--color-border)] bg-[var(--color-surface-base)] font-semibold text-[var(--color-text-muted)]">
-                  <th className="px-3 py-2.5">Item</th>
-                  <th className="px-3 py-2.5">SKU</th>
+              <table className="w-full border-collapse text-left text-xs">
+                <thead>
+                  <tr className="border-b border-[var(--color-border)] bg-[var(--color-surface-base)] font-semibold text-[var(--color-text-muted)]">
+                    <th className="px-3 py-2.5">Item</th>
+                    <th className="px-3 py-2.5">SKU</th>
                   <th className="px-3 py-2.5">Brand</th>
-                  <th className="px-3 py-2.5">Price</th>
-                  <th className="px-3 py-2.5">Sizes</th>
+                    <th className="px-3 py-2.5">Price</th>
+                    <th className="px-3 py-2.5">Sizes</th>
                   <th className="px-3 py-2.5 text-right">Stock</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--color-border)]">
-                {filteredItems.map((item) => (
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--color-border)]">
+                  {filteredItems.map((item) => (
                   <tr key={item.externalId} className="transition-colors hover:bg-[var(--color-brand-light)]/40">
-                    <td className="px-3 py-2.5">
-                      <div className="flex min-w-0 items-center gap-2.5">
+                      <td className="px-3 py-2.5">
+                        <div className="flex min-w-0 items-center gap-2.5">
                         {item.imageUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img src={item.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-10 w-10 shrink-0 rounded-[var(--radius-md)] border border-[var(--color-border)] object-cover" />
@@ -388,26 +388,26 @@ function PreviewBody({
                         ) : (
                           <span className="line-clamp-1 font-bold text-[var(--color-text-primary)]">{item.title}</span>
                         )}
-                      </div>
-                    </td>
+                        </div>
+                      </td>
                     <td className="px-3 py-2.5 font-mono font-medium text-[var(--color-text-secondary)]">{item.sku ?? "—"}</td>
                     <td className="max-w-[140px] truncate px-3 py-2.5 text-[var(--color-text-secondary)]">{item.brand ?? "—"}</td>
                     <td className="whitespace-nowrap px-3 py-2.5 font-extrabold text-[var(--color-text-primary)]">{formatPrice(item)}</td>
-                    <td className="px-3 py-2.5">
-                      <div className="flex flex-wrap items-center gap-1">
+                      <td className="px-3 py-2.5">
+                        <div className="flex flex-wrap items-center gap-1">
                         {item.sizes.length === 0 && <span className="text-[var(--color-text-muted)]">—</span>}
-                        {item.sizes.map((s) => (
-                          <span key={s} className="rounded bg-[var(--color-surface-base)] px-1 py-0.2 font-mono text-[9px] font-bold text-[var(--color-text-secondary)]">{s}</span>
-                        ))}
-                      </div>
-                    </td>
+                          {item.sizes.map((s) => (
+                            <span key={s} className="rounded bg-[var(--color-surface-base)] px-1 py-0.2 font-mono text-[9px] font-bold text-[var(--color-text-secondary)]">{s}</span>
+                          ))}
+                        </div>
+                      </td>
                     <td className="px-3 py-2.5 text-right"><StockBadge inStock={item.inStock} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
       </div>
 
       <div className="-mx-5 -mb-5 flex shrink-0 items-center justify-between gap-3 border-t border-[var(--color-mapping-border)] bg-[var(--color-mapping-panel)] px-4 py-2.5 text-xs">

@@ -402,6 +402,18 @@ describe("Item Preview page cache", () => {
       expect(useSizingStore.getState().startingRun).toBe(false);
     });
 
+    it("drops the Stage 4 charts it was holding so they are read again", async () => {
+      useSizingStore.setState({ chartsLoaded: true });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => json(200, { run: pendingScan })),
+      );
+
+      await useSizingStore.getState().rescanCatalog();
+
+      expect(useSizingStore.getState().chartsLoaded).toBe(false);
+    });
+
     it("starts a fresh run when the last one has finished", async () => {
       const fetchMock = vi.fn((url: string) => {
         if (String(url).endsWith("/run/restart")) return json(409, { reason: "no_live_run" });

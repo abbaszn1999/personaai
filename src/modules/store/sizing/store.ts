@@ -1133,6 +1133,10 @@ function applyStartedRun(run: SizingRun | null): void {
   useSizingStore.setState({
     run,
     startingRun: false,
+    // Stage 4's charts, leaf counts and per-brand collection links all come from the data this scan
+    // is about to replace, so the copy held from before must not be shown again.
+    chartsLoaded: false,
+    chartBrandLeafSources: {},
     sample: [],
     samplePage: 1,
     sampleCursors: [null],

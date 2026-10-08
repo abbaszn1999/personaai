@@ -424,15 +424,15 @@ export function SizingTesterView() {
       let run: CategoryRun;
       try {
         const response = await fetch(`/api/store-connection/sizing/tester/products?${request.key}`);
-        const body = await response.json() as TesterSearchResponse;
+          const body = await response.json() as TesterSearchResponse;
         if (!response.ok) run = { key: request.key, error: body.error || 'ACS did not answer the fit search.' };
         else if (!Array.isArray(body.products)) run = { key: request.key, error: 'The ACS answer was invalid.' };
         else run = { key: request.key, data: body };
       } catch {
         run = { key: request.key, error: 'ACS did not answer the fit search.' };
-      }
-      // A newer run replaced this one: drop its answers.
-      if (requestId !== searchRequestId.current) return;
+        }
+        // A newer run replaced this one: drop its answers.
+        if (requestId !== searchRequestId.current) return;
       setRuns((existing) => ({ ...existing, [request.category.key]: run }));
     }));
     if (requestId === searchRequestId.current) setIsSearching(false);
@@ -548,23 +548,23 @@ export function SizingTesterView() {
                   const selected = activeTarget === item;
                   const testable = testableTargets.has(item);
                   return (
-                    <button
+                <button
                       key={item}
-                      type="button"
+                  type="button"
                       onClick={() => chooseTarget(item)}
                       disabled={!testable}
                       aria-pressed={selected}
                       title={testable ? undefined : `No published size chart for ${option.label.toLowerCase()} yet`}
                       className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-45 ${
                         selected
-                          ? 'bg-purple-50/80 border-purple-400 text-purple-950 shadow-2xs ring-2 ring-purple-200'
-                          : 'border-slate-200 hover:border-slate-300 bg-slate-50/50 text-slate-700 hover:bg-slate-50'
-                      }`}
-                    >
+                      ? 'bg-purple-50/80 border-purple-400 text-purple-950 shadow-2xs ring-2 ring-purple-200'
+                      : 'border-slate-200 hover:border-slate-300 bg-slate-50/50 text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
                       <Icon className={`w-5 h-5 mb-1.5 ${selected ? 'text-purple-600' : 'text-slate-500'}`} />
                       <span className="text-xs font-bold">{option.label}</span>
                       <span className="text-[10px] text-slate-400">{option.hint}</span>
-                    </button>
+                </button>
                   );
                 })}
               </div>
@@ -588,7 +588,7 @@ export function SizingTesterView() {
                   <MeasurementField label="Foot Length" value={kidFootLength} onChange={setKidFootLength} min={8} max={26} step={0.1} unit="cm" note={noteFor('foot_length')} />
                   <MeasurementField
                     label="Child Age"
-                    value={kidAge}
+                        value={kidAge}
                     onChange={(next) => setKidAge(Math.max(0, Math.min(16, Math.round(next))))}
                     min={0}
                     max={16}
@@ -612,9 +612,9 @@ export function SizingTesterView() {
                   <MeasurementField label="Foot Length" value={adultFootLength} onChange={setAdultFootLength} min={20} max={32} step={0.1} unit="cm" note={noteFor('foot_length')} />
                   <MeasurementField label="Body Height" value={adultHeight} onChange={setAdultHeight} min={140} max={210} unit="cm" note={unusedNote} />
                   <MeasurementField label="Body Weight" value={adultWeight} onChange={setAdultWeight} min={35} max={160} unit="kg" note={unusedNote} />
-                </div>
+                      </div>
               )}
-            </div>
+                  </div>
 
             {/* 3. Brand */}
             <div>
@@ -625,8 +625,8 @@ export function SizingTesterView() {
                 </label>
                 <span className="text-[11px] text-slate-400 font-medium">
                   {availableBrands.length} {availableBrands.length === 1 ? 'brand' : 'brands'} in this store
-                </span>
-              </div>
+                        </span>
+                      </div>
               <div className="relative">
                 <select
                   id="tester-brand"
@@ -641,7 +641,7 @@ export function SizingTesterView() {
                   ))}
                 </select>
                 <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              </div>
+                    </div>
               <div className="mt-2.5">
                 <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
                   Found Sizes will ask ACS about
@@ -657,34 +657,34 @@ export function SizingTesterView() {
                       >
                         <Icon className="w-3.5 h-3.5 text-purple-600" />
                         {SHORT_CATEGORY_LABELS[category.key]}
-                      </span>
+                        </span>
                     );
                   })}
-                </div>
-              </div>
-            </div>
+                      </div>
+                    </div>
+                  </div>
 
             {/* Found Sizes */}
-            <div className="mt-5 pt-4 border-t border-slate-100">
-              <button
-                type="button"
+              <div className="mt-5 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
                 onClick={() => void handleFoundSizes()}
                 disabled={isSearching || requests.length === 0}
                 className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold text-sm shadow-md shadow-purple-600/20 transition-all cursor-pointer transform active:scale-[0.99] disabled:opacity-85 disabled:cursor-not-allowed"
-              >
-                {isSearching ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin text-purple-200" />
+                >
+                  {isSearching ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-purple-200" />
                     <span>Asking ACS... {answeredCount}/{requests.length}</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4 h-4" />
-                    <span>Found Sizes</span>
-                    <ArrowRight className="w-4 h-4 ml-1" />
-                  </>
-                )}
-              </button>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      <span>Found Sizes</span>
+                      <ArrowRight className="w-4 h-4 ml-1" />
+                    </>
+                  )}
+                </button>
             </div>
           </div>
         </div>
@@ -727,7 +727,7 @@ export function SizingTesterView() {
                             {run.data?.products.length ?? 0}
                           </span>
                         )}
-                      </div>
+                </div>
                     );
                   })}
                 </div>
@@ -745,7 +745,7 @@ export function SizingTesterView() {
                   <div className="mb-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-900">
                     <Info className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-600" />
                     <span>The inputs changed since the last search. Press Found Sizes to ask ACS again.</span>
-                  </div>
+                </div>
                 )}
                 <div className="space-y-2.5">
                   {requests.map(({ category, charts }) => {
@@ -781,41 +781,41 @@ export function SizingTesterView() {
                 <div className="p-4 bg-slate-50/90 border-b border-slate-200/80 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                      <Building2 className="w-3 h-3 text-purple-600" />
+                          <Building2 className="w-3 h-3 text-purple-600" />
                       ACS answer
                     </p>
                     <p className="text-sm font-black text-slate-900 truncate">
                       {currentBrand.name}
                       <span className="ml-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-600 align-middle">
                         {brandTypeLabel(currentBrand)}
-                      </span>
+                        </span>
                       <span className="ml-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 border border-purple-200 text-purple-800 align-middle">
                         {TARGET_OPTIONS[activeTarget].label}
                       </span>
                     </p>
-                  </div>
+                      </div>
                   <div>
                     <span className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 flex items-center gap-1.5">
-                      <Globe className="w-3 h-3 text-purple-600" />
+                        <Globe className="w-3 h-3 text-purple-600" />
                       Sizing Standard
                     </span>
-                    <div className="inline-flex items-center bg-white p-1 rounded-xl border border-slate-200/90 shadow-2xs">
+                      <div className="inline-flex items-center bg-white p-1 rounded-xl border border-slate-200/90 shadow-2xs">
                       {(['us', 'eu', 'uk'] as SizingSystemMode[]).map((mode) => (
-                        <button
-                          key={mode}
-                          type="button"
-                          onClick={() => setSizingMode(mode)}
+                            <button
+                              key={mode}
+                              type="button"
+                              onClick={() => setSizingMode(mode)}
                           aria-pressed={sizingMode === mode}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all cursor-pointer ${
+                              className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all cursor-pointer ${
                             sizingMode === mode ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                          }`}
-                        >
-                          {mode.toUpperCase()}
-                        </button>
+                              }`}
+                            >
+                              {mode.toUpperCase()}
+                            </button>
                       ))}
+                      </div>
                     </div>
                   </div>
-                </div>
 
                 {/* Garment categories */}
                 <div className="bg-slate-50/80 border-b border-slate-200/80 px-4 py-3">
@@ -854,7 +854,7 @@ export function SizingTesterView() {
                           <span className="font-semibold">{category.label}</span>
                           <span title={badge.title} className={`px-1.5 py-0.5 rounded-full text-[10px] font-black border ${badge.tone}`}>
                             {badge.text}
-                          </span>
+                            </span>
                         </button>
                       );
                     })}
@@ -912,69 +912,69 @@ export function SizingTesterView() {
                     </div>
 
                     {/* Chart picker + ACS answer callout */}
-                    <div className="px-5 py-3.5 bg-slate-50/50 border-b border-slate-200/70 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                      <div className="flex-1 min-w-0 max-w-sm">
+                <div className="px-5 py-3.5 bg-slate-50/50 border-b border-slate-200/70 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                  <div className="flex-1 min-w-0 max-w-sm">
                         <label
                           htmlFor={chartOptions.length > 1 ? 'tester-chart' : undefined}
                           className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 flex items-center gap-1.5"
                         >
                           <Layers className="w-3 h-3 text-purple-600" />
                           Size chart
-                        </label>
+                    </label>
                         {chartOptions.length > 1 ? (
-                          <div className="relative">
-                            <select
+                      <div className="relative">
+                        <select
                               id="tester-chart"
                               value={currentChart?.id ?? ''}
                               onChange={(event) => setSelectedChartId(event.target.value)}
-                              className="w-full appearance-none bg-white border border-slate-300 hover:border-purple-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 rounded-xl px-3.5 py-2 pr-8 text-xs font-bold text-slate-800 shadow-2xs transition-all cursor-pointer"
-                            >
+                          className="w-full appearance-none bg-white border border-slate-300 hover:border-purple-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 rounded-xl px-3.5 py-2 pr-8 text-xs font-bold text-slate-800 shadow-2xs transition-all cursor-pointer"
+                        >
                               {chartOptions.map((option) => (
                                 <option key={option.chart.id} value={option.chart.id}>
                                   {option.chart.name} ({option.chart.fitType}) — {option.count} {option.count === 1 ? 'product' : 'products'}
-                                </option>
+                              </option>
                               ))}
-                            </select>
-                            <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                          </div>
-                        ) : (
-                          <p className="text-xs font-bold text-slate-800">{currentChart?.name ?? 'No chart'}</p>
-                        )}
+                        </select>
+                        <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                       </div>
+                    ) : (
+                          <p className="text-xs font-bold text-slate-800">{currentChart?.name ?? 'No chart'}</p>
+                    )}
+                  </div>
 
-                      {(() => {
+                  {(() => {
                         const tone = bestRow ? 'emerald' : 'amber';
-                        const toneClasses = {
-                          emerald: { box: 'bg-emerald-50/95 border-emerald-200/90', icon: 'bg-emerald-600', title: 'text-emerald-950', text: 'text-emerald-800' },
-                          amber: { box: 'bg-amber-50/95 border-amber-200/90', icon: 'bg-amber-600', title: 'text-amber-950', text: 'text-amber-800' },
-                        }[tone];
+                    const toneClasses = {
+                      emerald: { box: 'bg-emerald-50/95 border-emerald-200/90', icon: 'bg-emerald-600', title: 'text-emerald-950', text: 'text-emerald-800' },
+                      amber: { box: 'bg-amber-50/95 border-amber-200/90', icon: 'bg-amber-600', title: 'text-amber-950', text: 'text-amber-800' },
+                    }[tone];
                         const insideIndex = rowFits.indexOf('inside');
-                        return (
-                          <div className={`flex items-center gap-3 border rounded-xl px-4 py-2.5 shadow-2xs self-stretch md:self-auto ${toneClasses.box}`}>
-                            <div className={`w-9 h-9 rounded-xl text-white flex items-center justify-center shadow-xs flex-shrink-0 ${toneClasses.icon}`}>
+                    return (
+                      <div className={`flex items-center gap-3 border rounded-xl px-4 py-2.5 shadow-2xs self-stretch md:self-auto ${toneClasses.box}`}>
+                        <div className={`w-9 h-9 rounded-xl text-white flex items-center justify-center shadow-xs flex-shrink-0 ${toneClasses.icon}`}>
                               {bestRow ? <CheckCircle2 className="w-5 h-5 text-white" /> : <Info className="w-5 h-5 text-white" />}
-                            </div>
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className={`text-xs font-extrabold ${toneClasses.title}`}>
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`text-xs font-extrabold ${toneClasses.title}`}>
                                   {bestRow
                                     ? 'Best Fit:'
                                     : detail.data.products.length === 0 && detail.data.categoryProducts === 0
                                       ? 'Nothing in this category'
                                       : 'No fitting size in stock'}
+                            </span>
+                            {bestRow && (
+                              <>
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-700 text-white text-xs font-black tracking-wide shadow-2xs">
+                                  {formatSizeForMode(bestRow, sizingMode)}
                                 </span>
-                                {bestRow && (
-                                  <>
-                                    <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-700 text-white text-xs font-black tracking-wide shadow-2xs">
-                                      {formatSizeForMode(bestRow, sizingMode)}
-                                    </span>
-                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-200/90 text-emerald-950 border border-emerald-300">
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-200/90 text-emerald-950 border border-emerald-300">
                                       {summary.counts[summary.bestIndex]} ACS items
-                                    </span>
-                                  </>
-                                )}
-                              </div>
-                              <p className={`text-[11px] font-medium max-w-sm mt-0.5 ${toneClasses.text}`}>
+                                </span>
+                              </>
+                            )}
+                          </div>
+                          <p className={`text-[11px] font-medium max-w-sm mt-0.5 ${toneClasses.text}`}>
                                 {bestRow
                                   ? `ACS returned ${visible.length} products here; ${visibleWithFit} have a fitting size in stock.`
                                   : detail.data.products.length === 0
@@ -986,24 +986,24 @@ export function SizingTesterView() {
                                     : chartProducts.length === 0
                                       ? 'None of the products ACS returned here were sized on this chart. Pick another chart or subcategory.'
                                       : `ACS returned ${chartProducts.length} products on this chart but none has a stocked size within tolerance.`}
-                              </p>
-                            </div>
-                          </div>
-                        );
-                      })()}
-                    </div>
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
 
                     {currentChart?.fitDescription && (
-                      <div className="px-5 py-2 bg-slate-50/70 border-b border-slate-200/60 flex items-center gap-2 text-xs text-slate-600">
-                        <Info className="w-3.5 h-3.5 text-purple-600 flex-shrink-0" />
-                        <span className="font-medium">
+                  <div className="px-5 py-2 bg-slate-50/70 border-b border-slate-200/60 flex items-center gap-2 text-xs text-slate-600">
+                    <Info className="w-3.5 h-3.5 text-purple-600 flex-shrink-0" />
+                    <span className="font-medium">
                           <strong className="text-slate-800">{currentChart.name}:</strong> {currentChart.fitDescription}
-                        </span>
-                      </div>
-                    )}
+                    </span>
+                  </div>
+                )}
 
                     {/* What was sent and what ACS answered */}
-                    <div className="px-5 py-3 bg-white border-b border-slate-200/70 space-y-2 text-xs">
+                  <div className="px-5 py-3 bg-white border-b border-slate-200/70 space-y-2 text-xs">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-600">
                           <span className="font-bold text-slate-900">ACS answered</span>
@@ -1053,17 +1053,17 @@ export function SizingTesterView() {
                           The merchant isolation and category scope clauses are always added in front of this by the search client.
                         </p>
                       </details>
-                    </div>
+                  </div>
 
                     {/* The chart with ACS's answer on each size */}
                     {currentChart && (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs">
-                          <thead className="bg-slate-50 text-slate-600 font-bold uppercase tracking-wider border-b border-slate-200">
-                            <tr>
-                              <th className="px-4 py-3 whitespace-nowrap text-purple-950 bg-purple-50/70 font-black">
-                                {sizingMode.toUpperCase()} Size
-                              </th>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-600 font-bold uppercase tracking-wider border-b border-slate-200">
+                  <tr>
+                    <th className="px-4 py-3 whitespace-nowrap text-purple-950 bg-purple-50/70 font-black">
+                      {sizingMode.toUpperCase()} Size
+                    </th>
                               {activeTarget === 'kid' && <th className="px-4 py-3 whitespace-nowrap text-purple-900 bg-purple-50/30">Age</th>}
                               {tableColumns.map((column) => (
                                 <th key={column.measurement} className="px-4 py-3 whitespace-nowrap">
@@ -1075,47 +1075,47 @@ export function SizingTesterView() {
                               ))}
                               {(currentGroup === 'tops' || currentGroup === 'outerwear') && <th className="px-4 py-3 whitespace-nowrap">Garment Length</th>}
                               {currentGroup === 'bottoms' && <th className="px-4 py-3 whitespace-nowrap">Inseam</th>}
-                              <th className="px-4 py-3 text-right">Status</th>
-                              <th className="px-4 py-3 text-center w-24">Items</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
+                    <th className="px-4 py-3 text-right">Status</th>
+                    <th className="px-4 py-3 text-center w-24">Items</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
                             {activeRows.map((row, index) => {
                               const isBest = index === summary.bestIndex;
                               const count = summary.counts[index] ?? 0;
-                              // The chart says this is the shopper's size, but ACS has no stocked product in it.
+                    // The chart says this is the shopper's size, but ACS has no stocked product in it.
                               const chartOnly = !isBest && count === 0 ? rowFits[index] : null;
-                              return (
-                                <tr
+                    return (
+                      <tr
                                   key={`${row.sizeLabel}-${index}`}
-                                  className={`transition-all duration-300 ${
+                        className={`transition-all duration-300 ${
                                     isBest
-                                      ? 'bg-emerald-50/95 hover:bg-emerald-100/90 font-semibold ring-2 ring-emerald-500 ring-inset shadow-xs'
-                                      : chartOnly === 'inside'
-                                        ? 'bg-amber-50/70 hover:bg-amber-50 text-slate-800 ring-1 ring-amber-300 ring-inset'
-                                        : 'hover:bg-slate-50/70 text-slate-700'
-                                  }`}
-                                >
+                            ? 'bg-emerald-50/95 hover:bg-emerald-100/90 font-semibold ring-2 ring-emerald-500 ring-inset shadow-xs'
+                            : chartOnly === 'inside'
+                              ? 'bg-amber-50/70 hover:bg-amber-50 text-slate-800 ring-1 ring-amber-300 ring-inset'
+                              : 'hover:bg-slate-50/70 text-slate-700'
+                        }`}
+                      >
                                   <td className={`px-4 py-3.5 whitespace-nowrap ${isBest ? 'font-black text-emerald-950 text-sm bg-emerald-100/60' : 'font-bold text-slate-900 bg-slate-50/40'}`}>
-                                    <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2">
                                       {isBest && <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />}
-                                      <span>{formatSizeForMode(row, sizingMode)}</span>
-                                    </div>
-                                  </td>
+                            <span>{formatSizeForMode(row, sizingMode)}</span>
+                          </div>
+                        </td>
                                   {activeTarget === 'kid' && (
                                     <td className="px-4 py-3.5 whitespace-nowrap">
                                       <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${isBest ? 'bg-emerald-200/70 text-emerald-950' : 'bg-purple-50 text-purple-900'}`}>
                                         {ageDisplay(row)}
-                                      </span>
-                                    </td>
-                                  )}
+                            </span>
+                          </td>
+                        )}
                                   {tableColumns.map((column) => (
                                     <td
                                       key={column.measurement}
                                       className={`px-4 py-3.5 whitespace-nowrap ${column.measurement === filterColumn ? 'font-bold' : 'font-medium'}`}
                                     >
                                       {formatRange(rowBounds(row, column.measurement))}
-                                    </td>
+                            </td>
                                   ))}
                                   {(currentGroup === 'tops' || currentGroup === 'outerwear') && (
                                     <td className="px-4 py-3.5 whitespace-nowrap text-slate-500">{row.lengthCm ? `${row.lengthCm} cm` : '—'}</td>
@@ -1123,67 +1123,67 @@ export function SizingTesterView() {
                                   {currentGroup === 'bottoms' && (
                                     <td className="px-4 py-3.5 whitespace-nowrap text-slate-500">{row.inseamCm ? `${row.inseamCm} cm` : '—'}</td>
                                   )}
-                                  <td className="px-4 py-3.5 text-right whitespace-nowrap">
+                        <td className="px-4 py-3.5 text-right whitespace-nowrap">
                                     {isBest ? (
-                                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-black bg-emerald-600 text-white shadow-2xs">
-                                        <Sparkles className="w-3 h-3" />
-                                        Best Fit
-                                      </span>
-                                    ) : chartOnly ? (
-                                      <span
-                                        title="This chart row fits your measurement, but ACS returned no in-stock product in this size."
-                                        className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold border ${
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-black bg-emerald-600 text-white shadow-2xs">
+                              <Sparkles className="w-3 h-3" />
+                              Best Fit
+                            </span>
+                          ) : chartOnly ? (
+                            <span
+                              title="This chart row fits your measurement, but ACS returned no in-stock product in this size."
+                              className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold border ${
                                           chartOnly === 'inside' ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-white text-amber-700 border-amber-200'
-                                        }`}
-                                      >
-                                        {chartOnly === 'inside' ? 'Your size · no stock' : 'Near · no stock'}
-                                      </span>
-                                    ) : (
+                              }`}
+                            >
+                              {chartOnly === 'inside' ? 'Your size · no stock' : 'Near · no stock'}
+                            </span>
+                          ) : (
                                       <span className={`text-[11px] font-medium ${count > 0 ? 'text-emerald-700 font-bold' : 'text-slate-400'}`}>
                                         {count > 0 ? 'ACS match' : 'No ACS items'}
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td className="px-4 py-3.5 text-center whitespace-nowrap">
-                                    <button
-                                      type="button"
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3.5 text-center whitespace-nowrap">
+                          <button
+                            type="button"
                                       disabled={count === 0}
                                       onClick={() => setItemsModal({ rowIndex: index })}
                                       title={count > 0 ? `View the ACS products with size ${formatSizeForMode(row, sizingMode)}` : 'ACS returned no product in this size'}
-                                      className={`inline-flex items-center justify-center gap-1.5 p-1.5 sm:px-2.5 sm:py-1 rounded-md border text-xs font-semibold transition-all duration-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                            className={`inline-flex items-center justify-center gap-1.5 p-1.5 sm:px-2.5 sm:py-1 rounded-md border text-xs font-semibold transition-all duration-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                                         isBest
-                                          ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-xs'
-                                          : 'bg-white hover:bg-purple-50 text-slate-700 hover:text-purple-700 border-slate-200 hover:border-purple-300'
-                                      }`}
-                                    >
-                                      <Eye className="w-3.5 h-3.5" />
-                                      <span className="hidden sm:inline">Items</span>
+                                ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-xs'
+                                : 'bg-white hover:bg-purple-50 text-slate-700 hover:text-purple-700 border-slate-200 hover:border-purple-300'
+                            }`}
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">Items</span>
                                       <span className="font-mono">{count}</span>
-                                    </button>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
                     )}
 
                     {currentChart && (
                       <div className="p-4 bg-slate-50/90 border-t border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-slate-500">
-                        <span>
+                  <span>
                           Source: <strong className="text-slate-700">{currentChart.sourceTitle || 'Connection chart'}</strong>
                           {currentChart.confidence > 0 && <> • Confidence <strong className="text-emerald-700">{currentChart.confidence}%</strong></>}
-                        </span>
+                  </span>
                         <span className="font-medium">
                           US / EU / UK only relabel sizes; ACS is asked in body measurements.
-                        </span>
-                      </div>
+                  </span>
+                </div>
                     )}
                   </>
                 ) : null}
-              </>
-            )}
+          </>
+        )}
           </div>
         </div>
       </div>
@@ -1210,8 +1210,8 @@ export function SizingTesterView() {
                   <h3 id="tester-items-title" className="text-base font-bold text-slate-900">
                     {itemsModal.rowIndex !== null && activeRows[itemsModal.rowIndex]
                       ? <>ACS products for size <span className="text-purple-700 font-extrabold">{formatSizeForMode(activeRows[itemsModal.rowIndex]!, sizingMode)}</span></>
-                      : <>Everything ACS returned</>}
-                  </h3>
+                        : <>Everything ACS returned</>}
+                    </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
                     {currentBrand.name} • {current.category.label}
                     {itemsModal.rowIndex !== null && currentChart ? ` • ${currentChart.name}` : ''}
@@ -1233,37 +1233,37 @@ export function SizingTesterView() {
 
             <div className="p-6 overflow-y-auto space-y-3 divide-y divide-slate-100">
               {modalItems.length === 0 ? (
-                <div className="text-center py-10">
+                    <div className="text-center py-10">
                   <p className="text-sm font-semibold text-slate-700">ACS returned no products here.</p>
-                  <p className="text-xs text-slate-400 mt-1">This is the answer to the filter shown above the size table.</p>
-                </div>
+                      <p className="text-xs text-slate-400 mt-1">This is the answer to the filter shown above the size table.</p>
+                    </div>
               ) : modalItems.map(({ product, assignment }) => {
-                const price = product.price === null
-                  ? 'Price unavailable'
-                  : `${product.currency ? `${product.currency} ` : ''}${product.price.toFixed(2)}`;
+                  const price = product.price === null
+                    ? 'Price unavailable'
+                    : `${product.currency ? `${product.currency} ` : ''}${product.price.toFixed(2)}`;
                 const path = product.personaPath ? formatPersonaSegments(product.personaPath.split(' > ')) : 'Category unavailable';
                 const chartName = assignment ? chartNameById.get(assignment.chartId) : null;
-                return (
+                  return (
                   <div key={product.id} className="pt-3 first:pt-0 flex items-center justify-between gap-4 group hover:bg-slate-50/80 p-2.5 rounded-xl transition-colors">
-                    <div className="flex items-center gap-3.5 min-w-0">
-                      {product.image ? (
+                      <div className="flex items-center gap-3.5 min-w-0">
+                        {product.image ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={product.image}
-                          alt={product.title}
-                          className="w-14 h-14 object-cover rounded-lg border border-slate-200 shrink-0 bg-slate-100"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="w-14 h-14 rounded-lg border border-slate-200 shrink-0 bg-slate-100" />
-                      )}
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
+                          <img
+                            src={product.image}
+                            alt={product.title}
+                            className="w-14 h-14 object-cover rounded-lg border border-slate-200 shrink-0 bg-slate-100"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className="w-14 h-14 rounded-lg border border-slate-200 shrink-0 bg-slate-100" />
+                        )}
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
                           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-800">
-                            {product.brand || 'No brand'}
-                          </span>
-                          <span className="text-[11px] font-mono text-slate-400">{product.sku || 'SKU unavailable'}</span>
-                        </div>
+                              {product.brand || 'No brand'}
+                            </span>
+                            <span className="text-[11px] font-mono text-slate-400">{product.sku || 'SKU unavailable'}</span>
+                          </div>
                         {product.uri ? (
                           <a
                             href={product.uri}
@@ -1276,39 +1276,39 @@ export function SizingTesterView() {
                         ) : (
                           <h4 className="text-sm font-semibold text-slate-900 truncate mt-0.5">{product.title}</h4>
                         )}
-                        <p className="text-xs text-slate-500 truncate mt-0.5">
+                          <p className="text-xs text-slate-500 truncate mt-0.5">
                           {path}
                           {chartName ? ` • Chart: ${chartName}` : ''}
-                        </p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="text-xs font-black text-slate-900">{price}</span>
-                          <span className="text-slate-300">•</span>
-                          <span className="text-[11px] text-slate-500">
-                            Available Sizes: {product.sizes.length > 0 ? product.sizes.join(', ') : 'Not listed'}
-                          </span>
+                          </p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-xs font-black text-slate-900">{price}</span>
+                            <span className="text-slate-300">•</span>
+                            <span className="text-[11px] text-slate-500">
+                              Available Sizes: {product.sizes.length > 0 ? product.sizes.join(', ') : 'Not listed'}
+                            </span>
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="flex flex-col items-end shrink-0 gap-1.5">
-                      {product.fitSizes.length > 0 ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
-                          <Check className="w-3 h-3 text-emerald-600" />
-                          Fits: {product.fitSizes.join(', ')}
-                        </span>
-                      ) : (
+                      <div className="flex flex-col items-end shrink-0 gap-1.5">
+                        {product.fitSizes.length > 0 ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
+                            <Check className="w-3 h-3 text-emerald-600" />
+                            Fits: {product.fitSizes.join(', ')}
+                          </span>
+                        ) : (
                         <span
                           title="ACS matched it on the range of all its sizes together, but no single stocked size fits."
                           className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md"
                         >
-                          <Info className="w-3 h-3 text-amber-600" />
-                          No stocked size fits
-                        </span>
-                      )}
+                            <Info className="w-3 h-3 text-amber-600" />
+                            No stocked size fits
+                          </span>
+                        )}
                       <span className="text-[11px] text-slate-400 font-mono">in stock</span>
+                      </div>
                     </div>
-                  </div>
-                );
+                  );
               })}
             </div>
 
