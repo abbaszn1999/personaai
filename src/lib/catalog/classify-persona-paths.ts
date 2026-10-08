@@ -1,3 +1,4 @@
+import { FinishReason } from "@google/genai";
 import { getPlatformGeminiClient, GeminiApiError } from "@/lib/ai/gemini";
 import {
   PERSONA_CATEGORIES,
@@ -207,14 +208,59 @@ const CLASSIFICATION_RULES = [
   "     reason=\"No product samples and the name gives no garment signal.\"",
 ].join("\n");
 
+/**
+ * How many times a cut-off answer may be retried as two halves. The whole list goes in one call; this
+ * only applies when the model ran out of output room, which would otherwise lose every verdict.
+ */
+const MAX_SPLIT_DEPTH = 3;
+
 export async function classifyPersonaPaths(
   candidates: readonly PersonaPathCandidate[],
   scope: SerializedTaxonomyScope,
   storeContext: string,
+  options: { signal?: AbortSignal } = {},
 ): Promise<PersonaAutoMatchVerdict[]> {
   const targets = targetsForScope(scope);
   if (candidates.length === 0 || targets.length === 0) return [];
+  return classifyBatch(candidates, targets, storeContext, options.signal, 0);
+}
 
+async function classifyBatch(
+  candidates: readonly PersonaPathCandidate[],
+  targets: readonly PersonaMatchTarget[],
+  storeContext: string,
+  signal: AbortSignal | undefined,
+  depth: number,
+): Promise<PersonaAutoMatchVerdict[]> {
+  const { text, truncated } = await requestVerdicts(candidates, targets, storeContext, signal);
+  if (!truncated && isJson(text)) return parsePersonaAutoMatch(text, candidates, targets);
+  if (candidates.length < 2 || depth >= MAX_SPLIT_DEPTH) {
+    throw new GeminiApiError("Persona category matching returned an incomplete answer.");
+  }
+  console.warn(`[persona auto-match] answer for ${candidates.length} categories was cut off; retrying in two halves`);
+  const middle = Math.ceil(candidates.length / 2);
+  const halves = await Promise.all([
+    classifyBatch(candidates.slice(0, middle), targets, storeContext, signal, depth + 1),
+    classifyBatch(candidates.slice(middle), targets, storeContext, signal, depth + 1),
+  ]);
+  return halves.flat();
+}
+
+function isJson(text: string): boolean {
+  try {
+    JSON.parse(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function requestVerdicts(
+  candidates: readonly PersonaPathCandidate[],
+  targets: readonly PersonaMatchTarget[],
+  storeContext: string,
+  signal: AbortSignal | undefined,
+): Promise<{ text: string; truncated: boolean }> {
   const prompt = [
     CLASSIFICATION_RULES,
     "",
@@ -243,7 +289,6 @@ export async function classifyPersonaPaths(
   // request doesn't request an oversized budget and a huge one still fits the model's ceiling.
   const maxOutputTokens = Math.min(32768, Math.max(2048, candidates.length * 110));
 
-  let text: string | undefined;
   try {
     const response = await getPlatformGeminiClient().models.generateContent({
       model: MODEL,
@@ -257,14 +302,17 @@ export async function classifyPersonaPaths(
         // it keeps the entire output budget available for the actual verdict array instead of
         // competing with hidden "thinking" tokens on a large single-call batch.
         thinkingConfig: { thinkingBudget: 0 },
+        abortSignal: signal,
       },
     });
-    text = response.text?.trim();
+    return {
+      text: response.text?.trim() ?? "",
+      truncated: response.candidates?.[0]?.finishReason === FinishReason.MAX_TOKENS,
+    };
   } catch (error) {
+    if (signal?.aborted) throw signal.reason ?? error;
     throw new GeminiApiError(error instanceof Error ? error.message : "Persona category matching failed.");
   }
-
-  return parsePersonaAutoMatch(text ?? "", candidates, targets);
 }
 
 export function parsePersonaAutoMatch(

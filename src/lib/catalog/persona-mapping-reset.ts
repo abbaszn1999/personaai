@@ -1,4 +1,5 @@
 import { updateStoreConnection, type StoreConnectionRow } from "@/lib/db/store-connections";
+import { resetAutoMatchJob } from "@/lib/db/auto-match-jobs";
 import { getLastPublishedAt, rewindRun } from "@/lib/db/sizing-runs";
 import { deactivateAcsCatalogForRemapping } from "@/lib/catalog/acs/catalog-reads";
 import { markPathConfigStale } from "@/lib/catalog/path-config/rebuild";
@@ -41,6 +42,7 @@ export async function resetPersonaMapping(
     markPathConfigStale(updated.id),
     // Nothing is mapped any more, so there is nothing for a fresh run to scan; only a live one is rewound.
     rewindRun(updated.id, "scan"),
+    resetAutoMatchJob(updated.id),
   ]);
   clearGeneratedStageFiveCache(updated.id);
   return updated;

@@ -18,6 +18,8 @@ import { parseStoreBrandMapping, type StoreBrandMapping } from "@/lib/sizing/bra
 import { parseSizeSettings, type SizeSettings } from "@/lib/sizing/size-types";
 import { parseSizingSource, type SizingSource } from "@/lib/sizing/sizing-source";
 import { parseSetupResetState, type SetupResetState } from "@/lib/catalog/setup-reset-state";
+import { parseAutoMatchJobState, type AutoMatchJobState } from "@/lib/catalog/auto-match-state";
+import { IDLE_AUTO_MATCH_COLUMNS } from "@/lib/db/auto-match-jobs";
 
 /**
  * Where the catalog is in its enrichment/embedding lifecycle. Retrieval falls back to the
@@ -61,6 +63,8 @@ export interface StoreConnectionRow {
    *  means it has never run (or the mapping was cleared since); non-null blocks further runs
    *  until a clear — see the Mapping page's Auto-Match one-shot rule. */
   personaAutoMatchCompletedAt: string | null;
+  /** The last AI match run on the server, which the Mapping page follows until it finishes. */
+  autoMatchJob: AutoMatchJobState;
   /** Doc Part 2: which sizing system this catalog's size labels are written in, plus the brands
    *  whose labels differ from it. Read through `sizeTypeFor`, never directly, so the per-brand
    *  exceptions cannot be skipped. */
@@ -138,6 +142,7 @@ function rowToConnection(row: Record<string, unknown>): StoreConnectionRow {
     personaCategoryMap,
     personaMappingUpdatedAt: (row.persona_mapping_updated_at as string | null) ?? null,
     personaAutoMatchCompletedAt: (row.persona_auto_match_completed_at as string | null) ?? null,
+    autoMatchJob: parseAutoMatchJobState(row),
     storeSizeSettings: parseSizeSettings(row.store_size_settings),
     sizingSource: parseSizingSource(row.sizing_source),
     sizingBrandMapping: parseStoreBrandMapping(row.sizing_brand_mapping),
@@ -251,6 +256,7 @@ export async function upsertStoreConnection(input: UpsertStoreConnectionInput): 
         persona_category_map: {},
         persona_mapping_updated_at: null,
         persona_auto_match_completed_at: null,
+        ...IDLE_AUTO_MATCH_COLUMNS,
         product_count: input.productCount ?? 0,
         synced_at: null,
         updated_at: new Date().toISOString(),

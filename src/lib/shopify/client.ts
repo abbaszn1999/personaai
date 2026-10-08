@@ -1218,6 +1218,42 @@ async function listShopifyCollectionPage(
   };
 }
 
+const COLLECTION_TITLES_QUERY = `
+  query CollectionTitles($id: ID!, $first: Int!) {
+    collection(id: $id) {
+      products(first: $first) {
+        nodes { title status }
+      }
+    }
+  }
+`;
+
+/**
+ * The titles of a collection's first active products, and nothing else. AI matching reads only
+ * titles; the full catalog query also asks for every product's variants, images and metafields,
+ * which costs enough that Shopify throttled it on almost every category.
+ */
+export async function listShopifyCollectionTitles(
+  domain: string,
+  accessToken: string,
+  collectionId: string,
+  first: number,
+  signal?: AbortSignal
+): Promise<string[]> {
+  const { data } = await shopifyGraphqlFetch<{
+    collection: { products: { nodes: Array<{ title: string | null; status: string }> } } | null;
+  }>(
+    domain,
+    accessToken,
+    COLLECTION_TITLES_QUERY,
+    { id: toCollectionGid(collectionId), first: Math.min(first, SHOPIFY_PAGE_SIZE) },
+    signal
+  );
+  return (data.collection?.products.nodes ?? [])
+    .filter((node) => node.status === "ACTIVE" && node.title)
+    .map((node) => node.title as string);
+}
+
 /** `getShopifyCollections` reads the REST endpoints, which return bare numeric ids, while the
  *  GraphQL collection query takes a global id. Already-qualified ids pass through so a caller
  *  can hand over either form. */

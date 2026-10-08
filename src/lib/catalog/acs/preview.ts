@@ -1,7 +1,12 @@
 import type { StoreConnectionRow } from "@/lib/db/store-connections";
 import { decodeCredentials } from "@/lib/utils/crypto";
 import { normalizeWordPressUrl, listWooCatalogPage, getWordPressBrands } from "@/lib/woocommerce/client";
-import { getShopifyAccessToken, listShopifyCatalogPage, getShopifyVendors } from "@/lib/shopify/client";
+import {
+  getShopifyAccessToken,
+  listShopifyCatalogPage,
+  listShopifyCollectionTitles,
+  getShopifyVendors,
+} from "@/lib/shopify/client";
 import type { RawCatalogProduct } from "@/lib/catalog/sync-types";
 import { boundMetafieldKeys } from "@/lib/catalog/acs-mapping";
 import { resolveCategoryPaths, resolveGarmentCategory } from "@/lib/catalog/index-product";
@@ -66,6 +71,25 @@ export async function fetchSampleRawProducts(
   }
 
   return [];
+}
+
+/**
+ * Only the product titles of a category, for AI matching. Shopify gets a titles-only query, far
+ * cheaper than the full sample above; WooCommerce has nothing lighter than a page without variations.
+ */
+export async function fetchSampleProductTitles(
+  connection: StoreConnectionRow,
+  categoryIds: string[],
+  sampleSize: number,
+): Promise<string[]> {
+  if (!connection.apiKeyEncrypted) return [];
+  if (connection.platform === "shopify" && categoryIds.length > 0) {
+    const { clientId, clientSecret } = decodeCredentials(connection.apiKeyEncrypted);
+    const token = await getShopifyAccessToken(connection.storeUrl, clientId, clientSecret, connection.id);
+    return listShopifyCollectionTitles(connection.storeUrl, token, categoryIds[0], sampleSize);
+  }
+  const products = await fetchSampleRawProducts(connection, categoryIds, sampleSize, { skipVariants: true });
+  return products.map((product) => product.title).filter(Boolean);
 }
 
 /**

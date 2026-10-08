@@ -57,6 +57,9 @@ import {
 } from "./persona-taxonomy";
 import { CategoryItemsPreviewModal } from "./category-items-preview-modal";
 import { CatalogScopeModal, getDefaultScopeState, type TaxonomyScopeState } from "./catalog-scope-modal";
+import { AutoMatchDialog, readAutoMatch, startedAutoMatch, useAutoMatchTracker } from "./auto-match-dialog";
+import { autoMatchResultSummary } from "./auto-match-steps";
+import type { AutoMatchJobState } from "@/lib/catalog/auto-match-state";
 
 interface CategoryMappingViewProps {
   connection: StoreConnection;
@@ -75,6 +78,7 @@ type MappingResponse = {
   scope?: SerializedTaxonomyScope;
   scanCounts?: MappingScanCounts | null;
   autoMatchCompletedAt?: string | null;
+  autoMatch?: AutoMatchJobState;
 };
 
 /**
@@ -104,7 +108,7 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
   const [saveSuccessMessage, setSaveSuccessMessage] = React.useState<string | null>(null);
   const [isLoadingMapping, setIsLoadingMapping] = React.useState(() => cachedOnMount === null);
   const [isSavingMapping, setIsSavingMapping] = React.useState(false);
-  const [isAutoMatching, setIsAutoMatching] = React.useState(false);
+  const [isStartingAutoMatch, setIsStartingAutoMatch] = React.useState(false);
   const [scanCounts, setScanCounts] = React.useState<MappingScanCounts | null>(() => cachedOnMount?.scanCounts ?? null);
   /** Non-null once Auto-Match has successfully run and saved for this mapping configuration.
    *  Auto-Match is a one-shot action — clearing the mapping is the only way to reset this. */
@@ -159,24 +163,27 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
   // not overwrite those edits, so it only replaces an untouched copy.
   const editedRef = React.useRef(false);
 
+  const applyMappingResponse = React.useCallback((data: MappingResponse) => {
+    const loadedCategories = data.categories ?? [];
+    const savedScope = data.scope;
+    setCategories(loadedCategories);
+    setInitialCategoriesJson(JSON.stringify(loadedCategories));
+    setScanCounts(data.scanCounts ?? null);
+    setAutoMatchCompletedAt(data.autoMatchCompletedAt ?? null);
+    if (savedScope?.configured) {
+      setScopeState(scopeStateFrom(savedScope));
+      setIsScopeConfigured(true);
+    } else {
+      setScopeState(getDefaultScopeState());
+      setIsScopeConfigured(false);
+    }
+  }, []);
+
+  const autoMatch = useAutoMatchTracker(handleAutoMatchDone);
+  const trackAutoMatch = autoMatch.track;
+
   React.useEffect(() => {
     let cancelled = false;
-    function apply(data: MappingResponse) {
-      const loadedCategories = data.categories ?? [];
-      const savedScope = data.scope;
-      setCategories(loadedCategories);
-      setInitialCategoriesJson(JSON.stringify(loadedCategories));
-      setScanCounts(data.scanCounts ?? null);
-      setAutoMatchCompletedAt(data.autoMatchCompletedAt ?? null);
-      if (savedScope?.configured) {
-        setScopeState(scopeStateFrom(savedScope));
-        setIsScopeConfigured(true);
-      } else {
-        setScopeState(getDefaultScopeState());
-        setIsScopeConfigured(false);
-      }
-    }
-
     // Already painted from it by the state initializers above.
     const cached = mappingResponses.get(connection.id);
 
@@ -187,8 +194,13 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
         const data = await response.json();
         if (!response.ok) throw new Error(data.error ?? "Could not load category mappings");
         mappingResponses.set(connection.id, data as MappingResponse);
-        if (cancelled || (cached && editedRef.current)) return;
-        apply(data as MappingResponse);
+        if (cancelled) return;
+        // A run started earlier, from this page before a refresh or from another tab, is followed
+        // to the end and its result loaded when it is done.
+        const running = (data as MappingResponse).autoMatch;
+        if (running?.status === "running") trackAutoMatch(running);
+        if (cached && editedRef.current) return;
+        applyMappingResponse(data as MappingResponse);
       } catch (error) {
         if (!cancelled) showFeedback(error instanceof Error ? error.message : "Could not load category mappings", "warn");
       } finally {
@@ -197,7 +209,34 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
     }
     void loadMapping();
     return () => { cancelled = true; };
-  }, [connection.id]);
+  }, [connection.id, applyMappingResponse, trackAutoMatch]);
+
+  /** Loads what a finished AI match saved, so the matches appear without a refresh. */
+  async function handleAutoMatchDone(job: AutoMatchJobState) {
+    mappingResponses.delete(connection.id);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const response = await fetch("/api/store-connection/persona-mapping", { cache: "no-store" });
+        const data = (await response.json()) as MappingResponse;
+        if (response.ok) {
+          mappingResponses.set(connection.id, data);
+          applyMappingResponse(data);
+          setSelectedIds(new Set());
+          void refreshConnection();
+          const matched = (job.result?.mapped ?? 0) + (job.result?.excluded ?? 0) > 0;
+          showFeedback(
+            matched ? `AI matching saved: ${autoMatchResultSummary(job.result)}.` : autoMatchResultSummary(job.result),
+            matched ? "success" : "warn",
+          );
+          return;
+        }
+      } catch {
+        // Tried again below.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+    showFeedback("AI matching finished and saved, but the page could not load the matches. Refresh to see them.", "warn");
+  }
 
   async function handleSaveScope(newScope: TaxonomyScopeState) {
     setScopeState(newScope);
@@ -224,41 +263,6 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
       document.getElementById(`category-item-${catId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
     }, 100);
     setTimeout(() => setHighlightedCategoryId((curr) => (curr === catId ? null : curr)), 3500);
-  }
-
-  /**
-   * Auto-Match, when no scope was configured yet, must offer the AI the FULL taxonomy as
-   * candidate targets (see `getDefaultScopeState`) so it can pick the correct department/leaf
-   * for anything — but saving that full "everything enabled" scope afterwards is what fills the
-   * Persona Fixed Taxonomy Hierarchy tree with dozens of always-empty department/category/leaf
-   * rows, since the tree renders every *enabled* scope entry regardless of whether anything was
-   * ever mapped to it. This narrows the scope that actually gets SAVED down to just the
-   * departments and leaves Auto-Match's own results used, so the tree only shows paths with real
-   * data. "Configure What You Sell" is untouched — the merchant can still re-enable any hidden
-   * department/category/leaf there at any time to manually map more into it later.
-   */
-  function narrowScopeToUsedPaths(scope: TaxonomyScopeState, mappedCategories: StoreCategoryItem[]): TaxonomyScopeState {
-    const usedDeptIds = new Set<string>();
-    const usedLeafKeys = new Set<string>();
-    for (const category of mappedCategories) {
-      if (category.status !== "mapped" || !category.departmentId || !category.categoryId) continue;
-      usedDeptIds.add(category.departmentId);
-      if (category.subCategory) {
-        usedLeafKeys.add(`${category.departmentId}:${category.categoryId}:${category.subCategory}`);
-      }
-    }
-    // Custom categories/leaves are always explicit merchant creations from the scope modal —
-    // never part of the "enable everything" default — so their departments stay enabled
-    // regardless of whether this particular Auto-Match run happened to use them.
-    for (const custom of scope.customCategories) usedDeptIds.add(custom.deptId);
-    for (const leaf of scope.customLeaves) usedDeptIds.add(leaf.deptId);
-
-    return {
-      enabledDeptIds: usedDeptIds,
-      enabledLeafKeys: usedLeafKeys,
-      customLeaves: scope.customLeaves,
-      customCategories: scope.customCategories,
-    };
   }
 
   function getMappedCategoriesForNode(deptId: string, catId: string, subCat?: string, customPath?: string): StoreCategoryItem[] {
@@ -295,6 +299,17 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
   const mappedCount = categories.filter((c) => c.status === "mapped").length;
   const unmappedCount = categories.filter((c) => c.status === "unmapped").length;
   const mappedPercentage = fashionTotal > 0 ? Math.round((mappedCount / fashionTotal) * 100) : 0;
+  const autoMatchInProgress = isStartingAutoMatch || autoMatch.job?.status === "running" || autoMatch.applying;
+  // The same rule the server applies: the AI may only offer paths the merchant enabled, so the
+  // taxonomy must be configured, and showing on the right, before it can run.
+  const autoMatchScopeReady = isScopeConfigured && scopeState.enabledLeafKeys.size > 0;
+  const autoMatchDisabledReason = autoMatchCompletedAt
+    ? "Auto-Match already ran once for this store. Clear the mapping to run it again."
+    : !autoMatchScopeReady
+      ? "Configure What You Sell first. AI matching only uses the Persona paths you enable there."
+      : unmappedCount === 0
+        ? "Every category is already mapped or excluded."
+        : null;
 
   const filteredCategories = React.useMemo(() => {
     return categories
@@ -435,14 +450,20 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
     showFeedback(`Cleared mapping for ${ids.length} categories`, "info");
   }
 
+  /**
+   * Starts AI matching on the server and follows it in a dialog. The run saves its own result, so
+   * edits not yet saved are saved first; otherwise loading the result would discard them.
+   */
   async function handleAutoMatchUnmapped() {
-    if (isAutoMatching || isSavingMapping) return;
+    if (autoMatchInProgress || isSavingMapping) return;
     if (autoMatchCompletedAt) {
       showFeedback("Auto-Match already ran once for this store. Clear the mapping to run it again.", "info");
       return;
     }
-    const wasUsingDefaultScope = !isScopeConfigured;
-    const effectiveScope = wasUsingDefaultScope ? getDefaultScopeState() : scopeState;
+    if (!autoMatchScopeReady) {
+      showFeedback("Configure What You Sell first. AI matching only uses the Persona paths you enable there.", "warn");
+      return;
+    }
 
     const selectedUnmapped = categories.filter((category) =>
       category.status === "unmapped" && (selectedIds.size === 0 || selectedIds.has(category.id))
@@ -452,84 +473,42 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
       return;
     }
 
-    setIsAutoMatching(true);
+    setIsStartingAutoMatch(true);
     try {
-      // Exactly one Gemini call for the whole selection — no client-side batching.
+      if (hasUnsavedChanges) {
+        setIsSavingMapping(true);
+        try {
+          if (!(await persistMappings(categories, scopeState))) return;
+        } finally {
+          setIsSavingMapping(false);
+        }
+      }
+
       const response = await fetch("/api/store-connection/persona-mapping/auto-match", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          categoryIds: selectedUnmapped.map((category) => category.id),
-          scope: {
-            configured: true,
-            enabledDeptIds: Array.from(effectiveScope.enabledDeptIds),
-            enabledLeafKeys: Array.from(effectiveScope.enabledLeafKeys),
-            customLeaves: effectiveScope.customLeaves,
-            customCategories: effectiveScope.customCategories,
-          },
-        }),
+        body: JSON.stringify({ categoryIds: selectedUnmapped.map((category) => category.id) }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "AI Auto-Match failed");
-      const verdicts: Array<{ id: string; mapping: PersonaCategoryMap[string] | null }> = data.verdicts ?? [];
-
-      const byId = new Map(verdicts.map((verdict) => [verdict.id, verdict.mapping]));
-      const next = categories.map((category) => {
-        const mapping = byId.get(category.id);
-        if (mapping === undefined || mapping === null) return category;
-        if (mapping.status === "excluded") {
-          return {
-            ...category,
-            status: "excluded" as const,
-            excludeReason: mapping.excludeReason,
-            assignedPersonaPath: undefined,
-            departmentId: undefined,
-            categoryId: undefined,
-            subCategory: undefined,
-            derived: undefined,
-            isAutoMatched: true,
-          };
+      const data = (await response.json().catch(() => ({}))) as { error?: string; jobId?: string; total?: number };
+      if (response.status === 409) {
+        const current = await readAutoMatch();
+        if (current?.status === "running") {
+          trackAutoMatch(current);
+          return;
         }
-        if (!mapping.departmentId || !mapping.categoryId || !mapping.subCategory) return category;
-        return {
-          ...category,
-          status: "mapped" as const,
-          assignedPersonaPath: formatPersonaPath(mapping.departmentId, mapping.categoryId, mapping.subCategory),
-          departmentId: mapping.departmentId,
-          categoryId: mapping.categoryId as PersonaCategoryId,
-          subCategory: mapping.subCategory,
-          derived: derivePersonaValues(mapping.departmentId, mapping.categoryId as PersonaCategoryId),
-          excludeReason: undefined,
-          isAutoMatched: true,
-        };
-      });
-
-      const matched = next.filter((category, index) => category.status !== categories[index].status).length;
-      if (matched === 0) {
-        showFeedback("AI could not safely match these categories. They remain unmapped.", "warn");
-        return;
       }
-      // Only narrow when this run supplied the full default scope itself — a scope the merchant
-      // already configured via "Configure What You Sell" is their explicit choice and must not
-      // be silently shrunk just because this particular run didn't touch every enabled path.
-      const scopeToSave = wasUsingDefaultScope ? narrowScopeToUsedPaths(effectiveScope, next) : effectiveScope;
-      if (await persistMappings(next, scopeToSave, { markAutoMatchCompleted: true })) {
-        setScopeState(scopeToSave);
-        setIsScopeConfigured(true);
-        setSelectedIds(new Set());
-        showFeedback(`AI matched and saved ${matched} categories. Auto-Match will not run again unless the mapping is cleared.`, "success");
-      }
+      if (!response.ok || !data.jobId) throw new Error(data.error ?? "Could not start AI matching");
+      trackAutoMatch(startedAutoMatch(data.jobId, data.total ?? selectedUnmapped.length));
     } catch (error) {
-      showFeedback(error instanceof Error ? error.message : "AI Auto-Match failed", "warn");
+      showFeedback(error instanceof Error ? error.message : "Could not start AI matching", "warn");
     } finally {
-      setIsAutoMatching(false);
+      setIsStartingAutoMatch(false);
     }
   }
 
   async function persistMappings(
     nextCategories: StoreCategoryItem[],
     nextScope: TaxonomyScopeState,
-    options?: { markAutoMatchCompleted?: boolean },
   ): Promise<boolean> {
     const mappings: PersonaCategoryMap = {};
     for (const category of nextCategories) {
@@ -568,7 +547,6 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
           customCategories: nextScope.customCategories,
         },
         mappings,
-        markAutoMatchCompleted: options?.markAutoMatchCompleted === true,
       }),
     });
     const data = await response.json();
@@ -791,32 +769,31 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
           <button
             type="button"
             onClick={handleAutoMatchUnmapped}
-            disabled={isAutoMatching || isSavingMapping || Boolean(autoMatchCompletedAt)}
+            disabled={autoMatchInProgress || isSavingMapping || autoMatchDisabledReason !== null}
             title={
-              autoMatchCompletedAt
-                ? "Auto-Match already ran once for this store. Clear the mapping to run it again."
-                : "Use AI and live product samples to match unmapped categories — a one-time run per mapping"
+              autoMatchDisabledReason ??
+              "Use AI and live product samples to match unmapped categories to the paths you enabled — a one-time run per mapping"
             }
             className={cn(
               "mapping-interactive inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] border px-3 py-1.5 text-xs font-bold",
-              autoMatchCompletedAt
+              autoMatchDisabledReason !== null && !autoMatchInProgress
                 ? "cursor-not-allowed border-[var(--color-mapping-border)] bg-[var(--color-mapping-control)] text-[var(--color-text-muted)]"
                 : "mapping-status-brand text-[var(--color-brand-strong)]"
             )}
           >
-            {isAutoMatching ? (
+            {autoMatchInProgress ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : autoMatchCompletedAt ? (
               <Check className="h-3.5 w-3.5" />
             ) : (
               <Sparkles className="h-3.5 w-3.5" />
             )}
-            <span>{isAutoMatching ? "AI Matching…" : autoMatchCompletedAt ? "Auto-Matched" : "Auto-Match"}</span>
+            <span>{autoMatchInProgress ? "AI Matching…" : autoMatchCompletedAt ? "Auto-Matched" : "Auto-Match"}</span>
           </button>
           <button
             type="button"
             onClick={handleResetToDefaults}
-            disabled={isSavingMapping}
+            disabled={isSavingMapping || autoMatchInProgress}
             title="Clear all mappings and taxonomy scope"
             className="mapping-interactive rounded-[var(--radius-lg)] border border-[var(--color-mapping-border)] bg-[var(--color-mapping-control)] p-1.5 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
           >
@@ -1836,6 +1813,15 @@ export function CategoryMappingView({ connection, onContinueToSetup }: CategoryM
             setSelectedIds(new Set([cat.id]));
             showFeedback(`Targeted "${cat.name}" for taxonomy mapping`, "info");
           }}
+        />
+      )}
+
+      {autoMatch.job && (
+        <AutoMatchDialog
+          job={autoMatch.job}
+          applying={autoMatch.applying}
+          storeName={connection.storeName}
+          onClose={autoMatch.close}
         />
       )}
     </div>

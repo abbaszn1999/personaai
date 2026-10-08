@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import type { StoreConnectionRow } from "@/lib/db/store-connections";
 import { EMPTY_ACS_MAPPING } from "@/lib/catalog/acs-mapping";
 import { IDLE_SETUP_RESET } from "@/lib/catalog/setup-reset-state";
+import { IDLE_AUTO_MATCH } from "@/lib/catalog/auto-match-state";
 import type { RawCatalogProduct } from "@/lib/catalog/sync-types";
 
 process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://test.supabase.co";
@@ -47,6 +48,7 @@ function row(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRow {
     personaCategoryMap: {},
     personaMappingUpdatedAt: null,
     personaAutoMatchCompletedAt: null,
+    autoMatchJob: IDLE_AUTO_MATCH,
     storeSizeSettings: { default: "Alpha", overrides: {} },
     productCount: 0,
     syncedAt: null,

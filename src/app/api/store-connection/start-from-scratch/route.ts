@@ -9,6 +9,7 @@ import {
   setupResetRunning,
 } from "@/lib/catalog/setup-reset-state";
 import { cleanAcsAfterReset, resetSetupData, restartAcsCleanup } from "@/lib/catalog/start-from-scratch";
+import { autoMatchRunning } from "@/lib/catalog/auto-match-state";
 
 /** The first cleanup pass runs in `after()`, which gets this route's time limit. */
 export const runtime = "nodejs";
@@ -44,6 +45,12 @@ export async function POST(request: Request) {
     if (setupResetRunning(connection.setupReset)) {
       return Response.json(
         { error: "Old products are still being removed from ACS. Wait for that to finish." },
+        { status: 409 },
+      );
+    }
+    if (autoMatchRunning(connection.autoMatchJob)) {
+      return Response.json(
+        { error: "AI matching is still running on the Mapping tab. Wait for it to finish." },
         { status: 409 },
       );
     }

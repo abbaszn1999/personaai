@@ -5,6 +5,7 @@ import { parseStoreBrandMapping } from "@/lib/sizing/brand-mapping";
 import { DEFAULT_SIZE_SETTINGS } from "@/lib/sizing/size-types";
 import { EMPTY_PERSONA_SCOPE, PERSONA_TAXONOMY_VERSION } from "@/modules/store/mapping/persona-taxonomy";
 import type { SetupResetScope, SetupResetState } from "@/lib/catalog/setup-reset-state";
+import { IDLE_AUTO_MATCH_COLUMNS } from "@/lib/db/auto-match-jobs";
 
 /**
  * Everything Setup's five stages produce for one store, as rows keyed by its connection: the run and
@@ -91,6 +92,7 @@ export async function resetSetupColumns(connectionId: string, scope: SetupResetS
       persona_category_map: {},
       persona_mapping_updated_at: null,
       persona_auto_match_completed_at: null,
+      ...IDLE_AUTO_MATCH_COLUMNS,
     });
   }
 

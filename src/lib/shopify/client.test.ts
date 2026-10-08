@@ -3,6 +3,7 @@ import {
   getShopifyCollections,
   getShopifyVendors,
   listShopifyCatalogPage,
+  listShopifyCollectionTitles,
   mapShopifyWebhookProduct,
 } from "./client";
 
@@ -125,6 +126,31 @@ describe("Shopify Admin GraphQL 2026-07 compatibility", () => {
       { id: "3", name: "Sale", handle: "sale", collectionType: "smart", productCount: 91 },
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads only active product titles of a collection for AI matching", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { query: string; variables: Record<string, unknown> };
+      expect(body.query).toContain("nodes { title status }");
+      expect(body.query).not.toContain("variants");
+      expect(body.variables).toEqual({ id: "gid://shopify/Collection/42", first: 30 });
+      return Response.json({
+        data: {
+          collection: {
+            products: {
+              nodes: [
+                { title: "Linen Shirt", status: "ACTIVE" },
+                { title: "Old Draft", status: "DRAFT" },
+                { title: null, status: "ACTIVE" },
+              ],
+            },
+          },
+        },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(listShopifyCollectionTitles("store.myshopify.com", "token", "42", 30)).resolves.toEqual(["Linen Shirt"]);
   });
 
   it("reads product vendors without the unsupported after argument", async () => {
