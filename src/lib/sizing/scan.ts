@@ -1,3 +1,4 @@
+import { hostname } from "node:os";
 import { createCatalogPager, membership } from "@/lib/catalog/pager";
 import { resolveCategoryPaths } from "@/lib/catalog/index-product";
 import { buildCategoryIndex } from "@/lib/catalog/category-parents";
@@ -28,6 +29,9 @@ import { leafSourceCategoryIds } from "./record-facets";
  * ACS has nothing to read either. The walk is free (it is the merchant's own store) and paced by the
  * same courtesy delay the indexing walk uses.
  */
+
+/** Bumped when what the scan writes per product changes, so a run's `scan_worker` names the version. */
+const SCAN_CODE_VERSION = "records-with-sources-v1";
 
 /** Ceiling on pages per category group, so a misconfigured cursor can't loop forever against a
  *  merchant's store. Matches the indexing walk. */
@@ -87,6 +91,13 @@ interface ScanRow {
  * untouched rather than half-replace them.
  */
 export async function runSizingScan(connection: StoreConnectionRow, run: SizingRunRow): Promise<ScanResult> {
+  // A long-lived server keeps the code it booted with, so the scan can be running older code than the
+  // one deployed. Recording which version and host ran it is how that gets told apart from a real bug:
+  // a run with no mark was scanned by code that predates this line.
+  const worker = `${SCAN_CODE_VERSION} on ${process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? hostname()} pid ${process.pid}`;
+  console.log(`[sizing scan] ${worker} scanning ${connection.id}`);
+  await updateSizingRun(run.id, { scanWorker: worker });
+
   const pager = await createCatalogPager(connection);
   if (!pager) {
     throw new Error("No categories are selected for indexing yet, so there is nothing to scan.");

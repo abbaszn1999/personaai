@@ -233,6 +233,8 @@ export interface SizingRunPatch {
    *  now-running row is indistinguishable from a fresh failure to anything reading the row. */
   error?: string | null;
   publishedAt?: string | null;
+  /** The scan code version and host that ran the scan; see `sizing_runs.scan_worker`. */
+  scanWorker?: string | null;
 }
 
 export async function updateSizingRun(runId: string, patch: SizingRunPatch): Promise<SizingRunRow | null> {
@@ -250,6 +252,7 @@ export async function updateSizingRun(runId: string, patch: SizingRunPatch): Pro
   if (patch.researchForce !== undefined) update.research_force = patch.researchForce;
   if (patch.error !== undefined) update.error = patch.error;
   if (patch.publishedAt !== undefined) update.published_at = patch.publishedAt;
+  if (patch.scanWorker !== undefined) update.scan_worker = patch.scanWorker;
 
   const { data, error } = await db.from("sizing_runs").update(update).eq("id", runId).select("*").maybeSingle();
 
