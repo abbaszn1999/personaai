@@ -245,6 +245,10 @@ describe("Item Preview page cache", () => {
       sampleLoaded: false,
       sampleBrandType: null,
       sampleParent: null,
+      sampleBrandKey: null,
+      samplePath: null,
+      sampleSource: null,
+      sampleFacets: null,
       sampleQuery: "",
     });
   });
@@ -321,6 +325,63 @@ describe("Item Preview page cache", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(useSizingStore.getState().sample.map((row) => row.brandType)).toEqual(["private", "private"]);
+  });
+
+  it("sends brand, path and collection filters, restarts paging, and keeps each combination's page apart", async () => {
+    const fetchMock = stubPages();
+    await useSizingStore.getState().goToSamplePage(1);
+
+    await useSizingStore.getState().setSampleBrandKey("moustache_men");
+    await useSizingStore.getState().setSamplePath("women:top:");
+    await useSizingStore.getState().setSampleSource("c1");
+
+    const last = new URL(String(sampleRequests(fetchMock).at(-1)![0]), "http://localhost").searchParams;
+    expect(last.get("brand")).toBe("moustache_men");
+    expect(last.get("path")).toBe("women:top:");
+    expect(last.get("source")).toBe("c1");
+    expect(useSizingStore.getState().samplePage).toBe(1);
+
+    // The unfiltered first page was read before; it must not be served for a filtered request.
+    const filtered = sampleRequests(fetchMock).filter(([url]) => String(url).includes("brand=moustache_men"));
+    expect(filtered.length).toBeGreaterThan(0);
+    const before = sampleRequests(fetchMock).length;
+    await useSizingStore.getState().setSampleSource("c1");
+    expect(sampleRequests(fetchMock)).toHaveLength(before);
+  });
+
+  it("clears every filter in one read and leaves the search text alone", async () => {
+    const fetchMock = stubPages();
+    useSizingStore.setState({
+      sampleBrandType: "private",
+      sampleParent: "tops",
+      sampleBrandKey: "moustache_men",
+      samplePath: "women:",
+      sampleSource: "c1",
+      sampleQuery: "shirt",
+    });
+
+    await useSizingStore.getState().clearSampleFilters();
+
+    const state = useSizingStore.getState();
+    expect([state.sampleBrandType, state.sampleParent, state.sampleBrandKey, state.samplePath, state.sampleSource]).toEqual([
+      null, null, null, null, null,
+    ]);
+    expect(state.sampleQuery).toBe("shirt");
+    const params = new URL(String(sampleRequests(fetchMock)[0][0]), "http://localhost").searchParams;
+    expect(params.get("q")).toBe("shirt");
+    expect(params.has("brand")).toBe(false);
+  });
+
+  it("drops the filter options with the pages and reads them again", async () => {
+    const options = { brands: [], paths: [], collections: [], hasCollections: true };
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify(options), { status: 200 })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await useSizingStore.getState().loadSampleFacets();
+    expect(useSizingStore.getState().sampleFacets?.hasCollections).toBe(true);
+
+    clearSamplePages();
+    expect(useSizingStore.getState().sampleFacets).toBeNull();
   });
 
   it("does not remember a page that still has unclassified rows", async () => {

@@ -13,6 +13,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Filter,
+  SlidersHorizontal,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { isSizingGroup, SIZING_GROUP_KEYS, type SizingGroup } from "@/lib/sizing/measurements";
@@ -26,6 +28,16 @@ import {
 } from "@/modules/store/components/parent-category-ui";
 import { MappingSelect } from "@/modules/store/components/mapping-select";
 import { useSizingStore } from "../store";
+import type { SizingSampleFacets } from "@/lib/sizing/sample-facets";
+import {
+  brandOptions,
+  buildPathFilter,
+  categoryOptions,
+  collectionOptions,
+  departmentOptions,
+  parsePathFilter,
+  subCategoryOptions,
+} from "../narrow-filter-options";
 import {
   isScanIncomplete,
   SAMPLE_PAGE_SIZES as PAGE_SIZES,
@@ -84,6 +96,113 @@ const FILTERS: BrandFilter[] = ["all", "global", "private", "none"];
 
 type ParentFilter = "all" | SizingGroup;
 
+/**
+ * The selects that narrow the table beyond the chips: one brand, a Persona path (department, then
+ * category, then subcategory) and one store collection. They combine with the chips and the search,
+ * and the server applies all of them before it pages, so a page of 100 is 100 matches.
+ */
+function NarrowFilters({
+  facets,
+  brandType,
+  brandKey,
+  path,
+  source,
+  disabled,
+  showClear,
+  onBrand,
+  onPath,
+  onSource,
+  onClear,
+}: {
+  facets: SizingSampleFacets | null;
+  brandType: ServerBrandType | null;
+  brandKey: string | null;
+  path: string | null;
+  source: string | null;
+  disabled: boolean;
+  showClear: boolean;
+  onBrand: (key: string | null) => void;
+  onPath: (path: string | null) => void;
+  onSource: (id: string | null) => void;
+  onClear: () => void;
+}) {
+  const selection = parsePathFilter(path);
+  const hasCollections = facets?.hasCollections ?? false;
+  const selectClass = "min-w-36 max-w-52";
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t border-[var(--color-border)] pt-2.5 text-xs">
+      <span className="flex items-center gap-1 pl-1 text-xs font-medium text-[var(--color-text-muted)]">
+        <SlidersHorizontal className="h-3.5 w-3.5 text-[var(--color-brand)]" /> Narrow by:
+      </span>
+      <MappingSelect
+        options={brandOptions(facets, brandType, brandKey)}
+        value={brandKey ?? ""}
+        onChange={(key) => onBrand(key || null)}
+        label="Brand"
+        disabled={disabled || facets === null}
+        compact
+        className={selectClass}
+      />
+      <MappingSelect
+        options={departmentOptions(facets)}
+        value={selection.department ?? ""}
+        onChange={(key) => onPath(buildPathFilter({ department: key || null, category: null, subCategory: null }))}
+        label="Persona department"
+        disabled={disabled || facets === null}
+        compact
+        className={selectClass}
+      />
+      <MappingSelect
+        options={categoryOptions(facets, selection.department)}
+        value={selection.category ?? ""}
+        onChange={(key) =>
+          onPath(buildPathFilter({ department: selection.department, category: key || null, subCategory: null }))
+        }
+        label="Persona category"
+        disabled={disabled || !selection.department}
+        compact
+        className={selectClass}
+      />
+      <MappingSelect
+        options={subCategoryOptions(facets, selection.department, selection.category)}
+        value={selection.subCategory ?? ""}
+        onChange={(key) =>
+          onPath(buildPathFilter({ ...selection, subCategory: key || null }))
+        }
+        label="Persona subcategory"
+        disabled={disabled || !selection.category}
+        compact
+        className={selectClass}
+      />
+      <MappingSelect
+        options={collectionOptions(facets)}
+        value={source ?? ""}
+        onChange={(id) => onSource(id || null)}
+        label="Store collection"
+        disabled={disabled || !hasCollections}
+        compact
+        className={cn(selectClass, "min-w-44")}
+      />
+      {showClear && (
+        <button
+          type="button"
+          onClick={onClear}
+          disabled={disabled}
+          className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-[var(--color-brand)] hover:underline disabled:opacity-50"
+        >
+          <X className="h-3 w-3" /> Clear filters
+        </button>
+      )}
+      {facets !== null && !hasCollections && (
+        <span className="pl-1 text-[11px] text-[var(--color-text-muted)]">
+          Rescan to enable collection filters
+        </span>
+      )}
+    </div>
+  );
+}
+
 /** The ACS field a column was read out of, beside its heading. */
 function HeaderField({ children }: { children: React.ReactNode }) {
   return (
@@ -123,11 +242,20 @@ export function StageItemPreview() {
   const parentCounts = useSizingStore((s) => s.sampleParentCounts);
   const brandType = useSizingStore((s) => s.sampleBrandType);
   const parentType = useSizingStore((s) => s.sampleParent);
+  const brandKey = useSizingStore((s) => s.sampleBrandKey);
+  const pathFilter = useSizingStore((s) => s.samplePath);
+  const sourceFilter = useSizingStore((s) => s.sampleSource);
+  const facets = useSizingStore((s) => s.sampleFacets);
+  const loadFacets = useSizingStore((s) => s.loadSampleFacets);
   const appliedQuery = useSizingStore((s) => s.sampleQuery);
   const goToPage = useSizingStore((s) => s.goToSamplePage);
   const setPageSize = useSizingStore((s) => s.setSamplePageSize);
   const setBrandType = useSizingStore((s) => s.setSampleBrandType);
   const setParent = useSizingStore((s) => s.setSampleParent);
+  const setBrandKey = useSizingStore((s) => s.setSampleBrandKey);
+  const setPath = useSizingStore((s) => s.setSamplePath);
+  const setSource = useSizingStore((s) => s.setSampleSource);
+  const clearFilters = useSizingStore((s) => s.clearSampleFilters);
   const setQuery = useSizingStore((s) => s.setSampleQuery);
 
   // Local so typing stays responsive. The applied value lives in the store because the server does
@@ -158,9 +286,19 @@ export function StageItemPreview() {
     return () => clearTimeout(timer);
   }, [draftQuery, appliedQuery, setQuery]);
 
+  React.useEffect(() => {
+    if (!scanning && facets === null) void loadFacets();
+  }, [scanning, facets, loadFacets]);
+
   const filter: BrandFilter = brandType ?? "all";
   const parent: ParentFilter = isSizingGroup(parentType) ? parentType : "all";
-  const filtering = brandType !== null || parentType !== null || appliedQuery.length > 0;
+  const narrowing =
+    brandType !== null ||
+    parentType !== null ||
+    brandKey !== null ||
+    pathFilter !== null ||
+    sourceFilter !== null;
+  const filtering = narrowing || appliedQuery.length > 0;
 
   // The denominator the footer counts against: the filter's own exact size where coverage knows it,
   // otherwise the whole selection. Never the other way round — `total` stays the selection's count
@@ -359,6 +497,20 @@ export function StageItemPreview() {
             );
           })}
         </div>
+
+        <NarrowFilters
+          facets={facets}
+          brandType={brandType}
+          brandKey={brandKey}
+          path={pathFilter}
+          source={sourceFilter}
+          disabled={loading}
+          showClear={narrowing}
+          onBrand={(key) => void setBrandKey(key)}
+          onPath={(path) => void setPath(path)}
+          onSource={(id) => void setSource(id)}
+          onClear={() => void clearFilters()}
+        />
 
         {!typeCounts && (
           <p className="pl-1 text-[11px] text-[var(--color-text-muted)]">

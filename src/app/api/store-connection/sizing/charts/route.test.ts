@@ -19,6 +19,10 @@ vi.mock("@/lib/db/sizing-charts", () => ({
 }));
 vi.mock("@/lib/db/sizing-runs", () => ({ getLatestSizingRun: vi.fn() }));
 vi.mock("@/lib/db/sizing-path-coverage", () => ({ listSizingPathCoverage: vi.fn() }));
+vi.mock("@/lib/db/sizing-product-records", () => ({
+  getSizingProductFacets: vi.fn(async () => []),
+  getSizingProductPrimaryLeafCounts: vi.fn(async () => ({ byLeaf: {} })),
+}));
 vi.mock("@/lib/catalog/acs/stage-five-preview", () => ({ clearGeneratedStageFiveCache: vi.fn() }));
 
 import { getCurrentUser } from "@/modules/auth/lib/get-user";

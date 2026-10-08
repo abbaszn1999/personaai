@@ -24,13 +24,66 @@ import { canonicalizeCoverageForCharts } from "@/lib/sizing/brand-mapping-view";
 import { listSizingPathCoverage } from "@/lib/db/sizing-path-coverage";
 import { buildStockedLeaves } from "@/lib/sizing/stocked-leaves";
 import { clearGeneratedStageFiveCache } from "@/lib/catalog/acs/stage-five-preview";
-import { leafSourceLinks } from "@/lib/catalog/storefront-links";
+import { brandFilterSource, leafSourceLinks } from "@/lib/catalog/storefront-links";
+import { probeShopifyFilter, shopifyFilterParameter } from "@/lib/catalog/storefront-filter-probe";
+import { getWooBrandTerms } from "@/lib/catalog/storefront-brand-terms";
+import type { StoreConnectionRow } from "@/lib/db/store-connections";
+import type { BrandType } from "@/lib/db/sizing-coverage";
+import { getSizingProductFacets } from "@/lib/db/sizing-product-records";
+import { brandLeafSourceLinks, type BrandLeafSourceLinks } from "@/lib/sizing/brand-leaf-sources";
+import { facetsHaveSources } from "@/lib/sizing/record-facets";
 import { leafLabel, mappedPersonaLeaves } from "@/modules/store/mapping/persona-taxonomy";
 import {
   brandMappingIsCurrent,
   parseStoreBrandMapping,
   resolveChartBrandKey,
 } from "@/lib/sizing/brand-mapping";
+
+/**
+ * The collections that hold each chart brand's items under each subcategory, as links that open the
+ * storefront already filtered to that brand. Empty until a scan has saved collections per product, and
+ * never allowed to fail the chart list it rides along with: the screen falls back to the full list of
+ * collections mapped to the subcategory.
+ */
+async function loadBrandLeafSources(
+  connection: StoreConnectionRow,
+  types: ReadonlyMap<string, BrandType>,
+  brandMapping: ReturnType<typeof parseStoreBrandMapping>,
+): Promise<BrandLeafSourceLinks> {
+  try {
+    const facetRows = await getSizingProductFacets(connection.id);
+    if (!facetRows || !facetsHaveSources(facetRows)) return {};
+
+    const source = brandFilterSource(connection.acsFieldMapping);
+    const parameter = connection.platform === "shopify" ? shopifyFilterParameter(source) : null;
+    const handle = connection.categories.find((category) => category.handle?.trim())?.handle?.trim();
+    const [support, wooBrands] = await Promise.all([
+      parameter && handle
+        ? probeShopifyFilter(storefrontOrigin(connection.storeUrl), handle, parameter)
+        : Promise.resolve(null),
+      source.kind === "vendor" ? getWooBrandTerms(connection) : Promise.resolve([]),
+    ]);
+
+    return brandLeafSourceLinks({
+      facetRows,
+      resolveBrandKey: (rawKey) => resolveChartBrandKey(rawKey, types.get(rawKey), brandMapping),
+      categories: connection.categories,
+      platform: connection.platform,
+      storeUrl: connection.storeUrl,
+      source,
+      wooBrands,
+      support,
+    });
+  } catch (err) {
+    console.error("[store-connection sizing/charts brandLeafSources]", err);
+    return {};
+  }
+}
+
+function storefrontOrigin(storeUrl: string): string {
+  const trimmed = storeUrl.trim().replace(/\/+$/, "");
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
 
 /**
  * Stage 4's whole surface: the coverage-driven chart and gap join, plus one row per global brand at
@@ -127,6 +180,7 @@ export async function GET() {
         connection.platform,
         connection.storeUrl,
       ),
+      brandLeafSources: await loadBrandLeafSources(connection, types, brandMapping),
     });
   } catch (err) {
     console.error("[store-connection sizing/charts GET]", err);

@@ -38,6 +38,8 @@ import {
 import { audienceCompatible, audienceForPersonaPath } from "@/lib/sizing/variant-match";
 import { departmentLeaves, suggestChartName, type DepartmentLeaves } from "@/lib/sizing/manual-chart-coverage";
 import type { LeafSourceLink } from "@/lib/catalog/storefront-links";
+import type { BrandSourceLink } from "@/lib/sizing/brand-leaf-sources";
+import { BrandItemsLinks } from "./brand-items-links";
 import {
   absorbedSubCategories,
   formatLeafLabel,
@@ -90,6 +92,7 @@ function ManualChartForm() {
   const charts = useSizingStore((s) => s.charts);
   const leafCountRows = useSizingStore((s) => s.chartLeafCounts);
   const leafSources = useSizingStore((s) => s.chartLeafSources);
+  const brandSources = useSizingStore((s) => s.chartBrandLeafSources[target.brandKey]);
   const storeSizeType = useStoreConnectionStore((s) => s.storeSizeSettings.default);
 
   const group: SizingGroup = isSizingGroup(target.sizingCategory) ? target.sizingCategory : "tops";
@@ -378,6 +381,8 @@ function ManualChartForm() {
                 chartedBy={chartedBy}
                 leafCounts={leafCounts}
                 leafSources={leafSources}
+                brandSources={brandSources}
+                brandName={target.brandName}
                 onToggle={toggleLeaf}
                 onSelectAll={() =>
                   setSelected((current) => [
@@ -599,6 +604,8 @@ function SubcategoryChecklist({
   chartedBy,
   leafCounts,
   leafSources,
+  brandSources,
+  brandName,
   onToggle,
   onSelectAll,
   onClear,
@@ -610,6 +617,9 @@ function SubcategoryChecklist({
   chartedBy: ReadonlyMap<string, string>;
   leafCounts: Record<string, number>;
   leafSources: Record<string, LeafSourceLink[]>;
+  /** This brand's own collections per subcategory; absent until a scan has saved them. */
+  brandSources: Record<string, BrandSourceLink[]> | undefined;
+  brandName: string;
   onToggle: (leaf: string) => void;
   onSelectAll: () => void;
   onClear: () => void;
@@ -695,7 +705,13 @@ function SubcategoryChecklist({
                   {count.toLocaleString()} item{count === 1 ? "" : "s"}
                 </span>
               )}
-              <SourceLinks sources={leafSources[leaf] ?? []} />
+              {/* This brand's own collections when the scan has saved them; before that, every
+                  collection mapped to the subcategory, which is what this list used to be. */}
+              {brandSources?.[leaf]?.length ? (
+                <BrandItemsLinks links={brandSources[leaf]} brandName={brandName} />
+              ) : (
+                <SourceLinks sources={leafSources[leaf] ?? []} />
+              )}
             </li>
           );
         })}

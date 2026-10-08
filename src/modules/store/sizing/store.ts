@@ -34,6 +34,7 @@ import {
   type SizingSampleResponse,
   type SizingSampleRow,
 } from "./server-types";
+import type { SizingSampleFacets } from "@/lib/sizing/sample-facets";
 import { draftRowsFrom, type ChartDraftRow } from "@/lib/sizing/chart-draft";
 import { manualChartLeaves } from "@/lib/sizing/manual-chart-coverage";
 import { isSizingGroup } from "@/lib/sizing/measurements";
@@ -174,6 +175,8 @@ interface SizingUiState {
   chartTotals: SizingChartsResponse["totals"];
   chartLeafCounts: SizingChartsResponse["leafCounts"];
   chartLeafSources: SizingChartsResponse["leafSources"];
+  /** Each chart brand's own collections per subcategory, as brand-filtered storefront links. */
+  chartBrandLeafSources: SizingChartsResponse["brandLeafSources"];
   /** False until a research pass has recorded an outcome — what separates "no gaps" from "not run". */
   chartsResearched: boolean;
   chartsLoading: boolean;
@@ -249,7 +252,17 @@ interface SizingUiState {
    *  a brand type only some later page carries would be invisible to a filter over the loaded page. */
   sampleBrandType: ServerBrandType | null;
   sampleParent: string | null;
+  /** One exact brand key, narrowing whatever brand type is also chosen. */
+  sampleBrandKey: string | null;
+  /** A Persona path: `women:` (department), `women:top:` (category) or one leaf key. */
+  samplePath: string | null;
+  /** One store collection id, matched against the collections the scan saved per product. */
+  sampleSource: string | null;
   sampleQuery: string;
+  /** The options behind the Brand, Path and Collection selects. Null until read, and again after
+   *  anything that changes them, so the selects always describe the snapshot the table shows. */
+  sampleFacets: SizingSampleFacets | null;
+  loadSampleFacets: () => Promise<void>;
   sampleLoading: boolean;
   sampleError: string | null;
   /** Distinguishes "not read yet" from "read and genuinely empty", so an empty selection doesn't
@@ -270,6 +283,11 @@ interface SizingUiState {
   setSamplePageSize: (size: number) => Promise<void>;
   setSampleBrandType: (type: ServerBrandType | null) => Promise<void>;
   setSampleParent: (parent: string | null) => Promise<void>;
+  setSampleBrandKey: (brandKey: string | null) => Promise<void>;
+  setSamplePath: (path: string | null) => Promise<void>;
+  setSampleSource: (sourceCategoryId: string | null) => Promise<void>;
+  /** Clears every chip and select; the search text is left, it has its own clear. */
+  clearSampleFilters: () => Promise<void>;
   setSampleQuery: (query: string) => Promise<void>;
 
   goToStage: (stage: StageNumber) => void;
@@ -469,6 +487,7 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
         chartTotals: EMPTY_CHARTS_RESPONSE.totals,
         chartLeafCounts: [],
         chartLeafSources: {},
+        chartBrandLeafSources: {},
         chartsResearched: false,
         chartsLoaded: false,
       });
@@ -505,6 +524,7 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
   chartTotals: EMPTY_CHARTS_RESPONSE.totals,
   chartLeafCounts: [],
   chartLeafSources: {},
+  chartBrandLeafSources: {},
   chartsResearched: false,
   chartsLoading: false,
   chartsError: null,
@@ -535,6 +555,7 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
         chartTotals: data.totals ?? EMPTY_CHARTS_RESPONSE.totals,
         chartLeafCounts: data.leafCounts ?? [],
         chartLeafSources: data.leafSources ?? {},
+        chartBrandLeafSources: data.brandLeafSources ?? {},
         mappedLeaves: data.mappedLeaves ?? [],
         chartsResearched: data.researched ?? false,
         chartsLoading: false,
@@ -694,7 +715,11 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
   sampleParentCounts: null,
   sampleBrandType: null,
   sampleParent: null,
+  sampleBrandKey: null,
+  samplePath: null,
+  sampleSource: null,
   sampleQuery: "",
+  sampleFacets: null,
   sampleLoading: false,
   sampleError: null,
   sampleLoaded: false,
@@ -738,6 +763,9 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
         if (pageCursor) params.set("cursor", pageCursor);
         if (get().sampleBrandType) params.set("brandType", get().sampleBrandType!);
         if (get().sampleParent) params.set("parent", get().sampleParent!);
+        if (get().sampleBrandKey) params.set("brand", get().sampleBrandKey!);
+        if (get().samplePath) params.set("path", get().samplePath!);
+        if (get().sampleSource) params.set("source", get().sampleSource!);
         if (get().sampleQuery) params.set("q", get().sampleQuery);
         return params;
       };
@@ -846,6 +874,70 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
     if (parent === get().sampleParent) return;
     set({ sampleParent: parent, samplePage: 1, sampleCursors: [null], sampleNextCursor: null });
     await get().goToSamplePage(1);
+  },
+
+  setSampleBrandKey: async (brandKey) => {
+    if (brandKey === get().sampleBrandKey) return;
+    set({ sampleBrandKey: brandKey, samplePage: 1, sampleCursors: [null], sampleNextCursor: null });
+    await get().goToSamplePage(1);
+  },
+
+  setSamplePath: async (path) => {
+    if (path === get().samplePath) return;
+    set({ samplePath: path, samplePage: 1, sampleCursors: [null], sampleNextCursor: null });
+    await get().goToSamplePage(1);
+  },
+
+  setSampleSource: async (sourceCategoryId) => {
+    if (sourceCategoryId === get().sampleSource) return;
+    set({ sampleSource: sourceCategoryId, samplePage: 1, sampleCursors: [null], sampleNextCursor: null });
+    await get().goToSamplePage(1);
+  },
+
+  clearSampleFilters: async () => {
+    const { sampleBrandType, sampleParent, sampleBrandKey, samplePath, sampleSource } = get();
+    if (!sampleBrandType && !sampleParent && !sampleBrandKey && !samplePath && !sampleSource) return;
+    set({
+      sampleBrandType: null,
+      sampleParent: null,
+      sampleBrandKey: null,
+      samplePath: null,
+      sampleSource: null,
+      samplePage: 1,
+      sampleCursors: [null],
+      sampleNextCursor: null,
+    });
+    await get().goToSamplePage(1);
+  },
+
+  loadSampleFacets: async () => {
+    if (get().sampleFacets !== null || facetsInFlight) return;
+    facetsInFlight = true;
+    const generation = facetsGeneration;
+    try {
+      const res = await fetch("/api/store-connection/sizing/sample/facets");
+      const data = (await res.json()) as Partial<SizingSampleFacets> & { error?: string };
+      // Cleared while this was in flight: it describes the snapshot from before, so it is dropped
+      // and read again below.
+      if (generation !== facetsGeneration) return;
+      // A failed read becomes an empty option list rather than staying null, which would make the
+      // component ask again on every render. The filters still work through the chips and search.
+      set({
+        sampleFacets: res.ok
+          ? {
+              brands: data.brands ?? [],
+              paths: data.paths ?? [],
+              collections: data.collections ?? [],
+              hasCollections: data.hasCollections ?? false,
+            }
+          : EMPTY_SAMPLE_FACETS,
+      });
+    } catch {
+      if (generation === facetsGeneration) set({ sampleFacets: EMPTY_SAMPLE_FACETS });
+    } finally {
+      facetsInFlight = false;
+      if (generation !== facetsGeneration && get().sampleFacets === null) void get().loadSampleFacets();
+    }
   },
 
   setSampleQuery: async (query) => {
@@ -1006,9 +1098,16 @@ const MAX_SAMPLE_PAGES = 60;
 /** Next pages being read ahead, so a fast Next click joins the read instead of starting another. */
 const samplePrefetches = new Map<string, Promise<Partial<SizingSampleResponse> | null>>();
 
+const EMPTY_SAMPLE_FACETS: SizingSampleFacets = { brands: [], paths: [], collections: [], hasCollections: false };
+let facetsInFlight = false;
+let facetsGeneration = 0;
+
 export function clearSamplePages(): void {
   samplePages.clear();
   samplePrefetches.clear();
+  facetsGeneration += 1;
+  // The filter options describe the same snapshot the pages do, so they go with them.
+  if (useSizingStore.getState().sampleFacets !== null) useSizingStore.setState({ sampleFacets: null });
 }
 
 function samplePageKey(params: URLSearchParams): string {

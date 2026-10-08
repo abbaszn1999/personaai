@@ -61,6 +61,9 @@ export interface PagerOptions {
    *  the browsable preview, where a page is what a merchant reads rather than what a worker buffers.
    *  Both clients clamp it to their API's ceiling. */
   pageSize?: number;
+  /** WooCommerce only: skip the per-product `/variations` reads. For display-only pages that never
+   *  look at variant detail, which otherwise cost one request per variable product. */
+  skipVariants?: boolean;
   /**
    * Read whatever custom fields each product carries instead of only the bound ones, so Stage 1 can
    * offer them as columns.
@@ -249,6 +252,7 @@ export async function createCatalogPager(
           updatedAfter: options.updatedAfter,
           pageSize: options.pageSize,
           currency,
+          skipVariants: options.skipVariants,
         });
         return { products: result.products, nextCursor: result.hasMore ? String(page + 1) : null };
       },

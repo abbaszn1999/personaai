@@ -188,8 +188,20 @@ export async function GET(request: Request) {
     const requestedParent = params.get("parent");
     const parentFilter = requestedParent && isSizingGroup(requestedParent) ? requestedParent : null;
     const search = (params.get("q") ?? "").trim().toLowerCase();
+    const brandFilter = params.get("brand")?.trim() || null;
+    // Colons in a Persona leaf key separate dept, category and subcategory; nothing else is accepted,
+    // so the value is never anything but a key the filter can match literally.
+    const requestedPath = params.get("path")?.trim() ?? "";
+    const pathFilter = /^[\w-]+:([\w-]+:([\w-]+)?)?$/.test(requestedPath) ? requestedPath : null;
+    const sourceFilter = params.get("source")?.trim() || null;
     const includeResolution = params.get("include")?.split(",").includes("resolution") === true;
-    const filtering = brandTypeFilter !== null || parentFilter !== null || search.length > 0;
+    const filtering =
+      brandTypeFilter !== null ||
+      parentFilter !== null ||
+      brandFilter !== null ||
+      pathFilter !== null ||
+      sourceFilter !== null ||
+      search.length > 0;
 
     const { chips: typeChipCounts, items: typeItemCounts, byParent } = countCoverage(coverage);
     const classificationComplete =
@@ -295,15 +307,22 @@ export async function GET(request: Request) {
 
     const parsedOffset = Number(params.get("cursor"));
     const offset = Number.isInteger(parsedOffset) && parsedOffset >= 0 ? parsedOffset : 0;
-    const brandKeys = brandTypeFilter
+    const typeBrandKeys = brandTypeFilter
       ? [...new Set(coverage.filter((row) => row.brandType === brandTypeFilter).map((row) => row.brandKey))]
       : null;
+    // A chosen brand narrows the brand-type chip rather than replacing it, so "Private brands" plus a
+    // global brand is an honest empty result instead of the brand ignoring the chip.
+    const brandKeys = brandFilter
+      ? typeBrandKeys === null || typeBrandKeys.includes(brandFilter) ? [brandFilter] : []
+      : typeBrandKeys;
     const indexedPage = await listSizingProductRecordsPage(connection.id, {
       limit: pageSize,
       offset,
       brandKeys,
       sizingCategory: parentFilter,
       search,
+      path: pathFilter,
+      sourceCategoryId: sourceFilter,
     });
     // The refresh button asks for a live read; ordinary paging reuses products read in the last few
     // minutes (by this screen or by the Stage 5 preview), which is what makes paging instant.

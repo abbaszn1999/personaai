@@ -125,18 +125,30 @@ export type CategoryParentMap = Record<string, string>;
  */
 export type SkuParentOverrides = Record<string, string>;
 
-/** A single live product sampled from a category for the "preview products" modal on the
+/** A single live product read from a category for the "preview products" modal on the
  *  Categories tab. Display-only — deliberately not the mapper's ACS payload, since this runs
  *  before a category is ever selected and has nothing to do with mapping approval. */
 export interface CategorySampleProduct {
   externalId: string;
   title: string;
+  sku: string | null;
+  brand: string | null;
   imageUrl: string | null;
   price: number | null;
   currency: string | null;
   inStock: boolean;
   productUrl: string | null;
   sizes: string[];
+}
+
+/** One page of a category's products, as `/api/store-connection/category-samples` returns it. */
+export interface CategorySamplePage {
+  items: CategorySampleProduct[];
+  nextCursor: string | null;
+  /** The category's product count, sent with the first page only. */
+  total: number | null;
+  totalExact: boolean;
+  pageSize: number;
 }
 
 /** One row of the mapping preview: the raw fields pulled from the merchant's store next to the

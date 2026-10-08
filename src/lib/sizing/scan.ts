@@ -14,6 +14,7 @@ import { isSizingGroup, type SizingGroup } from "./measurements";
 import { CoverageAggregator, toRawFormat, type AggregateStats } from "./aggregate";
 import { PathCoverageAggregator } from "./path-coverage";
 import { normalizeBrandKey } from "./keys";
+import { leafSourceCategoryIds } from "./record-facets";
 
 /**
  * Pass 1 of the pipeline: read the merchant's catalog once and write down what it contains.
@@ -227,6 +228,8 @@ export async function runSizingScan(connection: StoreConnectionRow, run: SizingR
             sizingCategory: row.sizingGroup,
             primaryPersonaLeafKey: row.sizingCategoryId,
             rawSizeFormat: toRawFormat(row.sizes),
+            leafSourceCategoryIds: leafSourceCategoryIds(row.personaPaths, row.sizingCategoryId),
+            brandLabel: row.brandField?.trim() || null,
           }]
         : []
     )

@@ -14,6 +14,7 @@
 // `SizeChartRow` here would mean two definitions of the row shape that the whole filter depends on.
 import type { SizeChartRow } from "@/lib/sizing/chart-schema";
 import type { LeafSourceLink } from "@/lib/catalog/storefront-links";
+import type { BrandLeafSourceLinks } from "@/lib/sizing/brand-leaf-sources";
 // Stage numbering lives in `./types.ts`, which imports nothing at all, so this direction is safe.
 import { LAST_STAGE, type StageNumber } from "./types";
 
@@ -328,6 +329,9 @@ export interface SizingChartsResponse {
   leafCounts: Array<{ brandKey: string; leafKey: string; skuCount: number }>;
   /** The store collections or categories each leaf was mapped from, with their storefront links. */
   leafSources: Record<string, LeafSourceLink[]>;
+  /** Per chart brand and leaf: only the collections holding that brand's items, as storefront links
+   *  already filtered to the brand. Empty until a scan has saved collections per product. */
+  brandLeafSources: BrandLeafSourceLinks;
 }
 
 export const EMPTY_CHARTS_RESPONSE: SizingChartsResponse = {
@@ -341,6 +345,7 @@ export const EMPTY_CHARTS_RESPONSE: SizingChartsResponse = {
   mappedLeaves: [],
   leafCounts: [],
   leafSources: {},
+  brandLeafSources: {},
 };
 
 /**
