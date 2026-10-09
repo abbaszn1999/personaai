@@ -10,7 +10,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import sharp from "sharp";
+import sharp, { type OverlayOptions } from "sharp";
 import { editPrunaImage, uploadPrunaFile } from "../src/lib/ai/pruna";
 
 const RUN = path.resolve("scripts/out/try-on-lab/run");
@@ -125,7 +125,7 @@ async function main() {
 
   for (const c of cases) {
     for (const part of ["inputs", "outputs"] as const) {
-      const tiles: sharp.OverlayOptions[] = [];
+      const tiles: OverlayOptions[] = [];
       let x = 0;
       const add = async (file: string, name: string, bg: string, text?: string) => {
         if (!existsSync(file)) return;
