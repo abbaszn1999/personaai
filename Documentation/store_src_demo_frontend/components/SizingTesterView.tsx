@@ -1192,12 +1192,12 @@ export function SizingTesterView() {
                         </span>
                         {activeRecommendation.bestRow && (
                           <>
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-700 text-white text-xs font-black tracking-wide shadow-2xs">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-700 text-white text-xs font-black tracking-wide shadow-2xs">
                               {formatSizeForMode(activeRecommendation.bestRow, sizingMode)}
-                            </span>
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-200/90 text-emerald-950 border border-emerald-300">
-                              {activeRecommendation.matchScore}% Match
-                            </span>
+                        </span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-200/90 text-emerald-950 border border-emerald-300">
+                          {activeRecommendation.matchScore}% Match
+                        </span>
                           </>
                         )}
                       </div>
@@ -1577,12 +1577,12 @@ export function SizingTesterView() {
                     >
                       <div className="flex items-center gap-3.5 min-w-0">
                         {product.image ? (
-                          <img
+                        <img
                             src={product.image}
-                            alt={product.title}
-                            className="w-14 h-14 object-cover rounded-lg border border-slate-200 shrink-0 bg-slate-100"
-                            loading="lazy"
-                          />
+                          alt={product.title}
+                          className="w-14 h-14 object-cover rounded-lg border border-slate-200 shrink-0 bg-slate-100"
+                          loading="lazy"
+                        />
                         ) : (
                           <div className="w-14 h-14 rounded-lg border border-slate-200 shrink-0 bg-slate-100" />
                         )}

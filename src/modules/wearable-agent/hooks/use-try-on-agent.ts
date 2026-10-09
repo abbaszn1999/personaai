@@ -7,6 +7,7 @@ import type { BundleSuggestion, Product, TurnAttribution } from "@/modules/comme
 import { formatBudget } from "@/modules/commerce/constants";
 import { isLookRecord, type AgentEvent, type LookRecord } from "@/lib/agents/types";
 import { attributionForProduct } from "../utils/cart-attribution";
+import { resolveGarmentSlot } from "../utils/fit-metrics";
 import { parseTypedBudget } from "../utils/typed-budget";
 import { EMPTY_RETRIEVAL_STATE, normalizeRetrievalState, type RetrievalState } from "../utils/retrieval-state";
 import { AVATAR_GENERATION_STAGES } from "../constants";
@@ -1454,7 +1455,11 @@ export function useTryOnAgent(
         body: JSON.stringify({
           ...(embed ? { embedToken: embed.embedToken } : {}),
           avatarImageUrl: toAbsoluteImageUrl(avatarImageUrl),
-          garmentImageUrls: items.map((p) => toAbsoluteImageUrl(p.imageUrl)),
+          garments: items.map((p) => ({
+            imageUrl: toAbsoluteImageUrl(p.imageUrl),
+            slot: resolveGarmentSlot(p),
+            ...(p.garmentLeaf ? { leaf: p.garmentLeaf } : {}),
+          })),
           ...(embed ? { sessionId: embedSessionIdRef.current } : {}),
         }),
       });

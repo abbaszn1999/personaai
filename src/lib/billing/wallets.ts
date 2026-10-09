@@ -87,7 +87,7 @@ export function walletHeadroom(input: {
 }
 
 /**
- * Overage above the include, in millionths of a cent, so $0.0025 and $0.008 stay exact.
+ * Overage above the include, in millionths of a cent, so $0.0025 and $0.01 stay exact.
  * 1,000,000 micro-cents = 1 cent.
  */
 export function overageMicroCents(input: {

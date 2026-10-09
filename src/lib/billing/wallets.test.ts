@@ -24,10 +24,10 @@ describe("at-cost quotes", () => {
     expect(quoteSessionUnits(10_500)).toBeNull();
   });
 
-  it("prices garment packs at $0.80 per 100 with a 5,000 unit minimum", () => {
+  it("prices garment packs at $1.00 per 100 with a 5,000 unit minimum", () => {
     expect(quoteGarmentUnits(5_000)).toEqual({
       stripeQuantity: 50,
-      amountCents: 4_000,
+      amountCents: 5_000,
       granted: 5_000,
     });
     expect(quoteGarmentUnits(4_900)).toBeNull();
@@ -57,7 +57,7 @@ describe("wallet headroom and spend cap", () => {
       liveOverageSeconds: 60,
       garmentOverageUnits: 100,
     });
-    expect(overageCentsFromMicro(micro)).toBe(250 + 120 + 80);
+    expect(overageCentsFromMicro(micro)).toBe(250 + 120 + 100);
     expect(overageBlocksCharge({ capCents: 450, overageMicroCents: micro, addsOverage: true })).toBe(true);
     expect(overageBlocksCharge({ capCents: 450, overageMicroCents: micro, addsOverage: false })).toBe(false);
     expect(overageBlocksCharge({ capCents: null, overageMicroCents: micro, addsOverage: true })).toBe(false);

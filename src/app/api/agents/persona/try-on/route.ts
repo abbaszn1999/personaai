@@ -3,9 +3,13 @@ import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { consumeImageGeneration } from "@/lib/db/image-generations";
 import { getUserById } from "@/lib/db/users";
 import { canGenerateImage, getAccountBillingContext } from "@/lib/billing/account";
-import { tryOnCostNanos } from "@/lib/billing/pricing";
-import { generateTryOnImage, mergeOutfitGarments, PersonaAgentError } from "@/lib/try-on/image-generation";
-import { PrunaApiError } from "@/lib/ai/pruna";
+import { estimateTryOnCostNanos } from "@/lib/billing/pricing";
+import { generateTryOnImage, PersonaAgentError } from "@/lib/try-on/image-generation";
+import { parseTryOnGarments } from "@/lib/try-on/request";
+import { GeminiImageError } from "@/lib/ai/gemini-image";
+
+/** A render takes ~12-25s; the headroom covers a slow model call plus its one retry. */
+export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
   try {
@@ -20,24 +24,23 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { avatarImageUrl, garmentImageUrls } = body;
+    const { avatarImageUrl } = body;
 
     if (typeof avatarImageUrl !== "string" || !avatarImageUrl) {
       return Response.json({ error: "An avatar image is required" }, { status: 400 });
     }
-    if (!Array.isArray(garmentImageUrls) || garmentImageUrls.length === 0 || !garmentImageUrls.every((u) => typeof u === "string")) {
+    const added = parseTryOnGarments(body);
+    if (!added) {
       return Response.json({ error: "At least one garment image is required" }, { status: 400 });
     }
 
-    // This standalone REST route only receives raw image URLs (no Product/slot data), so
-    // every image is passed through as part of the outfit to render. The billed count is the
-    // length after the 11-garment cap, which is what Pruna receives.
-    const added = garmentImageUrls.map((url: string) => ({ name: "garment", slot: "other" as const, imageUrl: url }));
-    if (!canGenerateImage(billing, tryOnCostNanos(mergeOutfitGarments([], added).length))) {
+    // Only a gate: it stops an account that cannot afford a render from starting one. What is
+    // charged afterwards is the real cost of the call, not this estimate.
+    if (!canGenerateImage(billing, estimateTryOnCostNanos(added.length))) {
       return Response.json({ error: "Your monthly image allowance and purchased credits are exhausted" }, { status: 402 });
     }
 
-    const { imageUrl, garmentCount } = await generateTryOnImage({
+    const { imageUrl, costNanos } = await generateTryOnImage({
       avatarImageUrl,
       kept: [],
       added,
@@ -48,7 +51,7 @@ export async function POST(req: NextRequest) {
       "try_on",
       billing.cycleStartIso,
       billing.tier.monthlyGarmentUnits,
-      tryOnCostNanos(garmentCount),
+      costNanos,
       { sessionId: user.id, source: "preview" }
     );
     if (consumed === null) {
@@ -63,7 +66,7 @@ export async function POST(req: NextRequest) {
     if (err instanceof PersonaAgentError) {
       return Response.json({ error: err.message }, { status: 400 });
     }
-    if (err instanceof PrunaApiError) {
+    if (err instanceof GeminiImageError) {
       return Response.json({ error: err.message }, { status: 502 });
     }
     return Response.json({ error: "Internal server error" }, { status: 500 });

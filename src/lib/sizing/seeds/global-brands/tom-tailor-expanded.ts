@@ -166,7 +166,11 @@ const MEN_FIT = [
       inseam: [[78.5,79.5],[79.5,81],[81.5,82.5],[82.5,84],[84.5,85.5],[85.5,87],[87.5,88.5],[88.5,90]],
     },
     applicability: { productLine: "American size", market: "EU" },
-    scopes: [{ group: "bottoms", variant: "Men Trousers American", leaves: ["men:bottom:trouser","men:bottom:chino","men:bottom:short"] }],
+    scopes: [{
+      group: "bottoms",
+      variant: "Men Trousers American",
+      leaves: ["men:bottom:trouser","men:bottom:chino","men:bottom:short","men:bottom:swim-short"],
+    }],
   }),
   ...sourceCharts({
     sourceTableId: "men-plus-tops",

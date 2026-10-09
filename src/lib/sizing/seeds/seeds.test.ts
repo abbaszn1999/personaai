@@ -355,6 +355,7 @@ const ALLOWED_GAPS: Record<string, string[]> = {
     "kids-girls:full-body:romper",
     "kids-girls:full-body:all-in-one",
     "kids-girls:full-body:sleepsuit",
+    "kids-girls:top:bra",
     // No infant-specific swimwear table in this guide.
     "kids-unisex:full-body:swimsuit",
     // Tommy's kids sock guide sizes by age band and US shoe size ("S: US 9-11, ages 4-7"), not by
@@ -400,7 +401,6 @@ const ALLOWED_GAPS: Record<string, string[]> = {
     // Only jeans and trousers have published men's bottom tables.
     "men:bottom:jogger",
     "men:bottom:activewear-bottom",
-    "men:bottom:swim-short",
     "men:bottom:sleep-bottom",
     // No men's full-body table is published.
     ...leafKeysFor("men", "full-body"),
@@ -432,6 +432,7 @@ const ALLOWED_GAPS: Record<string, string[]> = {
     "kids-girls:top:bodysuit",
     "kids-girls:top:activewear-top",
     "kids-girls:top:sleep-top",
+    "kids-girls:top:bra",
     "kids-girls:bottom:short",
     "kids-girls:bottom:sleep-bottom",
     "kids-girls:full-body:romper",
@@ -472,10 +473,9 @@ const ALLOWED_GAPS: Record<string, string[]> = {
     "women:outerwear:activewear-jacket",
     // No foot-length table is published in the cited sources.
     ...leafKeysFor("women", "footwear"),
-    // Penti's general kids chart supports apparel and sleepwear. It does not publish infant
-    // one-piece measurements, a boys' swim chart, outerwear-specific tables or foot lengths.
+    // Penti's general kids chart supports apparel, swim shorts and sleepwear. It does not publish
+    // infant one-piece measurements, outerwear-specific tables or foot lengths.
     "kids-boys:top:bodysuit",
-    "kids-boys:bottom:swim-short",
     "kids-boys:full-body:romper",
     "kids-boys:full-body:all-in-one",
     "kids-boys:full-body:swimsuit",
@@ -489,6 +489,12 @@ const ALLOWED_GAPS: Record<string, string[]> = {
     "kids-girls:full-body:swimsuit",
     ...leafKeysFor("kids-girls", "outerwear"),
     ...leafKeysFor("kids-girls", "footwear"),
+    // The only published men's chart located for Penti is the pajamas table.
+    ...leafKeysFor("men", "top"),
+    ...leafKeysFor("men", "bottom"),
+    ...leafKeysFor("men", "full-body").filter((leaf) => leaf !== "men:full-body:sleepwear-set"),
+    ...leafKeysFor("men", "outerwear"),
+    ...leafKeysFor("men", "footwear"),
   ],
   xint: [
     // XINT's embedded guide publishes tops, bottoms and shoes only.
@@ -508,7 +514,7 @@ const ALLOWED_GAPS: Record<string, string[]> = {
 const UNSUPPORTED_DEPARTMENTS: Record<string, string[]> = {
   tommy_hilfiger: ["unisex"],
   tom_tailor: ["unisex", "kids-unisex"],
-  penti: ["men", "unisex", "kids-unisex"],
+  penti: ["unisex", "kids-unisex"],
   xint: ["unisex", "kids-boys", "kids-girls", "kids-unisex"],
 };
 

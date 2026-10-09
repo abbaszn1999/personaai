@@ -41,6 +41,18 @@ function toVariants(groups: VariantOptionGroups | undefined, inStock: boolean): 
  * most specific tag (or its root, if the path is only one level), and `tags` collects every
  * distinct name across every path the product belongs to, not just the first.
  */
+/**
+ * The product's Persona leaf for the try-on prompt: the fourth segment of a `persona > dept >
+ * category > leaf` path, taken from the first path that has one. A category-level mapping has no
+ * leaf, so the title-derived canonical subcategory stands in. Undefined when neither exists.
+ */
+export function garmentLeafOf(candidate: Pick<CatalogCandidate, "categoryPaths" | "garmentSubcategory">): string | undefined {
+  for (const path of candidate.categoryPaths) {
+    if (path[0] === "persona" && typeof path[3] === "string" && path[3].length > 0) return path[3];
+  }
+  return candidate.garmentSubcategory ?? undefined;
+}
+
 export function toProduct(candidate: CatalogCandidate, variantOptions?: VariantOptionGroups): Product {
   const primary = candidate.categoryPaths[0] ?? null;
   const categoryId = primary ? primary[primary.length - 1] : "";
@@ -61,6 +73,7 @@ export function toProduct(candidate: CatalogCandidate, variantOptions?: VariantO
     reviewCount: 0,
     inStock: candidate.inStock,
     garmentSlot: categoryToGarmentSlot(candidate.garmentCategory, candidate.garmentSubcategory),
+    ...(garmentLeafOf(candidate) ? { garmentLeaf: garmentLeafOf(candidate) } : {}),
     attributes: candidate.attributes,
     ...(candidate.fitSizes?.length ? { fitSizes: candidate.fitSizes } : {}),
   };

@@ -19,7 +19,7 @@ describe("Stripe server catalog", () => {
     expect(STRIPE_CATALOG.plan_trial.tierId).toBe("trial");
     expect(STRIPE_CATALOG.plan_main.amountCents).toBe(150_000);
     expect(STRIPE_CATALOG.plan_main.tierId).toBe("main");
-    expect(STRIPE_CATALOG.garment_units.amountCents).toBe(80);
+    expect(STRIPE_CATALOG.garment_units.amountCents).toBe(100);
     expect(STRIPE_CATALOG.garment_units.creditsPerUnit).toBe(100);
     expect(STRIPE_CATALOG.session_units.amountCents).toBe(250);
     expect(STRIPE_CATALOG.session_units.unitsPerUnit).toBe(1_000);

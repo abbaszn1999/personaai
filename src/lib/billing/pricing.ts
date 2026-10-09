@@ -5,7 +5,10 @@
  *    API pricing page. See `geminiTokenRates`.
  *  - AI Commerce Search: $2.50 per 1,000 `servingConfigs.search` calls (Google Cloud, "AI Commerce
  *    Search pricing"), i.e. $0.0025 a search.
- *  - Pruna: `p-image-edit` $0.010 per output image (docs.api.pruna.ai).
+ *  - Pruna: `p-image-edit` $0.010 per output image (docs.api.pruna.ai). Avatars only.
+ *  - Gemini Nano Banana 2.1 (`gemini-nano-banana-2.1`), Standard tier, per Google's Gemini API
+ *    pricing page: $1.50 per 1M input tokens, $7.50 per 1M text and thinking output tokens,
+ *    $30 per 1M image output tokens. Try-on renders only. See `geminiImageCostNanos`.
  *  - Decart: realtime Lucy at 720p is $0.02 per second of active generation (docs.platform.decart.ai).
  *
  *  One session unit is priced exactly at one search, so a search always completes a unit and chat
@@ -68,7 +71,7 @@ export const SESSION_UNIT_NANOS = 2_500_000;
 
 /**
  * At-cost top-ups. Stripe bills whole cents, so sessions and garments are sold in packs.
- * One session pack is 1,000 units at $2.50. One garment pack is 100 units at $0.80 ($0.008 each).
+ * One session pack is 1,000 units at $2.50. One garment pack is 100 units at $1.00 ($0.01 each).
  * Lucy is already one cent-aligned minute at $1.20.
  */
 export const SESSION_PACK_UNITS = 1_000;
@@ -81,25 +84,19 @@ export const LIVE_MIN_MINUTES = 25;
 export const LIVE_MAX_MINUTES = 10_000;
 
 export const GARMENT_PACK_UNITS = 100;
-export const GARMENT_PACK_CENTS = 80;
+export const GARMENT_PACK_CENTS = 100;
 
-/** One garment or avatar unit, in nano-dollars. $0.008, from the pack price. */
+/** One garment or avatar unit, in nano-dollars. $0.01, from the pack price. */
 export const GARMENT_UNIT_NANOS = (GARMENT_PACK_CENTS * 10_000_000) / GARMENT_PACK_UNITS;
 
-/** Real Pruna render cost, in nano-dollars, from Pruna's published API pricing:
- *  `p-image-edit` (avatar) is $0.010 per output image; `p-image-try-on` is $0.015 for the
- *  first garment then $0.008 for each additional garment. Both are charged in $0.008 units via
- *  a per-account nano carry (see `consume_image_generation`), so no fractional cost is ever
- *  lost or over-collected.
+/** Real render cost, in nano-dollars. Both kinds of render are charged in $0.01 units via a
+ *  per-account nano carry (see `consume_image_generation`), so no fractional cost is ever lost
+ *  or over-collected.
  *
- *  Open question, not settled by the docs: `prunaTryOn` runs with `turbo: true`, which Pruna's
- *  model card prices at a flat $0.008 per garment, so the first garment would be $0.008 rather
- *  than $0.015. These constants keep the $0.015 first-garment rate this project recorded as
- *  confirmed by Pruna support with turbo on; compare one try-on against the Pruna usage page and
- *  lower TRY_ON_FIRST_GARMENT_NANOS to 8_000_000 if the invoice says otherwise. */
+ *  - Avatar: Pruna `p-image-edit`, $0.010 per output image, so exactly one unit.
+ *  - Try-on: Gemini Nano Banana 2.1, billed from the token usage the API returns for each
+ *    render (`geminiImageCostNanos`). `estimateTryOnCostNanos` is only the pre-check guard. */
 export const AVATAR_IMAGE_NANOS = 10_000_000;
-export const TRY_ON_FIRST_GARMENT_NANOS = 15_000_000;
-export const TRY_ON_EXTRA_GARMENT_NANOS = 8_000_000;
 
 /** Nano-dollar cost of generating `imageCount` avatar variations. */
 export function avatarCostNanos(imageCount: number): number {
@@ -107,11 +104,59 @@ export function avatarCostNanos(imageCount: number): number {
   return count * AVATAR_IMAGE_NANOS;
 }
 
-/** Nano-dollar cost of one try-on render fitting `garmentCount` garments in a single call. */
-export function tryOnCostNanos(garmentCount: number): number {
+/** Nano Banana 2.1 token prices, in nano-dollars per single token (price per 1M tokens x 1,000):
+ *  $1.50 input, $7.50 text and thinking output, $30 image output. */
+export const NANO_BANANA_INPUT_NANOS_PER_TOKEN = 1_500;
+export const NANO_BANANA_TEXT_OUTPUT_NANOS_PER_TOKEN = 7_500;
+export const NANO_BANANA_IMAGE_OUTPUT_NANOS_PER_TOKEN = 30_000;
+
+/** A 1K (1024px class) output image is 1,120 output tokens. */
+export const NANO_BANANA_1K_IMAGE_TOKENS = 1_120;
+/** Each image sent as input is read at high resolution: about 1,120 input tokens. The 5-image
+ *  render measured in AI Studio billed 5,673 input tokens. */
+export const NANO_BANANA_INPUT_IMAGE_TOKENS = 1_120;
+/** Thinking plus text output beyond the image: the same render billed 1,062 thought tokens and
+ *  303 text output tokens, so the pre-check budgets a little above that. */
+export const NANO_BANANA_THINKING_ALLOWANCE_TOKENS = 1_400;
+
+export interface GeminiImageTokenCounts {
+  /** `total_input_tokens`: the prompt text plus every image sent. */
+  inputTokens: number;
+  /** `total_thought_tokens`: reasoning, billed as text output. */
+  thoughtTokens: number;
+  /** Output tokens that are not the image (`total_output_tokens` minus the image modality). */
+  textOutputTokens: number;
+  /** Output tokens in the `image` modality. */
+  imageOutputTokens: number;
+}
+
+function wholeImageTokens(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return 0;
+  return Math.floor(value);
+}
+
+/** Nano-dollar cost of one Nano Banana 2.1 render from its real token usage. */
+export function geminiImageCostNanos(tokens: GeminiImageTokenCounts): number {
+  return (
+    wholeImageTokens(tokens.inputTokens) * NANO_BANANA_INPUT_NANOS_PER_TOKEN +
+    (wholeImageTokens(tokens.thoughtTokens) + wholeImageTokens(tokens.textOutputTokens)) *
+      NANO_BANANA_TEXT_OUTPUT_NANOS_PER_TOKEN +
+    wholeImageTokens(tokens.imageOutputTokens) * NANO_BANANA_IMAGE_OUTPUT_NANOS_PER_TOKEN
+  );
+}
+
+/** Best-effort cost of one try-on render fitting `garmentCount` garments, for the pre-check guard
+ *  and as the fallback charge when a response carries no usage. The person image counts as one
+ *  more input image. The real charge is `geminiImageCostNanos` of the returned usage. */
+export function estimateTryOnCostNanos(garmentCount: number): number {
   const count = Number.isFinite(garmentCount) ? Math.max(0, Math.floor(garmentCount)) : 0;
   if (count <= 0) return 0;
-  return TRY_ON_FIRST_GARMENT_NANOS + (count - 1) * TRY_ON_EXTRA_GARMENT_NANOS;
+  return geminiImageCostNanos({
+    inputTokens: (count + 1) * NANO_BANANA_INPUT_IMAGE_TOKENS,
+    thoughtTokens: NANO_BANANA_THINKING_ALLOWANCE_TOKENS,
+    textOutputTokens: 0,
+    imageOutputTokens: NANO_BANANA_1K_IMAGE_TOKENS,
+  });
 }
 
 /** One billed live second, in nano-dollars. $1.20 per minute. */

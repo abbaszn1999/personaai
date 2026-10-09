@@ -28,8 +28,8 @@ describe("tool prices", () => {
   it("prices each tool from the same unit the invoice uses", () => {
     expect(toolCostNanos("chat", 1)).toBe(2_500_000);
     expect(toolCostNanos("search", 4)).toBe(10_000_000);
-    expect(toolCostNanos("try_on", 1)).toBe(8_000_000);
-    expect(toolCostNanos("avatar", 2)).toBe(16_000_000);
+    expect(toolCostNanos("try_on", 1)).toBe(10_000_000);
+    expect(toolCostNanos("avatar", 2)).toBe(20_000_000);
     expect(toolCostNanos("live", 60)).toBe(1_200_000_000);
   });
 
@@ -40,7 +40,7 @@ describe("tool prices", () => {
 
   it("projects a cycle from the three wallet totals", () => {
     expect(projectedCycleCostNanos({ sessionUnits: 1000, garmentUnits: 100, liveMinutes: 1 })).toBe(
-      1000 * 2_500_000 + 100 * 8_000_000 + 60 * 20_000_000
+      1000 * 2_500_000 + 100 * 10_000_000 + 60 * 20_000_000
     );
   });
 });

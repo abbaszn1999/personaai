@@ -65,8 +65,9 @@ export function getGeminiClient(apiKey: string): GoogleGenAI {
   return client;
 }
 
-/** The platform's own key, used by the shopper agents, sizing and catalog mapping. Avatar and
- *  try-on rendering runs on Pruna (see lib/ai/pruna.ts), not here. */
+/** The platform's own key, used by the shopper agents, sizing and catalog mapping. Try-on
+ *  try-on rendering uses it through lib/ai/gemini-image.ts; avatars run on Pruna
+ *  (lib/ai/pruna.ts). */
 export function getPlatformGeminiApiKey(): string {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) {

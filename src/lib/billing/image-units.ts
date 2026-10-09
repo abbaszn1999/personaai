@@ -7,7 +7,7 @@ export interface ImageUnitCharge {
 
 /**
  * Included allowance is consumed first. Returns null when the purchased balance cannot cover
- * the remainder, so a try-on is refused before Pruna is called and the database refuses the
+ * the remainder, so a try-on is refused before the image model is called and the database refuses the
  * same request if the balance moved in between.
  */
 export function allocateImageUnits(input: {

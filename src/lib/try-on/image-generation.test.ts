@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeOutfitGarments, type TryOnGarmentRef } from "./image-generation";
+import { MAX_TRY_ON_GARMENTS, mergeOutfitGarments, type TryOnGarmentRef } from "./image-generation";
 
 function ref(name: string, slot: TryOnGarmentRef["slot"]): TryOnGarmentRef {
   return { name, slot, imageUrl: `https://example.com/${name}.jpg` };
@@ -41,6 +41,6 @@ describe("mergeOutfitGarments", () => {
   it("caps the outfit at the number of garment references try-on accepts", () => {
     const many = Array.from({ length: 14 }, (_, i) => ref(`Item ${i}`, "other"));
 
-    expect(mergeOutfitGarments([], many)).toHaveLength(11);
+    expect(mergeOutfitGarments([], many)).toHaveLength(MAX_TRY_ON_GARMENTS);
   });
 });

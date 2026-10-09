@@ -29,6 +29,9 @@ export interface Product {
    *  resolveGarmentSlot() falls back to keyword matching on `name` in that case. Travels
    *  with the product through SSE events and client state so it's classified only once. */
   garmentSlot?: GarmentCategory;
+  /** The product's Persona leaf id (`polo-shirt`, `jean`), or the canonical subcategory when its
+   *  category was mapped without a leaf. Used only to name the garment in the try-on prompt. */
+  garmentLeaf?: string;
   /** Whatever this store's catalog records about the product beyond name/price/description —
    *  colour, size, material, or any store-specific option (fit, collar type, ...), keyed by
    *  whatever label the mapper gave it. See `CatalogCandidate.attributes`. Descriptive only:

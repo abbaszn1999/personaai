@@ -1,12 +1,9 @@
 import sharp from "sharp";
-import {
-  editPrunaImage,
-  MAX_TRY_ON_GARMENTS,
-  PrunaApiError,
-  prunaTryOn,
-  uploadPrunaFile,
-} from "@/lib/ai/pruna";
+import { editPrunaImage, PrunaApiError, uploadPrunaFile } from "@/lib/ai/pruna";
+import { editGeminiImage, GeminiImageError } from "@/lib/ai/gemini-image";
 import { flattenOntoChromaKey, stripBackgroundToTransparent } from "@/lib/ai/background-removal";
+import { estimateTryOnCostNanos, geminiImageCostNanos } from "@/lib/billing/pricing";
+import { buildTryOnPrompt } from "@/lib/try-on/prompt";
 import { AVATAR_STYLE_LABELS } from "@/modules/wearable-agent/constants";
 import type { AvatarVariation } from "@/modules/wearable-agent/types";
 import type { GarmentCategory } from "@/modules/wearable-agent/utils/fit-metrics";
@@ -237,8 +234,17 @@ export async function* generateAvatarVariationsStream(
 export interface TryOnGarmentRef {
   name: string;
   slot: GarmentCategory;
+  /** The garment's Persona leaf id, used only to name it in the prompt. */
+  leaf?: string;
   imageUrl: string;
 }
+
+/**
+ * The most garment references one render takes. The prompt names every garment by its image
+ * number and each image costs input tokens, so this is a quality and cost bound rather than an
+ * API limit; a real outfit is four or five pieces.
+ */
+export const MAX_TRY_ON_GARMENTS = 10;
 
 export interface GenerateTryOnImageInput {
   avatarImageUrl: string;
@@ -263,18 +269,16 @@ async function readImageBytes(urlOrDataUrl: string): Promise<Buffer> {
 }
 
 /**
- * Uploads one garment reference, transcoded to JPEG.
+ * Fetches one garment reference and transcodes it to JPEG.
  *
- * The transcode is the point: catalog images could be passed to Pruna by their public URL and
- * skip this upload entirely, but most storefronts serve WebP and many block hotlinking, so
- * handing over the merchant's URL makes the render's success depend on the merchant's CDN
- * policy. Normalising the bytes here trades one upload for a reference the model is certain to
- * be able to read.
+ * The transcode is the point: most storefronts serve WebP and many block hotlinking, so the
+ * model is sent the bytes rather than the merchant's URL, and the render's success does not
+ * depend on the merchant's CDN policy. It also applies EXIF rotation, so the model sees the
+ * garment the way a shopper does.
  */
-async function uploadGarmentReference(imageUrl: string, index: number): Promise<string> {
+async function loadGarmentReference(imageUrl: string): Promise<Buffer> {
   const source = await readImageBytes(imageUrl);
-  const jpeg = await sharp(source).rotate().jpeg({ quality: 92 }).toBuffer();
-  return uploadPrunaFile(jpeg, `garment-${index}.jpg`, "image/jpeg");
+  return sharp(source).rotate().jpeg({ quality: 92 }).toBuffer();
 }
 
 /**
@@ -282,8 +286,8 @@ async function uploadGarmentReference(imageUrl: string, index: number): Promise<
  *
  * Try-on takes the whole outfit at once rather than a description of what changed, so the diff
  * the agent reasons in is flattened here. `added` wins on a slot collision: replacing the
- * shoes means the new shoes are worn, not both pairs — and Pruna rejects two references of the
- * same category in one request, so letting a stale item survive would fail the call outright.
+ * shoes means the new shoes are worn, not both pairs — and the prompt names one garment per
+ * category, so a stale item surviving would leave the model two answers for one slot.
  *
  * Pure and deterministic, so it's unit-testable without a live prediction.
  */
@@ -310,7 +314,7 @@ export function mergeOutfitGarments(
  */
 export async function generateTryOnImage(
   input: GenerateTryOnImageInput
-): Promise<{ imageUrl: string; garmentCount: number }> {
+): Promise<{ imageUrl: string; garmentCount: number; costNanos: number }> {
   const garments = mergeOutfitGarments(input.kept, input.added);
   if (garments.length === 0) {
     throw new PersonaAgentError("At least one garment is required for a try-on render.");
@@ -318,27 +322,40 @@ export async function generateTryOnImage(
 
   try {
     const avatarBytes = await readImageBytes(input.avatarImageUrl);
-    const [personImageUrl, garmentImageUrls] = await Promise.all([
-      flattenOntoChromaKey(avatarBytes.toString("base64")).then((plated) =>
-        uploadPrunaFile(plated, "avatar.png", "image/png")
-      ),
-      Promise.all(garments.map((g, index) => uploadGarmentReference(g.imageUrl, index))),
+    const [person, garmentJpegs] = await Promise.all([
+      flattenOntoChromaKey(avatarBytes.toString("base64")),
+      Promise.all(garments.map((g) => loadGarmentReference(g.imageUrl))),
     ]);
 
-    const generated = await prunaTryOn({ personImageUrl, garmentImageUrls });
+    // The person is always image 1 and garment i is image i + 2: the prompt's numbering and this
+    // array's order are one contract.
+    const generated = await editGeminiImage({
+      prompt: buildTryOnPrompt(garments.map((g) => ({ slot: g.slot, leaf: g.leaf }))),
+      images: [
+        { data: person, mimeType: "image/png" },
+        ...garmentJpegs.map((data) => ({ data, mimeType: "image/jpeg" })),
+      ],
+    });
+
     const stripped = await stripBackgroundToTransparent(
       generated.image.toString("base64"),
       generated.mimeType
     );
 
+    // The real cost comes from the token counts Google returned for this exact call. Only a
+    // response that omitted them falls back to the estimate, so a render is never free.
+    const costNanos = generated.usage
+      ? geminiImageCostNanos(generated.usage)
+      : estimateTryOnCostNanos(garments.length);
+
     return {
       imageUrl: `data:${stripped.mimeType};base64,${stripped.imageBase64}`,
       garmentCount: garments.length,
+      costNanos,
     };
   } catch (err) {
-    if (err instanceof PersonaAgentError) throw err;
-    const message =
-      err instanceof PrunaApiError ? err.message : "Failed to generate the try-on render. Please try again.";
-    throw new PersonaAgentError(message);
+    if (err instanceof PersonaAgentError || err instanceof GeminiImageError) throw err;
+    console.error("[try-on generateTryOnImage] failed", err);
+    throw new PersonaAgentError("Failed to generate the try-on render. Please try again.");
   }
 }

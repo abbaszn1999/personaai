@@ -14,7 +14,7 @@
  * fire for a leaf id it is given, and none of these four had one. Additive only — no existing leaf
  * id changed or moved — so no stored mapping is invalidated by the bump.
  */
-export const PERSONA_TAXONOMY_VERSION = 2;
+export const PERSONA_TAXONOMY_VERSION = 3;
 
 export type PersonaDepartmentId = "women" | "men" | "unisex" | "kids-boys" | "kids-girls" | "kids-unisex";
 
@@ -161,7 +161,7 @@ export const PERSONA_SUB_CATEGORIES: Record<PersonaDepartmentId, Record<PersonaC
     footwear: ["sneaker", "shoe", "boot", "sandal", "bootie", "slipper", "sock"],
   },
   "kids-girls": {
-    top: ["t-shirt", "shirt", "blouse", "knit", "hoodie", "sweatshirt", "bodysuit", "activewear-top", "sleep-top"],
+    top: ["t-shirt", "shirt", "blouse", "knit", "hoodie", "sweatshirt", "bodysuit", "activewear-top", "sleep-top", "bra"],
     bottom: ["trouser", "jean", "skirt", "short", "legging", "jogger", "sleep-bottom"],
     "full-body": ["dress", "romper", "all-in-one", "sleepsuit", "set", "swimsuit", "bathrobe"],
     outerwear: ["jacket", "coat", "cardigan", "snowsuit", "pramsuit"],

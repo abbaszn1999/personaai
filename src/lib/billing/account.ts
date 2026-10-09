@@ -116,7 +116,7 @@ function capAllowsOverage(context: AccountBillingContext, addsOverage: boolean):
   });
 }
 
-/** Best-effort pre-check before calling Pruna. `costNanos` is the render's real cost; the DB is
+/** Best-effort pre-check before calling an image model. `costNanos` is the render's real cost; the DB is
  *  authoritative and applies the exact split with the account's nano carry. Units are rounded up
  *  here so the guard never green-lights a charge the balance cannot cover. */
 export function canGenerateImage(context: AccountBillingContext, costNanos = AVATAR_IMAGE_NANOS): boolean {

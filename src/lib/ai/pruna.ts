@@ -1,9 +1,11 @@
 /**
- * Client for Pruna's prediction API (https://api.pruna.ai), which generates every avatar and
- * try-on render. Two models are used:
+ * Client for Pruna's prediction API (https://api.pruna.ai), which generates the shopper's avatars.
+ * Try-on renders moved to Gemini Nano Banana 2.1 (see lib/ai/gemini-image.ts). Two models are
+ * defined here:
  *
- * - `p-image-edit`  — prompt-driven editing, 1-5 reference images. Builds the avatar.
- * - `p-image-try-on` — dedicated garment fitting, no prompt control. Dresses the avatar.
+ * - `p-image-edit`  — prompt-driven editing, 1-5 reference images. Builds the avatar. In use.
+ * - `p-image-try-on` — dedicated garment fitting, no prompt control. No longer called by the app;
+ *   `prunaTryOn` is kept only for the comparison scripts under scripts/.
  *
  * Unlike an inline-content API, this is a three-call protocol: upload the inputs, create a
  * prediction, then download the result. Each step is a separate authenticated request, and
@@ -12,10 +14,9 @@
 
 const API_BASE = "https://api.pruna.ai";
 
-/** `p-image-edit` is priced per output image. `p-image-try-on` is priced per garment input,
- *  and turbo (on for try-on) flattens that to $0.008 per garment. Both usually finish in
- *  about a second, so waiting inline is the norm — but see `runPrunaPrediction` for why the
- *  async path still has to exist. */
+/** `p-image-edit` is priced per output image ($0.010). It usually finishes in about a second, so
+ *  waiting inline is the norm — but see `runPrunaPrediction` for why the async path still has
+ *  to exist. */
 const TRY_SYNC_WINDOW_MS = 60_000;
 
 const POLL_INTERVAL_MS = 1_500;
@@ -273,8 +274,7 @@ export interface PrunaTryOnInput {
  * one. `preserve_input_size` is left at its default: matching the person image's dimensions is
  * what keeps a dressed render drop-in compatible with the avatar it came from.
  *
- * `turbo` is pinned on. It is the flat $0.008-per-garment rate, and Pruna recommends it up to
- * four or five garments, which covers the looks this fits. Avatar edits stay off turbo: that
+ * `turbo` is pinned on (Pruna's flat $0.008-per-garment rate). Avatar edits stay off turbo: that
  * flag does not change the `p-image-edit` price, and it is the case Pruna says to disable.
  */
 export async function prunaTryOn(input: PrunaTryOnInput): Promise<{ image: Buffer; mimeType: string }> {

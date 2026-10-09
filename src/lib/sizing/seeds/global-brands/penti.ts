@@ -26,6 +26,8 @@ const BRA_URL =
   "https://www.penti.com/tr/kadin/ic-giyim/sutyen/basic-sutyenler/siyah-buyuk-beden-dantel-detayli-toparlayici-sutyen/p/PLIZZSHJ20SK-BK3";
 const KIDS_URL =
   "https://www.penti.com/tr/kiz-cocuk/kiz-cocuk-pijama/kiz-cocuk-pijama-set/kiz-cocuk-colorful-bows-gomlek-kirik-beyaz-pijama-takimi/p/PNF9V3LQ25IY-B32";
+const KIDS_BRA_URL = "https://www.penti.com/en/guide/sutyen";
+const MEN_PAJAMA_URL = "https://www.looksize.com/brand-size-chart/penti";
 
 const APPAREL_SIZES = ["XS", "S", "M", "L", "XL"] as const;
 const APPAREL_CHEST = [
@@ -119,6 +121,23 @@ const KIDS_BOTTOM_ROWS = KIDS_ROWS.map((row) => ({
   height_min: row.height_min,
   height_max: row.height_max,
 }));
+
+const KIDS_BRA_ROWS = rowsFromColumns({
+  sizes: ["60A", "65A", "70A", "75A"],
+  bounds: {
+    chest: [[72, 74], [77, 79], [82, 84], [87, 89]],
+  },
+});
+
+const MEN_PAJAMA_ROWS = rowsFromColumns({
+  sizes: ["XS", "S", "M", "L", "XL", "2XL", "3XL"],
+  aliases: { alpha: ["XS", "S", "M", "L", "XL", "2XL", "3XL"] },
+  bounds: {
+    chest: [[92, 92], [96, 96], [100, 100], [104, 104], [108, 108], [112, 112], [116, 116]],
+    waist: [[82, 82], [86, 86], [90, 90], [94, 94], [98, 98], [102, 102], [106, 106]],
+    hip: [[96, 96], [100, 100], [104, 104], [108, 108], [112, 112], [116, 116], [120, 120]],
+  },
+}).map((row) => ({ ...row, source_point_values: true as const }));
 
 export const PENTI_SEED: SeedChart[] = [
   {
@@ -286,6 +305,7 @@ export const PENTI_SEED: SeedChart[] = [
       "kids-boys:bottom:short",
       "kids-boys:bottom:legging",
       "kids-boys:bottom:jogger",
+      "kids-boys:bottom:swim-short",
       "kids-boys:bottom:sleep-bottom",
     ],
     audience: "boys",
@@ -359,5 +379,33 @@ export const PENTI_SEED: SeedChart[] = [
     sourceUrl: KIDS_URL,
     sourcePublishesPointValues: true,
     chartRows: KIDS_ROWS,
+  },
+  {
+    brandKey: BRAND,
+    sizingCategory: "tops",
+    variantName: "Girls First Bras",
+    coversLeaves: ["kids-girls:top:bra"],
+    audience: "girls",
+    sourceTitle: "Penti Girls First Bra Size Guide",
+    sourceUrl: KIDS_BRA_URL,
+    decidingMeasurements: ["chest"],
+    chartRows: KIDS_BRA_ROWS,
+    notes: [
+      "Penti sells its girls' first bras in 60A, 65A, 70A and 75A. Chest ranges follow Penti's published A-cup rule and five-centimetre band progression; no adult-only cup sizes are added.",
+    ],
+  },
+  {
+    brandKey: BRAND,
+    sizingCategory: "dresses",
+    variantName: "Men Pajamas",
+    coversLeaves: ["men:full-body:sleepwear-set"],
+    audience: "mens",
+    sourceTitle: "Penti Pajamas (male)",
+    sourceUrl: MEN_PAJAMA_URL,
+    sourcePublishesPointValues: true,
+    chartRows: MEN_PAJAMA_ROWS,
+    notes: [
+      "Penti's public product pages expose S-2XL labels but no static measurement table. The category-specific Penti transcription publishes XS-3XL chest, waist and hip as point values; those points are preserved exactly and are not widened into invented ranges.",
+    ],
   },
 ];
