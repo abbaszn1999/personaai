@@ -50,6 +50,8 @@ const connectionIdFromAcsId = (id: string) => mirror.connectionIdFromAcsId(id);
 const mirrorImported = (...args: Parameters<typeof mirror.mirrorImported>) => mirror.mirrorImported(...args);
 const readMirrorPage = (...args: Parameters<typeof mirror.readMirrorPage>) => mirror.readMirrorPage(...args);
 const readMirrorDocuments = (...args: Parameters<typeof mirror.readMirrorDocuments>) => mirror.readMirrorDocuments(...args);
+const listStaleMirrorIds = (...args: Parameters<typeof mirror.listStaleMirrorIds>) => mirror.listStaleMirrorIds(...args);
+const mirrorAvailability = (...args: Parameters<typeof mirror.mirrorAvailability>) => mirror.mirrorAvailability(...args);
 const reconcileMirror = (...args: Parameters<typeof mirror.reconcileMirror>) => mirror.reconcileMirror(...args);
 
 const STORE = "dab4cb95-d31a-4f56-8e8e-499ccf6d7d96";
@@ -207,6 +209,70 @@ describe("readMirrorDocuments", () => {
     answer = (call) =>
       call.table === "acs_catalog_mirror_state" ? trusted() : { data: [{ availability: "IN_STOCK", document: null }] };
     expect(await readMirrorDocuments(STORE)).toBeNull();
+  });
+});
+
+describe("publish stamp", () => {
+  it("is kept on each row, so the previous catalog can be found without walking ACS", async () => {
+    await mirrorImported([
+      product("1", { attributes: { merchant_id: { text: [STORE] }, persona_publish_id: { text: ["run-9"] } } }),
+      product("2"),
+    ]);
+
+    const [[, rows]] = opsOf("acs_catalog_mirror", "upsert") as Array<[string, Array<{ publish_id: string | null }>]>;
+    expect(rows.map((row) => row.publish_id)).toEqual(["run-9", null]);
+  });
+});
+
+describe("listStaleMirrorIds", () => {
+  const trusted = () => ({ data: { complete_at: new Date().toISOString() } });
+
+  it("lists the store's in-stock documents the publish did not write, unstamped ones included", async () => {
+    answer = (call) =>
+      call.table === "acs_catalog_mirror_state" ? trusted() : { data: [{ acs_id: `${STORE}_1` }, { acs_id: `${STORE}_2` }] };
+
+    expect(await listStaleMirrorIds(STORE, "run-9")).toEqual([`${STORE}_1`, `${STORE}_2`]);
+    expect(opsOf("acs_catalog_mirror", "eq")).toEqual([
+      ["eq", "connection_id", STORE],
+      ["eq", "availability", "IN_STOCK"],
+    ]);
+    expect(opsOf("acs_catalog_mirror", "or")).toEqual([["or", "publish_id.is.null,publish_id.neq.run-9"]]);
+  });
+
+  it("collects every page before returning, since marking them out of stock rewrites the rows", async () => {
+    const page = (offset: number, size: number) =>
+      Array.from({ length: size }, (_, index) => ({ acs_id: `${offset + index}` }));
+    answer = (call) => {
+      if (call.table === "acs_catalog_mirror_state") return trusted();
+      const [, from] = call.ops.find((op) => op[0] === "range") as [string, number, number];
+      return { data: from === 0 ? page(0, 1000) : page(1000, 2) };
+    };
+
+    expect(await listStaleMirrorIds(STORE, "run-9")).toHaveLength(1002);
+  });
+
+  it("returns null for a mirror that is not trusted, so the caller walks ACS", async () => {
+    answer = (call) => (call.table === "acs_catalog_mirror_state" ? { data: { complete_at: null } } : { data: [] });
+
+    expect(await listStaleMirrorIds(STORE, "run-9")).toBeNull();
+    expect(opsOf("acs_catalog_mirror", "or")).toEqual([]);
+  });
+});
+
+describe("source hashes", () => {
+  it("are forgotten for a product taken out of stock, so a reconcile writes it again", async () => {
+    await mirrorAvailability(`${STORE}_gid://shopify/Product/1::gid://shopify/ProductVariant/2`, "OUT_OF_STOCK");
+
+    expect(opsOf("catalog_source_hashes", "eq")).toEqual([
+      ["eq", "connection_id", STORE],
+      ["eq", "external_id", "gid://shopify/Product/1"],
+    ]);
+  });
+
+  it("are kept when a product comes back in stock", async () => {
+    await mirrorAvailability(`${STORE}_1`, "IN_STOCK");
+
+    expect(calls.some((call) => call.table === "catalog_source_hashes")).toBe(false);
   });
 });
 

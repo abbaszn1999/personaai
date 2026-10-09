@@ -92,6 +92,7 @@ export function toMirrorRow(product: AcsProduct, connectionId: string, writtenAt
     haystack: record.haystack,
     record: record.row,
     document: pathConfigDocument(product),
+    publish_id: product.attributes?.persona_publish_id?.text?.[0] ?? null,
     written_at: writtenAt,
   };
 }
@@ -144,12 +145,29 @@ export async function mirrorUntrusted(products: readonly Pick<AcsProduct, "id" |
   }
 }
 
+/**
+ * Drops the stored sync hash of the product a document belongs to (see `catalog_source_hashes`).
+ * A product taken out of stock or deleted in ACS is no longer what its hash says was written, so
+ * the next reconcile must write it again if the store still sells it.
+ */
+async function forgetHash(db: Db, connectionId: string, acsId: string): Promise<void> {
+  const externalId = acsId.slice(connectionId.length + 1).split("::")[0];
+  if (!externalId) return;
+  const { error } = await db
+    .from("catalog_source_hashes")
+    .delete()
+    .eq("connection_id", connectionId)
+    .eq("external_id", externalId);
+  if (error && !missingTable(error)) console.warn("[acs/mirror forgetHash]", error.message ?? error);
+}
+
 /** After a successful availability patch. */
 export async function mirrorAvailability(acsId: string, availability: AcsAvailability): Promise<void> {
   const db = await database();
   const connectionId = connectionIdFromAcsId(acsId);
   if (!db || !connectionId) return;
   try {
+    if (availability === "OUT_OF_STOCK") await forgetHash(db, connectionId, acsId);
     const { error } = await db
       .from(MIRROR)
       .update({ availability, written_at: new Date().toISOString() })
@@ -170,6 +188,7 @@ export async function mirrorDeleted(acsId: string): Promise<void> {
   const connectionId = connectionIdFromAcsId(acsId);
   if (!db || !connectionId) return;
   try {
+    await forgetHash(db, connectionId, acsId);
     const { error } = await db.from(MIRROR).delete().eq("connection_id", connectionId).eq("acs_id", acsId);
     if (error) {
       report("mirrorDeleted", error);
@@ -386,6 +405,54 @@ export async function readMirrorDocuments(connectionId: string): Promise<AcsProd
     }
   } catch (error) {
     console.warn("[acs/mirror readMirrorDocuments]", error instanceof Error ? error.message : error);
+    return null;
+  }
+}
+
+/**
+ * The in-stock documents of one store that the publish `runId` did not write — what retiring the
+ * previous catalog takes out of stock. A document with no publish stamp counts as stale, exactly as
+ * it does when ACS itself is walked.
+ *
+ * Null when the mirror is not trusted for this store, which tells the caller to walk ACS instead.
+ * Every id is collected before any is returned, so marking them out of stock (which rewrites the
+ * rows being read) cannot shift a page underneath the read.
+ */
+export async function listStaleMirrorIds(connectionId: string, runId: string): Promise<string[] | null> {
+  const db = await database();
+  if (!db) return null;
+  try {
+    const { data: state, error: stateError } = await db
+      .from(STATE)
+      .select("complete_at")
+      .eq("connection_id", connectionId)
+      .maybeSingle();
+    if (stateError) {
+      report("stale state", stateError);
+      return null;
+    }
+    if (!(state as { complete_at: string | null } | null)?.complete_at) return null;
+
+    const ids: string[] = [];
+    for (let offset = 0; ; offset += DOCUMENT_PAGE) {
+      const { data, error } = await db
+        .from(MIRROR)
+        .select("acs_id")
+        .eq("connection_id", connectionId)
+        .eq("availability", "IN_STOCK")
+        .or(`publish_id.is.null,publish_id.neq.${runId}`)
+        .order("acs_id", { ascending: true })
+        .range(offset, offset + DOCUMENT_PAGE - 1);
+      if (error) {
+        report("stale ids", error);
+        return null;
+      }
+      const rows = (data ?? []) as Array<{ acs_id: string }>;
+      for (const row of rows) ids.push(row.acs_id);
+      if (rows.length < DOCUMENT_PAGE) return ids;
+    }
+  } catch (error) {
+    console.warn("[acs/mirror listStaleMirrorIds]", error instanceof Error ? error.message : error);
     return null;
   }
 }

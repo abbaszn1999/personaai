@@ -2,6 +2,7 @@ import {
   ackCatalogMessages,
   archiveCatalogMessages,
   getCatalogQueueDepth,
+  getCatalogQueueDepthForConnection,
   readCatalogMessages,
   type QueuedMessage,
 } from "@/lib/db/catalog-queue";
@@ -20,6 +21,8 @@ import {
 import { resolveCategoryPaths, resolveGarmentCategory } from "./index-product";
 import { loadSizingResolutionContext } from "@/lib/sizing/product-chart";
 import { sizingForRawProduct } from "./sizing-for-product";
+import { computeSourceHash, sourceConfigKey } from "./source-hash";
+import { saveSourceHashes } from "@/lib/db/catalog-source-hashes";
 import { retireStaleAcsProducts } from "@/lib/catalog/acs/catalog-reads";
 import { setupResetPending } from "@/lib/catalog/setup-reset-state";
 import {
@@ -99,13 +102,19 @@ export async function drainCatalogQueue(): Promise<DrainResult> {
     total.remaining = batch.remaining;
     total.batches += 1;
 
+    // A store's empty queue is what ends its run, not a counter reaching its target — see
+    // `settleFinishedRuns`. Checked after every batch rather than once the whole queue is empty,
+    // so a store finishes when its own work does even while other stores' work keeps draining.
+    // Done here rather than in each caller so the in-process worker and the `pg_cron` route
+    // conclude runs identically.
+    if (batch.claimed > 0) await settleFinishedRuns();
+
     if (batch.claimed === 0) break;
   }
 
-  // An empty queue is what ends a run, not a counter reaching its target — see
-  // `settleFinishedRuns`. Done here rather than in each caller so the in-process worker and the
-  // `pg_cron` route conclude runs identically.
-  if (total.remaining === 0) await settleFinishedRuns();
+  // The last claim found nothing, so nothing above has looked at a run that finished while the
+  // queue was already empty (a reconcile that enqueued nothing, a recovery after a restart).
+  await settleFinishedRuns();
 
   return total;
 }
@@ -120,8 +129,10 @@ export async function drainCatalogQueue(): Promise<DrainResult> {
  * which is worse than a stuck progress bar: a catalog counts as searchable only at `ready`, so a
  * run stranded one product short locked the agent out of every product that *did* index.
  *
- * The queue emptying is the real terminal condition, so that is what this reads. Depth counts
- * claimed-but-unacknowledged messages too, so zero means no work is left anywhere, for anyone.
+ * The store's own queue emptying is the real terminal condition, so that is what this reads. Depth
+ * counts claimed-but-unacknowledged messages too, so zero means this store has no work left. Other
+ * stores' work does not matter: the queue is shared, and one store's backlog must not hold another
+ * store's run open.
  */
 export async function settleFinishedRuns(): Promise<number> {
   const [running, publishingRuns] = await Promise.all([
@@ -148,12 +159,19 @@ export async function settleFinishedRuns(): Promise<number> {
   // `startCatalogBackfill` claims `indexing` before it walks and records the total only once the
   // walk has enqueued everything, so a zero total means work is still to come and an empty queue
   // says nothing about it yet.
-  const finishable = [...connectionsById.values()].filter(
+  const candidates = [...connectionsById.values()].filter(
     (connection) => connection.catalogSyncTotal > 0,
   );
-  if (finishable.length === 0) return 0;
+  if (candidates.length === 0) return 0;
 
-  if ((await getCatalogQueueDepth()) > 0) return 0;
+  // Each store is judged on its own queued work. The shared queue holds every merchant's messages,
+  // so waiting for it to empty let one store's large backfill — or one message stuck retrying —
+  // keep every other store in `indexing` and its publish unfinished.
+  const depths = await Promise.all(
+    candidates.map((connection) => getCatalogQueueDepthForConnection(connection.id)),
+  );
+  const finishable = candidates.filter((_, index) => depths[index] === 0);
+  if (finishable.length === 0) return 0;
 
   let settled = 0;
 
@@ -339,6 +357,20 @@ async function processConnectionBatch(connectionId: string, batch: QueuedMessage
       );
     }
     return batch.map(() => "orphaned");
+  }
+
+  // What was just written, remembered so the hourly reconcile can skip it while it stays unchanged.
+  // Only after a confirmed write: a hash saved ahead of a failed import would make the reconcile
+  // believe ACS holds something it does not.
+  if (written && importable.length > 0) {
+    const configKey = sourceConfigKey(connection, publishId);
+    await saveSourceHashes(
+      connectionId,
+      importable.map(({ message, input }) => ({
+        externalId: input.raw.externalId,
+        hash: computeSourceHash(message.body.product, message.body.sourceCategoryIds ?? [], configKey),
+      })),
+    );
   }
 
   const outcomes: ItemOutcome[] = prepared.map((entry) =>

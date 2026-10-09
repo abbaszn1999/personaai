@@ -1,6 +1,7 @@
 import type { CatalogCandidate, CatalogFacets, CategoryPath } from "@/lib/retrieval/types";
 import { deleteProduct, getProduct, listProducts, markOutOfStock, searchProducts, searchProductsRaw } from "./client";
 import { isAcsConfigured } from "./config";
+import { listStaleMirrorIds } from "./mirror";
 import {
   assertConnectionId,
   buildAcsProductId,
@@ -307,6 +308,17 @@ export async function deactivateAcsCatalogForRemapping(connectionId: string): Pr
 export async function retireStaleAcsProducts(connectionId: string, runId: string): Promise<number> {
   if (!isAcsConfigured()) return 0;
   try {
+    // The store's own mirror already knows what is stale, so this is a query on one store's rows
+    // rather than a walk of ACS's whole shared catalog. The walk below stays as the fallback for a
+    // mirror that is not trusted (never reconciled, or a write failed since).
+    const mirrored = await listStaleMirrorIds(connectionId, runId);
+    if (mirrored) {
+      for (const batch of chunk(mirrored, DELETE_CONCURRENCY)) {
+        await Promise.all(batch.map((id) => markOutOfStock(id)));
+      }
+      return mirrored.length;
+    }
+
     let retired = 0;
     const seenTokens = new Set<string>();
     let pageToken: string | undefined;

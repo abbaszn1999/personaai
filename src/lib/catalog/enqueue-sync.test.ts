@@ -11,6 +11,15 @@ vi.mock("@/lib/db/catalog-queue", () => ({
   enqueueCatalogMessages: (...args: unknown[]) => enqueueCatalogMessages(...(args as [unknown[]])),
 }));
 
+const loadSourceHashes = vi.fn();
+vi.mock("@/lib/db/catalog-source-hashes", () => ({
+  loadSourceHashes: (...args: unknown[]) => loadSourceHashes(...args),
+}));
+
+vi.mock("@/lib/db/sizing-runs", () => ({
+  getAcsPublishStampId: async () => "run-1",
+}));
+
 vi.mock("@/lib/db/store-connections", () => ({
   updateCatalogSyncState: () => updateCatalogSyncState(),
 }));
@@ -36,6 +45,7 @@ vi.mock("@/lib/utils/crypto", () => ({
 vi.mock("./timeout", () => ({ sleep: async () => {} }));
 
 const { enqueueCatalogSync } = await import("./enqueue-sync");
+const { computeSourceHash, sourceConfigKey } = await import("./source-hash");
 
 function product(id: string, sourceCategoryIds: string[] = []): RawCatalogProduct {
   return {
@@ -195,5 +205,60 @@ describe("enqueueCatalogSync", () => {
     await enqueueCatalogSync(connection({ selectedCategoryIds: ["1", "9"] }), { onlyCategoryIds: ["9"] });
 
     expect(requestedGroups()).toEqual(["9"]);
+  });
+});
+
+describe("enqueueCatalogSync — skipUnchanged", () => {
+  const conn = connection();
+  const hashOf = (p: RawCatalogProduct, categories: string[]) =>
+    computeSourceHash(p, categories, sourceConfigKey(conn, "run-1"));
+
+  it("enqueues only the products that differ from what was last written", async () => {
+    const same = product("same", ["1"]);
+    const edited = product("edited", ["1"]);
+    pagesByCategory({ "1": [same, edited, product("new", ["1"])] });
+    loadSourceHashes.mockResolvedValue(
+      new Map([
+        ["same", hashOf(same, ["1"])],
+        ["edited", hashOf({ ...edited, price: 5 }, ["1"])],
+      ]),
+    );
+
+    const result = await enqueueCatalogSync(conn, { skipUnchanged: true });
+
+    expect(enqueuedMessages().map((m) => m.product.externalId).sort()).toEqual(["edited", "new"]);
+    expect(result).toMatchObject({ enqueued: 2, unchanged: 1 });
+  });
+
+  it("enqueues everything again once the publish run has moved on", async () => {
+    const same = product("same", ["1"]);
+    pagesByCategory({ "1": [same] });
+    loadSourceHashes.mockResolvedValue(
+      new Map([["same", computeSourceHash(same, ["1"], sourceConfigKey(conn, "an-older-run"))]]),
+    );
+
+    await enqueueCatalogSync(conn, { skipUnchanged: true });
+
+    expect(enqueuedMessages()).toHaveLength(1);
+  });
+
+  it("enqueues everything when the stored hashes cannot be read", async () => {
+    pagesByCategory({ "1": [product("a", ["1"]), product("b", ["1"])] });
+    loadSourceHashes.mockResolvedValue(null);
+
+    const result = await enqueueCatalogSync(conn, { skipUnchanged: true });
+
+    expect(result.enqueued).toBe(2);
+  });
+
+  it("never consults the stored hashes unless asked, so a publish writes everything", async () => {
+    const same = product("same", ["1"]);
+    pagesByCategory({ "1": [same] });
+    loadSourceHashes.mockResolvedValue(new Map([["same", hashOf(same, ["1"])]]));
+
+    const result = await enqueueCatalogSync(conn);
+
+    expect(loadSourceHashes).not.toHaveBeenCalled();
+    expect(result.enqueued).toBe(1);
   });
 });

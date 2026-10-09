@@ -3,6 +3,9 @@ import { updateCatalogSyncState, type StoreConnectionRow } from "@/lib/db/store-
 import type { RawCatalogProduct } from "./sync-types";
 import { createCatalogPager, membership, type CatalogPager } from "./pager";
 import { sleep } from "./timeout";
+import { computeSourceHash, sourceConfigKey } from "./source-hash";
+import { loadSourceHashes } from "@/lib/db/catalog-source-hashes";
+import { getAcsPublishStampId } from "@/lib/db/sizing-runs";
 
 /** Enqueue in chunks rather than one message per round trip — 20,000 individual inserts is
  *  the difference between a sync that finishes in a minute and one that takes an hour. */
@@ -22,6 +25,8 @@ export interface EnqueueResult {
   /** Products seen in more than one selected category. Enqueued once; counted here because it is
    *  the difference between the merchant's category totals and the real indexing cost. */
   duplicates: number;
+  /** Products left out because they match what was last written. Only set when `skipUnchanged` ran. */
+  unchanged?: number;
 }
 
 export interface EnqueueOptions {
@@ -30,7 +35,16 @@ export interface EnqueueOptions {
    *  merchant adds a category to an already-indexed catalog, so the pass costs only the addition
    *  instead of re-walking everything. Ids are expanded to their descendants either way. */
   onlyCategoryIds?: readonly string[];
+  /**
+   * Leave out products that are exactly as they were when last written to ACS, so a re-walk only
+   * pays for what actually changed. For the hourly reconcile: a publish or backfill sets out to
+   * write the whole catalog and must not use it. Falls back to enqueueing everything whenever the
+   * stored hashes cannot be read.
+   */
+  skipUnchanged?: boolean;
 }
+
+type UnchangedFilter = (product: RawCatalogProduct, sourceCategoryIds: string[]) => boolean;
 
 /**
  * Walks the selected slice of a merchant's catalog and puts one message per product on the
@@ -56,7 +70,17 @@ export async function enqueueCatalogSync(
     return { enqueued: 0, pages: 0, duplicates: 0 };
   }
 
-  return walkCategoryGroups(connection.id, pager);
+  let unchanged: UnchangedFilter | undefined;
+  if (options.skipUnchanged) {
+    const [stored, publishId] = await Promise.all([loadSourceHashes(connection.id), getAcsPublishStampId(connection.id)]);
+    if (stored) {
+      const configKey = sourceConfigKey(connection, publishId);
+      unchanged = (product, sourceCategoryIds) =>
+        stored.get(product.externalId) === computeSourceHash(product, sourceCategoryIds, configKey);
+    }
+  }
+
+  return walkCategoryGroups(connection.id, pager, unchanged);
 }
 
 /**
@@ -68,7 +92,11 @@ export async function enqueueCatalogSync(
  * on its single message, because that set is what decides later whether deselecting one category
  * should remove it.
  */
-async function walkCategoryGroups(connectionId: string, pager: CatalogPager): Promise<EnqueueResult> {
+async function walkCategoryGroups(
+  connectionId: string,
+  pager: CatalogPager,
+  isUnchanged?: UnchangedFilter,
+): Promise<EnqueueResult> {
   const sourcesByProduct = new Map<string, { product: RawCatalogProduct; sourceCategoryIds: Set<string> }>();
   let pages = 0;
   let duplicates = 0;
@@ -99,18 +127,23 @@ async function walkCategoryGroups(connectionId: string, pager: CatalogPager): Pr
     }
   }
 
-  const messages: CatalogQueueMessage[] = [...sourcesByProduct.values()].map((entry) => ({
+  const all: CatalogQueueMessage[] = [...sourcesByProduct.values()].map((entry) => ({
     connectionId,
     product: entry.product,
     sourceCategoryIds: [...entry.sourceCategoryIds],
   }));
+  const messages = isUnchanged
+    ? all.filter((message) => !isUnchanged(message.product, message.sourceCategoryIds))
+    : all;
 
   let enqueued = 0;
   for (let i = 0; i < messages.length; i += ENQUEUE_CHUNK) {
     enqueued += await enqueueCatalogMessages(messages.slice(i, i + ENQUEUE_CHUNK));
   }
 
-  return { enqueued, pages, duplicates };
+  return isUnchanged
+    ? { enqueued, pages, duplicates, unchanged: all.length - messages.length }
+    : { enqueued, pages, duplicates };
 }
 
 /**

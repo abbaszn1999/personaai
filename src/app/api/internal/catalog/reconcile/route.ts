@@ -30,7 +30,7 @@ export async function POST(request: Request) {
 
   try {
     const connections = await listConnectedStores();
-    const reconciled: Array<{ connectionId: string; enqueued: number }> = [];
+    const reconciled: Array<{ connectionId: string; enqueued: number; unchanged: number }> = [];
 
     for (const connection of connections) {
       // Skip anything mid-backfill: its walk is already enqueueing the selection, and a reconcile
@@ -39,7 +39,9 @@ export async function POST(request: Request) {
       if (connection.catalogSyncStatus !== "ready") continue;
 
       try {
-        const result = await enqueueCatalogSync(connection);
+        // Only what changed since it was last written: the walk still reads the whole selection
+        // from the store, but ACS and the queue are only touched for products that differ.
+        const result = await enqueueCatalogSync(connection, { skipUnchanged: true });
 
         // Anything enqueued means the catalog is briefly out of date again, so the flag goes
         // back to indexing — retrieval's fallback and the progress UI both read it. The total is
@@ -53,7 +55,11 @@ export async function POST(request: Request) {
           });
         }
 
-        reconciled.push({ connectionId: connection.id, enqueued: result.enqueued });
+        reconciled.push({
+          connectionId: connection.id,
+          enqueued: result.enqueued,
+          unchanged: result.unchanged ?? 0,
+        });
       } catch (err) {
         console.error("[internal/catalog/reconcile]", connection.id, err);
       }

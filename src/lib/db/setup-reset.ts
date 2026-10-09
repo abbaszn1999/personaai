@@ -25,6 +25,7 @@ export const SETUP_TABLES = [
   "sizing_charts",
   "acs_catalog_mirror",
   "acs_catalog_mirror_state",
+  "catalog_source_hashes",
 ] as const;
 
 /** Deletes this store's rows from every Setup table. Returns the tables that could not be cleared. */

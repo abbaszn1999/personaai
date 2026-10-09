@@ -101,3 +101,24 @@ export async function getCatalogQueueDepth(): Promise<number> {
 
   return Number(data ?? 0);
 }
+
+/**
+ * How much indexing work one connection still has queued, claimed-but-unacknowledged messages
+ * included. Unlike `getCatalogQueueDepth` this ignores every other store's work, so a store can be
+ * judged finished while a large backfill for someone else is still draining.
+ *
+ * Returns null when it cannot be read: callers must not treat that as "empty", or a database
+ * hiccup would conclude a run that still has work queued.
+ */
+export async function getCatalogQueueDepthForConnection(connectionId: string): Promise<number | null> {
+  const { data, error } = await db.rpc("catalog_queue_depth_for_connection", {
+    p_connection_id: connectionId,
+  });
+
+  if (error) {
+    console.error("[db/catalog-queue getCatalogQueueDepthForConnection]", error);
+    return null;
+  }
+
+  return Number(data ?? 0);
+}

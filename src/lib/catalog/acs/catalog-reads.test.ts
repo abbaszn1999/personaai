@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AcsProduct } from "./types";
 import * as client from "./client";
+import * as mirror from "./mirror";
 import {
   deactivateAcsCatalogForRemapping,
   deleteAllAcsProductsForConnection,
@@ -8,6 +9,7 @@ import {
   forgetCachedProductReads,
   getCatalogProductsByExternalIds,
   markAcsProductOutOfStockIfExists,
+  retireStaleAcsProducts,
   sweepAcsProductsForConnection,
 } from "./catalog-reads";
 
@@ -50,6 +52,46 @@ describe("deactivateAcsCatalogForRemapping", () => {
     await expect(deactivateAcsCatalogForRemapping(CONNECTION_ID)).resolves.toBe(1);
     expect(markSpy).toHaveBeenCalledWith(`${CONNECTION_ID}_a`);
     expect(searchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("retireStaleAcsProducts", () => {
+  beforeEach(() => {
+    process.env.ACS_PROJECT_ID = "test-project";
+  });
+
+  afterEach(() => {
+    if (originalProjectId) process.env.ACS_PROJECT_ID = originalProjectId;
+    else delete process.env.ACS_PROJECT_ID;
+    vi.restoreAllMocks();
+  });
+
+  it("retires what the store's mirror says is stale, without walking ACS's shared catalog", async () => {
+    vi.spyOn(mirror, "listStaleMirrorIds").mockResolvedValue([`${CONNECTION_ID}_a`, `${CONNECTION_ID}_b`]);
+    const listSpy = vi.spyOn(client, "listProducts");
+    const markSpy = vi.spyOn(client, "markOutOfStock").mockResolvedValue(undefined);
+
+    await expect(retireStaleAcsProducts(CONNECTION_ID, "run-2")).resolves.toBe(2);
+    expect(mirror.listStaleMirrorIds).toHaveBeenCalledWith(CONNECTION_ID, "run-2");
+    expect(markSpy).toHaveBeenCalledWith(`${CONNECTION_ID}_a`);
+    expect(markSpy).toHaveBeenCalledWith(`${CONNECTION_ID}_b`);
+    expect(listSpy).not.toHaveBeenCalled();
+  });
+
+  it("falls back to walking ACS when the mirror is not trusted", async () => {
+    vi.spyOn(mirror, "listStaleMirrorIds").mockResolvedValue(null);
+    vi.spyOn(client, "listProducts").mockResolvedValue({
+      products: [
+        product({ id: `${CONNECTION_ID}_old`, availability: "IN_STOCK", attributes: { persona_publish_id: { text: ["run-1"] } } }),
+        product({ id: `${CONNECTION_ID}_new`, availability: "IN_STOCK", attributes: { persona_publish_id: { text: ["run-2"] } } }),
+        product({ id: "other_old", availability: "IN_STOCK", attributes: { persona_publish_id: { text: ["run-1"] } } }),
+      ],
+    });
+    const markSpy = vi.spyOn(client, "markOutOfStock").mockResolvedValue(undefined);
+
+    await expect(retireStaleAcsProducts(CONNECTION_ID, "run-2")).resolves.toBe(1);
+    expect(markSpy).toHaveBeenCalledTimes(1);
+    expect(markSpy).toHaveBeenCalledWith(`${CONNECTION_ID}_old`);
   });
 });
 

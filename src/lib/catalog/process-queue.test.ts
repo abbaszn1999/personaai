@@ -9,8 +9,15 @@ const readCatalogMessages = vi.fn();
 const ackCatalogMessages = vi.fn();
 const archiveCatalogMessages = vi.fn();
 const getCatalogQueueDepth = vi.fn();
+const getCatalogQueueDepthForConnection = vi.fn();
+const saveSourceHashes = vi.fn();
+
+vi.mock("@/lib/db/catalog-source-hashes", () => ({
+  saveSourceHashes: (...args: unknown[]) => saveSourceHashes(...args),
+}));
 
 vi.mock("@/lib/db/catalog-queue", () => ({
+  getCatalogQueueDepthForConnection: (...args: unknown[]) => getCatalogQueueDepthForConnection(...args),
   readCatalogMessages: (...args: unknown[]) => readCatalogMessages(...args),
   ackCatalogMessages: (...args: unknown[]) => ackCatalogMessages(...args),
   archiveCatalogMessages: (...args: unknown[]) => archiveCatalogMessages(...args),
@@ -141,6 +148,8 @@ beforeEach(() => {
   ackCatalogMessages.mockReset().mockResolvedValue(undefined);
   archiveCatalogMessages.mockReset().mockResolvedValue(undefined);
   getCatalogQueueDepth.mockReset().mockResolvedValue(0);
+  getCatalogQueueDepthForConnection.mockReset().mockResolvedValue(0);
+  saveSourceHashes.mockReset().mockResolvedValue(undefined);
   syncProductsToAcs.mockReset().mockResolvedValue(true);
   deleteProduct.mockReset().mockResolvedValue(true);
   getStoreConnectionById.mockReset().mockResolvedValue(connection);
@@ -170,6 +179,34 @@ describe("drainCatalogQueue — Persona mapping boundary", () => {
     expect(syncProductsToAcs).toHaveBeenCalledWith([]);
     expect(ackCatalogMessages).toHaveBeenCalledWith([1]);
     expect(result).toMatchObject({ indexed: 0, failed: 0 });
+  });
+});
+
+describe("drainCatalogQueue — source hashes", () => {
+  it("remembers what a confirmed import wrote, keyed by the product", async () => {
+    queueOnce([message(1, "p-1")]);
+    await drainCatalogQueue();
+
+    expect(saveSourceHashes).toHaveBeenCalledOnce();
+    const [connectionId, entries] = saveSourceHashes.mock.calls[0] as [string, Array<{ externalId: string; hash: string }>];
+    expect(connectionId).toBe(CONNECTION_ID);
+    expect(entries).toEqual([{ externalId: "p-1", hash: expect.stringMatching(/^[0-9a-f]{64}$/) }]);
+  });
+
+  it("remembers nothing when the import failed", async () => {
+    syncProductsToAcs.mockResolvedValue(false);
+    queueOnce([message(1, "p-1")]);
+    await drainCatalogQueue();
+
+    expect(saveSourceHashes).not.toHaveBeenCalled();
+  });
+
+  it("does not remember a product that was excluded for having no mapped path", async () => {
+    getStoreConnectionById.mockResolvedValue({ ...connection, personaCategoryMap: {} });
+    queueOnce([message(1, "p-1")]);
+    await drainCatalogQueue();
+
+    expect(saveSourceHashes).not.toHaveBeenCalled();
   });
 });
 
@@ -266,7 +303,7 @@ describe("settleFinishedRuns", () => {
 
   it("finishes a run the queue has no work left for, short count and all", async () => {
     listConnectionsBySyncStatus.mockResolvedValue([stranded()]);
-    getCatalogQueueDepth.mockResolvedValue(0);
+    getCatalogQueueDepthForConnection.mockResolvedValue(0);
 
     await expect(settleFinishedRuns()).resolves.toBe(1);
     expect(updateCatalogSyncState).toHaveBeenCalledWith(CONNECTION_ID, { status: "ready" });
@@ -349,12 +386,31 @@ describe("settleFinishedRuns", () => {
     expect(updateCatalogSyncState).toHaveBeenCalledWith(CONNECTION_ID, { status: "error" });
   });
 
-  it("waits while the queue still holds work", async () => {
+  it("waits while the store's own queue still holds work", async () => {
     listConnectionsBySyncStatus.mockResolvedValue([stranded()]);
-    getCatalogQueueDepth.mockResolvedValue(41);
+    getCatalogQueueDepthForConnection.mockResolvedValue(41);
 
     await expect(settleFinishedRuns()).resolves.toBe(0);
     expect(updateCatalogSyncState).not.toHaveBeenCalled();
+  });
+
+  it("does not conclude a run whose queue depth cannot be read", async () => {
+    listConnectionsBySyncStatus.mockResolvedValue([stranded()]);
+    getCatalogQueueDepthForConnection.mockResolvedValue(null);
+
+    await expect(settleFinishedRuns()).resolves.toBe(0);
+    expect(updateCatalogSyncState).not.toHaveBeenCalled();
+  });
+
+  it("settles a store whose own work is done while another store's backlog is still queued", async () => {
+    const other = { ...stranded(), id: "22222222-2222-2222-2222-222222222222" };
+    listConnectionsBySyncStatus.mockResolvedValue([stranded(), other]);
+    getCatalogQueueDepth.mockResolvedValue(5000);
+    getCatalogQueueDepthForConnection.mockImplementation(async (id: string) => (id === other.id ? 5000 : 0));
+
+    await expect(settleFinishedRuns()).resolves.toBe(1);
+    expect(updateCatalogSyncState).toHaveBeenCalledWith(CONNECTION_ID, { status: "ready" });
+    expect(updateCatalogSyncState).not.toHaveBeenCalledWith(other.id, expect.anything());
   });
 
   it("does not conclude a walk that hasn't enqueued yet", async () => {
@@ -365,7 +421,7 @@ describe("settleFinishedRuns", () => {
     await expect(settleFinishedRuns()).resolves.toBe(0);
     expect(updateCatalogSyncState).not.toHaveBeenCalled();
     // Cheap enough to skip the depth read entirely when nothing could be concluded anyway.
-    expect(getCatalogQueueDepth).not.toHaveBeenCalled();
+    expect(getCatalogQueueDepthForConnection).not.toHaveBeenCalled();
   });
 
   it("leaves the run open when the status write fails, so the next pass retries", async () => {
