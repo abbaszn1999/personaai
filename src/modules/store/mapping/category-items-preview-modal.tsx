@@ -351,7 +351,7 @@ function PreviewBody({
                         {item.sizes.length > 3 && <span className="text-[9px] text-[var(--color-text-muted)]">+{item.sizes.length - 3}</span>}
                       </div>
                     <StockBadge inStock={item.inStock} />
-                  </div>
+                    </div>
                   </div>
                 </div>
               ))}
