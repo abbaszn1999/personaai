@@ -5,6 +5,7 @@ import { markPathConfigStale } from "@/lib/catalog/path-config/rebuild";
 import { purgeConnectionFromQueue } from "@/lib/db/catalog-queue";
 import {
   claimSetupResetLease,
+  deletePrivateCharts,
   listUnclaimedSetupResets,
   resetSetupColumns,
   setupTablesWithRows,
@@ -41,7 +42,9 @@ const SETTLE_MS = 10_000;
 export async function resetSetupData(
   connectionId: string,
   scope: SetupResetScope,
+  options: { deletePrivateCharts?: boolean } = {},
 ): Promise<{ ok: true } | { ok: false; error: string }> {
+  const wipePrivate = options.deletePrivateCharts === true;
   const startedAt = new Date().toISOString();
   const marked = await writeSetupResetState(connectionId, {
     status: "running",
@@ -62,11 +65,16 @@ export async function resetSetupData(
     return { ok: false as const, error };
   };
 
-  if (!(await resetSetupColumns(connectionId, scope))) {
+  if (!(await resetSetupColumns(connectionId, scope, { wipePrivate }))) {
     return abandon("Could not reset this store's setup. Please try again.");
   }
 
   await purgeConnectionFromQueue(connectionId);
+  // Only on request: the merchant typed these charts in, and nothing rebuilds them. A failure here is
+  // retried like any other step, and deleting twice is harmless.
+  if (wipePrivate && !(await deletePrivateCharts(connectionId))) {
+    return abandon("Could not delete your private size charts. Please try again.");
+  }
   const failedTables = await wipeSetupTables(connectionId);
   await markPathConfigStale(connectionId);
   clearGeneratedStageFiveCache(connectionId);

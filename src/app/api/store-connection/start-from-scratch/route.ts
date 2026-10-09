@@ -73,7 +73,10 @@ export async function POST(request: Request) {
       return Response.json({ error: `Type ${CONFIRM_WORD} to confirm.` }, { status: 400 });
     }
 
-    const reset = await resetSetupData(connection.id, body.scope);
+    // Only a literal `true` deletes the merchant's hand-filled private charts; anything else keeps them.
+    const reset = await resetSetupData(connection.id, body.scope, {
+      deletePrivateCharts: body.deletePrivateCharts === true,
+    });
     if (!reset.ok) return Response.json({ error: reset.error }, { status: 500 });
 
     // Removing the store's documents walks the whole shared ACS catalog, which outlasts any

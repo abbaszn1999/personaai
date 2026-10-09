@@ -55,11 +55,21 @@ describe("start from scratch", () => {
     const response = await post({ scope: "mapping", confirm: "reset" });
 
     expect(response.status).toBe(200);
-    expect(resetSetupData).toHaveBeenCalledWith("conn-1", "mapping");
+    expect(resetSetupData).toHaveBeenCalledWith("conn-1", "mapping", { deletePrivateCharts: false });
     expect(cleanAcsAfterReset).not.toHaveBeenCalled();
     expect(afterTasks).toHaveLength(1);
     await afterTasks[0]();
     expect(cleanAcsAfterReset).toHaveBeenCalledWith("conn-1");
+  });
+
+  it("deletes private charts only for a literal true", async () => {
+    await post({ scope: "setup", confirm: "RESET", deletePrivateCharts: true });
+    expect(resetSetupData).toHaveBeenLastCalledWith("conn-1", "setup", { deletePrivateCharts: true });
+
+    for (const value of ["true", 1, "yes", null, undefined]) {
+      await post({ scope: "setup", confirm: "RESET", deletePrivateCharts: value });
+      expect(resetSetupData).toHaveBeenLastCalledWith("conn-1", "setup", { deletePrivateCharts: false });
+    }
   });
 
   it("refuses a second reset while the first is still removing products", async () => {

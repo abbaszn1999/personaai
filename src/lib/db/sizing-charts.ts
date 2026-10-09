@@ -172,6 +172,39 @@ export async function listPrivateChartsForBrands(
   return rows.map(rowToChart);
 }
 
+/**
+ * The brand keys this store already holds hand-filled private charts under.
+ *
+ * Throws instead of returning an empty set on a read error: an empty answer would let a brand with kept
+ * charts be classified as global, after which the chart lookup ignores those charts without any sign.
+ */
+export async function listPrivateChartBrandKeys(connectionId: string): Promise<Set<string>> {
+  const keys = new Set<string>();
+  const pageSize = 1000;
+
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await db
+      .from("sizing_charts_private")
+      .select("brand_key")
+      .eq("connection_id", connectionId)
+      .order("id")
+      .range(from, from + pageSize - 1);
+
+    if (error) {
+      console.error("[db/sizing-charts listPrivateChartBrandKeys]", connectionId, error);
+      throw new Error("Could not read this store's private size charts.");
+    }
+
+    const batch = (data ?? []) as Array<{ brand_key: string }>;
+    for (const row of batch) {
+      if (row.brand_key) keys.add(row.brand_key);
+    }
+    if (batch.length < pageSize) break;
+  }
+
+  return keys;
+}
+
 /** Canonical brand targets already proven by a shared researched chart. */
 export async function listSharedChartBrandKeys(): Promise<string[]> {
   const keys = new Set<string>();

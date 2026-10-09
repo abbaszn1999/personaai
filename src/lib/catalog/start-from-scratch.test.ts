@@ -5,8 +5,12 @@ const writeSetupResetState = vi.fn(async (_id: string, patch: Record<string, unk
   calls.push(`state:${String(patch.status ?? "progress")}`);
   return true;
 });
-const resetSetupColumns = vi.fn(async (_id: string, scope: string) => {
+const resetSetupColumns = vi.fn<(id: string, scope: string, options?: { wipePrivate?: boolean }) => Promise<boolean>>(async (_id, scope) => {
   calls.push(`columns:${scope}`);
+  return true;
+});
+const deletePrivateCharts = vi.fn(async () => {
+  calls.push("private-charts");
   return true;
 });
 const wipeSetupTables = vi.fn(async (): Promise<string[]> => {
@@ -24,7 +28,9 @@ const sweepAcsProductsForConnection = vi.fn();
 
 vi.mock("@/lib/db/setup-reset", () => ({
   writeSetupResetState: (id: string, patch: Record<string, unknown>) => writeSetupResetState(id, patch),
-  resetSetupColumns: (id: string, scope: string) => resetSetupColumns(id, scope),
+  resetSetupColumns: (id: string, scope: string, options?: { wipePrivate?: boolean }) =>
+    resetSetupColumns(id, scope, options),
+  deletePrivateCharts: () => deletePrivateCharts(),
   wipeSetupTables: () => wipeSetupTables(),
   setupTablesWithRows: () => setupTablesWithRows(),
   claimSetupResetLease: () => claimSetupResetLease(),
@@ -70,7 +76,33 @@ describe("resetSetupData", () => {
 
   it("passes the scope through, so Mapping's button also clears the mapping", async () => {
     await resetSetupData("conn-1", "mapping");
-    expect(resetSetupColumns).toHaveBeenCalledWith("conn-1", "mapping");
+    expect(resetSetupColumns).toHaveBeenCalledWith("conn-1", "mapping", { wipePrivate: false });
+  });
+
+  it("keeps the merchant's private charts and groups unless they ask for them to go", async () => {
+    await resetSetupData("conn-1", "mapping");
+    await resetSetupData("conn-1", "setup", { deletePrivateCharts: false });
+
+    expect(deletePrivateCharts).not.toHaveBeenCalled();
+    expect(resetSetupColumns).toHaveBeenCalledWith("conn-1", "mapping", { wipePrivate: false });
+    expect(resetSetupColumns).toHaveBeenCalledWith("conn-1", "setup", { wipePrivate: false });
+  });
+
+  it("deletes the private charts, and the groups they are filed under, only when asked", async () => {
+    await expect(resetSetupData("conn-1", "setup", { deletePrivateCharts: true })).resolves.toEqual({ ok: true });
+
+    expect(resetSetupColumns).toHaveBeenCalledWith("conn-1", "setup", { wipePrivate: true });
+    expect(calls).toEqual(["state:running", "columns:setup", "queue", "private-charts", "tables"]);
+  });
+
+  it("stops and lets the merchant press again when the private charts cannot be deleted", async () => {
+    deletePrivateCharts.mockImplementationOnce(async () => false);
+
+    const result = await resetSetupData("conn-1", "setup", { deletePrivateCharts: true });
+
+    expect(result.ok).toBe(false);
+    expect(wipeSetupTables).not.toHaveBeenCalled();
+    expect(writeSetupResetState).toHaveBeenLastCalledWith("conn-1", expect.objectContaining({ status: "idle" }));
   });
 
   it("leaves nothing to wait for when a database step fails, so the merchant can simply press again", async () => {

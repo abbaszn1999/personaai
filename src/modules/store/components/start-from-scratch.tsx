@@ -161,6 +161,7 @@ function StartFromScratchDialog({
   const reset = useResetStatus((s) => s.reset);
   const load = useResetStatus((s) => s.load);
   const [typed, setTyped] = React.useState("");
+  const [deletePrivate, setDeletePrivate] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const [started, setStarted] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -187,13 +188,19 @@ function StartFromScratchDialog({
     ...(scope === "mapping" ? ["Your category mapping and the What You Sell scope"] : []),
     "Column Mapping, its approval and the size type (Stage 1)",
     "The catalog scan, item corrections and brand discovery (Stages 2 and 3). Brands are classified again on the next scan",
-    "Your brand mapping and every private size chart you filled by hand (Stage 4)",
+    deletePrivate
+      ? "Your global brand mapping, your private brand groups and every private size chart you filled by hand (Stage 4)"
+      : "Your global brand mapping (Stage 4)",
     "Every product of this store in Persona's search (ACS) (Stage 5)",
   ];
+  const keptPrivate = deletePrivate
+    ? ""
+    : " Your private size charts and private brand groups are kept, and fill in again by themselves after the next scan.";
   const kept =
-    scope === "mapping"
+    (scope === "mapping"
       ? "Your store connection, the shared global brand charts and your Style Guide stay. Other stores and other accounts are never touched."
-      : "Your category mapping stays as it is, so Setup starts again from Stage 1 on the same mapping. Other stores and other accounts are never touched.";
+      : "Your category mapping stays as it is, so Setup starts again from Stage 1 on the same mapping. Other stores and other accounts are never touched.") +
+    keptPrivate;
 
   async function submit() {
     if (!confirmed) return;
@@ -203,7 +210,7 @@ function StartFromScratchDialog({
       const res = await fetch("/api/store-connection/start-from-scratch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scope, confirm: typed }),
+        body: JSON.stringify({ scope, confirm: typed, deletePrivateCharts: deletePrivate }),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
@@ -304,6 +311,20 @@ function StartFromScratchDialog({
         Removing the products from ACS takes about a minute for every 1,000 products. This dialog shows each
         step until everything is confirmed gone, then takes you to the first step.
       </p>
+
+      <label className="mt-4 flex items-start gap-2 text-xs text-[var(--color-text-secondary)]">
+        <input
+          type="checkbox"
+          checked={deletePrivate}
+          onChange={(event) => setDeletePrivate(event.target.checked)}
+          disabled={submitting}
+          className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[var(--color-error)]"
+        />
+        <span>
+          Also delete my private size charts and private brand groups. Leave this off unless you want to start
+          those over; they cannot be recovered.
+        </span>
+      </label>
 
       <label className="mt-4 block">
         <span className="text-[11px] font-semibold text-[var(--color-text-primary)]">

@@ -1,6 +1,8 @@
 import { getPlatformGeminiClient, GeminiApiError } from "@/lib/ai/gemini";
 import type { StoreConnectionRow } from "@/lib/db/store-connections";
 import { listSizingCoverage, setBrandType, type BrandType } from "@/lib/db/sizing-coverage";
+import { listPrivateChartBrandKeys } from "@/lib/db/sizing-charts";
+import { parseStoreBrandMapping } from "./brand-mapping";
 import { UNKNOWN_BRAND_KEY } from "./keys";
 
 /**
@@ -61,6 +63,32 @@ export async function runBrandClassification(connection: StoreConnectionRow): Pr
   if (hasUnbranded) {
     const saved = await setBrandType(connection.id, UNKNOWN_BRAND_KEY, "none", null);
     if (!saved) throw new Error("Could not save the no-brand classification.");
+  }
+
+  if (named.size === 0) return result;
+
+  // A brand the merchant already filled private charts for stays private. Without this, a scan after a
+  // reset would ask Gemini again, and a label it calls global would read the shared registry, so the
+  // kept charts would never be looked at. Charts are filed under the store's private group key, which
+  // can differ from the raw brand key ("moustache_men" is filed under "moustache").
+  const keptPrivateKeys = await listPrivateChartBrandKeys(connection.id);
+  const privateAliases = parseStoreBrandMapping(connection.sizingBrandMapping).privateAliases;
+  const keptFailures: string[] = [];
+  for (const [brandKey, brandName] of [...named.entries()]) {
+    const chartKey = privateAliases[brandKey]?.canonicalKey ?? brandKey;
+    if (!keptPrivateKeys.has(chartKey)) continue;
+    named.delete(brandKey);
+    if (await setBrandType(connection.id, brandKey, "private", null)) {
+      result.classified += 1;
+      result.private += 1;
+    } else {
+      keptFailures.push(brandName);
+    }
+  }
+  if (keptFailures.length > 0) {
+    throw new Error(
+      `Could not save classifications for ${keptFailures.length} brand(s): ${keptFailures.join(", ")}.`
+    );
   }
 
   const entries = [...named.entries()];
