@@ -20,6 +20,7 @@ import { chartHasBounds } from "@/lib/sizing/chart-schema";
 import { isSizingGroup } from "@/lib/sizing/measurements";
 import { isAudience, normalizeBrandKey, UNKNOWN_BRAND_KEY } from "@/lib/sizing/keys";
 import { sanitizeCoverage } from "@/lib/sizing/variant-match";
+import { sharedSizeLabels } from "@/lib/sizing/canonical";
 import { canonicalizeCoverageForCharts } from "@/lib/sizing/brand-mapping-view";
 import { listSizingPathCoverage } from "@/lib/db/sizing-path-coverage";
 import { buildStockedLeaves } from "@/lib/sizing/stocked-leaves";
@@ -299,15 +300,19 @@ export async function POST(request: Request) {
       return Response.json({ error: "That chart no longer exists. Reload and try again." }, { status: 404 });
     }
 
-    // One leaf, one chart. Two private charts claiming the same subcategory would make which of them
-    // governs a product depend on row order, so the second claim is refused and named instead.
+    // One leaf, one chart per size system. A subcategory sold in S-XXL on some products and in inch
+    // waists on others needs a chart for each, and the resolver picks whichever holds every size the
+    // product is sold in. Two charts sharing a size label would leave that product ambiguous, so that
+    // second claim is refused and named instead.
     for (const other of existingCharts) {
       if (other.id === chartId) continue;
       const taken = coversLeaves.filter((leaf) => other.coversLeaves.includes(leaf));
-      if (taken.length > 0) {
+      if (taken.length === 0) continue;
+      const sharedSizes = sharedSizeLabels(chartRows, other.chartRows);
+      if (sharedSizes.length > 0) {
         return Response.json(
           {
-            error: `${taken.map(leafLabel).join(", ")} ${taken.length === 1 ? "is" : "are"} already covered by your chart "${other.variantName}". Edit that chart or uncheck ${taken.length === 1 ? "it" : "them"} here.`,
+            error: `${taken.map(leafLabel).join(", ")} ${taken.length === 1 ? "is" : "are"} already covered by your chart "${other.variantName}", which uses the same sizes (${sharedSizes.slice(0, 5).join(", ")}). Edit that chart or uncheck ${taken.length === 1 ? "it" : "them"} here.`,
             conflictingLeaves: taken,
           },
           { status: 409 }

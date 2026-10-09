@@ -126,6 +126,34 @@ export function canonicalLabelForRow(row: SizeChartRow, sizeType: SizeType): str
   return preferredAliasLabel(row.aliases?.[sizeTypeAliasKey(sizeType)]) ?? row.size;
 }
 
+/**
+ * The size labels two charts both answer to, compared the way stock labels are matched (`2XL` is
+ * `XXL`, `M` is `Medium`). Returned as the first chart's own spelling.
+ *
+ * Two charts of one brand may cover the same subcategory only when this is empty. A product resolves
+ * to the chart holding every label it is sold in, so charts in different size systems (S-XXL, EU
+ * 46-58, inch 29-44) never compete for a product, while two charts that both print `M` would leave
+ * every product sold in `M` ambiguous.
+ */
+export function sharedSizeLabels(left: readonly SizeChartRow[], right: readonly SizeChartRow[]): string[] {
+  const formsOf = (rows: readonly SizeChartRow[]) => {
+    const forms = new Map<string, string>();
+    for (const row of rows) {
+      for (const label of rowLabels(row)) {
+        for (const form of sizeLabelCandidates(label)) if (!forms.has(form)) forms.set(form, label);
+      }
+    }
+    return forms;
+  };
+  const leftForms = formsOf(left);
+  const shared = new Set<string>();
+  for (const form of formsOf(right).keys()) {
+    const label = leftForms.get(form);
+    if (label) shared.add(label);
+  }
+  return [...shared];
+}
+
 export function matchRawFormat(raw: string, rows: readonly SizeChartRow[], sizeType: SizeType): RawFormatMatch {
   const matches = splitRawSizeValue(raw).map((label) => matchLabel(label, rows, sizeType));
   return {

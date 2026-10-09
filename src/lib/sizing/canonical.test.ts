@@ -1,6 +1,30 @@
 import { describe, expect, it } from "vitest";
 import type { SizeChartRow } from "./chart-schema";
-import { matchLabel, matchRawFormat } from "./canonical";
+import { matchLabel, matchRawFormat, sharedSizeLabels } from "./canonical";
+
+describe("sharedSizeLabels", () => {
+  const ALPHA: SizeChartRow[] = [{ size: "M" }, { size: "XXL" }, { size: "4XL" }];
+  const EU: SizeChartRow[] = [{ size: "46" }, { size: "48" }];
+  const INCH: SizeChartRow[] = [
+    { size: "32", aliases: { waist_inseam: ["32/30", "32/32"] } },
+    { size: "44", aliases: { waist_inseam: ["44/32"] } },
+  ];
+
+  it("finds nothing shared between different size systems", () => {
+    expect(sharedSizeLabels(ALPHA, EU)).toEqual([]);
+    expect(sharedSizeLabels(EU, INCH)).toEqual([]);
+    expect(sharedSizeLabels(ALPHA, INCH)).toEqual([]);
+  });
+
+  it("compares the way stock is matched, so 2XL is XXL and 4XL is XXXXL", () => {
+    expect(sharedSizeLabels(ALPHA, [{ size: "2XL" }, { size: "XXXXL" }])).toEqual(["XXL", "4XL"]);
+    expect(sharedSizeLabels([{ size: "Medium" }], ALPHA)).toEqual(["Medium"]);
+  });
+
+  it("counts a number both charts print, whatever system each calls it", () => {
+    expect(sharedSizeLabels([...EU, { size: "44" }], INCH)).toEqual(["44"]);
+  });
+});
 
 const SHOE_ROWS: SizeChartRow[] = [
   { size: "39", aliases: { eu: "39", uk: "6", us: "6.5" }, foot_length_min: 24.5, foot_length_max: 25 },

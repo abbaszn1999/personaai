@@ -224,9 +224,14 @@ describe("POST /api/store-connection/sizing/charts", () => {
     expect(updatePrivateChartById).not.toHaveBeenCalled();
   });
 
-  it("rejects a chart claiming a leaf another chart already covers, naming both", async () => {
+  it("rejects a chart claiming a leaf another chart already covers in the same sizes, naming both", async () => {
     vi.mocked(listPrivateChartsForBrands).mockResolvedValue([
-      existingChart({ id: "chart-1", variantName: "Everyday tees", coversLeaves: ["men:top:t-shirt"] }),
+      existingChart({
+        id: "chart-1",
+        variantName: "Everyday tees",
+        coversLeaves: ["men:top:t-shirt"],
+        chartRows: [{ size: "M", chest_min: 93, chest_max: 98 }],
+      }),
     ]);
 
     const response = await POST(request("house"));
@@ -235,7 +240,39 @@ describe("POST /api/store-connection/sizing/charts", () => {
     const body = await response.json();
     expect(body.conflictingLeaves).toEqual(["men:top:t-shirt"]);
     expect(body.error).toContain("Everyday tees");
+    expect(body.error).toContain("(M)");
     expect(insertPrivateChart).not.toHaveBeenCalled();
+  });
+
+  it("treats 2XL and XXL as the same size when checking for a clash", async () => {
+    vi.mocked(listPrivateChartsForBrands).mockResolvedValue([
+      existingChart({ coversLeaves: ["men:top:t-shirt"], chartRows: [{ size: "XXL", chest_min: 111, chest_max: 116 }] }),
+    ]);
+
+    const response = await POST(request("house", { rows: [{ size: "2XL", values: { chest: "111-116" } }] }));
+
+    expect(response.status).toBe(409);
+  });
+
+  it("lets a second chart cover the same leaf in a different size system", async () => {
+    vi.mocked(listPrivateChartsForBrands).mockResolvedValue([
+      existingChart({
+        id: "chart-1",
+        variantName: "Tops (EU sizes)",
+        coversLeaves: ["men:top:t-shirt"],
+        chartRows: [
+          { size: "46", chest_min: 90, chest_max: 93 },
+          { size: "48", chest_min: 94, chest_max: 97 },
+        ],
+      }),
+    ]);
+
+    const response = await POST(request("house"));
+
+    expect(response.status).toBe(200);
+    expect(insertPrivateChart).toHaveBeenCalledWith(
+      expect.objectContaining({ coversLeaves: ["men:top:t-shirt"] }),
+    );
   });
 
   it("allows an edit to keep the leaves it already owns", async () => {
