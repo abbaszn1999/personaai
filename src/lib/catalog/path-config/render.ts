@@ -1,5 +1,5 @@
-import { comparableValue } from "./lookup";
-import type { PathConfigAttribute, PathConfigBrand, PathConfigNode, PathConfigTier, PersonaPathConfig } from "./types";
+import { comparableAttributeValue } from "./lookup";
+import type { PathConfigAttribute, PathConfigNode, PathConfigTier, PersonaPathConfig } from "./types";
 
 function formatAmount(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
@@ -14,21 +14,24 @@ export function renderTiers(tiers: readonly PathConfigTier[]): string {
  *  internal colour or fabric code, which nobody can ask for. */
 const WORD_VALUED_FIELDS = new Set(["colors", "materials", "patterns"]);
 
+function letterCount(value: string): number {
+  return value.match(/\p{L}/gu)?.length ?? 0;
+}
+
 /**
- * One entry per value however the store spelled it ("Black", "BLACK"), first spelling in sort
- * order. Validation matches the same way and sends every stored spelling, so nothing is lost.
+ * One entry per value however the store spelled it ("Black", "BLACK", "L.GREY", "Light Grey"),
+ * shown in its most spelled-out form, ties to the first in sort order. Validation matches the same
+ * way and sends every stored spelling, so nothing is lost.
  */
 function distinctValues(attribute: PathConfigAttribute): string[] {
-  const seen = new Set<string>();
-  const values: string[] = [];
+  const shown = new Map<string, string>();
   for (const value of attribute.values ?? []) {
     if (WORD_VALUED_FIELDS.has(attribute.field) && /^[\d\s.\-/]+$/.test(value)) continue;
-    const key = comparableValue(value);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    values.push(value);
+    const key = comparableAttributeValue(attribute, value);
+    const current = shown.get(key);
+    if (current === undefined || letterCount(value) > letterCount(current)) shown.set(key, value);
   }
-  return values;
+  return [...shown.values()].sort((a, b) => a.localeCompare(b));
 }
 
 export function renderAttribute(attribute: PathConfigAttribute): string {
@@ -38,22 +41,10 @@ export function renderAttribute(attribute: PathConfigAttribute): string {
   return `${attribute.key}(${distinctValues(attribute).join("|")})`;
 }
 
-/** A brand written several ways is one brand: its most stocked spelling, with the combined count. */
-function distinctBrands(brands: readonly PathConfigBrand[]): PathConfigBrand[] {
-  const merged = new Map<string, PathConfigBrand>();
-  for (const brand of brands) {
-    const key = comparableValue(brand.name);
-    const current = merged.get(key);
-    if (current) current.count += brand.count;
-    else merged.set(key, { name: brand.name, count: brand.count });
-  }
-  return [...merged.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-}
-
 function renderLeaf(node: PathConfigNode, indent: string): string[] {
   const lines = [`${indent}${node.path} — ${node.inStock} in stock`];
   lines.push(`${indent}  tiers: ${renderTiers(node.tiers)}`);
-  const brands = distinctBrands(node.brands);
+  const brands = node.brands;
   lines.push(
     `${indent}  brands: ${brands.length > 0 ? brands.map((brand) => `${brand.name} (${brand.count})`).join(", ") : "none recorded"}`
   );

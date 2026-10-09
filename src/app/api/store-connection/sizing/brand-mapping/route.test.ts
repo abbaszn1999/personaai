@@ -6,9 +6,11 @@ const mocks = vi.hoisted(() => ({
   updateSizingBrandMapping: vi.fn(),
   listSizingCoverage: vi.fn(),
   listSharedChartBrandKeys: vi.fn(),
+  markPathConfigStale: vi.fn(),
 }));
 
 vi.mock("@/modules/auth/lib/get-user", () => ({ getCurrentUser: mocks.getCurrentUser }));
+vi.mock("@/lib/catalog/path-config/rebuild", () => ({ markPathConfigStale: mocks.markPathConfigStale }));
 vi.mock("@/lib/db/store-connections", () => ({
   getStoreConnectionByOwner: mocks.getStoreConnectionByOwner,
   updateSizingBrandMapping: mocks.updateSizingBrandMapping,
@@ -111,6 +113,7 @@ describe("brand mapping API", () => {
       }),
     );
     expect(mocks.updateSizingBrandMapping).toHaveBeenCalledTimes(1);
+    expect(mocks.markPathConfigStale).toHaveBeenCalledWith("connection-1");
   });
 
   it("rejects an incomplete mapping", async () => {
@@ -131,5 +134,6 @@ describe("brand mapping API", () => {
     );
     expect(response.status).toBe(400);
     expect(mocks.updateSizingBrandMapping).not.toHaveBeenCalled();
+    expect(mocks.markPathConfigStale).not.toHaveBeenCalled();
   });
 });

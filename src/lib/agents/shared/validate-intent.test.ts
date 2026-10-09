@@ -145,6 +145,44 @@ describe("validateSearchIntent", () => {
     expect(sleeve).toMatchObject({ field: "attributes.sleeve_length", values: ["Long Sleeve"] });
   });
 
+  it("sends every spelling of a brand family, and finds a brand without its audience word", () => {
+    const family: Record<string, string> = { "tom tailor": "tom_tailor", "Tom Tailor Men": "tom_tailor" };
+    const config = buildPathConfig(
+      [
+        acsProduct("a", "men > bottom > jean", 30, { brands: ["tom tailor"] }),
+        acsProduct("b", "men > bottom > jean", 40, { brands: ["Tom Tailor Men"] }),
+        acsProduct("c", "men > bottom > jean", 50, { brands: ["MOUSTACHE MEN"] }),
+        acsProduct("d", "men > bottom > jean", 60, { brands: ["MOUSTACHE GROUP"] }),
+      ],
+      { brandFamily: (brand) => family[brand] ?? null },
+    );
+    const named = (brands: string[]) => {
+      const result = validateSearchIntent(config, { path: "men > bottom > jean", brands });
+      return result.ok ? [...result.spec.brands].sort() : result.problems;
+    };
+    expect(named(["Tom Tailor"])).toEqual(["Tom Tailor Men", "tom tailor"]);
+    expect(named(["tom tailor men"])).toEqual(["Tom Tailor Men", "tom tailor"]);
+    expect(named(["Moustache"])).toEqual(["MOUSTACHE MEN"]);
+    expect(named(["Moustache Group"])).toEqual(["MOUSTACHE GROUP"]);
+    expect(named(["Zara"])[0]).toMatch(/brand "Zara" has nothing in stock/);
+  });
+
+  it("reads colour shorthand: light grey finds L.GREY and Light Grey", () => {
+    const config = buildPathConfig([
+      acsProduct("a", "men > top > t-shirt", 10, { colorInfo: { colors: ["L.GREY"] } }),
+      acsProduct("b", "men > top > t-shirt", 20, { colorInfo: { colors: ["Light Grey"] } }),
+      acsProduct("c", "men > top > t-shirt", 30, { colorInfo: { colors: ["D.GREY"] } }),
+    ]);
+    const result = validateSearchIntent(config, {
+      path: "men > top > t-shirt",
+      attributes: [{ key: "color", values: ["light gray", "Dark Grey"] }],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const [color] = result.spec.attributes;
+    expect(color.kind === "text" && [...color.values].sort()).toEqual(["D.GREY", "L.GREY", "Light Grey"]);
+  });
+
   it("matches sizes by meaning: 2XL is XXL, Arabic size words are alpha sizes", () => {
     const config = buildPathConfig([acsProduct("a", "men > top > shirt", 30, { sizes: ["M", "XXL", "L"] })]);
     const twoXl = validateSearchIntent(config, { path: "men > top > shirt", sizes: ["2XL"] });

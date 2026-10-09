@@ -1,3 +1,4 @@
+import { pathConfigDocument } from "@/lib/catalog/path-config/build";
 import type { AcsAvailability, AcsProduct } from "./types";
 import {
   toStageFiveRecord,
@@ -13,8 +14,9 @@ import type { BrandType } from "@/lib/db/sizing-coverage";
  *
  * ACS can only list its whole shared branch — every tenant's documents — so reading one store's
  * catalog from it costs a walk proportional to everyone's catalogs. This mirror is written next to
- * every ACS write (import, availability patch, delete) and lets Stage 5 page one store in the
- * database instead. It is trusted only while `acs_catalog_mirror_state.complete_at` is set: a full
+ * every ACS write (import, availability patch, delete) and lets Stage 5 page one store, and the
+ * agents' path config rebuild from it, in the database instead. It is trusted only while
+ * `acs_catalog_mirror_state.complete_at` is set: a full
  * walk reconciles it with ACS and sets that, and any failed mirror write clears it, so readers fall
  * back to walking ACS rather than serving a copy that may have missed something.
  *
@@ -89,6 +91,7 @@ export function toMirrorRow(product: AcsProduct, connectionId: string, writtenAt
     brand_key: record.brandKey,
     haystack: record.haystack,
     record: record.row,
+    document: pathConfigDocument(product),
     written_at: writtenAt,
   };
 }
@@ -327,6 +330,62 @@ export async function readMirrorPage(
     return { rows, total: count ?? rows.length, counts: totals, completeAt: Date.parse(completeAt) };
   } catch (error) {
     console.warn("[acs/mirror readMirrorPage]", error instanceof Error ? error.message : error);
+    return null;
+  }
+}
+
+const DOCUMENT_PAGE = 1_000;
+
+interface MirrorDocumentRead {
+  availability: string;
+  document: AcsProduct | null;
+}
+
+/**
+ * Every in-stock PRIMARY document of one store, as the path config reads them (`pathConfigDocument`),
+ * or null when the caller must walk ACS instead: the mirror is not trusted, its last reconciliation
+ * is older than `MIRROR_RECONCILE_MAX_AGE_MS` (the walk reconciles it again), or a row predates
+ * documents being kept. Availability comes from its column, which an out-of-stock patch updates.
+ */
+export async function readMirrorDocuments(connectionId: string): Promise<AcsProduct[] | null> {
+  const db = await database();
+  if (!db) return null;
+  try {
+    const { data: state, error: stateError } = await db
+      .from(STATE)
+      .select("complete_at")
+      .eq("connection_id", connectionId)
+      .maybeSingle();
+    if (stateError) {
+      report("read documents state", stateError);
+      return null;
+    }
+    const completeAt = (state as { complete_at: string | null } | null)?.complete_at;
+    if (!completeAt || Date.now() - Date.parse(completeAt) > MIRROR_RECONCILE_MAX_AGE_MS) return null;
+
+    const documents: AcsProduct[] = [];
+    for (let offset = 0; ; offset += DOCUMENT_PAGE) {
+      const { data, error } = await db
+        .from(MIRROR)
+        .select("availability, document")
+        .eq("connection_id", connectionId)
+        .eq("product_type", "PRIMARY")
+        .eq("availability", "IN_STOCK")
+        .order("acs_id", { ascending: true })
+        .range(offset, offset + DOCUMENT_PAGE - 1);
+      if (error) {
+        report("read documents", error);
+        return null;
+      }
+      const rows = (data ?? []) as MirrorDocumentRead[];
+      for (const row of rows) {
+        if (!row.document) return null;
+        documents.push({ ...row.document, availability: row.availability as AcsAvailability });
+      }
+      if (rows.length < DOCUMENT_PAGE) return documents;
+    }
+  } catch (error) {
+    console.warn("[acs/mirror readMirrorDocuments]", error instanceof Error ? error.message : error);
     return null;
   }
 }

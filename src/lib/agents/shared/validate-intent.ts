@@ -1,5 +1,13 @@
-import { comparableValue, findNode, floorPrice, normalizePath, unisexCounterpart } from "@/lib/catalog/path-config/lookup";
+import {
+  comparableAttributeValue,
+  comparableValue,
+  findNode,
+  floorPrice,
+  normalizePath,
+  unisexCounterpart,
+} from "@/lib/catalog/path-config/lookup";
 import type { PathConfigAttribute, PathConfigNode, PersonaPathConfig } from "@/lib/catalog/path-config/types";
+import { QUALIFIER_TOKENS } from "@/lib/sizing/brand-mapping";
 import { sizeLabelCandidates } from "@/lib/sizing/size-label-forms";
 import type { ResolvedAttribute, SearchSpec } from "./acs-translator";
 import type { AttributeConstraint } from "../types";
@@ -23,10 +31,10 @@ export type ValidationResult =
 const squash = comparableValue;
 
 /** Every stored spelling of each value, keyed by its comparison form. */
-function spellingsBySquash(values: Iterable<string>): Map<string, string[]> {
+function spellingsBySquash(values: Iterable<string>, compare: (value: string) => string = squash): Map<string, string[]> {
   const bySquash = new Map<string, string[]>();
   for (const value of values) {
-    const key = squash(value);
+    const key = compare(value);
     const spellings = bySquash.get(key) ?? [];
     if (!spellings.includes(value)) spellings.push(value);
     bySquash.set(key, spellings);
@@ -109,10 +117,11 @@ function resolveAttributes(
     }
 
     const vocabulary = textValuesOf(nodes, attribute.key);
-    const bySquash = spellingsBySquash(vocabulary);
+    const compare = (value: string) => comparableAttributeValue(attribute, value);
+    const bySquash = spellingsBySquash(vocabulary, compare);
     const canonical: string[] = [];
     for (const value of values) {
-      const match = bySquash.get(squash(value));
+      const match = bySquash.get(compare(value));
       if (match) canonical.push(...match);
       else problems.push(`${attribute.key} "${value}" is not stocked on ${nodes[0].path} (stocked: ${vocabulary.join(", ")})`);
     }
@@ -123,14 +132,42 @@ function resolveAttributes(
   return resolved;
 }
 
-/** Every stored spelling of each brand: stores often write one brand several ways ("MOUSTACHE
- *  MEN", "Moustache Men") and the ACS brand filter is an exact match, so all of them are sent. */
+/** The brand without a trailing audience word: "Moustache Men" is "Moustache". */
+function withoutAudienceWord(brand: string): string | null {
+  const words = brand.trim().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  if (words.length < 2 || !QUALIFIER_TOKENS.has(words.at(-1)!.toLowerCase())) return null;
+  return words.slice(0, -1).join(" ");
+}
+
+function addSpellings(index: Map<string, Set<string>>, key: string, spellings: readonly string[]): void {
+  const entry = index.get(key) ?? new Set<string>();
+  for (const spelling of spellings) entry.add(spelling);
+  index.set(key, entry);
+}
+
+/**
+ * Every stored spelling of each brand named. One brand is often written several ways ("MOUSTACHE
+ * MEN", "Moustache Men", a misspelt "moutache men", "tom tailor" beside "Tom Tailor Men") and the
+ * ACS brand filter is an exact match, so all of them are sent. A brand matches by any of its
+ * spellings, or without the audience word, since the department already says whose clothes these are.
+ */
 function resolveBrands(nodes: PathConfigNode[], brands: string[], problems: string[]): string[] {
-  const bySquash = spellingsBySquash(nodes.flatMap((node) => node.brands.map((brand) => brand.name)));
+  const exact = new Map<string, Set<string>>();
+  const loose = new Map<string, Set<string>>();
+  for (const node of nodes) {
+    for (const brand of node.brands) {
+      const spellings = brand.spellings?.length ? brand.spellings : [brand.name];
+      for (const spelling of spellings) {
+        addSpellings(exact, squash(spelling), spellings);
+        const bare = withoutAudienceWord(spelling);
+        if (bare) addSpellings(loose, squash(bare), spellings);
+      }
+    }
+  }
   const canonical: string[] = [];
   for (const brand of brands) {
     if (!brand?.trim()) continue;
-    const match = bySquash.get(squash(brand));
+    const match = exact.get(squash(brand)) ?? loose.get(squash(brand));
     if (match) canonical.push(...match);
     else problems.push(`brand "${brand}" has nothing in stock on ${nodes[0].path}`);
   }

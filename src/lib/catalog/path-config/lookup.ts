@@ -69,6 +69,28 @@ export function comparableValue(value: string): string {
   return squashed || value.trim().toLowerCase();
 }
 
+/** Shorthand merchants put in front of a colour: `L.GREY`, `LT GREY`, `D.BLUE`, `DK GREEN`, `N.BLUE`. */
+const COLOUR_SHORTHAND: Array<[RegExp, string]> = [
+  [/^(?:lt?\s*\.\s*|lt\s+)/i, "light "],
+  [/^(?:dk?\s*\.\s*|dk\s+)/i, "dark "],
+  [/^n\s*\.\s*(?=blue\b)/i, "navy "],
+];
+
+function isColourAttribute(attribute: Pick<PathConfigAttribute, "key" | "field">): boolean {
+  return attribute.field === "colors" || /colou?r/i.test(attribute.key);
+}
+
+/**
+ * `comparableValue` for one attribute's values. Colours also read through merchant shorthand and
+ * both spellings of grey, so "L.GREY", "Light Grey" and "light gray" are one colour.
+ */
+export function comparableAttributeValue(attribute: Pick<PathConfigAttribute, "key" | "field">, value: string): string {
+  if (!isColourAttribute(attribute)) return comparableValue(value);
+  let expanded = value.trim();
+  for (const [pattern, word] of COLOUR_SHORTHAND) expanded = expanded.replace(pattern, word);
+  return comparableValue(expanded).replace(/gray/g, "grey");
+}
+
 export function toAcsCategory(path: string): string {
   return `persona${SEPARATOR}${normalizePath(path)}`;
 }

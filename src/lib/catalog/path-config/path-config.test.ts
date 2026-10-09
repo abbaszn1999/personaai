@@ -1,7 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { CONFIG, PRODUCTS, acsProduct } from "@/lib/agents/__fixtures__/catalog";
-import { buildPathConfig, computePriceTiers, detectCatalogLanguage, pathConfigFingerprint } from "./build";
-import { descendantLeaves, findNode, floorPrice, normalizePath, toAcsCategory, unisexCounterpart } from "./lookup";
+import {
+  buildPathConfig,
+  computePriceTiers,
+  detectCatalogLanguage,
+  pathConfigDocument,
+  pathConfigFingerprint,
+} from "./build";
+import {
+  comparableAttributeValue,
+  descendantLeaves,
+  findNode,
+  floorPrice,
+  normalizePath,
+  toAcsCategory,
+  unisexCounterpart,
+} from "./lookup";
 import { renderPathConfig } from "./render";
 
 describe("buildPathConfig", () => {
@@ -18,8 +32,8 @@ describe("buildPathConfig", () => {
     expect(trouser.level).toBe("leaf");
     expect(trouser.inStock).toBe(3);
     expect(trouser.brands).toEqual([
-      { name: "Acme", count: 2 },
-      { name: "Bolt", count: 1 },
+      { name: "Acme", count: 2, spellings: ["Acme"] },
+      { name: "Bolt", count: 1, spellings: ["Bolt"] },
     ]);
     expect(trouser.priceRange).toEqual({ min: 40, max: 90 });
 
@@ -64,6 +78,56 @@ describe("buildPathConfig", () => {
     const reversed = buildPathConfig([...PRODUCTS].reverse());
     expect(renderPathConfig(reversed)).toBe(renderPathConfig(CONFIG));
   });
+
+  it("groups one brand's spellings, and the labels the store's brand mapping files together", () => {
+    const products = [
+      acsProduct("a", "men > bottom > jean", 30, { brands: ["tom tailor"] }),
+      acsProduct("b", "men > bottom > jean", 40, { brands: ["Tom Tailor Men"] }),
+      acsProduct("c", "men > bottom > jean", 45, { brands: ["Tom Tailor Men"] }),
+      acsProduct("d", "men > bottom > jean", 50, { brands: ["TOM TAILOR MEN"] }),
+      acsProduct("e", "men > bottom > jean", 60, { brands: ["MOUSTACHE Men"] }),
+      acsProduct("f", "men > bottom > jean", 65, { brands: ["MOUSTACHE Men"] }),
+      acsProduct("g", "men > bottom > jean", 70, { brands: ["moutache men"] }),
+    ];
+    // "TOM TAILOR MEN" is not in the store's grouping: it joins through its spelling.
+    const family: Record<string, string> = {
+      "tom tailor": "tom_tailor",
+      "Tom Tailor Men": "tom_tailor",
+      "MOUSTACHE Men": "moustache_men",
+      "moutache men": "moustache_men",
+    };
+
+    const bySpelling = findNode(buildPathConfig(products), "men > bottom > jean")!;
+    expect(bySpelling.brands.map((brand) => brand.name)).toEqual(["Tom Tailor Men", "MOUSTACHE Men", "moutache men", "tom tailor"]);
+    expect(bySpelling.brands[0]).toEqual({ name: "Tom Tailor Men", count: 3, spellings: ["Tom Tailor Men", "TOM TAILOR MEN"] });
+
+    const grouped = buildPathConfig(products, { brandFamily: (brand) => family[brand] ?? null });
+    expect(findNode(grouped, "men > bottom > jean")!.brands).toEqual([
+      { name: "Tom Tailor Men", count: 4, spellings: ["Tom Tailor Men", "tom tailor", "TOM TAILOR MEN"] },
+      { name: "MOUSTACHE Men", count: 3, spellings: ["MOUSTACHE Men", "moutache men"] },
+    ]);
+    expect(renderPathConfig(grouped)).toContain("brands: Tom Tailor Men (4), MOUSTACHE Men (3)");
+  });
+
+  it("rebuilds the same config from the mirror's compact documents as from full ones", () => {
+    const products = [
+      ...PRODUCTS,
+      acsProduct("w-tee-3", "women > top > t-shirt", 30, {
+        description: "Long text nobody filters on",
+        images: [{ uri: "" }, { uri: "https://example.com/a.jpg" }, { uri: "https://example.com/b.jpg" }],
+        attributes: { fit_rows: { text: ['{"s":"M","chest":[96,100]}'] }, sleeve: { text: ["Short"] } },
+        sizes: ["M"],
+      }),
+    ];
+    const documents = products.flatMap((product) => pathConfigDocument(product) ?? []);
+    expect(documents.some((document) => document.type === "VARIANT")).toBe(false);
+    expect(documents.find((document) => document.id === "w-tee-3")).toMatchObject({
+      images: [{ uri: "https://example.com/a.jpg" }],
+      attributes: { fit_group: { text: ["tops"] }, fit_chest_cm: { text: ["98"] }, sleeve: { text: ["Short"] } },
+    });
+    expect(documents.find((document) => document.id === "w-tee-3")?.attributes?.fit_rows).toBeUndefined();
+    expect(buildPathConfig(documents)).toEqual(buildPathConfig(products));
+  });
 });
 
 describe("computePriceTiers", () => {
@@ -107,6 +171,32 @@ describe("computePriceTiers", () => {
   it("does not let one luxury outlier swallow the cheap tier", () => {
     const tiers = computePriceTiers([100, 110, 120, 130, 140, 150, 9000]);
     expect(tiers[0].max).toBeLessThan(200);
+  });
+
+  it("splits around one price most products share instead of collapsing to one tier", () => {
+    const counts: Array<[number, number]> = [[14, 3], [18, 2], [19, 72], [23, 7], [24, 9], [28, 5], [34, 2], [39, 4], [45, 4]];
+    const prices = counts.flatMap(([price, count]) => Array.from({ length: count }, () => price));
+    expect(computePriceTiers(prices)).toEqual([
+      { label: "A", min: 14, max: 18, count: 5 },
+      { label: "B", min: 18, max: 19, count: 72 },
+      { label: "C", min: 19, max: 45, count: 31 },
+    ]);
+  });
+
+  it("keeps a cheap tier when the shared price is the cheapest", () => {
+    const prices = [...Array.from({ length: 10 }, () => 19), 25, 30, 45];
+    const tiers = computePriceTiers(prices);
+    expect(tiers.map((tier) => tier.label)).toEqual(["A", "B", "C"]);
+    expect(tiers[0]).toEqual({ label: "A", min: 19, max: 19, count: 10 });
+    expect(tiers.reduce((sum, tier) => sum + tier.count, 0)).toBe(prices.length);
+  });
+
+  it("falls back to two tiers when the shared price is the dearest", () => {
+    const prices = [10, 12, ...Array.from({ length: 10 }, () => 45)];
+    expect(computePriceTiers(prices)).toEqual([
+      { label: "A", min: 10, max: 12, count: 2 },
+      { label: "B", min: 12, max: 45, count: 10 },
+    ]);
   });
 });
 
@@ -156,6 +246,18 @@ describe("lookup", () => {
     expect(descendantLeaves(CONFIG, bottom).map((node) => node.path)).toEqual(["women > bottom > trouser"]);
   });
 
+  it("compares colours through shorthand and both greys, and other attributes as written", () => {
+    const color = { key: "color", field: "colors" };
+    expect(comparableAttributeValue(color, "L.GREY")).toBe(comparableAttributeValue(color, "light gray"));
+    expect(comparableAttributeValue(color, "LT. BEIGE")).toBe("lightbeige");
+    expect(comparableAttributeValue(color, "D.BLUE")).toBe("darkblue");
+    expect(comparableAttributeValue(color, "N.BLUE")).toBe("navyblue");
+    expect(comparableAttributeValue(color, "N.GREEN")).toBe("ngreen");
+    expect(comparableAttributeValue(color, "DENIM")).toBe("denim");
+    expect(comparableAttributeValue({ key: "colour", field: "attributes.opt_colour" }, "D.GREEN")).toBe("darkgreen");
+    expect(comparableAttributeValue({ key: "material", field: "materials" }, "L.Cotton")).toBe("lcotton");
+  });
+
   it("reports the floor price and ACS category", () => {
     expect(floorPrice(findNode(CONFIG, "women > top")!)).toBe(25);
     expect(toAcsCategory("women > top")).toBe("persona > women > top");
@@ -184,6 +286,16 @@ describe("renderPathConfig", () => {
     expect(text).not.toContain("10427");
     const leaf = findNode(config, "men > top > shirt")!;
     expect(leaf.attributes.find((attribute) => attribute.key === "color")?.values).toContain("10427");
+  });
+
+  it("reads merchant colour shorthand as the colour it stands for, shown spelled out", () => {
+    const config = buildPathConfig([
+      acsProduct("a", "men > top > t-shirt", 10, { colorInfo: { colors: ["L.GREY", "D.GREY", "N.BLUE", "DENIM"] } }),
+      acsProduct("b", "men > top > t-shirt", 20, { colorInfo: { colors: ["Light Grey", "Dark Gray", "Navy Blue", "LT BEIGE"] } }),
+      acsProduct("c", "men > top > t-shirt", 30, { colorInfo: { colors: ["Light Beige", "DK GREEN", "N.GREEN"] } }),
+    ]);
+    const text = renderPathConfig(config);
+    expect(text).toContain("color(Dark Gray|DENIM|DK GREEN|Light Beige|Light Grey|N.GREEN|Navy Blue)");
   });
 
   it("says so when nothing is mapped", () => {

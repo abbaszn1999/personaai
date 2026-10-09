@@ -23,8 +23,9 @@ const MAX_CATALOG_PAGES = 1_000;
  */
 const LISTING_MAX_AGE_MS = 3 * 60_000;
 
-/** Only what the Stage 5 table and its filters read. `attributes` stays whole: it carries the
- *  tenant id and every `fit_*` field the sizing preview opens. */
+/** Only what the Stage 5 table, its filters and the mirror's path-config documents read.
+ *  `attributes` stays whole: it carries the tenant id and every `fit_*` field the sizing preview
+ *  opens. ACS refuses `genders` as a read path. */
 const LISTING_READ_MASK = [
   "id",
   "type",
@@ -36,6 +37,9 @@ const LISTING_READ_MASK = [
   "brands",
   "categories",
   "sizes",
+  "colorInfo",
+  "materials",
+  "patterns",
   "attributes",
 ].join(",");
 

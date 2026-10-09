@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { CUSTOM_OPTION_ATTRIBUTE_PREFIX, PIPELINE_ATTRIBUTE_KEYS } from "@/lib/catalog/acs/map-product";
-import type { AcsProduct } from "@/lib/catalog/acs/types";
+import type { AcsCustomAttribute, AcsProduct } from "@/lib/catalog/acs/types";
 import { FIT_INDEX_ATTRIBUTES } from "@/lib/sizing/fit-index";
+import { comparableValue } from "./lookup";
 import {
   PATH_CONFIG_VERSION,
   type PathConfigAttribute,
@@ -139,6 +140,27 @@ export function detectCatalogLanguage(titles: readonly string[]): string | null 
   return languages.join(" and ");
 }
 
+/**
+ * Upper bounds for tiers A and B when one price holds both thirds (72 of 108 polos at 19): the real
+ * price points closest to a third and two thirds of the products, so the tiers read "below the
+ * usual price", "the usual price" and "above it" rather than one band covering everything.
+ */
+function clusteredCuts(sorted: readonly number[], low: number, high: number): { cutA: number | null; cutB: number | null } {
+  const points = [...new Set(sorted.map((price) => Math.round(price)))].filter((point) => point >= low && point < high);
+  const upTo = (point: number) => sorted.filter((price) => price <= point).length;
+  const closest = (target: number, above: number) => {
+    let best: { point: number; distance: number } | null = null;
+    for (const point of points) {
+      if (point <= above) continue;
+      const distance = Math.abs(upTo(point) - target);
+      if (!best || distance < best.distance) best = { point, distance };
+    }
+    return best?.point ?? null;
+  };
+  const cutA = closest(sorted.length / 3, -Infinity);
+  return { cutA, cutB: cutA === null ? null : closest((2 * sorted.length) / 3, cutA) };
+}
+
 /** Tertiles over the in-stock price list. Boundaries are whole currency units so the rendered
  *  text is short and stable; each tier still counts exactly the products inside it. */
 export function computePriceTiers(prices: readonly number[]): PathConfigTier[] {
@@ -148,17 +170,23 @@ export function computePriceTiers(prices: readonly number[]): PathConfigTier[] {
   const at = (fraction: number) => sorted[Math.min(sorted.length - 1, Math.floor(fraction * (sorted.length - 1)))];
   const low = Math.floor(sorted[0]);
   const high = Math.ceil(sorted[sorted.length - 1]);
-  const cutA = Math.round(at(1 / 3));
-  const cutB = Math.round(at(2 / 3));
+  let cutA: number | null = Math.round(at(1 / 3));
+  let cutB: number | null = Math.round(at(2 / 3));
+  if (cutA >= cutB) ({ cutA, cutB } = clusteredCuts(sorted, low, high));
 
   const bounds: Array<[PathConfigTier["label"], number, number]> =
-    high - low < 3 || cutA >= cutB
+    high - low < 3 || cutA === null
       ? [["A", low, high]]
-      : [
-          ["A", low, cutA],
-          ["B", cutA, cutB],
-          ["C", cutB, high],
-        ];
+      : cutB === null
+        ? [
+            ["A", low, cutA],
+            ["B", cutA, high],
+          ]
+        : [
+            ["A", low, cutA],
+            ["B", cutA, cutB],
+            ["C", cutB, high],
+          ];
 
   return bounds
     .map(([label, min, max], index) => ({
@@ -227,10 +255,58 @@ function addText(
   }
 }
 
-function finalizeNode(node: NodeAccumulator): PathConfigNode {
-  const brands: PathConfigBrand[] = [...node.brands.entries()]
-    .map(([name, count]) => ({ name, count }))
+export interface BuildPathConfigOptions {
+  /** The brand a store label belongs to beyond its spelling, from the store's own brand grouping
+   *  ("Tom Tailor Men" is "tom tailor"). Null leaves the label on its own. */
+  brandFamily?: (brand: string) => string | null;
+}
+
+/**
+ * Which brand labels are one brand: the same name however it is cased or punctuated, or labels the
+ * store's brand grouping files under one key. Each label maps to its family's id.
+ */
+function brandFamilies(labels: Iterable<string>, brandFamily: BuildPathConfigOptions["brandFamily"]): Map<string, string> {
+  const parent = new Map<string, string>();
+  const find = (key: string): string => {
+    let root = key;
+    while (parent.get(root) !== root) root = parent.get(root)!;
+    return root;
+  };
+  const join = (left: string, right: string) => {
+    for (const key of [left, right]) if (!parent.has(key)) parent.set(key, key);
+    const [a, b] = [find(left), find(right)].sort();
+    if (a !== b) parent.set(b, a);
+  };
+  const unique = [...new Set(labels)];
+  for (const label of unique) {
+    join(`label:${label}`, `spelling:${comparableValue(label)}`);
+    const family = brandFamily?.(label);
+    if (family) join(`label:${label}`, `family:${family}`);
+  }
+  return new Map(unique.map((label) => [label, find(`label:${label}`)]));
+}
+
+/** One entry per brand family on the node, named by its most stocked spelling. */
+function familyBrands(counts: ReadonlyMap<string, number>, families: ReadonlyMap<string, string>): PathConfigBrand[] {
+  const grouped = new Map<string, Array<[string, number]>>();
+  for (const [label, count] of counts) {
+    const family = families.get(label) ?? label;
+    grouped.set(family, [...(grouped.get(family) ?? []), [label, count]]);
+  }
+  return [...grouped.values()]
+    .map((members) => {
+      members.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+      return {
+        name: members[0][0],
+        count: members.reduce((sum, [, count]) => sum + count, 0),
+        spellings: members.map(([label]) => label),
+      };
+    })
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+}
+
+function finalizeNode(node: NodeAccumulator, families: ReadonlyMap<string, string>): PathConfigNode {
+  const brands = familyBrands(node.brands, families);
 
   const attributes: PathConfigAttribute[] = [];
   for (const [key, entry] of node.text) {
@@ -281,7 +357,7 @@ function finalizeNode(node: NodeAccumulator): PathConfigNode {
  * Every leaf and every brand is kept — nothing is capped — because a value missing from the config
  * is a value the agent can never filter on.
  */
-export function buildPathConfig(products: readonly AcsProduct[]): PersonaPathConfig {
+export function buildPathConfig(products: readonly AcsProduct[], options: BuildPathConfigOptions = {}): PersonaPathConfig {
   const nodes = new Map<string, NodeAccumulator>();
   const currencies = new Map<string, number>();
   const inStockIds = new Set<string>();
@@ -358,12 +434,54 @@ export function buildPathConfig(products: readonly AcsProduct[]): PersonaPathCon
   }
 
   const currency = [...currencies.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  const families = brandFamilies(
+    [...nodes.values()].flatMap((node) => [...node.brands.keys()]),
+    options.brandFamily,
+  );
   return {
     version: PATH_CONFIG_VERSION,
     currency,
     catalogLanguage: detectCatalogLanguage(titles),
     inStock: inStockIds.size,
-    nodes: [...nodes.values()].map(finalizeNode).sort((a, b) => a.path.localeCompare(b.path)),
+    nodes: [...nodes.values()].map((node) => finalizeNode(node, families)).sort((a, b) => a.path.localeCompare(b.path)),
+  };
+}
+
+const FIT_VALUE_ATTRIBUTES: ReadonlySet<string> = new Set(FIT_INDEX_ATTRIBUTES);
+
+/**
+ * What `buildPathConfig` reads off one document, kept per store in the ACS mirror so the config is
+ * rebuilt from the database instead of a walk through every store's catalog. Null for a variant,
+ * which the config never counts. A fit value list shrinks to its first value: the config only asks
+ * whether a size chart reached the product.
+ */
+export function pathConfigDocument(product: AcsProduct): AcsProduct | null {
+  if ((product.type ?? "PRIMARY") !== "PRIMARY") return null;
+  const attributes: Record<string, AcsCustomAttribute> = {};
+  for (const [key, attribute] of Object.entries(product.attributes ?? {})) {
+    if (FIT_VALUE_ATTRIBUTES.has(key)) {
+      const first = attribute.text?.find((value) => value.trim());
+      if (first) attributes[key] = { text: [first] };
+    } else if (key === "fit_group" || !EXCLUDED_ATTRIBUTE_KEYS.has(key)) {
+      attributes[key] = attribute;
+    }
+  }
+  const image = product.images?.find((entry) => entry.uri);
+  return {
+    id: product.id,
+    type: "PRIMARY",
+    title: product.title,
+    categories: product.categories ?? [],
+    ...(product.brands ? { brands: product.brands } : {}),
+    ...(product.priceInfo ? { priceInfo: product.priceInfo } : {}),
+    ...(product.availability ? { availability: product.availability } : {}),
+    ...(image ? { images: [image] } : {}),
+    ...(product.colorInfo ? { colorInfo: product.colorInfo } : {}),
+    ...(product.sizes ? { sizes: product.sizes } : {}),
+    ...(product.materials ? { materials: product.materials } : {}),
+    ...(product.patterns ? { patterns: product.patterns } : {}),
+    ...(product.genders ? { genders: product.genders } : {}),
+    attributes,
   };
 }
 

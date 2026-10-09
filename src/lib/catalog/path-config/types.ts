@@ -10,8 +10,13 @@ export const PATH_CONFIG_VERSION = 1;
 export type PathConfigNodeLevel = "department" | "category" | "leaf";
 
 export interface PathConfigBrand {
+  /** The spelling the agents read: the one most products on this path carry. */
   name: string;
   count: number;
+  /** Every stored spelling of this brand on the path ("Tom Tailor Men", "tom tailor"). ACS matches
+   *  brands exactly, so a brand filter sends all of them. Absent on configs built before brands
+   *  were grouped, where `name` is the only spelling. */
+  spellings?: string[];
 }
 
 export interface PathConfigTier {

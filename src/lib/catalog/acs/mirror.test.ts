@@ -49,6 +49,7 @@ let mirror: typeof import("./mirror");
 const connectionIdFromAcsId = (id: string) => mirror.connectionIdFromAcsId(id);
 const mirrorImported = (...args: Parameters<typeof mirror.mirrorImported>) => mirror.mirrorImported(...args);
 const readMirrorPage = (...args: Parameters<typeof mirror.readMirrorPage>) => mirror.readMirrorPage(...args);
+const readMirrorDocuments = (...args: Parameters<typeof mirror.readMirrorDocuments>) => mirror.readMirrorDocuments(...args);
 const reconcileMirror = (...args: Parameters<typeof mirror.reconcileMirror>) => mirror.reconcileMirror(...args);
 
 const STORE = "dab4cb95-d31a-4f56-8e8e-499ccf6d7d96";
@@ -151,6 +152,61 @@ describe("mirror writes", () => {
 
     const [[, rows]] = opsOf("acs_catalog_mirror", "upsert") as Array<[string, Array<Record<string, unknown>>]>;
     expect(rows[0]).toMatchObject({ acs_id: `${STORE}_1::v1`, primary_id: `${STORE}_1`, product_type: "VARIANT" });
+  });
+
+  it("keeps a path-config document for each parent, and none for a variant", async () => {
+    await mirrorImported([
+      product("1", { type: "PRIMARY", colorInfo: { colors: ["Black"] }, description: "Long copy" }),
+      product("1::v1", { type: "VARIANT", primaryProductId: `${STORE}_1` }),
+    ]);
+
+    const [[, rows]] = opsOf("acs_catalog_mirror", "upsert") as Array<[string, Array<{ document: AcsProduct | null }>]>;
+    expect(rows[0].document).toMatchObject({ id: `${STORE}_1`, colorInfo: { colors: ["Black"] }, brands: ["Tom Tailor"] });
+    expect(rows[0].document).not.toHaveProperty("description");
+    expect(rows[1].document).toBeNull();
+  });
+});
+
+describe("readMirrorDocuments", () => {
+  const trusted = () => ({ data: { complete_at: new Date().toISOString() } });
+
+  it("returns a store's in-stock parents, with availability from its column", async () => {
+    const document = { id: `${STORE}_1`, type: "PRIMARY", title: "Tee", categories: [] };
+    answer = (call) =>
+      call.table === "acs_catalog_mirror_state" ? trusted() : { data: [{ availability: "IN_STOCK", document }] };
+
+    expect(await readMirrorDocuments(STORE)).toEqual([{ ...document, availability: "IN_STOCK" }]);
+    expect(opsOf("acs_catalog_mirror", "eq")).toEqual([
+      ["eq", "connection_id", STORE],
+      ["eq", "product_type", "PRIMARY"],
+      ["eq", "availability", "IN_STOCK"],
+    ]);
+  });
+
+  it("pages past a thousand rows", async () => {
+    const page = (offset: number, size: number) =>
+      Array.from({ length: size }, (_, index) => ({ availability: "IN_STOCK", document: { id: `${offset + index}` } }));
+    answer = (call) => {
+      if (call.table === "acs_catalog_mirror_state") return trusted();
+      const [, from] = call.ops.find((op) => op[0] === "range") as [string, number, number];
+      return { data: from === 0 ? page(0, 1000) : page(1000, 3) };
+    };
+
+    expect(await readMirrorDocuments(STORE)).toHaveLength(1003);
+    expect(opsOf("acs_catalog_mirror", "range")).toEqual([["range", 0, 999], ["range", 1000, 1999]]);
+  });
+
+  it("refuses an untrusted or long-unreconciled mirror, and rows written before documents were kept", async () => {
+    answer = (call) => (call.table === "acs_catalog_mirror_state" ? { data: { complete_at: null } } : { data: [] });
+    expect(await readMirrorDocuments(STORE)).toBeNull();
+
+    const old = new Date(Date.now() - 7 * 60 * 60_000).toISOString();
+    answer = (call) => (call.table === "acs_catalog_mirror_state" ? { data: { complete_at: old } } : { data: [] });
+    expect(await readMirrorDocuments(STORE)).toBeNull();
+
+    answer = (call) =>
+      call.table === "acs_catalog_mirror_state" ? trusted() : { data: [{ availability: "IN_STOCK", document: null }] };
+    expect(await readMirrorDocuments(STORE)).toBeNull();
   });
 });
 

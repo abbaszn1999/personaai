@@ -202,6 +202,21 @@ export function resolveChartBrandKey(
   return mapping.privateAliases?.[normalized]?.canonicalKey ?? normalized;
 }
 
+/**
+ * The brand a store label is one spelling of, for shopping: the key the store's confirmed global
+ * aliases or its private grouping files it under ("Tom Tailor Men" and "tom tailor" are
+ * `tom_tailor`). Null when nobody grouped the label.
+ */
+export function brandFamilyKey(label: string, mapping: StoreBrandMapping): string | null {
+  const rawKey = normalizeBrandKey(label);
+  if (!rawKey || rawKey === UNKNOWN_BRAND_KEY) return null;
+  return (
+    (mapping.confirmedAt ? mapping.aliases[rawKey]?.canonicalKey : undefined) ??
+    mapping.privateAliases[rawKey]?.canonicalKey ??
+    null
+  );
+}
+
 /** The display name that goes with `resolveChartBrandKey`, when a grouping supplied one. */
 export function resolveChartBrandName(
   rawKey: string,

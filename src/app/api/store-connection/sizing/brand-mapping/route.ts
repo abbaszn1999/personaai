@@ -3,6 +3,7 @@ import {
   getStoreConnectionByOwner,
   updateSizingBrandMapping,
 } from "@/lib/db/store-connections";
+import { markPathConfigStale } from "@/lib/catalog/path-config/rebuild";
 import { refuseDuringSetupReset } from "@/lib/catalog/setup-reset-guard";
 import { listSizingCoverage } from "@/lib/db/sizing-coverage";
 import { listSharedChartBrandKeys } from "@/lib/db/sizing-charts";
@@ -95,6 +96,8 @@ export async function PUT(request: Request) {
 
     const updated = await updateSizingBrandMapping(user.id, mapping);
     if (!updated) return Response.json({ error: "Could not save brand mapping" }, { status: 500 });
+    // The agents' path config groups brands by this mapping.
+    await markPathConfigStale(updated.id);
 
     return Response.json(await stateFor(updated));
   } catch (error) {
