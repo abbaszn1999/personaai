@@ -4,6 +4,8 @@ import { DELETE, PATCH, sanitizeStyleGuide } from "./route";
 import { STYLE_GUIDE_MAX_LENGTH } from "@/modules/store/types";
 import { MAPPER_VERSION } from "@/lib/catalog/acs/map-product";
 import { EMPTY_ACS_MAPPING } from "@/lib/catalog/acs-mapping";
+import { IDLE_SETUP_RESET } from "@/lib/catalog/setup-reset-state";
+import { IDLE_AUTO_MATCH } from "@/lib/catalog/auto-match-state";
 import type { StoreConnectionRow } from "@/lib/db/store-connections";
 
 vi.mock("@/modules/auth/lib/get-user", () => ({
@@ -52,6 +54,7 @@ function baseRow(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRo
     personaCategoryMap: {},
     personaMappingUpdatedAt: null,
     personaAutoMatchCompletedAt: null,
+    autoMatchJob: IDLE_AUTO_MATCH,
     storeSizeSettings: { default: "Alpha", overrides: {} },
     productCount: 0,
     syncedAt: null,
@@ -65,7 +68,7 @@ function baseRow(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRo
     acsMapperVersionApproved: null,
     acsFieldMapping: EMPTY_ACS_MAPPING,
     sizingSource: "ai_pipeline",
-    sizingBrandMapping: { version: 1, confirmedAt: null, sourceFingerprint: "", observed: {}, aliases: {} },
+    sizingBrandMapping: { version: 1, confirmedAt: null, sourceFingerprint: "", observed: {}, aliases: {}, privateAliases: {} },
     sizingStagesSkippedAt: null,
     acsFieldOverridesApprovedHash: null,
     cmsColumnDiscoveryStatus: "idle",
@@ -76,6 +79,7 @@ function baseRow(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRo
     cmsColumnDiscoveryUpdatedAt: null,
     ordersAccess: null,
     storeCurrency: null,
+    setupReset: IDLE_SETUP_RESET,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides,

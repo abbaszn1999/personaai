@@ -1,5 +1,9 @@
 import type { Audience } from "./keys";
-import { leafLabel } from "@/modules/store/mapping/persona-taxonomy";
+import {
+  ALL_PERSONA_LEAF_KEYS,
+  leafDisplayName,
+  PERSONA_DEPARTMENTS,
+} from "@/modules/store/mapping/persona-taxonomy";
 import { audienceForPersonaPath, leafOfPersonaPath } from "./variant-match";
 
 interface CoveragePath {
@@ -54,7 +58,7 @@ export function manualChartAudiences(leaves: readonly string[]): Audience[] {
 export function suggestChartName(leaves: readonly string[]): string {
   const byDepartment = new Map<string, string[]>();
   for (const leaf of leaves) {
-    const [label, sub] = leafLabel(leaf).split(" · ");
+    const [label, sub] = leafDisplayName(leaf).split(" · ");
     if (!label || !sub) continue;
     const subs = byDepartment.get(label) ?? [];
     if (!subs.includes(sub)) subs.push(sub);
@@ -68,6 +72,34 @@ export function suggestChartName(leaves: readonly string[]): string {
       return `${department} - ${shown}${sorted.length > 3 ? ` +${sorted.length - 3}` : ""}`;
     })
     .join(" / ");
+}
+
+export interface DepartmentLeaves {
+  departmentId: string;
+  audience: Audience;
+  /** Every leaf of this department the dialog lists, in taxonomy order. */
+  leaves: string[];
+  /** The ones still without a chart. */
+  open: string[];
+}
+
+/**
+ * The Fill chart dialog's first screen: one entry per department the brand stocks in this group.
+ *
+ * A chart is one body block, so it is filled one department at a time; a merchant picks Women, then
+ * the women's subcategories that one printed table fits.
+ */
+export function departmentLeaves(leaves: readonly string[], charted: ReadonlySet<string>): DepartmentLeaves[] {
+  const order = new Map(ALL_PERSONA_LEAF_KEYS.map((leaf, index) => [leaf, index]));
+  const unique = [...new Set(leaves)].filter(isPersonaLeaf);
+  return PERSONA_DEPARTMENTS.flatMap((dept) => {
+    const own = unique
+      .filter((leaf) => leaf.startsWith(`${dept.id}:`))
+      .sort((a, b) => (order.get(a) ?? Infinity) - (order.get(b) ?? Infinity) || a.localeCompare(b));
+    const audience = audienceForPersonaPath(`${dept.id}:`);
+    if (own.length === 0 || !audience) return [];
+    return [{ departmentId: dept.id, audience, leaves: own, open: own.filter((leaf) => !charted.has(leaf)) }];
+  });
 }
 
 function isPersonaLeaf(categoryId: string): boolean {

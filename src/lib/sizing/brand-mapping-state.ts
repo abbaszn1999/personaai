@@ -20,20 +20,25 @@ export interface BrandMappingState {
   brands: DiscoveredBrand[];
   groups: BrandMappingGroup[];
   targets: CanonicalBrandTarget[];
+  /** The store's own labels. Grouping them is optional and never blocks `ready`. */
+  privateBrands: DiscoveredBrand[];
+  privateGroups: BrandMappingGroup[];
 }
 
-function discoveredGlobalBrands(
+function discoveredBrands(
   coverage: readonly SizingCoverageRow[],
   mapping: StoreBrandMapping,
+  brandType: "global" | "private",
 ): DiscoveredBrand[] {
   const aggregate = new Map<string, DiscoveredBrand>();
+  const aliases = brandType === "global" ? mapping.aliases : mapping.privateAliases;
 
   for (const row of coverage) {
-    if (row.brandType !== "global" || !row.brandKey) continue;
+    if (row.brandType !== brandType || !row.brandKey) continue;
 
     const current = aggregate.get(row.brandKey) ?? {
       rawKey: row.brandKey,
-      labels: mapping.observed[row.brandKey] ?? mapping.aliases[row.brandKey]?.labels ?? [],
+      labels: mapping.observed[row.brandKey] ?? aliases[row.brandKey]?.labels ?? [],
       skuCount: 0,
       sizingCategories: [],
     };
@@ -59,7 +64,7 @@ function discoveredGlobalBrands(
 }
 
 function groupsFromConfirmed(
-  mapping: StoreBrandMapping,
+  aliases: StoreBrandMapping["aliases"],
   brands: readonly DiscoveredBrand[],
   targets: readonly CanonicalBrandTarget[],
 ): BrandMappingGroup[] {
@@ -68,7 +73,7 @@ function groupsFromConfirmed(
   const grouped = new Map<string, BrandMappingGroup>();
   const assigned = new Set<string>();
 
-  for (const [rawKey, alias] of Object.entries(mapping.aliases)) {
+  for (const [rawKey, alias] of Object.entries(aliases)) {
     if (!expected.has(rawKey)) continue;
     assigned.add(rawKey);
     const group = grouped.get(alias.canonicalKey);
@@ -103,7 +108,8 @@ export function buildBrandMappingState(input: {
 }): BrandMappingState {
   const { coverage } = input;
   const mapping = parseStoreBrandMapping(input.mapping);
-  const brands = discoveredGlobalBrands(coverage, mapping);
+  const brands = discoveredBrands(coverage, mapping, "global");
+  const privateBrands = discoveredBrands(coverage, mapping, "private");
   const knownNames = new Map<string, string>();
   for (const alias of Object.values(mapping.aliases)) knownNames.set(alias.canonicalKey, alias.canonicalName);
   for (const row of coverage) {
@@ -122,8 +128,18 @@ export function buildBrandMappingState(input: {
     .sort((a, b) => a.canonicalName.localeCompare(b.canonicalName));
 
   const groups = mapping.confirmedAt
-    ? groupsFromConfirmed(mapping, brands, targets)
+    ? groupsFromConfirmed(mapping.aliases, brands, targets)
     : suggestBrandMappingGroups(brands, targets);
+  // Private labels suggest only among themselves: a store's own label is never a registry brand,
+  // so "Moustache Men" folds into "Moustache" when the store also files plain "Moustache".
+  const privateTargets = privateBrands.map((brand) => ({
+    canonicalKey: brand.rawKey,
+    canonicalName: brand.labels[0] ?? brandDisplayNameFromKey(brand.rawKey),
+    shared: false,
+  }));
+  const privateGroups = Object.keys(mapping.privateAliases).length > 0
+    ? groupsFromConfirmed(mapping.privateAliases, privateBrands, privateTargets)
+    : suggestBrandMappingGroups(privateBrands, privateTargets);
   const fingerprint = brandSourceFingerprint(brands.map((brand) => brand.rawKey));
   const assigned = new Set(Object.keys(mapping.aliases));
   const complete = brands.every((brand) => assigned.has(brand.rawKey));
@@ -141,5 +157,7 @@ export function buildBrandMappingState(input: {
     brands,
     groups,
     targets,
+    privateBrands,
+    privateGroups,
   };
 }

@@ -110,65 +110,67 @@ Leaf identity is always `department:category:leaf`.
 
 ### Women
 
-- `women:top:*`: `t-shirt`, `shirt`, `blouse`, `camisole`, `tank-top`, `crop-top`, `bodysuit`,
-  `knit`, `sweater`, `hoodie`, `sweatshirt`, `tunic`, `activewear-top`, `swim-top`, `sleep-top`,
-  `bra`
-- `women:bottom:*`: `trouser`, `jean`, `skirt`, `short`, `legging`, `culotte`,
-  `activewear-bottom`, `swim-bottom`, `sleep-bottom`
-- `women:full-body:*`: `dress`, `gown`, `jumpsuit`, `romper`, `kaftan`, `abaya`, `swimsuit`, `set`,
+Taxonomy version 4. A leaf stands for every garment folded into it (listed in `LEAF_MERGES_V4` in
+`persona-taxonomy.ts`): claim `shirt` for a table headed Blouses, `jacket` for Coats, `trouser` for
+Chinos or Joggers, and so on. Never write a removed leaf into `coversLeaves`.
+
+- `women:top:*`: `t-shirt` (camisole, tank-top, crop-top, tunic, bodysuit), `shirt` (blouse),
+  `knit` (sweater), `hoodie` (sweatshirt), `activewear-top`, `swim-top`, `sleep-top`, `bra`
+- `women:bottom:*`: `trouser` (culotte), `jean`, `skirt`, `short`, `legging` (activewear-bottom),
+  `swim-bottom`, `sleep-bottom`
+- `women:full-body:*`: `dress` (gown), `jumpsuit` (romper), `kaftan` (abaya), `set`, `swimsuit`,
   `sleepwear-set`
-- `women:outerwear:*`: `blazer`, `jacket`, `coat`, `trench`, `cardigan`, `vest`, `kimono`,
+- `women:outerwear:*`: `jacket` (coat, trench, vest, kimono), `blazer`, `cardigan`,
   `activewear-jacket`
-- `women:footwear:*`: `heel`, `flat`, `sneaker`, `boot`, `sandal`, `loafer`, `mule`, `wedge`,
-  `slipper`, `sock`
+- `women:footwear:*`: `sneaker`, `boot`, `sandal`, `heel` (flat, loafer, mule, wedge), `slipper`,
+  `sock`
 
 ### Men
 
-- `men:top:*`: `t-shirt`, `shirt`, `polo-shirt`, `knit`, `sweater`, `hoodie`, `sweatshirt`,
+- `men:top:*`: `t-shirt`, `polo-shirt`, `shirt`, `knit` (sweater), `hoodie` (sweatshirt),
   `activewear-top`, `sleep-top`
-- `men:bottom:*`: `trouser`, `jean`, `chino`, `short`, `jogger`, `activewear-bottom`,
-  `swim-short`, `sleep-bottom`
-- `men:full-body:*`: `suit`, `jumpsuit`, `thobe`, `overall`, `set`, `sleepwear-set`
-- `men:outerwear:*`: `blazer`, `suit-jacket`, `jacket`, `coat`, `cardigan`, `gilet`,
+- `men:bottom:*`: `trouser` (chino, jogger), `jean`, `short`, `activewear-bottom`, `swim-short`,
+  `sleep-bottom`
+- `men:full-body:*`: `suit`, `jumpsuit` (overall), `thobe`, `set`, `sleepwear-set`
+- `men:outerwear:*`: `jacket` (coat, gilet), `blazer` (suit-jacket), `cardigan`,
   `activewear-jacket`
-- `men:footwear:*`: `sneaker`, `dress-shoe`, `boot`, `loafer`, `sandal`, `espadrille`, `slipper`,
+- `men:footwear:*`: `sneaker`, `boot`, `sandal` (espadrille), `dress-shoe` (loafer), `slipper`,
   `sock`
 
 ### Adult Unisex
 
-- `unisex:top:*`: `t-shirt`, `shirt`, `knit`, `sweater`, `hoodie`, `sweatshirt`, `activewear-top`
-- `unisex:bottom:*`: `trouser`, `jean`, `short`, `jogger`, `activewear-bottom`
-- `unisex:full-body:*`: `jumpsuit`, `overall`, `set`
-- `unisex:outerwear:*`: `jacket`, `coat`, `cardigan`, `gilet`
-- `unisex:footwear:*`: `sneaker`, `boot`, `sandal`, `slide`, `slipper`, `sock`
+- `unisex:top:*`: `t-shirt`, `shirt`, `knit` (sweater), `hoodie` (sweatshirt), `activewear-top`
+- `unisex:bottom:*`: `trouser` (jogger), `jean`, `short`, `activewear-bottom`
+- `unisex:full-body:*`: `jumpsuit` (overall), `set`
+- `unisex:outerwear:*`: `jacket` (coat, gilet), `cardigan`
+- `unisex:footwear:*`: `sneaker`, `boot`, `sandal` (slide), `slipper`, `sock`
 
 ### Kids Boys
 
-- `kids-boys:top:*`: `t-shirt`, `shirt`, `knit`, `hoodie`, `sweatshirt`, `bodysuit`,
+- `kids-boys:top:*`: `t-shirt`, `shirt`, `knit`, `hoodie` (sweatshirt), `bodysuit`,
   `activewear-top`, `sleep-top`
-- `kids-boys:bottom:*`: `trouser`, `jean`, `short`, `legging`, `jogger`, `swim-short`,
-  `sleep-bottom`
-- `kids-boys:full-body:*`: `romper`, `all-in-one`, `sleepsuit`, `set`, `swimsuit`, `bathrobe`
-- `kids-boys:outerwear:*`: `jacket`, `coat`, `cardigan`, `snowsuit`, `pramsuit`
-- `kids-boys:footwear:*`: `sneaker`, `shoe`, `boot`, `sandal`, `bootie`, `slipper`, `sock`
+- `kids-boys:bottom:*`: `trouser` (jean, jogger), `short`, `legging`, `swim-short`, `sleep-bottom`
+- `kids-boys:full-body:*`: `romper` (all-in-one), `sleepsuit`, `set`, `swimsuit`, `bathrobe`
+- `kids-boys:outerwear:*`: `jacket` (coat), `cardigan`, `snowsuit` (pramsuit)
+- `kids-boys:footwear:*`: `shoe` (sneaker), `boot`, `sandal`, `bootie`, `slipper`, `sock`
 
 ### Kids Girls
 
-- `kids-girls:top:*`: `t-shirt`, `shirt`, `blouse`, `knit`, `hoodie`, `sweatshirt`, `bodysuit`,
-  `activewear-top`, `sleep-top`
-- `kids-girls:bottom:*`: `trouser`, `jean`, `skirt`, `short`, `legging`, `jogger`, `sleep-bottom`
-- `kids-girls:full-body:*`: `dress`, `romper`, `all-in-one`, `sleepsuit`, `set`, `swimsuit`,
+- `kids-girls:top:*`: `t-shirt`, `shirt` (blouse), `knit`, `hoodie` (sweatshirt), `bodysuit`,
+  `activewear-top`, `sleep-top`, `bra`
+- `kids-girls:bottom:*`: `trouser` (jean, jogger), `skirt`, `short`, `legging`, `sleep-bottom`
+- `kids-girls:full-body:*`: `dress`, `romper` (all-in-one), `sleepsuit`, `set`, `swimsuit`,
   `bathrobe`
-- `kids-girls:outerwear:*`: `jacket`, `coat`, `cardigan`, `snowsuit`, `pramsuit`
-- `kids-girls:footwear:*`: `sneaker`, `shoe`, `boot`, `sandal`, `bootie`, `slipper`, `sock`
+- `kids-girls:outerwear:*`: `jacket` (coat), `cardigan`, `snowsuit` (pramsuit)
+- `kids-girls:footwear:*`: `shoe` (sneaker), `boot`, `sandal`, `bootie`, `slipper`, `sock`
 
 ### Kids Unisex
 
-- `kids-unisex:top:*`: `t-shirt`, `shirt`, `knit`, `hoodie`, `sweatshirt`, `bodysuit`, `sleep-top`
-- `kids-unisex:bottom:*`: `trouser`, `jean`, `short`, `legging`, `jogger`, `sleep-bottom`
-- `kids-unisex:full-body:*`: `romper`, `all-in-one`, `sleepsuit`, `set`, `swimsuit`, `bathrobe`
-- `kids-unisex:outerwear:*`: `jacket`, `coat`, `cardigan`, `snowsuit`, `pramsuit`
-- `kids-unisex:footwear:*`: `sneaker`, `shoe`, `boot`, `sandal`, `bootie`, `slipper`, `sock`
+- `kids-unisex:top:*`: `t-shirt`, `shirt`, `knit`, `hoodie` (sweatshirt), `bodysuit`, `sleep-top`
+- `kids-unisex:bottom:*`: `trouser` (jean, jogger), `short`, `legging`, `sleep-bottom`
+- `kids-unisex:full-body:*`: `romper` (all-in-one), `sleepsuit`, `set`, `swimsuit`, `bathrobe`
+- `kids-unisex:outerwear:*`: `jacket` (coat), `cardigan`, `snowsuit` (pramsuit)
+- `kids-unisex:footwear:*`: `shoe` (sneaker), `boot`, `sandal`, `bootie`, `slipper`, `sock`
 
 Whenever `persona-taxonomy.ts` changes, update this snapshot and every affected seed audit.
 

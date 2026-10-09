@@ -45,6 +45,34 @@ export function buildAcsProductId(connectionId: string, externalId: string): str
   return `${connectionId}_${externalId}`;
 }
 
+const CONNECTION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Required before anything deletes by connection. Every ownership test below compares against this
+ * id, and an empty or malformed one (an unset variable, a truncated value) must stop the delete
+ * rather than match whatever it happens to match.
+ */
+export function assertConnectionId(connectionId: unknown): asserts connectionId is string {
+  if (typeof connectionId !== "string" || !CONNECTION_ID_PATTERN.test(connectionId)) {
+    throw new Error(`Refusing to act on a malformed connection id: "${String(connectionId)}"`);
+  }
+}
+
+/**
+ * Whether a document in the shared catalog belongs to this store, for deleting it. The `merchant_id`
+ * tag decides whenever a document carries one, so a document tagged for any other store is never
+ * this store's, whatever its id says. The id prefix only decides for older documents written
+ * without the tag.
+ */
+export function ownsAcsProduct(
+  connectionId: string,
+  product: { id: string; attributes?: { [MERCHANT_ID_ATTRIBUTE]?: { text?: string[] } } },
+): boolean {
+  const merchantIds = product.attributes?.[MERCHANT_ID_ATTRIBUTE]?.text ?? [];
+  if (merchantIds.length > 0) return merchantIds.every((id) => id === connectionId);
+  return product.id.startsWith(`${connectionId}_`);
+}
+
 export function parseAcsProductId(acsId: string): { connectionId: string; externalId: string } {
   const connectionId = acsId.slice(0, CONNECTION_ID_LENGTH);
   const externalId = acsId.slice(CONNECTION_ID_LENGTH + 1);

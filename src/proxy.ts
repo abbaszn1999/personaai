@@ -37,7 +37,6 @@ const APP_ROOTS = new Set([
   "sign-up",
   "forgot-password",
   "onboarding",
-  "try-on",
   "branding",
   "preview",
   "setup",

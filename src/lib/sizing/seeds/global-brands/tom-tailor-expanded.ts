@@ -60,7 +60,7 @@ const DENIM_WOMEN = [
     scopes: [{
       group: "tops",
       variant: "Denim Female Tops",
-      leaves: ["women:top:t-shirt", "women:top:knit", "women:top:sweater", "women:top:hoodie", "women:top:sweatshirt"],
+      leaves: ["women:top:t-shirt", "women:top:knit", "women:top:hoodie"],
     }],
   }),
   ...sourceCharts({
@@ -75,7 +75,7 @@ const DENIM_WOMEN = [
     bounds: { chest: WOMEN_DENIM_CHEST, waist: WOMEN_DENIM_WAIST, hip: WOMEN_DENIM_HIP },
     applicability: { productLine: "Denim Female", market: "EU" },
     scopes: [
-      { group: "tops", variant: "Denim Female Blouses", leaves: ["women:top:blouse", "women:top:shirt"] },
+      { group: "tops", variant: "Denim Female Blouses", leaves: ["women:top:shirt"] },
       { group: "outerwear", variant: "Denim Female Blazers", leaves: ["women:outerwear:blazer"] },
       { group: "dresses", variant: "Denim Female Dresses", leaves: ["women:full-body:dress"] },
     ],
@@ -131,10 +131,10 @@ const WOMEN_PLUS = sourceCharts({
   },
   applicability: { fitClass: "Plus", market: "EU" },
   scopes: [
-    { group: "tops", variant: "Women Plus Tops", leaves: ["women:top:t-shirt","women:top:shirt","women:top:blouse","women:top:knit","women:top:sweater","women:top:hoodie","women:top:sweatshirt"] },
+    { group: "tops", variant: "Women Plus Tops", leaves: ["women:top:t-shirt","women:top:shirt","women:top:knit","women:top:hoodie"] },
     { group: "bottoms", variant: "Women Plus Bottoms", leaves: ["women:bottom:trouser","women:bottom:jean","women:bottom:skirt","women:bottom:short"] },
     { group: "dresses", variant: "Women Plus Dresses", leaves: ["women:full-body:dress"] },
-    { group: "outerwear", variant: "Women Plus Outerwear", leaves: ["women:outerwear:blazer","women:outerwear:jacket","women:outerwear:coat"] },
+    { group: "outerwear", variant: "Women Plus Outerwear", leaves: ["women:outerwear:blazer","women:outerwear:jacket"] },
   ],
 });
 
@@ -166,11 +166,7 @@ const MEN_FIT = [
       inseam: [[78.5,79.5],[79.5,81],[81.5,82.5],[82.5,84],[84.5,85.5],[85.5,87],[87.5,88.5],[88.5,90]],
     },
     applicability: { productLine: "American size", market: "EU" },
-    scopes: [{
-      group: "bottoms",
-      variant: "Men Trousers American",
-      leaves: ["men:bottom:trouser","men:bottom:chino","men:bottom:short","men:bottom:swim-short"],
-    }],
+    scopes: [{ group: "bottoms", variant: "Men Trousers American", leaves: ["men:bottom:trouser","men:bottom:short"] }],
   }),
   ...sourceCharts({
     sourceTableId: "men-plus-tops",
@@ -184,7 +180,7 @@ const MEN_FIT = [
       hip: [[121,128],[129,136],[137,144],[145,152]],
     },
     applicability: { fitClass: "Plus", market: "EU" },
-    scopes: [{ group: "tops", variant: "Men Plus Tops", leaves: ["men:top:t-shirt","men:top:shirt","men:top:polo-shirt","men:top:knit","men:top:sweater","men:top:hoodie","men:top:sweatshirt"] }],
+    scopes: [{ group: "tops", variant: "Men Plus Tops", leaves: ["men:top:t-shirt","men:top:shirt","men:top:polo-shirt","men:top:knit","men:top:hoodie"] }],
   }),
   ...sourceCharts({
     sourceTableId: "men-plus-trousers-jeans",
@@ -212,15 +208,15 @@ const GIRLS = [
     sourceTableId: "girls-tops", title: "Girls: T-Shirts, Tops, Knit & Sweats", audience: "girls",
     sizes: GIRL_TEEN_SIZES, aliases: { eu: GIRL_TEEN_SIZES, age: GIRL_TEEN_AGE },
     bounds: { chest: GIRL_CHEST, waist: GIRL_WAIST }, applicability: { ageBand: { minMonths: 84, maxMonths: 218, label: "Girls" }, market: "EU" },
-    scopes: [{ group: "tops", variant: "Girls Tops", leaves: ["kids-girls:top:t-shirt","kids-girls:top:shirt","kids-girls:top:knit","kids-girls:top:hoodie","kids-girls:top:sweatshirt"] }],
+    scopes: [{ group: "tops", variant: "Girls Tops", leaves: ["kids-girls:top:t-shirt","kids-girls:top:shirt","kids-girls:top:knit","kids-girls:top:hoodie"] }],
   }),
   ...sourceCharts({
     sourceTableId: "girls-jackets-coats-blouses-blazers-dresses", title: "Girls: Jackets, Coats, Blouses, Blazers & Dresses", audience: "girls",
     sizes: GIRL_TEEN_SIZES, aliases: { eu: GIRL_TEEN_SIZES, age: GIRL_TEEN_AGE },
     bounds: { chest: GIRL_CHEST, waist: GIRL_WAIST, hip: GIRL_HIP }, applicability: { ageBand: { minMonths: 84, maxMonths: 218, label: "Girls" }, market: "EU" },
     scopes: [
-      { group: "tops", variant: "Girls Blouses", leaves: ["kids-girls:top:blouse"] },
-      { group: "outerwear", variant: "Girls Jackets & Coats", leaves: ["kids-girls:outerwear:jacket","kids-girls:outerwear:coat"] },
+      { group: "tops", variant: "Girls Blouses", leaves: ["kids-girls:top:shirt"] },
+      { group: "outerwear", variant: "Girls Jackets & Coats", leaves: ["kids-girls:outerwear:jacket"] },
       { group: "dresses", variant: "Girls Dresses", leaves: ["kids-girls:full-body:dress"] },
     ],
   }),
@@ -229,7 +225,7 @@ const GIRLS = [
     sizes: GIRL_TEEN_SIZES, aliases: { eu: GIRL_TEEN_SIZES, age: GIRL_TEEN_AGE },
     bounds: { waist: GIRL_WAIST, hip: GIRL_HIP, inseam: [[57,60.5],[61,64],[64.5,67],[67.5,69],[69.5,72.5],[73,75.5],[76,78.5],[79,81],[81.5,83.5],[84,87]] },
     applicability: { ageBand: { minMonths: 84, maxMonths: 218, label: "Girls" }, market: "EU" },
-    scopes: [{ group: "bottoms", variant: "Girls Trousers & Jeans", leaves: ["kids-girls:bottom:trouser","kids-girls:bottom:jean"] }],
+    scopes: [{ group: "bottoms", variant: "Girls Trousers & Jeans", leaves: ["kids-girls:bottom:trouser"] }],
   }),
 ];
 
@@ -247,7 +243,7 @@ const MINI_GIRLS = [
     applicability: { ageBand: { minMonths: 18, maxMonths: 108, label: "Mini Girls" }, market: "EU" },
     scopes: [
       { group: "dresses", variant: "Mini Girls Woven Dresses", leaves: ["kids-girls:full-body:dress"] },
-      { group: "outerwear", variant: "Mini Girls Coats", leaves: ["kids-girls:outerwear:coat"] },
+      { group: "outerwear", variant: "Mini Girls Coats", leaves: ["kids-girls:outerwear:jacket"] },
     ],
   }),
   ...sourceCharts({
@@ -255,7 +251,7 @@ const MINI_GIRLS = [
     sizes: MINI_GIRL_SIZES, aliases: { eu: MINI_GIRL_SIZES, age: MINI_GIRL_AGE },
     bounds: { waist: MINI_GIRL_WAIST, hip: MINI_GIRL_HIP, inseam: [[35,38],[38.5,41.5],[42,45],[45.5,48.5],[49,52.5],[53,56.5],[57,60.5],[61,64]] },
     applicability: { ageBand: { minMonths: 18, maxMonths: 108, label: "Mini Girls" }, market: "EU" },
-    scopes: [{ group: "bottoms", variant: "Mini Girls Trousers & Jeans", leaves: ["kids-girls:bottom:trouser","kids-girls:bottom:jean"] }],
+    scopes: [{ group: "bottoms", variant: "Mini Girls Trousers & Jeans", leaves: ["kids-girls:bottom:trouser"] }],
   }),
   ...sourceCharts({
     sourceTableId: "mini-girls-skirts", title: "Mini Girls: Skirts", audience: "girls",
@@ -275,20 +271,20 @@ const BOYS = [
     sourceTableId: "boys-tops", title: "Boys: T-Shirts, Knits & Sweats", audience: "boys",
     sizes: GIRL_TEEN_SIZES, aliases: { eu: GIRL_TEEN_SIZES, age: GIRL_TEEN_AGE },
     bounds: { chest: BOY_TEEN_CHEST, waist: BOY_TEEN_WAIST }, applicability: { ageBand: { minMonths: 84, maxMonths: 218, label: "Boys" }, market: "EU" },
-    scopes: [{ group: "tops", variant: "Boys Tops", leaves: ["kids-boys:top:t-shirt","kids-boys:top:knit","kids-boys:top:hoodie","kids-boys:top:sweatshirt"] }],
+    scopes: [{ group: "tops", variant: "Boys Tops", leaves: ["kids-boys:top:t-shirt","kids-boys:top:knit","kids-boys:top:hoodie"] }],
   }),
   ...sourceCharts({
     sourceTableId: "boys-jackets", title: "Boys: Jackets", audience: "boys",
     sizes: GIRL_TEEN_SIZES, aliases: { eu: GIRL_TEEN_SIZES, age: GIRL_TEEN_AGE },
     bounds: { chest: BOY_TEEN_CHEST, waist: BOY_TEEN_WAIST, hip: BOY_TEEN_HIP }, applicability: { ageBand: { minMonths: 84, maxMonths: 218, label: "Boys" }, market: "EU" },
-    scopes: [{ group: "outerwear", variant: "Boys Jackets", leaves: ["kids-boys:outerwear:jacket","kids-boys:outerwear:coat"] }],
+    scopes: [{ group: "outerwear", variant: "Boys Jackets", leaves: ["kids-boys:outerwear:jacket"] }],
   }),
   ...sourceCharts({
     sourceTableId: "boys-trousers-jeans", title: "Boys: Trousers & Jeans", audience: "boys",
     sizes: GIRL_TEEN_SIZES, aliases: { eu: GIRL_TEEN_SIZES, age: GIRL_TEEN_AGE },
     bounds: { waist: BOY_TEEN_WAIST, hip: BOY_TEEN_HIP, inseam: [[58,60.5],[61,63.5],[64,66.5],[67,69.5],[70,72.5],[73,75.5],[76,78.5],[79,81.5],[82,84.5],[85,87.5]] },
     applicability: { ageBand: { minMonths: 84, maxMonths: 218, label: "Boys" }, market: "EU" },
-    scopes: [{ group: "bottoms", variant: "Boys Trousers & Jeans", leaves: ["kids-boys:bottom:trouser","kids-boys:bottom:jean"] }],
+    scopes: [{ group: "bottoms", variant: "Boys Trousers & Jeans", leaves: ["kids-boys:bottom:trouser"] }],
   }),
 ];
 
@@ -302,14 +298,14 @@ const MINI_BOYS = [
     sizes: MINI_GIRL_SIZES, aliases: { eu: MINI_GIRL_SIZES, age: MINI_GIRL_AGE },
     bounds: { chest: MINI_BOY_CHEST, waist: MINI_BOY_WAIST, hip: MINI_BOY_HIP },
     applicability: { ageBand: { minMonths: 18, maxMonths: 108, label: "Mini Boys" }, market: "EU" },
-    scopes: [{ group: "outerwear", variant: "Mini Boys Coats", leaves: ["kids-boys:outerwear:coat"] }],
+    scopes: [{ group: "outerwear", variant: "Mini Boys Coats", leaves: ["kids-boys:outerwear:jacket"] }],
   }),
   ...sourceCharts({
     sourceTableId: "mini-boys-trousers-jeans", title: "Mini Boys: Trousers & Jeans", audience: "boys",
     sizes: MINI_GIRL_SIZES, aliases: { eu: MINI_GIRL_SIZES, age: MINI_GIRL_AGE },
     bounds: { waist: MINI_BOY_WAIST, hip: MINI_BOY_HIP, inseam: [[33,36.5],[37,40.5],[41,44.5],[45,48.5],[49,52.5],[53,56.5],[57,60.5],[61,63.5]] },
     applicability: { ageBand: { minMonths: 18, maxMonths: 108, label: "Mini Boys" }, market: "EU" },
-    scopes: [{ group: "bottoms", variant: "Mini Boys Trousers & Jeans", leaves: ["kids-boys:bottom:trouser","kids-boys:bottom:jean"] }],
+    scopes: [{ group: "bottoms", variant: "Mini Boys Trousers & Jeans", leaves: ["kids-boys:bottom:trouser"] }],
   }),
 ];
 
@@ -330,14 +326,14 @@ const REMAINING_OFFICIAL_TABLES = [
       inseam: [[84.5,85],[85.5,86],[86.5,87],[87.5,88],[88.5,89],[89.5,90],[90.5,91]],
     },
     applicability: { fitClass: "Long", market: "EU" },
-    scopes: [{ group: "bottoms", variant: "Men Trousers Long", leaves: ["men:bottom:trouser","men:bottom:chino"] }],
+    scopes: [{ group: "bottoms", variant: "Men Trousers Long", leaves: ["men:bottom:trouser"] }],
   }),
   ...sourceCharts({
     sourceTableId: "mini-girls-tops", title: "Mini Girls: T-Shirts, Tops, Knits & Sweats", audience: "girls",
     sizes: GROUPED_KID_SIZES, aliases: { eu: GROUPED_KID_SIZES, age: GROUPED_KID_AGE },
     bounds: { chest: [[54,55.5],[56,57.5],[58,62],[62.5,68]], waist: [[51,52.5],[53,54.5],[55,57],[57.5,60]] },
     applicability: { ageBand: { minMonths: 18, maxMonths: 108, label: "Mini Girls" }, market: "EU" },
-    scopes: [{ group: "tops", variant: "Mini Girls Tops", leaves: ["kids-girls:top:t-shirt","kids-girls:top:knit","kids-girls:top:hoodie","kids-girls:top:sweatshirt"] }],
+    scopes: [{ group: "tops", variant: "Mini Girls Tops", leaves: ["kids-girls:top:t-shirt","kids-girls:top:knit","kids-girls:top:hoodie"] }],
   }),
   ...sourceCharts({
     sourceTableId: "mini-girls-jackets-blouses-blazers-dresses", title: "Mini Girls: Jackets, Blouses, Blazers & Dresses", audience: "girls",
@@ -349,7 +345,7 @@ const REMAINING_OFFICIAL_TABLES = [
     },
     applicability: { ageBand: { minMonths: 18, maxMonths: 108, label: "Mini Girls" }, market: "EU" },
     scopes: [
-      { group: "tops", variant: "Mini Girls Blouses", leaves: ["kids-girls:top:blouse","kids-girls:top:shirt"] },
+      { group: "tops", variant: "Mini Girls Blouses", leaves: ["kids-girls:top:shirt"] },
       { group: "outerwear", variant: "Mini Girls Jackets & Blazers", leaves: ["kids-girls:outerwear:jacket"] },
       { group: "dresses", variant: "Mini Girls Dresses", leaves: ["kids-girls:full-body:dress"] },
     ],
@@ -363,7 +359,7 @@ const REMAINING_OFFICIAL_TABLES = [
       inseam: [[35,41.5],[42,48.5],[49,56.5],[57,64]],
     },
     applicability: { ageBand: { minMonths: 18, maxMonths: 108, label: "Mini Girls" }, market: "EU" },
-    scopes: [{ group: "bottoms", variant: "Mini Girls Leggings & Jogging", leaves: ["kids-girls:bottom:legging","kids-girls:bottom:jogger"] }],
+    scopes: [{ group: "bottoms", variant: "Mini Girls Leggings & Jogging", leaves: ["kids-girls:bottom:legging","kids-girls:bottom:trouser"] }],
   }),
   ...sourceCharts({
     sourceTableId: "mini-girls-skirts-elastic", title: "Mini Girls: Skirts with elastic waistband", audience: "girls",
@@ -377,7 +373,7 @@ const REMAINING_OFFICIAL_TABLES = [
     sizes: GROUPED_KID_SIZES, aliases: { eu: GROUPED_KID_SIZES, age: GROUPED_KID_AGE },
     bounds: { chest: [[55.5,59],[59.5,63],[63.5,67],[67.5,71]], waist: [[51.5,53],[53.5,55],[55.5,57],[57.5,62]] },
     applicability: { ageBand: { minMonths: 18, maxMonths: 108, label: "Mini Boys" }, market: "EU" },
-    scopes: [{ group: "tops", variant: "Mini Boys Tops", leaves: ["kids-boys:top:t-shirt","kids-boys:top:knit","kids-boys:top:hoodie","kids-boys:top:sweatshirt"] }],
+    scopes: [{ group: "tops", variant: "Mini Boys Tops", leaves: ["kids-boys:top:t-shirt","kids-boys:top:knit","kids-boys:top:hoodie"] }],
   }),
   ...sourceCharts({
     sourceTableId: "mini-boys-shirts-jackets-blazers", title: "Mini Boys: Shirts, Jackets & Blazers", audience: "boys",
@@ -402,7 +398,7 @@ const REMAINING_OFFICIAL_TABLES = [
       inseam: [[33,40.5],[41,48.5],[49,56.5],[57,63.5]],
     },
     applicability: { ageBand: { minMonths: 18, maxMonths: 108, label: "Mini Boys" }, market: "EU" },
-    scopes: [{ group: "bottoms", variant: "Mini Boys Jogging Trousers", leaves: ["kids-boys:bottom:jogger"] }],
+    scopes: [{ group: "bottoms", variant: "Mini Boys Jogging Trousers", leaves: ["kids-boys:bottom:trouser"] }],
   }),
 ];
 

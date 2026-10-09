@@ -233,6 +233,8 @@ export interface SizingRunPatch {
    *  now-running row is indistinguishable from a fresh failure to anything reading the row. */
   error?: string | null;
   publishedAt?: string | null;
+  /** The scan code version and host that ran the scan; see `sizing_runs.scan_worker`. */
+  scanWorker?: string | null;
 }
 
 export async function updateSizingRun(runId: string, patch: SizingRunPatch): Promise<SizingRunRow | null> {
@@ -250,6 +252,7 @@ export async function updateSizingRun(runId: string, patch: SizingRunPatch): Pro
   if (patch.researchForce !== undefined) update.research_force = patch.researchForce;
   if (patch.error !== undefined) update.error = patch.error;
   if (patch.publishedAt !== undefined) update.published_at = patch.publishedAt;
+  if (patch.scanWorker !== undefined) update.scan_worker = patch.scanWorker;
 
   const { data, error } = await db.from("sizing_runs").update(update).eq("id", runId).select("*").maybeSingle();
 
@@ -268,6 +271,19 @@ export async function updateSizingRun(runId: string, patch: SizingRunPatch): Pro
  * transition and exactly one updates a row, so the loser sees no row back and skips the run instead
  * of walking the same catalog a second time.
  */
+/**
+ * False only when the run is known to be gone, which is what Start from scratch does to a store's
+ * runs. A failed read answers true, so a database blip never throws away a finished scan.
+ */
+export async function sizingRunExists(runId: string): Promise<boolean> {
+  const { data, error } = await db.from("sizing_runs").select("id").eq("id", runId).maybeSingle();
+  if (error) {
+    console.error("[db/sizing-runs sizingRunExists]", runId, error);
+    return true;
+  }
+  return data !== null;
+}
+
 export async function claimSizingRun(runId: string): Promise<SizingRunRow | null> {
   const { data, error } = await db
     .from("sizing_runs")

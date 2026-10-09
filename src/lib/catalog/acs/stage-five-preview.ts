@@ -93,9 +93,12 @@ export const PREVIEW_MAX_AGE_MS = 10 * 60_000;
  */
 const INPUT_CHANGE_RAW_MAX_AGE_MS = 6 * 60 * 60_000;
 
+// Persisted, so a restart or a second server instance answers from the last build instead of reading
+// the whole store again. The fingerprint still decides whether that build may be served.
 const snapshots = createSwrCache<GeneratedCatalogSnapshot>({
   name: "stage-five-preview",
   maxEntries: 6,
+  persist: true,
 });
 
 const contextMemo = (() => {

@@ -1,7 +1,13 @@
 import type { CatalogCandidate, CatalogFacets, CategoryPath } from "@/lib/retrieval/types";
 import { deleteProduct, getProduct, listProducts, markOutOfStock, searchProducts, searchProductsRaw } from "./client";
 import { isAcsConfigured } from "./config";
-import { buildAcsProductId, escapeFilterLiteral, merchantFilterClause } from "./isolation";
+import {
+  assertConnectionId,
+  buildAcsProductId,
+  escapeFilterLiteral,
+  merchantFilterClause,
+  ownsAcsProduct,
+} from "./isolation";
 import { toCandidate, toCandidateFromProduct } from "./search-adapter";
 import type { AcsProduct, AcsSearchResultItem } from "./types";
 
@@ -24,6 +30,7 @@ const SYSTEM_VISITOR_ID = "system:catalog-read";
 /** Deletes kept in flight at once during a full-catalog sweep. A few hundred concurrent DELETEs
  *  against one API is a self-inflicted rate limit; a bounded window stays well inside quota. */
 const DELETE_CONCURRENCY = 20;
+const OWNERSHIP_READ_MASK = "id,type,primaryProductId,attributes";
 
 function chunk<T>(items: readonly T[], size: number): T[][] {
   const out: T[][] = [];
@@ -318,29 +325,63 @@ export async function retireStaleAcsProducts(connectionId: string, runId: string
  * `searchProducts`'s mandatory (and here, unwanted) inclusion-scope clause.
  */
 export async function deleteAllAcsProductsForConnection(connectionId: string): Promise<number> {
-  if (!isAcsConfigured()) return 0;
+  const sweep = await sweepAcsProductsForConnection(connectionId);
+  if (!sweep.complete) throw sweep.error ?? new Error("ACS delete sweep stopped early");
+  return sweep.deleted;
+}
+
+/** Where one sweep of a connection's ACS documents ended. */
+export interface AcsConnectionSweep {
+  /** Documents this sweep removed. */
+  deleted: number;
+  /** This connection's documents the sweep found in ACS, removed or not. */
+  found: number;
+  /** Every document found was deleted, or was already gone. */
+  complete: boolean;
+  /** The delete ACS refused, when that is what ended the sweep early. */
+  error?: unknown;
+}
+
+/**
+ * `deleteAllAcsProductsForConnection` in passes that fit a serverless function: no delete batch
+ * starts after `until`, and a refused delete ends the sweep rather than throwing away the count of
+ * what it already removed. The next sweep lists the catalog again and carries on from what is left.
+ * A failed listing still throws, since nothing has been deleted at that point.
+ */
+export async function sweepAcsProductsForConnection(
+  connectionId: string,
+  options: {
+    until?: number;
+    /** Called after every listed page and every deleted batch. */
+    onProgress?: (progress: { deleted: number; found: number }) => Promise<void> | void;
+  } = {},
+): Promise<AcsConnectionSweep> {
+  assertConnectionId(connectionId);
+  if (!isAcsConfigured()) return { deleted: 0, found: 0, complete: true };
 
   // ProductService.ListProducts reads the catalog's source of truth. SearchService was previously
   // used here, but its eventual consistency made a successful disconnect capable of missing
-  // recently imported products. The deterministic id prefix is the primary ownership check;
-  // merchant_id also covers any legacy products that did not use that id convention.
+  // recently imported products. Ownership is `ownsAcsProduct`'s: the merchant_id tag, or the id
+  // prefix for documents written before the tag existed.
   const variantIds = new Set<string>();
   const parentIds = new Set<string>();
   const seenTokens = new Set<string>();
   let pageToken: string | undefined;
 
   do {
-    const response = await listProducts(pageToken);
+    // Only what ownership and the variant-first ordering read: this walks every tenant's documents.
+    const response = await listProducts(pageToken, { readMask: OWNERSHIP_READ_MASK });
     for (const product of response.products ?? []) {
-      const merchantIds = product.attributes?.merchant_id?.text ?? [];
-      if (product.id.startsWith(`${connectionId}_`) || merchantIds.includes(connectionId)) {
+      if (ownsAcsProduct(connectionId, product)) {
         // ACS enforces this dependency: a PRIMARY cannot be deleted while any VARIANT points at it.
-        // Prefer the schema fields and retain the composite-id check for older records written
-        // before `type`/`primaryProductId` were persisted consistently.
+        // `type` decides whenever it is present. ACS fills a PRIMARY's `primaryProductId` with its
+        // own id, so that field marks a variant only when it names another product; it and the
+        // composite-id check are kept for older records written without a `type`.
         const isVariant =
           product.type === "VARIANT" ||
-          Boolean(product.primaryProductId) ||
-          product.id.includes("::");
+          (product.type !== "PRIMARY" &&
+            ((Boolean(product.primaryProductId) && product.primaryProductId !== product.id) ||
+              product.id.includes("::")));
         (isVariant ? variantIds : parentIds).add(product.id);
       }
     }
@@ -350,22 +391,27 @@ export async function deleteAllAcsProductsForConnection(connectionId: string): P
       throw new Error("ACS ListProducts returned a repeated page token");
     }
     if (pageToken) seenTokens.add(pageToken);
+    await options.onProgress?.({ deleted: 0, found: variantIds.size + parentIds.size });
   } while (pageToken);
 
+  const found = variantIds.size + parentIds.size;
   let deleted = 0;
   // Two distinct passes are required. Parallelizing a mixed parent/variant batch races the deletes
   // and intermittently lets a parent reach ACS before its children are gone.
   for (const ids of [variantIds, parentIds]) {
     for (const batch of chunk([...ids], DELETE_CONCURRENCY)) {
+      if (options.until !== undefined && Date.now() >= options.until) return { deleted, found, complete: false };
+
       const removed = await Promise.allSettled(batch.map((id) => deleteProduct(id)));
       deleted += removed.filter((result) => result.status === "fulfilled" && result.value).length;
 
       const failure = removed.find((result) => result.status === "rejected");
-      if (failure) throw failure.reason;
+      if (failure) return { deleted, found, complete: false, error: failure.reason };
+      await options.onProgress?.({ deleted, found });
     }
   }
 
-  return deleted;
+  return { deleted, found, complete: true };
 }
 
 /** Read-only existence + membership check, used by the sync paths to decide whether an

@@ -13,6 +13,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Filter,
+  SlidersHorizontal,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { isSizingGroup, SIZING_GROUP_KEYS, type SizingGroup } from "@/lib/sizing/measurements";
@@ -26,13 +28,25 @@ import {
 } from "@/modules/store/components/parent-category-ui";
 import { MappingSelect } from "@/modules/store/components/mapping-select";
 import { useSizingStore } from "../store";
+import type { SizingSampleFacets } from "@/lib/sizing/sample-facets";
+import {
+  brandOptions,
+  buildPathFilter,
+  categoryOptions,
+  collectionOptions,
+  departmentOptions,
+  parsePathFilter,
+  subCategoryOptions,
+} from "../narrow-filter-options";
 import {
   isScanIncomplete,
   SAMPLE_PAGE_SIZES as PAGE_SIZES,
   type ServerBrandType,
+  type SizingSamplePathConflict,
   type SizingSampleRow,
 } from "../server-types";
 import { StageHeaderBanner } from "./stage-header-banner";
+import { RescanCatalogButton } from "./rescan-catalog-button";
 import { ScanProgress } from "./scan-progress";
 
 type BrandFilter = "all" | ServerBrandType;
@@ -83,6 +97,114 @@ const FILTERS: BrandFilter[] = ["all", "global", "private", "none"];
 
 type ParentFilter = "all" | SizingGroup;
 
+/**
+ * The selects that narrow the table beyond the chips: one brand, a Persona path (department, then
+ * category, then subcategory) and one store collection. They combine with the chips and the search,
+ * and the server applies all of them before it pages, so a page of 100 is 100 matches.
+ */
+function NarrowFilters({
+  facets,
+  brandType,
+  brandKey,
+  path,
+  source,
+  disabled,
+  showClear,
+  onBrand,
+  onPath,
+  onSource,
+  onClear,
+}: {
+  facets: SizingSampleFacets | null;
+  brandType: ServerBrandType | null;
+  brandKey: string | null;
+  path: string | null;
+  source: string | null;
+  disabled: boolean;
+  showClear: boolean;
+  onBrand: (key: string | null) => void;
+  onPath: (path: string | null) => void;
+  onSource: (id: string | null) => void;
+  onClear: () => void;
+}) {
+  const selection = parsePathFilter(path);
+  const hasCollections = facets?.hasCollections ?? false;
+  const selectClass = "min-w-36 max-w-52";
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t border-[var(--color-border)] pt-2.5 text-xs">
+      <span className="flex items-center gap-1 pl-1 text-xs font-medium text-[var(--color-text-muted)]">
+        <SlidersHorizontal className="h-3.5 w-3.5 text-[var(--color-brand)]" /> Narrow by:
+      </span>
+      <MappingSelect
+        options={brandOptions(facets, brandType, brandKey)}
+        value={brandKey ?? ""}
+        onChange={(key) => onBrand(key || null)}
+        label="Brand"
+        disabled={disabled || facets === null}
+        compact
+        className={selectClass}
+      />
+      <MappingSelect
+        options={departmentOptions(facets)}
+        value={selection.department ?? ""}
+        onChange={(key) => onPath(buildPathFilter({ department: key || null, category: null, subCategory: null }))}
+        label="Persona department"
+        disabled={disabled || facets === null}
+        compact
+        className={selectClass}
+      />
+      <MappingSelect
+        options={categoryOptions(facets, selection.department)}
+        value={selection.category ?? ""}
+        onChange={(key) =>
+          onPath(buildPathFilter({ department: selection.department, category: key || null, subCategory: null }))
+        }
+        label="Persona category"
+        disabled={disabled || !selection.department}
+        compact
+        className={selectClass}
+      />
+      <MappingSelect
+        options={subCategoryOptions(facets, selection.department, selection.category)}
+        value={selection.subCategory ?? ""}
+        onChange={(key) =>
+          onPath(buildPathFilter({ ...selection, subCategory: key || null }))
+        }
+        label="Persona subcategory"
+        disabled={disabled || !selection.category}
+        compact
+        className={selectClass}
+      />
+      <MappingSelect
+        options={collectionOptions(facets)}
+        value={source ?? ""}
+        onChange={(id) => onSource(id || null)}
+        label="Store collection"
+        disabled={disabled || !hasCollections}
+        compact
+        className={cn(selectClass, "min-w-44")}
+      />
+      {showClear && (
+        <button
+          type="button"
+          onClick={onClear}
+          disabled={disabled}
+          className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-[var(--color-brand)] hover:underline disabled:opacity-50"
+        >
+          <X className="h-3 w-3" /> Clear filters
+        </button>
+      )}
+      {facets !== null && !hasCollections && (
+        <span className="flex items-center gap-1.5 pl-1 text-[11px] text-[var(--color-text-muted)]">
+          Collection filters need a fresh read of your catalog.
+          <RescanCatalogButton variant="link" label="Rescan catalog" />
+        </span>
+      )}
+    </div>
+  );
+}
+
 /** The ACS field a column was read out of, beside its heading. */
 function HeaderField({ children }: { children: React.ReactNode }) {
   return (
@@ -107,7 +229,6 @@ export function StageItemPreview() {
   const run = useSizingStore((s) => s.run);
   const runLoading = useSizingStore((s) => s.runLoading);
   const loadRun = useSizingStore((s) => s.loadRun);
-  const stopPolling = useSizingStore((s) => s.stopPolling);
   const rows = useSizingStore((s) => s.sample);
   const loading = useSizingStore((s) => s.sampleLoading);
   const error = useSizingStore((s) => s.sampleError);
@@ -123,11 +244,20 @@ export function StageItemPreview() {
   const parentCounts = useSizingStore((s) => s.sampleParentCounts);
   const brandType = useSizingStore((s) => s.sampleBrandType);
   const parentType = useSizingStore((s) => s.sampleParent);
+  const brandKey = useSizingStore((s) => s.sampleBrandKey);
+  const pathFilter = useSizingStore((s) => s.samplePath);
+  const sourceFilter = useSizingStore((s) => s.sampleSource);
+  const facets = useSizingStore((s) => s.sampleFacets);
+  const loadFacets = useSizingStore((s) => s.loadSampleFacets);
   const appliedQuery = useSizingStore((s) => s.sampleQuery);
   const goToPage = useSizingStore((s) => s.goToSamplePage);
   const setPageSize = useSizingStore((s) => s.setSamplePageSize);
   const setBrandType = useSizingStore((s) => s.setSampleBrandType);
   const setParent = useSizingStore((s) => s.setSampleParent);
+  const setBrandKey = useSizingStore((s) => s.setSampleBrandKey);
+  const setPath = useSizingStore((s) => s.setSamplePath);
+  const setSource = useSizingStore((s) => s.setSampleSource);
+  const clearFilters = useSizingStore((s) => s.clearSampleFilters);
   const setQuery = useSizingStore((s) => s.setSampleQuery);
 
   // Local so typing stays responsive. The applied value lives in the store because the server does
@@ -138,11 +268,8 @@ export function StageItemPreview() {
   const observedScan = React.useRef(scanning);
 
   React.useEffect(() => {
-    void loadRun();
-    // The poll chain reschedules itself, so leaving this stage has to break it explicitly or it
-    // keeps requesting in the background for as long as the dashboard stays open.
-    return () => stopPolling();
-  }, [loadRun, stopPolling]);
+    void loadRun({ ifStale: true });
+  }, [loadRun]);
 
   React.useEffect(() => {
     // The merchant asked for one complete reveal: no partial table while the catalog is walking,
@@ -161,9 +288,19 @@ export function StageItemPreview() {
     return () => clearTimeout(timer);
   }, [draftQuery, appliedQuery, setQuery]);
 
+  React.useEffect(() => {
+    if (!scanning && facets === null) void loadFacets();
+  }, [scanning, facets, loadFacets]);
+
   const filter: BrandFilter = brandType ?? "all";
   const parent: ParentFilter = isSizingGroup(parentType) ? parentType : "all";
-  const filtering = brandType !== null || parentType !== null || appliedQuery.length > 0;
+  const narrowing =
+    brandType !== null ||
+    parentType !== null ||
+    brandKey !== null ||
+    pathFilter !== null ||
+    sourceFilter !== null;
+  const filtering = narrowing || appliedQuery.length > 0;
 
   // The denominator the footer counts against: the filter's own exact size where coverage knows it,
   // otherwise the whole selection. Never the other way round — `total` stays the selection's count
@@ -223,7 +360,7 @@ export function StageItemPreview() {
         </div>
       )}
 
-      <div className="flex flex-col gap-2.5 rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] p-4 shadow-[var(--shadow-card)] backdrop-blur-xl">
+      <div className="flex flex-col gap-2.5 rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] p-4 shadow-[var(--shadow-card)]">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className="flex items-center gap-1 pl-1 text-xs font-medium text-[var(--color-text-muted)]">
@@ -363,6 +500,20 @@ export function StageItemPreview() {
           })}
         </div>
 
+        <NarrowFilters
+          facets={facets}
+          brandType={brandType}
+          brandKey={brandKey}
+          path={pathFilter}
+          source={sourceFilter}
+          disabled={loading}
+          showClear={narrowing}
+          onBrand={(key) => void setBrandKey(key)}
+          onPath={(path) => void setPath(path)}
+          onSource={(id) => void setSource(id)}
+          onClear={() => void clearFilters()}
+        />
+
         {!typeCounts && (
           <p className="pl-1 text-[11px] text-[var(--color-text-muted)]">
             Brand types are decided by the catalog scan in stage 3 — until it runs, every product is
@@ -386,7 +537,7 @@ export function StageItemPreview() {
         )}
       </div>
 
-      <div className="relative overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] shadow-[var(--shadow-elevated)] backdrop-blur-xl">
+      <div className="relative overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] shadow-[var(--shadow-elevated)]">
         {/* Overlaid rather than swapped in only once `rows` is empty — a filter switch keeps the
             previous filter's rows on screen until the new ones arrive, and without this a store slow
             enough to need several hops looked identical to having frozen. */}
@@ -582,6 +733,7 @@ export function StageItemPreview() {
  */
 function ParentCell({ row }: { row: SizingSampleRow }) {
   const setSkuParent = useStoreConnectionStore((s) => s.setSkuParent);
+  const invalidateSamplePages = useSizingStore((s) => s.invalidateSamplePages);
   const override = useStoreConnectionStore((s) => s.skuParentOverrides[row.externalId]);
   const [saving, setSaving] = React.useState(false);
 
@@ -594,6 +746,8 @@ function ParentCell({ row }: { row: SizingSampleRow }) {
   async function choose(group: SizingGroup | null) {
     setSaving(true);
     await setSkuParent(row.externalId, group);
+    // A cached page filtered by parent would still list (or miss) this product under its old one.
+    invalidateSamplePages();
     setSaving(false);
   }
 
@@ -629,7 +783,29 @@ function ParentCell({ row }: { row: SizingSampleRow }) {
   );
 }
 
-function ProductTableRow({ row }: { row: SizingSampleRow }) {
+/**
+ * A product whose categories disagree on its size group or body. The path above is the one it is
+ * sized on — chosen by depth, then by its own title — and the others are named with the merchant
+ * category they came from, since that category's mapping is what needs correcting.
+ */
+function PathConflictNote({ conflict }: { conflict: SizingSamplePathConflict }) {
+  const others = conflict.paths.slice(1);
+  const what = conflict.kind === "group" ? "a different size group" : "a different department";
+  const detail = others
+    .map((path) => `${path.personaPath}${path.storeCategory ? ` (from "${path.storeCategory}")` : ""}`)
+    .join("; ");
+  return (
+    <span
+      className="mt-0.5 flex items-center gap-1 truncate text-[10px] font-semibold text-[var(--color-warning)]"
+      title={`Also filed as ${what}: ${detail}. Sized on the path above. If that other category is a catch-all or mapped wrong, exclude or remap it in the Mapping tab.`}
+    >
+      <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
+      <span className="truncate">Also filed as {others[0]?.personaPath}</span>
+    </span>
+  );
+}
+
+const ProductTableRow = React.memo(function ProductTableRow({ row }: { row: SizingSampleRow }) {
   const [imageFailed, setImageFailed] = React.useState(false);
   const isNone = row.brandType === "none";
   const isPrivate = row.brandType === "private";
@@ -642,7 +818,7 @@ function ProductTableRow({ row }: { row: SizingSampleRow }) {
     // its note underneath, and it clears 60px with room to spare.
     <tr
       className={cn(
-        "h-[60px] transition-colors",
+        "h-[60px]",
         isNone
           ? "bg-[var(--color-error-light)]/30 hover:bg-[var(--color-error-light)]/50"
           : isPrivate
@@ -761,6 +937,7 @@ function ProductTableRow({ row }: { row: SizingSampleRow }) {
             Not mapped
           </span>
         )}
+        {row.pathConflict && <PathConflictNote conflict={row.pathConflict} />}
       </td>
 
       <td className="px-3">
@@ -804,4 +981,4 @@ function ProductTableRow({ row }: { row: SizingSampleRow }) {
       </td>
     </tr>
   );
-}
+});

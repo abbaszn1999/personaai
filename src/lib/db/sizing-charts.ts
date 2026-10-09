@@ -8,6 +8,7 @@ import {
 } from "@/lib/sizing/chart-schema";
 import type { Audience } from "@/lib/sizing/keys";
 import { isMeasurement, isSizingGroup, type Measurement } from "@/lib/sizing/measurements";
+import { canonicalLeafKey } from "@/modules/store/mapping/persona-taxonomy";
 
 /**
  * Measurement bounds from two deliberately isolated stores:
@@ -32,7 +33,7 @@ export interface SizingChartRow {
    *  reads this string alone for the fit-class guard; `variantGarmentType`'s old job of deciding
    *  which of a brand's tables a leaf belongs to had already moved onto `coversLeaves` below. */
   variantName: string;
-  /** The Persona leaf keys ("women:top:blouse") this exact row is the authoritative chart for —
+  /** The Persona leaf keys ("women:top:shirt") this exact row is the authoritative chart for —
    *  `sizing_charts.covers_leaves`, migration `20260922020000`. Replaces the old name/tag guess
    *  (`LEAF_GARMENT_TAGS`/`VARIANT_GARMENT_PATTERNS`/`pickVariant`'s garment pass in
    *  `variant-match.ts`, deleted alongside this column) as the source of truth for which of a
@@ -87,7 +88,7 @@ function rowToChart(row: Record<string, unknown>): SizingChartRow {
     brandKey: row.brand_key as string,
     sizingCategory,
     variantName: (row.variant_name as string | null) ?? "",
-    coversLeaves: (row.covers_leaves as string[] | null) ?? [],
+    coversLeaves: [...new Set(((row.covers_leaves as string[] | null) ?? []).map(canonicalLeafKey))],
     audience,
     sourceTitle: (row.source_title as string | null) ?? "",
     sourceTableId: (row.source_table_id as string | null) ?? "",
@@ -169,6 +170,39 @@ export async function listPrivateChartsForBrands(
   }
 
   return rows.map(rowToChart);
+}
+
+/**
+ * The brand keys this store already holds hand-filled private charts under.
+ *
+ * Throws instead of returning an empty set on a read error: an empty answer would let a brand with kept
+ * charts be classified as global, after which the chart lookup ignores those charts without any sign.
+ */
+export async function listPrivateChartBrandKeys(connectionId: string): Promise<Set<string>> {
+  const keys = new Set<string>();
+  const pageSize = 1000;
+
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await db
+      .from("sizing_charts_private")
+      .select("brand_key")
+      .eq("connection_id", connectionId)
+      .order("id")
+      .range(from, from + pageSize - 1);
+
+    if (error) {
+      console.error("[db/sizing-charts listPrivateChartBrandKeys]", connectionId, error);
+      throw new Error("Could not read this store's private size charts.");
+    }
+
+    const batch = (data ?? []) as Array<{ brand_key: string }>;
+    for (const row of batch) {
+      if (row.brand_key) keys.add(row.brand_key);
+    }
+    if (batch.length < pageSize) break;
+  }
+
+  return keys;
 }
 
 /** Canonical brand targets already proven by a shared researched chart. */

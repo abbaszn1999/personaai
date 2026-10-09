@@ -9,7 +9,7 @@ export default async function SetupPage() {
   if (user) {
     const workspaces = await getWorkspacesByOwner(user.id);
     if (workspaces.length >= 1) {
-      redirect("/try-on");
+      redirect("/analytics");
     }
   }
 

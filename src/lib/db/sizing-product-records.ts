@@ -1,5 +1,11 @@
 import { db } from "@/lib/supabase/server";
-import { audienceHintFor } from "@/lib/sizing/keys";
+import { audienceHintFor, normalizeBrandKey } from "@/lib/sizing/keys";
+import type { SizingFacetRow } from "@/lib/sizing/record-facets";
+
+const FACET_PAGE = 1000;
+
+const RECORD_COLUMNS =
+  "id, connection_id, external_id, sku, title, brand_key, sizing_category, primary_persona_leaf_key, raw_size_format, leaf_source_category_ids, brand_label";
 
 export interface SizingProductRecordInput {
   externalId: string;
@@ -9,6 +15,11 @@ export interface SizingProductRecordInput {
   sizingCategory: string;
   primaryPersonaLeafKey: string | null;
   rawSizeFormat: string | null;
+  /** Store collections the product sits in that are mapped to its primary subcategory. Absent on
+   *  records written before the column existed. */
+  leafSourceCategoryIds?: string[] | null;
+  /** The brand as the store spells it; `brandKey` is its normalised form. */
+  brandLabel?: string | null;
 }
 
 export interface SizingProductRecordRow extends SizingProductRecordInput {
@@ -54,6 +65,8 @@ export async function replaceSizingProductRecords(
       sizing_category: record.sizingCategory,
       primary_persona_leaf_key: record.primaryPersonaLeafKey,
       raw_size_format: record.rawSizeFormat,
+      leaf_source_category_ids: record.leafSourceCategoryIds?.length ? record.leafSourceCategoryIds : null,
+      brand_label: record.brandLabel ?? null,
     }));
     const { error } = await db.from("sizing_product_records").insert(payload);
     if (error) {
@@ -76,6 +89,8 @@ function rowToProduct(row: Record<string, unknown>): SizingProductRecordRow {
     sizingCategory: row.sizing_category as string,
     primaryPersonaLeafKey: (row.primary_persona_leaf_key as string | null) ?? null,
     rawSizeFormat: (row.raw_size_format as string | null) ?? null,
+    leafSourceCategoryIds: (row.leaf_source_category_ids as string[] | null) ?? null,
+    brandLabel: (row.brand_label as string | null) ?? null,
     audienceHint: audienceHintFor({ title: row.title as string }),
   };
 }
@@ -187,6 +202,36 @@ function forOrFilter(search: string): string {
 }
 
 /**
+ * The `or` clause behind the Stage 2 search box.
+ *
+ * Title, SKU and the brand as the store spells it match the typed text. The stored brand key does
+ * not: it is lowercased with every run of punctuation collapsed to `_`, so "MOUSTACHE WOMEN" can
+ * only find `moustache_women` once it is normalised the same way. Matching the raw text against the
+ * key was why searching a brand by name returned nothing.
+ */
+export function buildProductSearchClause(search: string): string | null {
+  const text = forOrFilter(search);
+  if (!text) return null;
+  const clauses = [`title.ilike.*${text}*`, `sku.ilike.*${text}*`, `brand_label.ilike.*${text}*`];
+  const key = normalizeBrandKey(text);
+  if (key) clauses.push(`brand_key.ilike.*${key}*`);
+  return clauses.join(",");
+}
+
+/** A LIKE pattern for "starts with", with the wildcard characters in the prefix taken literally. */
+function likePrefix(prefix: string): string {
+  return `${prefix.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+}
+
+/**
+ * Narrows a Persona leaf key (`women:top:t_shirt`) by a path. A trailing colon is a department or
+ * category prefix (`women:`, `women:top:`); anything else is one exact subcategory.
+ */
+export function personaPathFilter(path: string): { kind: "prefix" | "exact"; value: string } {
+  return path.endsWith(":") ? { kind: "prefix", value: path } : { kind: "exact", value: path };
+}
+
+/**
  * Returns one exact, stable Stage 2 page.
  *
  * Filtering happens before the database range, so 100 means 100 rows whenever that many matches
@@ -201,13 +246,17 @@ export async function listSizingProductRecordsPage(
     brandKeys?: string[] | null;
     sizingCategory?: string | null;
     search?: string | null;
+    /** A Persona path: `women:` (department), `women:top:` (category) or `women:top:t_shirt`. */
+    path?: string | null;
+    /** One store collection id, matched against the collections saved by the scan. */
+    sourceCategoryId?: string | null;
   }
 ): Promise<{ records: SizingProductRecordRow[]; total: number }> {
   if (options.brandKeys && options.brandKeys.length === 0) return { records: [], total: 0 };
 
   let query = db
     .from("sizing_product_records")
-    .select("id, connection_id, external_id, sku, title, brand_key, sizing_category, primary_persona_leaf_key, raw_size_format", { count: "exact" })
+    .select(RECORD_COLUMNS, { count: "exact" })
     .eq("connection_id", connectionId);
 
   // PostgREST's `in` grammar does not reliably preserve an empty-string member (`in.("")`), and
@@ -217,10 +266,18 @@ export async function listSizingProductRecordsPage(
   else if (options.brandKeys) query = query.in("brand_key", options.brandKeys);
   if (options.sizingCategory) query = query.eq("sizing_category", options.sizingCategory);
 
-  const search = options.search ? forOrFilter(options.search) : "";
-  if (search) {
-    query = query.or(`title.ilike.*${search}*,sku.ilike.*${search}*,brand_key.ilike.*${search}*`);
+  if (options.path) {
+    const filter = personaPathFilter(options.path);
+    query = filter.kind === "prefix"
+      ? query.like("primary_persona_leaf_key", likePrefix(filter.value))
+      : query.eq("primary_persona_leaf_key", filter.value);
   }
+  if (options.sourceCategoryId) {
+    query = query.contains("leaf_source_category_ids", [options.sourceCategoryId]);
+  }
+
+  const searchClause = options.search ? buildProductSearchClause(options.search) : null;
+  if (searchClause) query = query.or(searchClause);
 
   const { data, error, count } = await query
     .order("title", { ascending: true })
@@ -236,4 +293,34 @@ export async function listSizingProductRecordsPage(
     records: ((data as Array<Record<string, unknown>>) ?? []).map(rowToProduct),
     total: count ?? 0,
   };
+}
+
+/**
+ * Grouped counts of the saved snapshot by brand, subcategory, family and collection, in one query.
+ * Null when it cannot be read, so callers can tell "no data" from "failed".
+ */
+export async function getSizingProductFacets(connectionId: string): Promise<SizingFacetRow[] | null> {
+  // PostgREST caps one response at its row limit, and a large store has more distinct combinations
+  // than that, so the ordered result is read in ranges until a short one.
+  const all: Array<Record<string, unknown>> = [];
+  for (let from = 0; ; from += FACET_PAGE) {
+    const { data, error } = await db
+      .rpc("sizing_product_facets", { p_connection_id: connectionId })
+      .range(from, from + FACET_PAGE - 1);
+    if (error) {
+      console.error("[db/sizing-product-records facets]", connectionId, error);
+      return null;
+    }
+    const chunk = (data as Array<Record<string, unknown>> | null) ?? [];
+    all.push(...chunk);
+    if (chunk.length < FACET_PAGE) break;
+  }
+  return all.map((row) => ({
+    brandKey: (row.brand_key as string) ?? "",
+    brandLabel: (row.brand_label as string | null) ?? null,
+    leafKey: (row.primary_persona_leaf_key as string | null) ?? null,
+    sizingCategory: row.sizing_category as string,
+    sourceCategoryId: (row.source_category_id as string | null) ?? null,
+    count: Number(row.product_count) || 0,
+  }));
 }

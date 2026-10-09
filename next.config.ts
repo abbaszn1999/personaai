@@ -17,6 +17,9 @@ const nextConfig: NextConfig = {
     "/api/agents/wearable": ["./src/lib/agents/**/skills/*.md"],
     "/api/embed/wearable": ["./src/lib/agents/**/skills/*.md"],
   },
+  async redirects() {
+    return [{ source: "/try-on", destination: "/analytics", permanent: false }];
+  },
   async headers() {
     // Next serves everything in `public/` as `max-age=0`, which for the widget meant every
     // shopper re-downloaded the whole bundle on every page view of the merchant's site — and

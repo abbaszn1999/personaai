@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import type { StoreConnectionRow } from "@/lib/db/store-connections";
 import { EMPTY_ACS_MAPPING } from "@/lib/catalog/acs-mapping";
+import { IDLE_SETUP_RESET } from "@/lib/catalog/setup-reset-state";
+import { IDLE_AUTO_MATCH, type AutoMatchJobState } from "@/lib/catalog/auto-match-state";
 
 process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://test.supabase.co";
 process.env.SUPABASE_SECRET_KEY ??= "test-key";
@@ -32,6 +34,9 @@ vi.mock("@/lib/db/sizing-coverage", () => ({
 vi.mock("@/lib/catalog/path-config/rebuild", () => ({
   markPathConfigStale: vi.fn().mockResolvedValue(undefined),
 }));
+vi.mock("@/lib/db/auto-match-jobs", () => ({
+  resetAutoMatchJob: vi.fn().mockResolvedValue(true),
+}));
 
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner, updateStoreConnection } from "@/lib/db/store-connections";
@@ -54,7 +59,7 @@ const scope = {
 function row(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRow {
   return {
     id: "11111111-1111-1111-1111-111111111111",
-    ownerId: "user-1",
+    ownerId: "owner-1",
     platform: "shopify",
     storeName: "Store",
     storeUrl: "store.myshopify.com",
@@ -68,6 +73,7 @@ function row(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRow {
     personaCategoryMap: {},
     personaMappingUpdatedAt: null,
     personaAutoMatchCompletedAt: null,
+    autoMatchJob: IDLE_AUTO_MATCH,
     storeSizeSettings: { default: "Alpha", overrides: {} },
     productCount: 12,
     syncedAt: null,
@@ -81,7 +87,7 @@ function row(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRow {
     acsMapperVersionApproved: null,
     acsFieldMapping: EMPTY_ACS_MAPPING,
     sizingSource: "ai_pipeline",
-    sizingBrandMapping: { version: 1, confirmedAt: null, sourceFingerprint: "", observed: {}, aliases: {} },
+    sizingBrandMapping: { version: 1, confirmedAt: null, sourceFingerprint: "", observed: {}, aliases: {}, privateAliases: {} },
     sizingStagesSkippedAt: null,
     acsFieldOverridesApprovedHash: null,
     cmsColumnDiscoveryStatus: "idle",
@@ -92,6 +98,7 @@ function row(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRow {
     cmsColumnDiscoveryUpdatedAt: null,
     ordersAccess: null,
     storeCurrency: null,
+    setupReset: IDLE_SETUP_RESET,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
@@ -209,7 +216,7 @@ describe("Persona mapping endpoint", () => {
     );
   });
 
-  it("stamps Auto-Match completion when the save is flagged as the Auto-Match run's own save", async () => {
+  it("never lets a save mark AI matching as done; only the server's own run does that", async () => {
     vi.mocked(updateStoreConnection).mockImplementation(async (_ownerId, patch) => row({
       personaTaxonomyScope: patch.personaTaxonomyScope,
       personaCategoryMap: patch.personaCategoryMap,
@@ -225,14 +232,47 @@ describe("Persona mapping endpoint", () => {
         markAutoMatchCompleted: true,
       }),
     });
-    const response = await PUT(request);
-    const data = await response.json();
+    const data = await (await PUT(request)).json();
 
     expect(updateStoreConnection).toHaveBeenCalledWith(
       "owner-1",
-      expect.objectContaining({ personaAutoMatchCompletedAt: expect.any(String) }),
+      expect.not.objectContaining({ personaAutoMatchCompletedAt: expect.anything() }),
     );
-    expect(data.autoMatchCompletedAt).toEqual(expect.any(String));
+    expect(data.autoMatchCompletedAt).toBeNull();
+  });
+
+  const runningMatch: AutoMatchJobState = {
+    ...IDLE_AUTO_MATCH,
+    status: "running",
+    jobId: "22222222-2222-2222-2222-222222222222",
+    phase: "classifying",
+    startedAt: new Date().toISOString(),
+    heartbeatAt: new Date().toISOString(),
+    total: 1,
+  };
+
+  it("refuses to save or clear the mapping while AI matching is running", async () => {
+    vi.mocked(getStoreConnectionByOwner).mockResolvedValue(row({ autoMatchJob: runningMatch }));
+
+    const saved = await PUT(new NextRequest("http://localhost/api/store-connection/persona-mapping", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scope, mappings: {} }),
+    }));
+    const cleared = await DELETE();
+
+    expect(saved.status).toBe(409);
+    expect(cleared.status).toBe(409);
+    await expect(saved.json()).resolves.toEqual(expect.objectContaining({ code: "auto_match_running" }));
+    expect(updateStoreConnection).not.toHaveBeenCalled();
+  });
+
+  it("reports a running AI match with the mapping, so a refreshed page can follow it", async () => {
+    vi.mocked(getStoreConnectionByOwner).mockResolvedValue(row({ autoMatchJob: runningMatch }));
+
+    const data = await (await GET()).json();
+
+    expect(data.autoMatch).toEqual(expect.objectContaining({ status: "running", phase: "classifying" }));
   });
 
   function putRequest() {

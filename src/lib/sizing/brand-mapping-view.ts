@@ -1,7 +1,8 @@
 import type { ResearchStatus, SizingCoverageRow } from "@/lib/db/sizing-coverage";
 import {
   parseStoreBrandMapping,
-  resolveMappedBrandKey,
+  resolveChartBrandKey,
+  resolveChartBrandName,
   type StoreBrandMapping,
 } from "./brand-mapping";
 
@@ -50,7 +51,8 @@ function uniquePaths(paths: readonly string[][]): string[][] {
 
 /**
  * Produces the Phase 4 chart-routing view without mutating or persisting coverage.
- * Only global brands participate; private and unbranded rows retain their raw identity.
+ * Global brands merge through the shared-registry aliases and private labels through the store's
+ * own grouping; unbranded rows, and any label nobody grouped, retain their raw identity.
  */
 export function canonicalizeCoverageForCharts(
   coverage: readonly SizingCoverageRow[],
@@ -63,10 +65,15 @@ export function canonicalizeCoverageForCharts(
 
   for (const row of coverage) {
     const resolved =
-      row.brandType === "global"
-        ? resolveMappedBrandKey(row.brandKey, row.brandName, parsedMapping)
+      row.brandType === "global" || row.brandType === "private"
+        ? {
+            brandKey: resolveChartBrandKey(row.brandKey, row.brandType, parsedMapping),
+            brandName: resolveChartBrandName(row.brandKey, row.brandName, row.brandType, parsedMapping),
+          }
         : { brandKey: row.brandKey, brandName: row.brandName };
-    const groupKey = `${resolved.brandKey}\u0000${row.sizingCategory}`;
+    // The pool is part of the key: a global and a private brand never share charts, so even a
+    // colliding key must not merge their coverage.
+    const groupKey = `${row.brandType}\u0000${resolved.brandKey}\u0000${row.sizingCategory}`;
     const current = grouped.get(groupKey);
 
     if (!current) {
@@ -99,7 +106,7 @@ export function canonicalizeCoverageForCharts(
       current.researchNote ??= row.researchNote;
     }
 
-    if (row.brandType !== "global") continue;
+    if (row.brandType !== "global" && row.brandType !== "private") continue;
     let members = memberTotals.get(resolved.brandKey);
     if (!members) {
       members = new Map();

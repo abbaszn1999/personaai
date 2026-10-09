@@ -104,11 +104,62 @@ function BrandMappingEditor({
   const [assignments, setAssignments] = React.useState<Record<string, string>>(
     () => suggestedAssignments,
   );
+  const privateBrands = React.useMemo(() => mapping.privateBrands ?? [], [mapping.privateBrands]);
+  const suggestedPrivate = React.useMemo(
+    () => assignmentsFromGroups(mapping.privateGroups ?? []),
+    [mapping.privateGroups],
+  );
+  const [privateAssignments, setPrivateAssignments] = React.useState<Record<string, string>>(
+    () => suggestedPrivate,
+  );
   const [query, setQuery] = React.useState("");
 
   const groups = React.useMemo(
     () => groupsFromAssignments(assignments, mapping.targets),
     [assignments, mapping.targets],
+  );
+  // A private label is its own chart brand unless the merchant groups it, so every label is an
+  // option for every other, plus whatever group names were already saved.
+  const privateTargets = React.useMemo<BrandMappingResponse["targets"]>(() => {
+    const targets = new Map<string, BrandMappingResponse["targets"][number]>();
+    for (const brand of privateBrands) {
+      targets.set(brand.rawKey, {
+        canonicalKey: brand.rawKey,
+        canonicalName: brand.labels[0] ?? brand.rawKey,
+        shared: false,
+      });
+    }
+    for (const group of mapping.privateGroups ?? []) {
+      if (!targets.has(group.canonicalKey)) {
+        targets.set(group.canonicalKey, { ...group, shared: false });
+      }
+    }
+    return [...targets.values()];
+  }, [privateBrands, mapping.privateGroups]);
+  const privateGroups = React.useMemo(
+    () =>
+      groupsFromAssignments(
+        Object.fromEntries(
+          privateBrands.map((brand) => [
+            brand.rawKey,
+            privateAssignments[brand.rawKey]?.trim() || (brand.labels[0] ?? brand.rawKey),
+          ]),
+        ),
+        privateTargets,
+      ),
+    [privateAssignments, privateBrands, privateTargets],
+  );
+  const privateOptions = React.useMemo<SelectOption[]>(
+    () =>
+      privateTargets
+        .map((target) => ({
+          key: target.canonicalKey,
+          label: target.canonicalName,
+          hint: "Your own label",
+          group: "Your brands",
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [privateTargets],
   );
   const complete = mapping.brands.every((brand) => assignments[brand.rawKey]?.trim());
   const canonicalCount = new Set(
@@ -151,12 +202,28 @@ function BrandMappingEditor({
     ].some((value) => value.toLocaleLowerCase().includes(needle));
   });
 
-  const resetSuggestions = () => setAssignments({ ...suggestedAssignments });
+  const resetSuggestions = () => {
+    setAssignments({ ...suggestedAssignments });
+    setPrivateAssignments({ ...suggestedPrivate });
+  };
   const setCanonicalKey = (rawKey: string, canonicalKey: string) => {
     const option = optionByKey.get(canonicalKey);
     if (!option) return;
     setAssignments((current) => ({ ...current, [rawKey]: option.label }));
   };
+  const privateOptionByKey = new Map(privateOptions.map((option) => [option.key, option]));
+  const setPrivateCanonicalKey = (rawKey: string, canonicalKey: string) => {
+    const option = privateOptionByKey.get(canonicalKey);
+    if (!option) return;
+    setPrivateAssignments((current) => ({ ...current, [rawKey]: option.label }));
+  };
+  const needle = query.trim().toLocaleLowerCase();
+  const filteredPrivate = privateBrands.filter((brand) =>
+    !needle ||
+    [...brand.labels, brand.rawKey, privateAssignments[brand.rawKey] ?? "", ...brand.sizingCategories]
+      .some((value) => value.toLocaleLowerCase().includes(needle)),
+  );
+  const privateGroupCount = privateGroups.length;
 
   return (
     <div className="space-y-4">
@@ -175,7 +242,11 @@ function BrandMappingEditor({
             <Button variant="ghost" size="sm" onClick={resetSuggestions} disabled={saving}>
               <RotateCcw className="h-3.5 w-3.5" /> Reset suggestions
             </Button>
-            <Button size="sm" onClick={() => void save(groups)} disabled={!complete || saving}>
+            <Button
+              size="sm"
+              onClick={() => void save(groups, privateBrands.length > 0 ? privateGroups : undefined)}
+              disabled={!complete || saving}
+            >
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
               Save mapping
             </Button>
@@ -292,6 +363,94 @@ function BrandMappingEditor({
               </tbody>
             </table>
             {filteredBrands.length === 0 && (
+              <div className="px-4 py-10 text-center text-sm text-[var(--color-text-muted)]">
+                No brands match your search.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {privateBrands.length > 0 && (
+        <div className="overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] shadow-[var(--shadow-card)]">
+          <div className="flex flex-wrap items-center gap-2 border-b border-[var(--color-border)] px-4 py-3 text-xs">
+            <span className="font-semibold text-[var(--color-text-primary)]">Your own brands</span>
+            <span className="rounded-full bg-[var(--color-surface-base)] px-2.5 py-1 font-semibold text-[var(--color-text-secondary)]">
+              {privateBrands.length} store labels
+            </span>
+            <span className="text-[var(--color-text-muted)]">→</span>
+            <span className="rounded-full bg-[var(--color-warning-light)] px-2.5 py-1 font-semibold text-[var(--color-warning)]">
+              {privateGroupCount} chart brand{privateGroupCount === 1 ? "" : "s"}
+            </span>
+            <span className="text-[var(--color-text-muted)]">
+              Labels grouped here share the size charts you enter by hand.
+            </span>
+          </div>
+          <div className="max-h-[min(50vh,32rem)] overflow-auto">
+            <table className="w-full min-w-[760px] border-collapse text-left">
+              <thead className="sticky top-0 z-10 bg-[var(--color-surface-sticky)] text-[10px] uppercase tracking-[0.08em] text-[var(--color-text-muted)]">
+                <tr>
+                  <th className="w-[30%] px-4 py-3 font-semibold">Store brand label</th>
+                  <th className="w-[12%] px-4 py-3 font-semibold">Products</th>
+                  <th className="w-[25%] px-4 py-3 font-semibold">Sizing categories</th>
+                  <th className="w-[33%] px-4 py-3 font-semibold">Share charts with</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--color-border)]">
+                {filteredPrivate.map((brand) => {
+                  const ownName = brand.labels[0] ?? brand.rawKey;
+                  const canonicalName = privateAssignments[brand.rawKey]?.trim() || ownName;
+                  const isAlias = normalizeBrandKey(canonicalName) !== brand.rawKey;
+                  return (
+                    <tr key={brand.rawKey} className="align-middle transition-colors hover:bg-[var(--color-warning-light)]/15">
+                      <td className="px-4 py-3">
+                        <p className="text-sm font-semibold text-[var(--color-text-primary)]">{ownName}</p>
+                        {brand.labels.length > 1 && (
+                          <p className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
+                            Also seen as: {brand.labels.slice(1).join(", ")}
+                          </p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs font-semibold text-[var(--color-text-secondary)]">
+                        {brand.skuCount.toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-1">
+                          {brand.sizingCategories.slice(0, 3).map((category) => (
+                            <span
+                              key={category}
+                              className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface-base)] px-2 py-0.5 text-[10px] text-[var(--color-text-secondary)]"
+                            >
+                              {category}
+                            </span>
+                          ))}
+                          {brand.sizingCategories.length > 3 && (
+                            <span className="px-1 py-0.5 text-[10px] text-[var(--color-text-muted)]">
+                              +{brand.sizingCategories.length - 3}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <MappingSelect
+                          options={privateOptions}
+                          value={normalizeBrandKey(canonicalName)}
+                          onChange={(canonicalKey) => setPrivateCanonicalKey(brand.rawKey, canonicalKey)}
+                          label={`Chart brand for ${ownName}`}
+                          placeholder="Keep its own charts"
+                          disabled={saving}
+                          className="w-full py-2 text-sm"
+                        />
+                        <p className="mt-1 text-[10px] text-[var(--color-text-muted)]">
+                          {isAlias ? `Uses ${canonicalName}'s charts` : "Keeps its own charts"}
+                        </p>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {filteredPrivate.length === 0 && (
               <div className="px-4 py-10 text-center text-sm text-[var(--color-text-muted)]">
                 No brands match your search.
               </div>

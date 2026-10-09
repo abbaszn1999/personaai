@@ -18,8 +18,9 @@ vi.mock("@/lib/catalog/acs/sync", () => ({
 vi.mock("@/lib/catalog/pager", () => ({
   createCatalogPager: vi.fn(async () => ({ fetchByIds })),
 }));
+const getAcsPublishStampId = vi.fn(async (): Promise<string | null> => "run-live");
 vi.mock("@/lib/db/sizing-runs", () => ({
-  getAcsPublishStampId: vi.fn(async () => null),
+  getAcsPublishStampId: () => getAcsPublishStampId(),
 }));
 
 const { indexSingleProduct, indexProductIfInScope, resolveCategoryPaths, resolveGarmentCategory } = await import(
@@ -43,13 +44,13 @@ function lookup(selectedCategoryIds: string[]): CategoryLookup {
     personaTaxonomyScope: {
       configured: true,
       enabledDeptIds: ["women"],
-      enabledLeafKeys: ["women:top:shirt", "women:top:blouse", "women:footwear:sneaker"],
+      enabledLeafKeys: ["women:top:shirt", "women:top:knit", "women:footwear:sneaker"],
       customLeaves: [],
       customCategories: [],
     },
     personaCategoryMap: {
       "12": { status: "mapped", departmentId: "women", categoryId: "top", subCategory: "shirt" },
-      "13": { status: "mapped", departmentId: "women", categoryId: "top", subCategory: "blouse" },
+      "13": { status: "mapped", departmentId: "women", categoryId: "top", subCategory: "knit" },
       "20": { status: "mapped", departmentId: "women", categoryId: "footwear", subCategory: "sneaker" },
     },
   };
@@ -160,6 +161,13 @@ describe("indexProductIfInScope", () => {
     expect(syncProductToAcs).not.toHaveBeenCalled();
   });
 
+  it("writes nothing to ACS for a store that has never published, such as one started from scratch", async () => {
+    getAcsPublishStampId.mockResolvedValueOnce(null);
+    const outcome = await indexProductIfInScope(scopedConnection, product);
+    expect(outcome).toBe("out-of-scope");
+    expect(syncProductToAcs).not.toHaveBeenCalled();
+  });
+
   it("refetches when a bound metafield is missing even though the webhook payload already carries other custom fields", async () => {
     // A Shopify webhook always carries the platform's own built-in fields (tags, compare-at price
     // — see `toShopifyBuiltInFields`), so `customFields` being non-empty must not be mistaken for
@@ -259,7 +267,7 @@ describe("resolveCategoryPaths", () => {
     // "Men" is selected; the product is tagged with "Shirts", a grandchild of "Men" via "mens
     // pants". The full chain survives, root-first, so a sub-sub-category isn't lost.
     expect(resolveCategoryPaths({ ...product, sourceCategoryIds: ["13"] }, connection)).toEqual([
-      ["persona", "women", "top", "blouse"],
+      ["persona", "women", "top", "knit"],
     ]);
   });
 

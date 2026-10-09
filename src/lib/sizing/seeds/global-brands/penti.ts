@@ -1,4 +1,4 @@
-import { rowsFromColumns, type SeedChart } from "../types";
+import { exact, rowsFromColumns, type SeedChart } from "../types";
 
 /**
  * Penti, transcribed only from the brand's official pages.
@@ -26,8 +26,6 @@ const BRA_URL =
   "https://www.penti.com/tr/kadin/ic-giyim/sutyen/basic-sutyenler/siyah-buyuk-beden-dantel-detayli-toparlayici-sutyen/p/PLIZZSHJ20SK-BK3";
 const KIDS_URL =
   "https://www.penti.com/tr/kiz-cocuk/kiz-cocuk-pijama/kiz-cocuk-pijama-set/kiz-cocuk-colorful-bows-gomlek-kirik-beyaz-pijama-takimi/p/PNF9V3LQ25IY-B32";
-const KIDS_BRA_URL = "https://www.penti.com/en/guide/sutyen";
-const MEN_PAJAMA_URL = "https://www.looksize.com/brand-size-chart/penti";
 
 const APPAREL_SIZES = ["XS", "S", "M", "L", "XL"] as const;
 const APPAREL_CHEST = [
@@ -122,23 +120,6 @@ const KIDS_BOTTOM_ROWS = KIDS_ROWS.map((row) => ({
   height_max: row.height_max,
 }));
 
-const KIDS_BRA_ROWS = rowsFromColumns({
-  sizes: ["60A", "65A", "70A", "75A"],
-  bounds: {
-    chest: [[72, 74], [77, 79], [82, 84], [87, 89]],
-  },
-});
-
-const MEN_PAJAMA_ROWS = rowsFromColumns({
-  sizes: ["XS", "S", "M", "L", "XL", "2XL", "3XL"],
-  aliases: { alpha: ["XS", "S", "M", "L", "XL", "2XL", "3XL"] },
-  bounds: {
-    chest: [[92, 92], [96, 96], [100, 100], [104, 104], [108, 108], [112, 112], [116, 116]],
-    waist: [[82, 82], [86, 86], [90, 90], [94, 94], [98, 98], [102, 102], [106, 106]],
-    hip: [[96, 96], [100, 100], [104, 104], [108, 108], [112, 112], [116, 116], [120, 120]],
-  },
-}).map((row) => ({ ...row, source_point_values: true as const }));
-
 export const PENTI_SEED: SeedChart[] = [
   {
     brandKey: BRAND,
@@ -147,10 +128,6 @@ export const PENTI_SEED: SeedChart[] = [
     coversLeaves: [
       "women:top:t-shirt",
       "women:top:shirt",
-      "women:top:camisole",
-      "women:top:tank-top",
-      "women:top:crop-top",
-      "women:top:bodysuit",
       "women:top:activewear-top",
       "women:top:sleep-top",
     ],
@@ -186,7 +163,6 @@ export const PENTI_SEED: SeedChart[] = [
       "women:bottom:skirt",
       "women:bottom:short",
       "women:bottom:legging",
-      "women:bottom:activewear-bottom",
       "women:bottom:sleep-bottom",
     ],
     audience: "womens",
@@ -223,7 +199,7 @@ export const PENTI_SEED: SeedChart[] = [
     brandKey: BRAND,
     sizingCategory: "outerwear",
     variantName: "Women Apparel",
-    coversLeaves: ["women:outerwear:kimono"],
+    coversLeaves: ["women:outerwear:jacket"],
     audience: "womens",
     sourceTitle: "Women's Apparel Size Table",
     sourceUrl: APPAREL_URL,
@@ -285,7 +261,6 @@ export const PENTI_SEED: SeedChart[] = [
       "kids-boys:top:shirt",
       "kids-boys:top:knit",
       "kids-boys:top:hoodie",
-      "kids-boys:top:sweatshirt",
       "kids-boys:top:activewear-top",
       "kids-boys:top:sleep-top",
     ],
@@ -301,10 +276,8 @@ export const PENTI_SEED: SeedChart[] = [
     variantName: "Boys General",
     coversLeaves: [
       "kids-boys:bottom:trouser",
-      "kids-boys:bottom:jean",
       "kids-boys:bottom:short",
       "kids-boys:bottom:legging",
-      "kids-boys:bottom:jogger",
       "kids-boys:bottom:swim-short",
       "kids-boys:bottom:sleep-bottom",
     ],
@@ -332,10 +305,8 @@ export const PENTI_SEED: SeedChart[] = [
     coversLeaves: [
       "kids-girls:top:t-shirt",
       "kids-girls:top:shirt",
-      "kids-girls:top:blouse",
       "kids-girls:top:knit",
       "kids-girls:top:hoodie",
-      "kids-girls:top:sweatshirt",
       "kids-girls:top:activewear-top",
       "kids-girls:top:sleep-top",
     ],
@@ -351,11 +322,9 @@ export const PENTI_SEED: SeedChart[] = [
     variantName: "Girls General",
     coversLeaves: [
       "kids-girls:bottom:trouser",
-      "kids-girls:bottom:jean",
       "kids-girls:bottom:skirt",
       "kids-girls:bottom:short",
       "kids-girls:bottom:legging",
-      "kids-girls:bottom:jogger",
       "kids-girls:bottom:sleep-bottom",
     ],
     audience: "girls",
@@ -382,30 +351,40 @@ export const PENTI_SEED: SeedChart[] = [
   },
   {
     brandKey: BRAND,
+    sourceTableId: "tops-girls-first-bras",
     sizingCategory: "tops",
     variantName: "Girls First Bras",
     coversLeaves: ["kids-girls:top:bra"],
     audience: "girls",
     sourceTitle: "Penti Girls First Bra Size Guide",
-    sourceUrl: KIDS_BRA_URL,
+    sourceUrl: "https://www.penti.com/en/guide/sutyen",
+    applicability: { ageBand: { label: "Children", minMonths: 24, maxMonths: 216 } },
     decidingMeasurements: ["chest"],
-    chartRows: KIDS_BRA_ROWS,
-    notes: [
-      "Penti sells its girls' first bras in 60A, 65A, 70A and 75A. Chest ranges follow Penti's published A-cup rule and five-centimetre band progression; no adult-only cup sizes are added.",
+    chartRows: [
+      { size: "60A", chest_min: 72, chest_max: 74 },
+      { size: "65A", chest_min: 77, chest_max: 79 },
+      { size: "70A", chest_min: 82, chest_max: 84 },
+      { size: "75A", chest_min: 87, chest_max: 89 },
     ],
   },
   {
     brandKey: BRAND,
+    sourceTableId: "dresses-men-pajamas",
     sizingCategory: "dresses",
     variantName: "Men Pajamas",
     coversLeaves: ["men:full-body:sleepwear-set"],
     audience: "mens",
     sourceTitle: "Penti Pajamas (male)",
-    sourceUrl: MEN_PAJAMA_URL,
+    sourceUrl: "https://www.looksize.com/brand-size-chart/penti",
+    decidingMeasurements: ["chest", "waist", "hip"],
     sourcePublishesPointValues: true,
-    chartRows: MEN_PAJAMA_ROWS,
-    notes: [
-      "Penti's public product pages expose S-2XL labels but no static measurement table. The category-specific Penti transcription publishes XS-3XL chest, waist and hip as point values; those points are preserved exactly and are not widened into invented ranges.",
-    ],
+    chartRows: rowsFromColumns({
+      sizes: ["XS", "S", "M", "L", "XL", "2XL", "3XL"],
+      bounds: {
+        chest: exact([92, 96, 100, 104, 108, 112, 116]),
+        waist: exact([82, 86, 90, 94, 98, 102, 106]),
+        hip: exact([96, 100, 104, 108, 112, 116, 120]),
+      },
+    }),
   },
 ];

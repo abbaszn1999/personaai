@@ -40,7 +40,7 @@ export function productChartInputForRaw(
     connection.personaCategoryMap,
     connection.categories,
   );
-  const primary = resolvePersonaPaths(raw.sourceCategoryIds, personaConfig)[0] ?? null;
+  const primary = resolvePersonaPaths(raw.sourceCategoryIds, personaConfig, { title: raw.title })[0] ?? null;
   const routed = extractVariantAttributes(raw, connection.acsFieldMapping);
   const purchasable = extractInStockSizeLabels(raw, connection.acsFieldMapping);
   const parentOverride = connection.skuParentOverrides[raw.externalId];

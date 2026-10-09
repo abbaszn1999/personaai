@@ -40,6 +40,7 @@ import { AUDIENCES, isAudience, isSizingCategory, UNKNOWN_BRAND_KEY, type Audien
 import { audienceForPersonaPath, sanitizeCoverage } from "./variant-match";
 import {
   ALL_PERSONA_LEAF_KEYS,
+  absorbedSubCategories,
   leafKeysFor,
   PERSONA_CATEGORIES,
   PERSONA_DEPARTMENTS,
@@ -1012,7 +1013,11 @@ function leafVocabularyBlock(): string {
       const leaves = leafKeysFor(dept.id, cat.id);
       if (leaves.length === 0) continue;
       const group = personaSizingGroup(cat.id);
-      lines.push(`  ${audience} + ${group}: ${leaves.join(", ")}`);
+      const described = leaves.map((leaf) => {
+        const folded = absorbedSubCategories(leaf);
+        return folded.length > 0 ? `${leaf} (also ${folded.join(", ")})` : leaf;
+      });
+      lines.push(`  ${audience} + ${group}: ${described.join(", ")}`);
     }
   }
   return lines.join("\n");
@@ -1205,7 +1210,10 @@ const SINGLE_REQUEST_INSTRUCTIONS = [
   "- Every leaf in the vocabulary above belongs to exactly one audience+garment_group row. Never put",
   "  a leaf under a table whose own garment_group doesn't match that row, even if the table's heading",
   "  happens to use the same English word — a one-piece swimsuit chart claims the `full-body`",
-  "  swimsuit leaf, never the unrelated `top` bodysuit leaf, no matter what its heading says.",
+  "  swimsuit leaf, never the unrelated kids `top` bodysuit leaf, no matter what its heading says.",
+  "- A leaf stands for every garment listed after `also` beside it: a table headed Blouses claims the",
+  "  `shirt` leaf and a table headed Coats claims the `jacket` leaf. Never look for a separate leaf",
+  "  for a garment that is listed as folded into another.",
   "",
   "FINAL ROW NORMALIZATION",
   "- Output one row per SIZE, even when the source prints sizes across columns.",

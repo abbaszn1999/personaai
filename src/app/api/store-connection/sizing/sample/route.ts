@@ -4,10 +4,12 @@ import { createCatalogPager } from "@/lib/catalog/pager";
 import type { RawCatalogProduct } from "@/lib/catalog/sync-types";
 import {
   buildPersonaMappingConfig,
+  personaPathConflict,
   personaPathLabel,
   resolvePersonaPaths,
   storeCategoryTrail,
 } from "@/lib/catalog/persona-mapping";
+import { productChartInputForRaw } from "@/lib/catalog/sizing-for-product";
 import { getRawProducts } from "@/lib/catalog/raw-product-cache";
 import { extractVariantAttributes, resolveProductBrand } from "@/lib/catalog/acs/map-product";
 import { listSizingCoverage, type BrandType } from "@/lib/db/sizing-coverage";
@@ -25,7 +27,7 @@ import {
   type ProductChartStatus,
 } from "@/lib/sizing/product-chart";
 import type { SizeChartRow } from "@/lib/sizing/chart-schema";
-import { SAMPLE_PAGE_SIZES } from "@/modules/store/sizing/server-types";
+import { SAMPLE_PAGE_SIZES, type SizingSamplePathConflict } from "@/modules/store/sizing/server-types";
 
 const DEFAULT_PAGE_SIZE = 25;
 
@@ -76,6 +78,8 @@ export interface SizingSampleRow {
   personaLeafKey: string | null;
   /** The merchant ancestor the mapping was taken from, when the product's own category has none. */
   mappingInheritedFrom: string[] | null;
+  /** Set when the product's categories map to different size groups or bodies. */
+  pathConflict: SizingSamplePathConflict | null;
   primaryLeafKey?: string | null;
   canonicalBrandKey?: string;
   resolutionStatus?: ProductChartStatus;
@@ -162,7 +166,7 @@ export async function GET(request: Request) {
 
     const [pager, coverage] = await Promise.all([
       createCatalogPager(connection, { pageSize: STORE_FETCH_PAGE_SIZE }),
-      listSizingCoverage(connection.id),
+      listSizingCoverage(connection.id, { fresh: true }),
     ]);
 
     // Null means nothing is in scope — the merchant hasn't chosen categories yet. An empty page is
@@ -184,8 +188,20 @@ export async function GET(request: Request) {
     const requestedParent = params.get("parent");
     const parentFilter = requestedParent && isSizingGroup(requestedParent) ? requestedParent : null;
     const search = (params.get("q") ?? "").trim().toLowerCase();
+    const brandFilter = params.get("brand")?.trim() || null;
+    // Colons in a Persona leaf key separate dept, category and subcategory; nothing else is accepted,
+    // so the value is never anything but a key the filter can match literally.
+    const requestedPath = params.get("path")?.trim() ?? "";
+    const pathFilter = /^[\w-]+:([\w-]+:([\w-]+)?)?$/.test(requestedPath) ? requestedPath : null;
+    const sourceFilter = params.get("source")?.trim() || null;
     const includeResolution = params.get("include")?.split(",").includes("resolution") === true;
-    const filtering = brandTypeFilter !== null || parentFilter !== null || search.length > 0;
+    const filtering =
+      brandTypeFilter !== null ||
+      parentFilter !== null ||
+      brandFilter !== null ||
+      pathFilter !== null ||
+      sourceFilter !== null ||
+      search.length > 0;
 
     const { chips: typeChipCounts, items: typeItemCounts, byParent } = countCoverage(coverage);
     const classificationComplete =
@@ -215,7 +231,9 @@ export async function GET(request: Request) {
 
     const toRow = (raw: RawCatalogProduct, indexed?: SizingProductRecordRow): SizingSampleRow => {
       const variants = extractVariantAttributes(raw, connection.acsFieldMapping);
-      const primaryPersonaPath = resolvePersonaPaths(raw.sourceCategoryIds, personaConfig)[0] ?? null;
+      const personaPaths = resolvePersonaPaths(raw.sourceCategoryIds, personaConfig, { title: raw.title });
+      const primaryPersonaPath = personaPaths[0] ?? null;
+      const conflict = personaPathConflict(personaPaths);
       const merchantPath = primaryPersonaPath?.sourceCategoryId
         ? storeCategoryTrail(primaryPersonaPath.sourceCategoryId, connection.categories)
         : [];
@@ -259,15 +277,22 @@ export async function GET(request: Request) {
         personaPath: primaryPersonaPath ? personaPathLabel(primaryPersonaPath, personaConfig) : null,
         personaLeafKey: primaryPersonaPath?.key ?? null,
         mappingInheritedFrom: inheritedFrom && inheritedFrom.length > 0 ? inheritedFrom : null,
+        pathConflict: conflict
+          ? {
+              kind: conflict.kind,
+              paths: conflict.paths.map((path) => ({
+                personaPath: personaPathLabel(path, personaConfig),
+                storeCategory: path.sourceCategoryId
+                  ? storeCategoryTrail(path.sourceCategoryId, connection.categories).join(" › ")
+                  : "",
+              })),
+            }
+          : null,
       };
       if (resolutionContext) {
-        const resolution = resolveProductChart({
-          brandKey,
-          sizingCategory: sizingCategory ?? "",
-          primaryPersonaLeafKey: indexed?.primaryPersonaLeafKey ?? null,
-          rawSizeFormat: indexed?.rawSizeFormat ?? null,
-          audienceHint: indexed?.audienceHint ?? null,
-        }, resolutionContext);
+        // The live product through the publish path's own input builder, so the chart shown here is
+        // the one ACS would receive — not one resolved from the scan snapshot's sizes and leaf.
+        const resolution = resolveProductChart(productChartInputForRaw(raw, connection), resolutionContext);
         row.primaryLeafKey = resolution.leafKey;
         row.canonicalBrandKey = resolution.canonicalBrandKey;
         row.resolutionStatus = resolution.status;
@@ -282,15 +307,22 @@ export async function GET(request: Request) {
 
     const parsedOffset = Number(params.get("cursor"));
     const offset = Number.isInteger(parsedOffset) && parsedOffset >= 0 ? parsedOffset : 0;
-    const brandKeys = brandTypeFilter
+    const typeBrandKeys = brandTypeFilter
       ? [...new Set(coverage.filter((row) => row.brandType === brandTypeFilter).map((row) => row.brandKey))]
       : null;
+    // A chosen brand narrows the brand-type chip rather than replacing it, so "Private brands" plus a
+    // global brand is an honest empty result instead of the brand ignoring the chip.
+    const brandKeys = brandFilter
+      ? typeBrandKeys === null || typeBrandKeys.includes(brandFilter) ? [brandFilter] : []
+      : typeBrandKeys;
     const indexedPage = await listSizingProductRecordsPage(connection.id, {
       limit: pageSize,
       offset,
       brandKeys,
       sizingCategory: parentFilter,
       search,
+      path: pathFilter,
+      sourceCategoryId: sourceFilter,
     });
     // The refresh button asks for a live read; ordinary paging reuses products read in the last few
     // minutes (by this screen or by the Stage 5 preview), which is what makes paging instant.

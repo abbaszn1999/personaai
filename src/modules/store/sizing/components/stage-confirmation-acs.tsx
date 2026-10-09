@@ -27,15 +27,11 @@ export function StageConfirmation() {
   const publishRunId = React.useRef<string | null>(null);
   const publishObservedWorking = React.useRef(false);
 
+  // A working run (a publish) is kept current by the Setup poll, which `loadRun` restarts whenever
+  // the run it reads is still working.
   React.useEffect(() => {
-    void loadRun();
+    void loadRun({ ifStale: true });
   }, [loadRun]);
-
-  React.useEffect(() => {
-    if (!isRunWorking(run)) return;
-    const timer = window.setInterval(() => void loadRun(), 2_000);
-    return () => window.clearInterval(timer);
-  }, [loadRun, run]);
 
   React.useEffect(() => {
     if (!publishing || !publishObservedWorking.current || run?.id !== publishRunId.current) return;

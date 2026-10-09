@@ -1,28 +1,38 @@
 import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner, updateStoreConnection } from "@/lib/db/store-connections";
+import { refuseDuringSetupReset } from "@/lib/catalog/setup-reset-guard";
 import {
   buildPersonaMappingConfig,
   effectiveMappingFor,
-  mappedSourceCategoryIds,
   storeCategoryBreadcrumb,
 } from "@/lib/catalog/persona-mapping";
 import { buildCategoryIndex } from "@/lib/catalog/category-parents";
+import { resetPersonaMapping } from "@/lib/catalog/persona-mapping-reset";
+import { applyPersonaMappingChange } from "@/lib/catalog/persona-mapping-effects";
+import { autoMatchRunning, effectiveAutoMatchState } from "@/lib/catalog/auto-match-state";
 import {
   ALL_PERSONA_LEAF_KEYS,
-  EMPTY_PERSONA_SCOPE,
   PERSONA_TAXONOMY_VERSION,
   derivePersonaValues,
   formatPersonaPath,
   type PersonaCategoryId,
   type PersonaDepartmentId,
 } from "@/modules/store/mapping/persona-taxonomy";
-import { deactivateAcsCatalogForRemapping } from "@/lib/catalog/acs/catalog-reads";
-import { markPathConfigStale } from "@/lib/catalog/path-config/rebuild";
-import { clearGeneratedStageFiveCache } from "@/lib/catalog/acs/stage-five-preview";
-import { createSizingRun, getLastPublishedAt, getLatestSizingRun, rewindRun } from "@/lib/db/sizing-runs";
+import { getLastPublishedAt } from "@/lib/db/sizing-runs";
 import { getSizingProductPrimaryLeafCounts } from "@/lib/db/sizing-product-records";
 import { listSizingCoverage } from "@/lib/db/sizing-coverage";
+
+type Connection = NonNullable<Awaited<ReturnType<typeof getStoreConnectionByOwner>>>;
+
+/** AI matching saves the mapping when it finishes, so nothing else may change it meanwhile. */
+function refuseDuringAutoMatch(connection: Connection): Response | null {
+  if (!autoMatchRunning(connection.autoMatchJob)) return null;
+  return Response.json(
+    { error: "AI matching is still running. Wait for it to finish.", code: "auto_match_running" },
+    { status: 409 },
+  );
+}
 
 function invalidLeafMappingIds(
   value: unknown,
@@ -47,7 +57,7 @@ function invalidLeafMappingIds(
   });
 }
 
-async function responseFor(connection: NonNullable<Awaited<ReturnType<typeof getStoreConnectionByOwner>>>) {
+async function responseFor(connection: Connection) {
   const [counts, coverage] = await Promise.all([
     getSizingProductPrimaryLeafCounts(connection.id),
     listSizingCoverage(connection.id),
@@ -73,6 +83,7 @@ async function responseFor(connection: NonNullable<Awaited<ReturnType<typeof get
     scope: connection.personaTaxonomyScope,
     mappingUpdatedAt: connection.personaMappingUpdatedAt,
     autoMatchCompletedAt: connection.personaAutoMatchCompletedAt,
+    autoMatch: effectiveAutoMatchState(connection.autoMatchJob),
     scanCounts: countsMatchCurrentMapping
       ? { total: counts.total, byLeaf: counts.byLeaf }
       : null,
@@ -154,6 +165,10 @@ export async function PUT(req: NextRequest) {
 
   const connection = await getStoreConnectionByOwner(user.id);
   if (!connection) return Response.json({ error: "Store connection not found" }, { status: 404 });
+  const resetting = refuseDuringSetupReset(connection);
+  if (resetting) return resetting;
+  const matching = refuseDuringAutoMatch(connection);
+  if (matching) return matching;
 
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== "object") {
@@ -187,11 +202,6 @@ export async function PUT(req: NextRequest) {
     );
   }
 
-  // Auto-Match is a one-shot action: the mapping-view marks this save as its completion, which
-  // stamps the connection so `POST .../auto-match` refuses to run again until a full clear (see
-  // the DELETE handler below). A manual save never sets this — only Auto-Match's own request does.
-  const markAutoMatchCompleted = payload.markAutoMatchCompleted === true;
-
   const now = new Date().toISOString();
 
   // Saving what is already saved changes nothing downstream, so it must not restart the scan, throw
@@ -201,28 +211,17 @@ export async function PUT(req: NextRequest) {
     stableStringify(config.scope) === stableStringify(connection.personaTaxonomyScope) &&
     stableStringify(config.mappings) === stableStringify(connection.personaCategoryMap) &&
     connection.personaTaxonomyVersion === PERSONA_TAXONOMY_VERSION;
-  if (unchanged) {
-    if (!markAutoMatchCompleted || connection.personaAutoMatchCompletedAt) {
-      return Response.json(await responseFor(connection));
-    }
-    const stamped = await updateStoreConnection(user.id, { personaAutoMatchCompletedAt: now });
-    if (!stamped) return Response.json({ error: "Could not save category mappings" }, { status: 500 });
-    return Response.json(await responseFor(stamped));
-  }
+  if (unchanged) return Response.json(await responseFor(connection));
 
-  // A store that has gone live keeps serving its published catalog while the merchant remaps: the
-  // sync state is left alone and nothing is taken out of stock. The new mapping only reaches
-  // shoppers through the next publish, which replaces the catalog and retires what it no longer
-  // writes.
-  const lastPublishedAt = await getLastPublishedAt(connection.id);
-  const live = lastPublishedAt !== null;
+  // A live store's sync state is left alone: its published catalog keeps serving until the next
+  // publish replaces it.
+  const live = (await getLastPublishedAt(connection.id)) !== null;
 
   const updated = await updateStoreConnection(user.id, {
     personaTaxonomyVersion: PERSONA_TAXONOMY_VERSION,
     personaTaxonomyScope: config.scope,
     personaCategoryMap: config.mappings,
     personaMappingUpdatedAt: now,
-    ...(markAutoMatchCompleted ? { personaAutoMatchCompletedAt: now } : {}),
     ...(live
       ? {}
       : {
@@ -234,24 +233,8 @@ export async function PUT(req: NextRequest) {
   });
 
   if (!updated) return Response.json({ error: "Could not save category mappings" }, { status: 500 });
-  await Promise.all([
-    live ? Promise.resolve(0) : deactivateAcsCatalogForRemapping(updated.id),
-    markPathConfigStale(updated.id),
-    // Category paths are one of the scan's inputs. A live run goes back to the scan; a finished one
-    // is replaced by a fresh setup run, because leaving it complete keeps `sizing_path_coverage`
-    // describing the old mapping — exactly how leafless products remained in Stage 4 after their
-    // mapping was corrected.
-    restartSizingAfterRemap(updated.id, mappedSourceCategoryIds(updated.personaCategoryMap).length > 0),
-  ]);
-  clearGeneratedStageFiveCache(updated.id);
+  await applyPersonaMappingChange(updated, live);
   return Response.json(await responseFor(updated));
-}
-
-async function restartSizingAfterRemap(connectionId: string, hasMappedCategories: boolean) {
-  const rewound = await rewindRun(connectionId, "scan");
-  if (rewound || !hasMappedCategories) return rewound;
-  if (!(await getLatestSizingRun(connectionId))) return null;
-  return createSizingRun(connectionId);
 }
 
 function stableStringify(value: unknown): string {
@@ -272,33 +255,12 @@ export async function DELETE() {
 
   const connection = await getStoreConnectionByOwner(user.id);
   if (!connection) return Response.json({ error: "Store connection not found" }, { status: 404 });
+  const resetting = refuseDuringSetupReset(connection);
+  if (resetting) return resetting;
+  const matching = refuseDuringAutoMatch(connection);
+  if (matching) return matching;
 
-  const live = (await getLastPublishedAt(connection.id)) !== null;
-
-  const updated = await updateStoreConnection(user.id, {
-    personaTaxonomyVersion: PERSONA_TAXONOMY_VERSION,
-    personaTaxonomyScope: EMPTY_PERSONA_SCOPE,
-    personaCategoryMap: {},
-    personaMappingUpdatedAt: null,
-    // Clearing the mapping is the only way to unlock Auto-Match for another one-shot run.
-    personaAutoMatchCompletedAt: null,
-    ...(live
-      ? {}
-      : {
-          catalogSyncStatus: "idle" as const,
-          catalogSyncProgress: 0,
-          catalogSyncTotal: 0,
-          catalogPendingCategoryIds: [],
-        }),
-  });
-
+  const updated = await resetPersonaMapping(connection);
   if (!updated) return Response.json({ error: "Could not clear category mappings" }, { status: 500 });
-  await Promise.all([
-    live ? Promise.resolve(0) : deactivateAcsCatalogForRemapping(updated.id),
-    markPathConfigStale(updated.id),
-    // Nothing is mapped any more, so there is nothing for a fresh run to scan; only a live one is rewound.
-    rewindRun(updated.id, "scan"),
-  ]);
-  clearGeneratedStageFiveCache(updated.id);
   return Response.json(await responseFor(updated));
 }

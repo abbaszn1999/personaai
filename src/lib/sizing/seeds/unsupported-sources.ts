@@ -59,9 +59,7 @@ export const UNSUPPORTED_SOURCES: UnsupportedSourceState[] = [
     "kids-unisex:top:t-shirt",
     "kids-unisex:top:shirt",
     "kids-unisex:top:hoodie",
-    "kids-unisex:top:sweatshirt",
     "kids-unisex:bottom:trouser",
-    "kids-unisex:bottom:jogger",
     "kids-unisex:bottom:short",
   ].map((leaf) =>
     state(
@@ -81,15 +79,10 @@ export const UNSUPPORTED_SOURCES: UnsupportedSourceState[] = [
   ].map((leaf) =>
     state("penti", leaf, "Penti publishes no foot-length or body measurements for socks, slippers and shoes."),
   ),
-  ...[
+  state(
+    "penti",
     "kids-girls:full-body:swimsuit",
-    "kids-boys:bottom:swim-short",
-  ].map((leaf) =>
-    state(
-      "penti",
-      leaf,
-      `Children's swimwear has no readable size table. ${PENTI_DYNAMIC_GUIDE}`,
-    ),
+    `Children's swimwear has no readable size table. ${PENTI_DYNAMIC_GUIDE}`,
   ),
   state(
     "penti",
@@ -116,7 +109,7 @@ export const UNSUPPORTED_SOURCES: UnsupportedSourceState[] = [
   ),
   state(
     "penti",
-    "women:top:tank-top",
+    "women:top:t-shirt",
     "Paired alpha labels (S/M, M/L, L/XL) span two chart rows; the source publishes single-size rows only.",
     { labels: ["S/M", "M/L", "L/XL"] },
   ),

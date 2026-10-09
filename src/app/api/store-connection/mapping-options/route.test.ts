@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import type { StoreConnectionRow } from "@/lib/db/store-connections";
 import { EMPTY_ACS_MAPPING } from "@/lib/catalog/acs-mapping";
+import { IDLE_SETUP_RESET } from "@/lib/catalog/setup-reset-state";
+import { IDLE_AUTO_MATCH } from "@/lib/catalog/auto-match-state";
 import type { RawCatalogProduct } from "@/lib/catalog/sync-types";
 
 process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://test.supabase.co";
@@ -46,6 +48,7 @@ function row(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRow {
     personaCategoryMap: {},
     personaMappingUpdatedAt: null,
     personaAutoMatchCompletedAt: null,
+    autoMatchJob: IDLE_AUTO_MATCH,
     storeSizeSettings: { default: "Alpha", overrides: {} },
     productCount: 0,
     syncedAt: null,
@@ -59,7 +62,7 @@ function row(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRow {
     acsMapperVersionApproved: null,
     acsFieldMapping: EMPTY_ACS_MAPPING,
     sizingSource: "ai_pipeline",
-    sizingBrandMapping: { version: 1, confirmedAt: null, sourceFingerprint: "", observed: {}, aliases: {} },
+    sizingBrandMapping: { version: 1, confirmedAt: null, sourceFingerprint: "", observed: {}, aliases: {}, privateAliases: {} },
     sizingStagesSkippedAt: null,
     acsFieldOverridesApprovedHash: null,
     cmsColumnDiscoveryStatus: "idle",
@@ -70,6 +73,7 @@ function row(overrides: Partial<StoreConnectionRow> = {}): StoreConnectionRow {
     cmsColumnDiscoveryUpdatedAt: null,
     ordersAccess: null,
     storeCurrency: null,
+    setupReset: IDLE_SETUP_RESET,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
@@ -174,7 +178,7 @@ describe("mapping-options GET", () => {
     const res = await GET(getRequest());
     const data = await res.json();
 
-    expect(data.categoriesSample).toBe("Women > Top > T-Shirts");
+    expect(data.categoriesSample).toBe("Women > Top > T-Shirts & Tops");
   });
 
   it("leaves the categories sample null when nothing in the sample resolves to a Persona path", async () => {

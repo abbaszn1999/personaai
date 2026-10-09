@@ -17,6 +17,9 @@ import { mappedSourceCategoryIds, parsePersonaCategoryMap, parsePersonaScope } f
 import { parseStoreBrandMapping, type StoreBrandMapping } from "@/lib/sizing/brand-mapping";
 import { parseSizeSettings, type SizeSettings } from "@/lib/sizing/size-types";
 import { parseSizingSource, type SizingSource } from "@/lib/sizing/sizing-source";
+import { parseSetupResetState, type SetupResetState } from "@/lib/catalog/setup-reset-state";
+import { parseAutoMatchJobState, type AutoMatchJobState } from "@/lib/catalog/auto-match-state";
+import { IDLE_AUTO_MATCH_COLUMNS } from "@/lib/db/auto-match-jobs";
 
 /**
  * Where the catalog is in its enrichment/embedding lifecycle. Retrieval falls back to the
@@ -60,6 +63,8 @@ export interface StoreConnectionRow {
    *  means it has never run (or the mapping was cleared since); non-null blocks further runs
    *  until a clear — see the Mapping page's Auto-Match one-shot rule. */
   personaAutoMatchCompletedAt: string | null;
+  /** The last AI match run on the server, which the Mapping page follows until it finishes. */
+  autoMatchJob: AutoMatchJobState;
   /** Doc Part 2: which sizing system this catalog's size labels are written in, plus the brands
    *  whose labels differ from it. Read through `sizeTypeFor`, never directly, so the per-brand
    *  exceptions cannot be skipped. */
@@ -111,6 +116,8 @@ export interface StoreConnectionRow {
   /** ISO 4217 code the store sells in. Only WooCommerce needs it — Shopify reports a currency on
    *  every product. Null until read, in which case Woo prices fall back to USD. */
   storeCurrency: string | null;
+  /** The last "Start from scratch" and its background ACS cleanup. */
+  setupReset: SetupResetState;
   createdAt: string;
   updatedAt: string;
 }
@@ -118,7 +125,7 @@ export interface StoreConnectionRow {
 function rowToConnection(row: Record<string, unknown>): StoreConnectionRow {
   const categories = (row.categories as StoreCategory[]) ?? [];
   const personaTaxonomyScope = parsePersonaScope(row.persona_taxonomy_scope);
-  const personaCategoryMap = parsePersonaCategoryMap(row.persona_category_map, categories);
+  const personaCategoryMap = parsePersonaCategoryMap(row.persona_category_map, categories, personaTaxonomyScope.customLeaves);
   return {
     id: row.id as string,
     ownerId: row.owner_id as string,
@@ -135,6 +142,7 @@ function rowToConnection(row: Record<string, unknown>): StoreConnectionRow {
     personaCategoryMap,
     personaMappingUpdatedAt: (row.persona_mapping_updated_at as string | null) ?? null,
     personaAutoMatchCompletedAt: (row.persona_auto_match_completed_at as string | null) ?? null,
+    autoMatchJob: parseAutoMatchJobState(row),
     storeSizeSettings: parseSizeSettings(row.store_size_settings),
     sizingSource: parseSizingSource(row.sizing_source),
     sizingBrandMapping: parseStoreBrandMapping(row.sizing_brand_mapping),
@@ -159,6 +167,7 @@ function rowToConnection(row: Record<string, unknown>): StoreConnectionRow {
     cmsColumnDiscoveryUpdatedAt: (row.cms_column_discovery_updated_at as string | null) ?? null,
     ordersAccess: row.orders_access === "active" || row.orders_access === "missing" ? row.orders_access : null,
     storeCurrency: (row.store_currency as string | null) ?? null,
+    setupReset: parseSetupResetState(row),
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
   };
@@ -247,6 +256,7 @@ export async function upsertStoreConnection(input: UpsertStoreConnectionInput): 
         persona_category_map: {},
         persona_mapping_updated_at: null,
         persona_auto_match_completed_at: null,
+        ...IDLE_AUTO_MATCH_COLUMNS,
         product_count: input.productCount ?? 0,
         synced_at: null,
         updated_at: new Date().toISOString(),
@@ -487,6 +497,18 @@ export async function listConnectedStores(): Promise<StoreConnectionRow[]> {
 
   if (error) {
     console.error("[db/store-connections listConnectedStores]", error);
+    return [];
+  }
+
+  return (data ?? []).map(rowToConnection);
+}
+
+/** Every connection still on an older Persona taxonomy, whatever its connection status. */
+export async function listConnectionsBelowTaxonomyVersion(version: number): Promise<StoreConnectionRow[]> {
+  const { data, error } = await db.from("store_connections").select("*").lt("persona_taxonomy_version", version);
+
+  if (error) {
+    console.error("[db/store-connections listConnectionsBelowTaxonomyVersion]", error);
     return [];
   }
 

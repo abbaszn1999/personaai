@@ -1,5 +1,6 @@
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
+import { refuseDuringSetupReset } from "@/lib/catalog/setup-reset-guard";
 import { listSizingCoverage, setBrandType, setResearchOutcomes } from "@/lib/db/sizing-coverage";
 import { getLatestSizingRun } from "@/lib/db/sizing-runs";
 import { clearGeneratedStageFiveCache } from "@/lib/catalog/acs/stage-five-preview";
@@ -19,6 +20,8 @@ export async function PATCH(request: Request) {
 
     const connection = await getStoreConnectionByOwner(user.id);
     if (!connection) return Response.json({ error: "Store connection not found" }, { status: 404 });
+    const resetting = refuseDuringSetupReset(connection);
+    if (resetting) return resetting;
 
     const body = (await request.json().catch(() => null)) as { brandKey?: unknown; brandType?: unknown } | null;
     const brandKey = typeof body?.brandKey === "string" ? body.brandKey : null;

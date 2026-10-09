@@ -64,7 +64,7 @@ export function resolveCategoryPaths(product: RawCatalogProduct, connection: Cat
     connection.personaCategoryMap,
     connection.categories,
   );
-  return resolvePersonaPaths(product.sourceCategoryIds, config).map((path) => path.segments);
+  return resolvePersonaPaths(product.sourceCategoryIds, config, { title: product.title }).map((path) => path.segments);
 }
 
 /**
@@ -200,6 +200,11 @@ export async function indexProductIfInScope(
     const removed = await downgradeAcsProductIfExists(connection.id, product.externalId);
     return removed ? "removed" : "out-of-scope";
   }
+
+  // Nothing of this store's is in ACS until a Stage 5 publish puts it there, and a store started
+  // from scratch has none. Writing one product on an edit would put it back early, sized by a setup
+  // that no longer exists; the next publish writes it with everything else.
+  if ((await getAcsPublishStampId(connection.id)) === null) return "out-of-scope";
 
   return indexSingleProduct(
     connection.id,

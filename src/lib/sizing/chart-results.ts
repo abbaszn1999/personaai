@@ -10,6 +10,7 @@ import {
 } from "./chart-review";
 import { isSizingCategory, UNKNOWN_BRAND_KEY, type Audience } from "./keys";
 import { variantTags } from "./variant-match";
+import { UNSUPPORTED_SOURCES } from "./seeds/unsupported-sources";
 
 /**
  * Joins what the store carries (`sizing_coverage`) against what research produced
@@ -88,6 +89,8 @@ export interface ChartGapResult {
   missingLeaves: string[];
   /** Products per missing leaf, so the screen can say "Men · Polo-Shirt, 45 items". */
   missingLeafCounts: Record<string, number>;
+  /** Why the brand's own source has nothing for a missing leaf, where that has been verified. */
+  missingLeafReasons: Record<string, string>;
   /** True when the pair already holds at least one chart and the gap is only part of it. */
   partial: boolean;
 }
@@ -137,7 +140,11 @@ export function missingLeavesFor(
 
 export interface ChartResults {
   charts: ResearchedChartResult[];
+  /** Private labels only: the merchant fills these by hand. */
   notFound: ChartGapResult[];
+  /** What the shared registry does not cover for a global brand. Only support can add these, so they
+   *  are shown on the Global brands tab beside the brand's charts, never with the private labels. */
+  globalGaps: ChartGapResult[];
   noBrand: ChartGapResult[];
   totals: {
     chartsFound: number;
@@ -295,6 +302,20 @@ function toGap(
   partial = false
 ): ChartGapResult {
   const unbranded = row.brandKey === UNKNOWN_BRAND_KEY;
+  const missingSet = new Set(missing.leaves);
+  // A partly charted pair lists only where its uncovered products sit. Every path the pair holds
+  // would show the subcategories its chart already covers beside the one it does not.
+  const paths = partial
+    ? row.storeCategoryPaths.filter((path) => missingSet.has(path.slice(1).join(":")))
+    : row.storeCategoryPaths;
+  const missingLeafReasons: Record<string, string> = {};
+  if (row.brandType === "global") {
+    for (const source of UNSUPPORTED_SOURCES) {
+      if (source.brandKey === row.brandKey && !source.labels?.length && missingSet.has(source.leafKey)) {
+        missingLeafReasons[source.leafKey] = source.reason;
+      }
+    }
+  }
   const noun = missing.leaves.length === 1 ? "subcategory" : "subcategories";
   const reason = partial
     ? row.brandType === "global"
@@ -308,7 +329,7 @@ function toGap(
     brandType: row.brandType,
     sizingCategory: row.sizingCategory,
     skuCount: partial ? Math.min(row.skuCount, missing.skus) : row.skuCount,
-    storeCategoryPaths: row.storeCategoryPaths,
+    storeCategoryPaths: paths.length > 0 ? paths : row.storeCategoryPaths,
     researchStatus: row.researchStatus,
     researchNote: row.researchNote,
     reason,
@@ -319,6 +340,7 @@ function toGap(
     })),
     missingLeaves: missing.leaves,
     missingLeafCounts: missing.counts,
+    missingLeafReasons,
     partial,
   };
 }
@@ -337,6 +359,7 @@ export function buildChartResults(
 
   const results: ResearchedChartResult[] = [];
   const notFound: ChartGapResult[] = [];
+  const globalGaps: ChartGapResult[] = [];
   const noBrand: ChartGapResult[] = [];
   const chartedBrands = new Set<string>();
   let chartedPairs = 0;
@@ -368,6 +391,8 @@ export function buildChartResults(
         noBrand.push(toGap(row, everything));
       } else if (row.brandType === "global" && row.researchStatus === "pending") {
         pendingGlobalPairs += 1;
+      } else if (row.brandType === "global") {
+        globalGaps.push(toGap(row, everything));
       } else {
         notFound.push(toGap(row, everything));
       }
@@ -383,6 +408,7 @@ export function buildChartResults(
     if (missing.leaves.length > 0) {
       const gap = toGap(row, missing, true);
       if (row.brandKey === UNKNOWN_BRAND_KEY || row.brandType === "none") noBrand.push(gap);
+      else if (row.brandType === "global") globalGaps.push(gap);
       else notFound.push(gap);
       gapSkus += gap.skuCount;
       chartedSkus += row.skuCount - gap.skuCount;
@@ -439,11 +465,13 @@ export function buildChartResults(
       a.variantName.localeCompare(b.variantName)
   );
   notFound.sort(bySkuDesc);
+  globalGaps.sort(bySkuDesc);
   noBrand.sort(bySkuDesc);
 
   return {
     charts: results,
     notFound,
+    globalGaps,
     noBrand,
     totals: {
       chartsFound: results.length,
@@ -454,7 +482,7 @@ export function buildChartResults(
       // time research found *more*, which reads as the coverage getting worse. Includes
       // `pendingGlobalPairs` even though those don't appear in `notFound` — they still need a chart,
       // they are just tracked on the Global brands tab instead of this one.
-      pairsNeeded: chartedPairs + notFound.length + noBrand.length + pendingGlobalPairs,
+      pairsNeeded: chartedPairs + notFound.length + globalGaps.length + noBrand.length + pendingGlobalPairs,
       gapSkus,
     },
     researched,

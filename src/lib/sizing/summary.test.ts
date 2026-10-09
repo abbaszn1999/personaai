@@ -127,14 +127,14 @@ describe("attachPersonaLeaves", () => {
       coverage({ id: "nike", brandKey: "nike", brandType: "global", sizingCategory: "tops" }),
     ]);
     const result = attachPersonaLeaves(summary, [
-      { brandKey: "own-label", categoryId: "women:top:blouse", sizingCategory: "tops", skuCount: 2 },
+      { brandKey: "own-label", categoryId: "women:top:shirt", sizingCategory: "tops", skuCount: 2 },
       { brandKey: "own-label", categoryId: "women:top:t-shirt", sizingCategory: "tops", skuCount: 9 },
       { brandKey: "nike", categoryId: "men:top:shirt", sizingCategory: "tops", skuCount: 4 },
     ]);
 
     const own = result.brands.find((brand) => brand.brandKey === "own-label");
     const nike = result.brands.find((brand) => brand.brandKey === "nike");
-    expect(own?.personaLeaves).toEqual(["women:top:t-shirt", "women:top:blouse"]);
+    expect(own?.personaLeaves).toEqual(["women:top:t-shirt", "women:top:shirt"]);
     expect(nike?.personaLeaves).toBeUndefined();
   });
 
@@ -145,10 +145,10 @@ describe("attachPersonaLeaves", () => {
     ]);
     const result = attachPersonaLeaves(summary, [
       { brandKey: "", categoryId: "women:shoes:sneakers", sizingCategory: "footwear", skuCount: 3 },
-      { brandKey: "", categoryId: "women:top:blouse", sizingCategory: "tops", skuCount: 5 },
+      { brandKey: "", categoryId: "women:top:shirt", sizingCategory: "tops", skuCount: 5 },
     ]);
 
     const byCategory = Object.fromEntries(result.brands.map((brand) => [brand.sizingCategories[0], brand.personaLeaves]));
-    expect(byCategory).toEqual({ footwear: ["women:shoes:sneakers"], tops: ["women:top:blouse"] });
+    expect(byCategory).toEqual({ footwear: ["women:shoes:sneakers"], tops: ["women:top:shirt"] });
   });
 });

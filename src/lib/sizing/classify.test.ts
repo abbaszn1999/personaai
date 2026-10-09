@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   generateContent: vi.fn(),
   listSizingCoverage: vi.fn(),
   setBrandType: vi.fn(async () => true),
+  listPrivateChartBrandKeys: vi.fn(async () => new Set<string>()),
 }));
 
 vi.mock("@/lib/ai/gemini", () => ({
@@ -14,6 +15,9 @@ vi.mock("@/lib/ai/gemini", () => ({
 vi.mock("@/lib/db/sizing-coverage", () => ({
   listSizingCoverage: mocks.listSizingCoverage,
   setBrandType: mocks.setBrandType,
+}));
+vi.mock("@/lib/db/sizing-charts", () => ({
+  listPrivateChartBrandKeys: mocks.listPrivateChartBrandKeys,
 }));
 
 const { parseClassification, runBrandClassification } = await import("./classify");
@@ -31,6 +35,78 @@ function coverage(brandKey: string, brandName: string | null) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.setBrandType.mockResolvedValue(true);
+  mocks.listPrivateChartBrandKeys.mockResolvedValue(new Set<string>());
+});
+
+describe("runBrandClassification with kept private charts", () => {
+  it("keeps a brand private without asking Gemini when its private charts survived a reset", async () => {
+    mocks.listSizingCoverage.mockResolvedValue([coverage("moustache", "Moustache"), coverage("nike", "Nike")]);
+    mocks.listPrivateChartBrandKeys.mockResolvedValue(new Set(["moustache"]));
+    mocks.generateContent.mockResolvedValue({
+      text: JSON.stringify({ global_brands: ["Nike"], private_brands: [] }),
+    });
+
+    const result = await runBrandClassification(connection);
+
+    const prompt = mocks.generateContent.mock.calls[0][0].contents[0].parts[0].text as string;
+    expect(prompt).not.toContain("- Moustache");
+    expect(prompt).toContain("- Nike");
+    expect(mocks.setBrandType).toHaveBeenCalledWith("connection-1", "moustache", "private", null);
+    expect(mocks.setBrandType).toHaveBeenCalledWith("connection-1", "nike", "global", "Nike");
+    expect(result).toEqual({ classified: 2, global: 1, private: 1, none: 0 });
+  });
+
+  it("finds the charts through the store's private group, where they are filed under the group's key", async () => {
+    mocks.listSizingCoverage.mockResolvedValue([
+      coverage("moustache_men", "Moustache Men"),
+      coverage("moustache_women", "Moustache Women"),
+    ]);
+    mocks.listPrivateChartBrandKeys.mockResolvedValue(new Set(["moustache"]));
+    const grouped = {
+      ...connection,
+      sizingBrandMapping: {
+        privateAliases: {
+          moustache_men: { canonicalKey: "moustache", canonicalName: "Moustache", labels: ["Moustache Men"] },
+          moustache_women: { canonicalKey: "moustache", canonicalName: "Moustache", labels: ["Moustache Women"] },
+        },
+      },
+    } as unknown as StoreConnectionRow;
+
+    const result = await runBrandClassification(grouped);
+
+    expect(mocks.generateContent).not.toHaveBeenCalled();
+    expect(mocks.setBrandType).toHaveBeenCalledWith("connection-1", "moustache_men", "private", null);
+    expect(mocks.setBrandType).toHaveBeenCalledWith("connection-1", "moustache_women", "private", null);
+    expect(result).toEqual({ classified: 2, global: 0, private: 2, none: 0 });
+  });
+
+  it("leaves a settled verdict alone", async () => {
+    mocks.listSizingCoverage.mockResolvedValue([{ ...coverage("moustache", "Moustache"), brandType: "global" }]);
+    mocks.listPrivateChartBrandKeys.mockResolvedValue(new Set(["moustache"]));
+
+    await runBrandClassification(connection);
+
+    expect(mocks.setBrandType).not.toHaveBeenCalled();
+  });
+
+  it("fails the run when the charts cannot be read, instead of guessing a verdict", async () => {
+    mocks.listSizingCoverage.mockResolvedValue([coverage("moustache", "Moustache")]);
+    mocks.listPrivateChartBrandKeys.mockRejectedValue(new Error("read failed"));
+
+    await expect(runBrandClassification(connection)).rejects.toThrow("read failed");
+    expect(mocks.generateContent).not.toHaveBeenCalled();
+    expect(mocks.setBrandType).not.toHaveBeenCalled();
+  });
+
+  it("fails the run when a kept brand's verdict cannot be saved", async () => {
+    mocks.listSizingCoverage.mockResolvedValue([coverage("moustache", "Moustache")]);
+    mocks.listPrivateChartBrandKeys.mockResolvedValue(new Set(["moustache"]));
+    mocks.setBrandType.mockResolvedValue(false);
+
+    await expect(runBrandClassification(connection)).rejects.toThrow(
+      "Could not save classifications for 1 brand(s): Moustache.",
+    );
+  });
 });
 
 describe("runBrandClassification", () => {

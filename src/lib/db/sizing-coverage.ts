@@ -1,5 +1,6 @@
 import { db } from "@/lib/supabase/server";
 import type { CoverageRow } from "@/lib/sizing/aggregate";
+import { isCacheDisabled } from "@/lib/utils/disable-cache";
 
 /**
  * What a store actually carries, one row per (brand x audience-scoped sizing category).
@@ -90,6 +91,7 @@ const UPSERT_CHUNK = 200;
 export async function replaceSizingCoverage(connectionId: string, rows: CoverageRow[]): Promise<boolean> {
   const previousTypes = await getBrandTypes(connectionId);
 
+  forgetSizingCoverage(connectionId);
   const { error: deleteError } = await db.from("sizing_coverage").delete().eq("connection_id", connectionId);
   if (deleteError) {
     console.error("[db/sizing-coverage replaceSizingCoverage delete]", connectionId, deleteError);
@@ -114,10 +116,14 @@ export async function replaceSizingCoverage(connectionId: string, rows: Coverage
     const { error } = await db.from("sizing_coverage").insert(payload);
     if (error) {
       console.error("[db/sizing-coverage replaceSizingCoverage insert]", connectionId, error);
+      forgetSizingCoverage(connectionId);
       return false;
     }
   }
 
+  // Again after the writes: a read that started between the delete and the last insert must not
+  // be what the next screen is served.
+  forgetSizingCoverage(connectionId);
   return true;
 }
 
@@ -153,7 +159,32 @@ async function getBrandTypes(connectionId: string): Promise<Map<string, BrandCla
   return types;
 }
 
-export async function listSizingCoverage(connectionId: string): Promise<SizingCoverageRow[]> {
+/**
+ * Coverage read per connection in the last few seconds.
+ *
+ * Every Setup screen's request reads the whole coverage set (the run, the sample page, charts, the
+ * brand mapping, Stage 5's brand types), so a merchant moving between stages read it several times a
+ * second for an answer that only changes when a scan, a classification or a research outcome writes
+ * it — and each of those writes goes through this module, which drops the memo. On `globalThis` so
+ * separately bundled route handlers share it. The short age bounds what another server instance's
+ * write could leave stale here.
+ */
+const COVERAGE_MEMO_MS = 15_000;
+
+function coverageMemo(): Map<string, { at: number; rows: Promise<SizingCoverageRow[]> }> {
+  const holder = globalThis as typeof globalThis & {
+    __personaCoverageMemo?: Map<string, { at: number; rows: Promise<SizingCoverageRow[]> }>;
+  };
+  holder.__personaCoverageMemo ??= new Map();
+  return holder.__personaCoverageMemo;
+}
+
+/** Drops the memo after this connection's coverage changed. */
+export function forgetSizingCoverage(connectionId: string): void {
+  coverageMemo().delete(connectionId);
+}
+
+async function readSizingCoverage(connectionId: string): Promise<SizingCoverageRow[]> {
   const { data, error } = await db
     .from("sizing_coverage")
     .select("*")
@@ -162,10 +193,42 @@ export async function listSizingCoverage(connectionId: string): Promise<SizingCo
 
   if (error) {
     console.error("[db/sizing-coverage listSizingCoverage]", connectionId, error);
-    return [];
+    throw error;
   }
 
   return ((data as Array<Record<string, unknown>>) ?? []).map(rowToCoverage);
+}
+
+/**
+ * `fresh` skips the memo, for the one screen that colours rows by brand type. A page served from a
+ * memo taken before a scan or classification finished joins its rows against the previous scan's
+ * brand keys, and every brand it does not know comes back unclassified — the first table view of
+ * Stage 2 painted grey until something else forced a re-read.
+ */
+export async function listSizingCoverage(
+  connectionId: string,
+  options: { fresh?: boolean } = {}
+): Promise<SizingCoverageRow[]> {
+  if (options.fresh) {
+    forgetSizingCoverage(connectionId);
+    return readSizingCoverage(connectionId);
+  }
+  if (isCacheDisabled()) return readSizingCoverage(connectionId).catch(() => []);
+  const memo = coverageMemo();
+  const hit = memo.get(connectionId);
+  let entry = hit && Date.now() - hit.at <= COVERAGE_MEMO_MS ? hit : undefined;
+  if (!entry) {
+    entry = { at: Date.now(), rows: readSizingCoverage(connectionId) };
+    memo.set(connectionId, entry);
+  }
+  try {
+    // A copy per caller: several screens share one read, and none may see another's edits to it.
+    return structuredClone(await entry.rows);
+  } catch {
+    // A failed read is not remembered, so the next request tries again.
+    if (memo.get(connectionId) === entry) memo.delete(connectionId);
+    return [];
+  }
 }
 
 /**
@@ -256,6 +319,7 @@ export async function setBrandType(
     .eq("brand_key", brandKey)
     .select("id")
     .limit(1);
+  forgetSizingCoverage(connectionId);
 
   if (error) {
     console.error("[db/sizing-coverage setBrandType]", connectionId, brandKey, error);
@@ -295,6 +359,7 @@ export async function resetResearchOutcomes(connectionId: string, brandKeys?: st
   if (brandKeys) query = query.in("brand_key", brandKeys);
 
   const { error } = await query;
+  forgetSizingCoverage(connectionId);
   if (error) {
     console.error("[db/sizing-coverage resetResearchOutcomes]", connectionId, error);
     return false;
@@ -326,6 +391,7 @@ export async function setResearchOutcomes(
     .eq("connection_id", connectionId)
     .eq("brand_key", brandKey)
     .in("sizing_category", sizingCategories);
+  forgetSizingCoverage(connectionId);
 
   if (error) {
     console.error("[db/sizing-coverage setResearchOutcomes]", connectionId, brandKey, status, error);

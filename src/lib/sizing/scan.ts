@@ -1,3 +1,4 @@
+import { hostname } from "node:os";
 import { createCatalogPager, membership } from "@/lib/catalog/pager";
 import { resolveCategoryPaths } from "@/lib/catalog/index-product";
 import { buildCategoryIndex } from "@/lib/catalog/category-parents";
@@ -9,11 +10,12 @@ import { replaceSizingCoverage } from "@/lib/db/sizing-coverage";
 import { replaceSizingNullRecords } from "@/lib/db/sizing-null-records";
 import { replaceSizingProductRecords } from "@/lib/db/sizing-product-records";
 import { replaceSizingPathCoverage } from "@/lib/db/sizing-path-coverage";
-import { updateSizingRun, type SizingRunRow } from "@/lib/db/sizing-runs";
+import { sizingRunExists, updateSizingRun, type SizingRunRow } from "@/lib/db/sizing-runs";
 import { isSizingGroup, type SizingGroup } from "./measurements";
 import { CoverageAggregator, toRawFormat, type AggregateStats } from "./aggregate";
 import { PathCoverageAggregator } from "./path-coverage";
 import { normalizeBrandKey } from "./keys";
+import { leafSourceCategoryIds } from "./record-facets";
 
 /**
  * Pass 1 of the pipeline: read the merchant's catalog once and write down what it contains.
@@ -27,6 +29,9 @@ import { normalizeBrandKey } from "./keys";
  * ACS has nothing to read either. The walk is free (it is the merchant's own store) and paced by the
  * same courtesy delay the indexing walk uses.
  */
+
+/** Bumped when what the scan writes per product changes, so a run's `scan_worker` names the version. */
+const SCAN_CODE_VERSION = "records-with-sources-v1";
 
 /** Ceiling on pages per category group, so a misconfigured cursor can't loop forever against a
  *  merchant's store. Matches the indexing walk. */
@@ -86,6 +91,13 @@ interface ScanRow {
  * untouched rather than half-replace them.
  */
 export async function runSizingScan(connection: StoreConnectionRow, run: SizingRunRow): Promise<ScanResult> {
+  // A long-lived server keeps the code it booted with, so the scan can be running older code than the
+  // one deployed. Recording which version and host ran it is how that gets told apart from a real bug:
+  // a run with no mark was scanned by code that predates this line.
+  const worker = `${SCAN_CODE_VERSION} on ${process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? hostname()} pid ${process.pid}`;
+  console.log(`[sizing scan] ${worker} scanning ${connection.id}`);
+  await updateSizingRun(run.id, { scanWorker: worker });
+
   const pager = await createCatalogPager(connection);
   if (!pager) {
     throw new Error("No categories are selected for indexing yet, so there is nothing to scan.");
@@ -127,7 +139,7 @@ export async function runSizingScan(connection: StoreConnectionRow, run: SizingR
         // gets a chart researched against sizes that never reach ACS.
         const variants = extractVariantAttributes(raw, connection.acsFieldMapping);
         const storeCategoryPaths = resolveCategoryPaths({ ...raw, sourceCategoryIds }, connection);
-        const personaPaths = resolvePersonaPaths(sourceCategoryIds, personaConfig);
+        const personaPaths = resolvePersonaPaths(sourceCategoryIds, personaConfig, { title: raw.title });
         const primaryPersonaPath = personaPaths[0] ?? null;
         const override = connection.skuParentOverrides[raw.externalId];
 
@@ -191,13 +203,16 @@ export async function runSizingScan(connection: StoreConnectionRow, run: SizingR
       storeCategoryPaths: row.storeCategoryPaths,
       imageUrl: row.imageUrl,
     });
-    for (const personaPath of row.personaPaths) {
+    // The primary path only: it is the one the product's chart is chosen from, so counting a second
+    // collection's leaf would ask the merchant for a chart no product is ever routed to.
+    const primaryPath = row.personaPaths[0];
+    if (primaryPath) {
       paths.addPersonaPath({
         externalId: row.externalId,
         brand: row.brandField,
-        sizingGroup: row.sizingGroup ?? personaPath.sizingGroup,
-        pathKey: personaPath.key,
-        path: personaPath.segments,
+        sizingGroup: row.sizingGroup ?? primaryPath.sizingGroup,
+        pathKey: primaryPath.key,
+        path: primaryPath.segments,
       });
     }
   }
@@ -205,6 +220,12 @@ export async function runSizingScan(connection: StoreConnectionRow, run: SizingR
   const rows = aggregator.rows();
   const stats = aggregator.stats();
   const pathRows = paths.result();
+
+  // A walk takes minutes, and Start from scratch can land in the middle of one. Its results belong
+  // to a setup that no longer exists, so they are dropped rather than written over the fresh one.
+  if (!(await sizingRunExists(run.id))) {
+    throw new Error("Start from scratch removed this scan's run before its results were saved.");
+  }
 
   const productsWritten = await replaceSizingProductRecords(
     connection.id,
@@ -218,6 +239,8 @@ export async function runSizingScan(connection: StoreConnectionRow, run: SizingR
             sizingCategory: row.sizingGroup,
             primaryPersonaLeafKey: row.sizingCategoryId,
             rawSizeFormat: toRawFormat(row.sizes),
+            leafSourceCategoryIds: leafSourceCategoryIds(row.personaPaths, row.sizingCategoryId),
+            brandLabel: row.brandField?.trim() || null,
           }]
         : []
     )

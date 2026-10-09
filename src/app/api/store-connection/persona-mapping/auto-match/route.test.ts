@@ -1,115 +1,106 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { NextRequest } from "next/server";
+import { IDLE_AUTO_MATCH, type AutoMatchJobState } from "@/lib/catalog/auto-match-state";
+import { IDLE_SETUP_RESET } from "@/lib/catalog/setup-reset-state";
 
+const afterTasks: Array<() => unknown> = [];
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/server")>()),
+  after: (task: () => unknown) => afterTasks.push(task),
+}));
 vi.mock("@/modules/auth/lib/get-user", () => ({ getCurrentUser: vi.fn() }));
 vi.mock("@/lib/db/store-connections", () => ({ getStoreConnectionByOwner: vi.fn() }));
-vi.mock("@/lib/catalog/acs/preview", () => ({ fetchSampleRawProducts: vi.fn().mockResolvedValue([]) }));
-vi.mock("@/lib/catalog/category-scope", () => ({ expandCategorySelection: vi.fn((ids) => ids) }));
-vi.mock("@/lib/catalog/classify-persona-paths", () => ({ classifyPersonaPaths: vi.fn() }));
-vi.mock("@/lib/catalog/store-context", () => ({ storeContextFor: vi.fn(() => "Test store") }));
+vi.mock("@/lib/catalog/persona-auto-match", () => ({ startAutoMatch: vi.fn(), runAutoMatchJob: vi.fn() }));
 
+import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
-import { fetchSampleRawProducts } from "@/lib/catalog/acs/preview";
-import { classifyPersonaPaths } from "@/lib/catalog/classify-persona-paths";
-import { ShopifyApiError } from "@/lib/shopify/client";
-import { POST } from "./route";
+import { runAutoMatchJob, startAutoMatch } from "@/lib/catalog/persona-auto-match";
+import { GET, POST } from "./route";
 
-const defaultScope = {
-  configured: true,
-  enabledDeptIds: ["women"],
-  enabledLeafKeys: ["women:top:t-shirt"],
-  customLeaves: [],
-  customCategories: [],
-};
-
-function request() {
+function request(body: unknown = { categoryIds: ["tees"] }) {
   return new NextRequest("http://localhost/api/store-connection/persona-mapping/auto-match", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ categoryIds: ["tees"], scope: defaultScope }),
+    body: JSON.stringify(body),
   });
 }
 
-describe("Persona mapping Auto-Match endpoint", () => {
+function connectionWith(autoMatchJob: AutoMatchJobState, setupReset = IDLE_SETUP_RESET) {
+  return {
+    id: "11111111-1111-1111-1111-111111111111",
+    autoMatchJob,
+    setupReset,
+    personaAutoMatchCompletedAt: null,
+  } as never;
+}
+
+describe("AI matching endpoint", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    afterTasks.length = 0;
     vi.mocked(getCurrentUser).mockResolvedValue({ id: "owner-1" } as never);
-    vi.mocked(getStoreConnectionByOwner).mockResolvedValue({
-      categories: [{ id: "tees", name: "T-Shirts", productCount: 12, parentId: null }],
-      personaTaxonomyScope: {
-        configured: false,
-        enabledDeptIds: [],
-        enabledLeafKeys: [],
-        customLeaves: [],
-        customCategories: [],
-      },
-      personaAutoMatchCompletedAt: null,
-    } as never);
-    vi.mocked(classifyPersonaPaths).mockResolvedValue([]);
+    vi.mocked(getStoreConnectionByOwner).mockResolvedValue(connectionWith(IDLE_AUTO_MATCH));
+    vi.mocked(startAutoMatch).mockResolvedValue({ ok: true, jobId: "job-1", categoryIds: ["tees"] });
   });
 
-  it("uses a temporary requested scope without persisting it before AI succeeds", async () => {
+  it("answers at once and runs the match on the server after the response", async () => {
     const response = await POST(request());
 
-    expect(response.status).toBe(200);
-    expect(classifyPersonaPaths).toHaveBeenCalledWith(
-      expect.any(Array),
-      defaultScope,
-      "Test store",
-    );
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toEqual({ ok: true, jobId: "job-1", total: 1 });
+    expect(runAutoMatchJob).not.toHaveBeenCalled();
+    expect(afterTasks).toHaveLength(1);
+    await afterTasks[0]();
+    expect(runAutoMatchJob).toHaveBeenCalledWith("11111111-1111-1111-1111-111111111111", "job-1", ["tees"]);
   });
 
-  it("refuses to run again once Auto-Match has already completed for this store", async () => {
-    vi.mocked(getStoreConnectionByOwner).mockResolvedValue({
-      categories: [{ id: "tees", name: "T-Shirts", productCount: 12, parentId: null }],
-      personaTaxonomyScope: defaultScope,
-      personaAutoMatchCompletedAt: "2026-09-16T00:00:00.000Z",
-    } as never);
+  it("only passes the category ids on, never a scope from the page", async () => {
+    await POST(request({ categoryIds: ["tees"], scope: { configured: true, enabledDeptIds: ["men"] } }));
+
+    expect(startAutoMatch).toHaveBeenCalledWith(expect.anything(), ["tees"]);
+  });
+
+  it("reports why a run could not start, and schedules nothing", async () => {
+    vi.mocked(startAutoMatch).mockResolvedValue({
+      ok: false,
+      status: 400,
+      error: "Configure What You Sell before running AI matching.",
+    });
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "Configure What You Sell before running AI matching." });
+    expect(afterTasks).toHaveLength(0);
+  });
+
+  it("does not start while Start from scratch is unfinished", async () => {
+    vi.mocked(getStoreConnectionByOwner).mockResolvedValue(
+      connectionWith(IDLE_AUTO_MATCH, { ...IDLE_SETUP_RESET, status: "failed", error: "stopped" }),
+    );
 
     const response = await POST(request());
 
     expect(response.status).toBe(409);
-    expect(classifyPersonaPaths).not.toHaveBeenCalled();
-    await expect(response.json()).resolves.toEqual({
-      error: "Auto-Match has already run for this store. Clear the mapping to run it again.",
-    });
+    expect(startAutoMatch).not.toHaveBeenCalled();
   });
 
-  it("reports depleted Gemini credits as a quota error", async () => {
-    vi.mocked(classifyPersonaPaths).mockRejectedValue(
-      new Error('{"error":{"code":429,"status":"RESOURCE_EXHAUSTED","message":"credits are depleted"}}'),
+  it("reports a run that went silent as failed, so the page stops waiting on it", async () => {
+    const longAgo = new Date(Date.now() - 5 * 60_000).toISOString();
+    vi.mocked(getStoreConnectionByOwner).mockResolvedValue(
+      connectionWith({ ...IDLE_AUTO_MATCH, status: "running", jobId: "job-1", startedAt: longAgo, heartbeatAt: longAgo }),
     );
 
-    const response = await POST(request());
+    const data = await (await GET()).json();
 
-    expect(response.status).toBe(429);
-    await expect(response.json()).resolves.toEqual({
-      error: "AI Auto-Match is unavailable because the Gemini API credits are depleted.",
-    });
+    expect(data.autoMatch.status).toBe("failed");
+    expect(data.autoMatch.error).toContain("interrupted");
   });
 
-  it("waits and retries a throttled Shopify category sample instead of silently dropping it", async () => {
-    vi.mocked(getStoreConnectionByOwner).mockResolvedValue({
-      platform: "shopify",
-      categories: [{ id: "tees", name: "T-Shirts", productCount: 12, parentId: null }],
-      personaTaxonomyScope: defaultScope,
-      personaAutoMatchCompletedAt: null,
-    } as never);
-    vi.mocked(fetchSampleRawProducts)
-      .mockRejectedValueOnce(new ShopifyApiError("throttled", 200, true, 1))
-      .mockResolvedValueOnce([]);
-    vi.useFakeTimers();
+  it("requires a signed-in merchant", async () => {
+    vi.mocked(getCurrentUser).mockResolvedValue(null);
 
-    try {
-      const pending = POST(request());
-      await vi.runAllTimersAsync();
-      const response = await pending;
-
-      expect(response.status).toBe(200);
-      expect(fetchSampleRawProducts).toHaveBeenCalledTimes(2);
-    } finally {
-      vi.useRealTimers();
-    }
+    expect((await POST(request())).status).toBe(401);
+    expect((await GET()).status).toBe(401);
   });
 });

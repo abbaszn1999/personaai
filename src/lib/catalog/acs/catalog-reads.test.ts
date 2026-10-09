@@ -7,6 +7,7 @@ import {
   getAcsVariantIds,
   getCatalogProductsByExternalIds,
   markAcsProductOutOfStockIfExists,
+  sweepAcsProductsForConnection,
 } from "./catalog-reads";
 
 const CONNECTION_ID = "11111111-1111-1111-1111-111111111111";
@@ -92,8 +93,98 @@ describe("deleteAllAcsProductsForConnection", () => {
     expect(deleteSpy).toHaveBeenCalledWith(`${CONNECTION_ID}_a`);
     expect(deleteSpy).toHaveBeenCalledWith("legacy-a");
     expect(deleteSpy).not.toHaveBeenCalledWith("other_b");
-    expect(listSpy).toHaveBeenNthCalledWith(1, undefined);
-    expect(listSpy).toHaveBeenNthCalledWith(2, "page-2");
+    // Only the fields ownership and ordering read, since this walks every tenant's documents.
+    const ownershipMask = { readMask: "id,type,primaryProductId,attributes" };
+    expect(listSpy).toHaveBeenNthCalledWith(1, undefined, ownershipMask);
+    expect(listSpy).toHaveBeenNthCalledWith(2, "page-2", ownershipMask);
+  });
+
+  it("never deletes another store's documents, however their ids look", async () => {
+    const OTHER = "22222222-2222-2222-2222-222222222222";
+    const SAME_SHOP_OTHER_ACCOUNT = "33333333-3333-3333-3333-333333333333";
+    vi.spyOn(client, "listProducts").mockResolvedValue({
+      products: [
+        product({ id: `${CONNECTION_ID}_mine`, attributes: { merchant_id: { text: [CONNECTION_ID] } } }),
+        product({ id: `${OTHER}_theirs`, attributes: { merchant_id: { text: [OTHER] } } }),
+        // Same Shopify product id, connected by a second Persona account: a different store here.
+        product({
+          id: `${SAME_SHOP_OTHER_ACCOUNT}_gid://shopify/Product/1`,
+          attributes: { merchant_id: { text: [SAME_SHOP_OTHER_ACCOUNT] } },
+        }),
+        // A tag for another store outranks an id that happens to carry this store's prefix.
+        product({ id: `${CONNECTION_ID}_mislabelled`, attributes: { merchant_id: { text: [OTHER] } } }),
+        product({ id: `${OTHER}_shared`, attributes: { merchant_id: { text: [OTHER, CONNECTION_ID] } } }),
+      ],
+    });
+    const deleteSpy = vi.spyOn(client, "deleteProduct").mockResolvedValue(true);
+
+    await expect(deleteAllAcsProductsForConnection(CONNECTION_ID)).resolves.toBe(1);
+    expect(deleteSpy.mock.calls.map(([id]) => id)).toEqual([`${CONNECTION_ID}_mine`]);
+  });
+
+  it.each(["", "conn-1", "1111", `${"1".repeat(36)}`, undefined])(
+    "refuses to sweep with a malformed connection id (%s) before reading anything",
+    async (badId) => {
+      const listSpy = vi.spyOn(client, "listProducts");
+      const deleteSpy = vi.spyOn(client, "deleteProduct");
+
+      await expect(sweepAcsProductsForConnection(badId as string)).rejects.toThrow("malformed connection id");
+      expect(listSpy).not.toHaveBeenCalled();
+      expect(deleteSpy).not.toHaveBeenCalled();
+    },
+  );
+
+  it("reports progress while it lists and after every batch it deletes", async () => {
+    vi.spyOn(client, "listProducts").mockResolvedValueOnce({
+      products: [
+        { id: `${CONNECTION_ID}_a`, type: "PRIMARY" },
+        { id: `${CONNECTION_ID}_b`, type: "PRIMARY" },
+      ],
+    } as never);
+    vi.spyOn(client, "deleteProduct").mockResolvedValue(true);
+    const onProgress = vi.fn();
+
+    await expect(sweepAcsProductsForConnection(CONNECTION_ID, { onProgress })).resolves.toEqual({
+      deleted: 2,
+      found: 2,
+      complete: true,
+    });
+
+    expect(onProgress).toHaveBeenNthCalledWith(1, { deleted: 0, found: 2 });
+    expect(onProgress).toHaveBeenLastCalledWith({ deleted: 2, found: 2 });
+  });
+
+  it("starts no delete batch after its deadline, leaving the rest for the next sweep", async () => {
+    const ids = Array.from({ length: 50 }, (_, i) => `${CONNECTION_ID}_${i}`);
+    vi.spyOn(client, "listProducts").mockResolvedValue({
+      products: ids.map((id) => product({ id, type: "PRIMARY" })),
+    });
+    let now = 1_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const deleteSpy = vi.spyOn(client, "deleteProduct").mockImplementation(async () => {
+      now += 100;
+      return true;
+    });
+
+    const sweep = await sweepAcsProductsForConnection(CONNECTION_ID, { until: 1_000 + 20 * 100 });
+
+    expect(sweep).toEqual({ deleted: 20, found: 50, complete: false });
+    expect(deleteSpy).toHaveBeenCalledTimes(20);
+  });
+
+  it("keeps the count of what it removed when ACS refuses a delete", async () => {
+    vi.spyOn(client, "listProducts").mockResolvedValue({
+      products: [product({ id: `${CONNECTION_ID}_a` }), product({ id: `${CONNECTION_ID}_b` })],
+    });
+    const refusal = new Error("ACS is down");
+    vi.spyOn(client, "deleteProduct").mockResolvedValueOnce(true).mockRejectedValueOnce(refusal);
+
+    await expect(sweepAcsProductsForConnection(CONNECTION_ID)).resolves.toEqual({
+      deleted: 1,
+      found: 2,
+      complete: false,
+      error: refusal,
+    });
   });
 
   it("deletes every variant before deleting its parent", async () => {
@@ -112,6 +203,43 @@ describe("deleteAllAcsProductsForConnection", () => {
 
     expect(deleteSpy).toHaveBeenNthCalledWith(1, variantId);
     expect(deleteSpy).toHaveBeenNthCalledWith(2, parentId);
+  });
+
+  it("keeps parents in the second pass when ACS fills their primaryProductId with their own id", async () => {
+    // The shape ACS actually returns: every PRIMARY names itself as its own primary product.
+    const parents = Array.from({ length: 30 }, (_, i) => `${CONNECTION_ID}_gid://shopify/Product/${i}`);
+    const variants = parents.map((parent, i) => `${parent}::gid://shopify/ProductVariant/${i}`);
+    vi.spyOn(client, "listProducts").mockResolvedValue({
+      products: parents.flatMap((parent, i) => [
+        product({ id: parent, type: "PRIMARY", primaryProductId: parent }),
+        product({ id: variants[i], type: "VARIANT", primaryProductId: parent }),
+      ]),
+    });
+    const deleteSpy = vi.spyOn(client, "deleteProduct").mockResolvedValue(true);
+
+    await expect(deleteAllAcsProductsForConnection(CONNECTION_ID)).resolves.toBe(60);
+
+    const order = deleteSpy.mock.calls.map(([id]) => id);
+    expect(order.slice(0, 30).sort()).toEqual([...variants].sort());
+    expect(order.slice(30).sort()).toEqual([...parents].sort());
+  });
+
+  it("still orders older records that carry no type", async () => {
+    const parentId = `${CONNECTION_ID}_p`;
+    const byParentField = `${CONNECTION_ID}_v1`;
+    const byCompositeId = `${parentId}::v2`;
+    vi.spyOn(client, "listProducts").mockResolvedValue({
+      products: [
+        { id: parentId, primaryProductId: parentId },
+        { id: byParentField, primaryProductId: parentId },
+        { id: byCompositeId },
+      ] as never,
+    });
+    const deleteSpy = vi.spyOn(client, "deleteProduct").mockResolvedValue(true);
+
+    await deleteAllAcsProductsForConnection(CONNECTION_ID);
+
+    expect(deleteSpy.mock.calls.map(([id]) => id)).toEqual([byParentField, byCompositeId, parentId]);
   });
 
   it("reads the whole source catalog before deleting, so pagination stays stable", async () => {

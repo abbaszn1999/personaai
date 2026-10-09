@@ -62,7 +62,6 @@ const INFANT: SeedChart[] = [
       "kids-unisex:top:shirt",
       "kids-unisex:top:knit",
       "kids-unisex:top:hoodie",
-      "kids-unisex:top:sweatshirt",
       "kids-unisex:top:bodysuit",
       "kids-unisex:top:sleep-top",
     ],
@@ -88,10 +87,8 @@ const INFANT: SeedChart[] = [
     variantName: "Infant",
     coversLeaves: [
       "kids-unisex:outerwear:jacket",
-      "kids-unisex:outerwear:coat",
       "kids-unisex:outerwear:cardigan",
       "kids-unisex:outerwear:snowsuit",
-      "kids-unisex:outerwear:pramsuit",
     ],
     audience: "kids",
     sourceTitle: "INFANT - CLOTHING",
@@ -113,10 +110,8 @@ const INFANT: SeedChart[] = [
     variantName: "Infant",
     coversLeaves: [
       "kids-unisex:bottom:trouser",
-      "kids-unisex:bottom:jean",
       "kids-unisex:bottom:short",
       "kids-unisex:bottom:legging",
-      "kids-unisex:bottom:jogger",
       "kids-unisex:bottom:sleep-bottom",
     ],
     audience: "kids",
@@ -149,7 +144,6 @@ const INFANT: SeedChart[] = [
     // clothing table's own heading never mentions swimwear.
     coversLeaves: [
       "kids-unisex:full-body:romper",
-      "kids-unisex:full-body:all-in-one",
       "kids-unisex:full-body:sleepsuit",
       "kids-unisex:full-body:set",
     ],
@@ -206,7 +200,6 @@ const BOYS: SeedChart[] = [
       "kids-boys:top:shirt",
       "kids-boys:top:knit",
       "kids-boys:top:hoodie",
-      "kids-boys:top:sweatshirt",
       "kids-boys:top:bodysuit",
       "kids-boys:top:activewear-top",
       "kids-boys:top:sleep-top",
@@ -231,10 +224,8 @@ const BOYS: SeedChart[] = [
     variantName: "Boys",
     coversLeaves: [
       "kids-boys:outerwear:jacket",
-      "kids-boys:outerwear:coat",
       "kids-boys:outerwear:cardigan",
       "kids-boys:outerwear:snowsuit",
-      "kids-boys:outerwear:pramsuit",
     ],
     audience: "boys",
     sourceTitle: "BOYS - CLOTHING",
@@ -256,10 +247,8 @@ const BOYS: SeedChart[] = [
     variantName: "Boys",
     coversLeaves: [
       "kids-boys:bottom:trouser",
-      "kids-boys:bottom:jean",
       "kids-boys:bottom:short",
       "kids-boys:bottom:legging",
-      "kids-boys:bottom:jogger",
       "kids-boys:bottom:swim-short",
       "kids-boys:bottom:sleep-bottom",
     ],
@@ -373,10 +362,8 @@ const GIRLS: SeedChart[] = [
     coversLeaves: [
       "kids-girls:top:t-shirt",
       "kids-girls:top:shirt",
-      "kids-girls:top:blouse",
       "kids-girls:top:knit",
       "kids-girls:top:hoodie",
-      "kids-girls:top:sweatshirt",
       "kids-girls:top:bodysuit",
       "kids-girls:top:activewear-top",
       "kids-girls:top:sleep-top",
@@ -415,10 +402,8 @@ const GIRLS: SeedChart[] = [
     variantName: "Girls",
     coversLeaves: [
       "kids-girls:outerwear:jacket",
-      "kids-girls:outerwear:coat",
       "kids-girls:outerwear:cardigan",
       "kids-girls:outerwear:snowsuit",
-      "kids-girls:outerwear:pramsuit",
     ],
     audience: "girls",
     sourceTitle: "GIRLS - CLOTHING",
@@ -494,11 +479,9 @@ const GIRLS: SeedChart[] = [
     variantName: "Girls",
     coversLeaves: [
       "kids-girls:bottom:trouser",
-      "kids-girls:bottom:jean",
       "kids-girls:bottom:skirt",
       "kids-girls:bottom:short",
       "kids-girls:bottom:legging",
-      "kids-girls:bottom:jogger",
       "kids-girls:bottom:sleep-bottom",
     ],
     audience: "girls",
@@ -652,7 +635,6 @@ const KIDS_UNISEX: SeedChart[] = [
     // stock is. Listing it on both charts surfaces that as a conflict for Stage 5 to resolve rather
     // than silently guessing one age band. `sock` is left off both: no kids sock chart exists here.
     coversLeaves: [
-      "kids-unisex:footwear:sneaker",
       "kids-unisex:footwear:shoe",
       "kids-unisex:footwear:boot",
       "kids-unisex:footwear:sandal",
@@ -723,19 +705,16 @@ const KIDS_UNISEX: SeedChart[] = [
     // duplicated with "Infant" above — see that chart's note for why it is a conflict rather than
     // a pick. `sock` is left off: no kids sock chart exists in this guide.
     coversLeaves: [
-      "kids-boys:footwear:sneaker",
       "kids-boys:footwear:shoe",
       "kids-boys:footwear:boot",
       "kids-boys:footwear:sandal",
       "kids-boys:footwear:bootie",
       "kids-boys:footwear:slipper",
-      "kids-girls:footwear:sneaker",
       "kids-girls:footwear:shoe",
       "kids-girls:footwear:boot",
       "kids-girls:footwear:sandal",
       "kids-girls:footwear:bootie",
       "kids-girls:footwear:slipper",
-      "kids-unisex:footwear:sneaker",
       "kids-unisex:footwear:shoe",
       "kids-unisex:footwear:boot",
       "kids-unisex:footwear:sandal",

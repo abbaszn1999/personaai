@@ -361,7 +361,26 @@ export async function getWordPressBrands(
   username: string,
   appPassword: string
 ): Promise<string[]> {
-  const all: string[] = [];
+  const terms = await listWordPressBrandTerms(siteUrl, username, appPassword);
+  return terms.map((term) => term.name);
+}
+
+export interface WordPressBrandTerm {
+  id: number;
+  name: string;
+  slug: string;
+}
+
+/**
+ * The same brand list as `getWordPressBrands`, with each term's id and slug. A storefront link filters
+ * by slug and id, not by the name a product carries, so a link builder needs the term itself.
+ */
+export async function listWordPressBrandTerms(
+  siteUrl: string,
+  username: string,
+  appPassword: string
+): Promise<WordPressBrandTerm[]> {
+  const all: WordPressBrandTerm[] = [];
   let page = 1;
 
   while (true) {
@@ -384,7 +403,7 @@ export async function getWordPressBrands(
       // A term defined but attached to no products is not a brand this catalog sells, and offering
       // it would invite an exception that never applies to anything.
       if (brand.count === 0) continue;
-      all.push(decodeHtmlEntities(brand.name));
+      all.push({ id: brand.id, name: decodeHtmlEntities(brand.name), slug: brand.slug });
     }
 
     if (data.length < 100) break;

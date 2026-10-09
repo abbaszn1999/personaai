@@ -13,6 +13,8 @@
 // Supabase import, and this is a type-only import that is erased before bundling. Re-declaring
 // `SizeChartRow` here would mean two definitions of the row shape that the whole filter depends on.
 import type { SizeChartRow } from "@/lib/sizing/chart-schema";
+import type { LeafSourceLink } from "@/lib/catalog/storefront-links";
+import type { BrandLeafSourceLinks } from "@/lib/sizing/brand-leaf-sources";
 // Stage numbering lives in `./types.ts`, which imports nothing at all, so this direction is safe.
 import { LAST_STAGE, type StageNumber } from "./types";
 
@@ -161,6 +163,9 @@ export interface BrandMappingResponse {
   brands: DiscoveredBrandMapping[];
   groups: CanonicalBrandGroup[];
   targets: CanonicalBrandOption[];
+  /** The store's own labels and how they are grouped. Optional to group; never blocks `ready`. */
+  privateBrands: DiscoveredBrandMapping[];
+  privateGroups: CanonicalBrandGroup[];
 }
 
 // ─── Stage 4: researched charts and the gaps between them ─────────────────────
@@ -253,6 +258,8 @@ export interface ChartGap {
   missingLeaves: string[];
   /** Products per missing leaf. */
   missingLeafCounts: Record<string, number>;
+  /** Why the brand's own source has nothing for a missing leaf, where that has been verified. */
+  missingLeafReasons?: Record<string, string>;
   /** True when the pair already has a chart and only some subcategories are still uncovered. */
   partial: boolean;
 }
@@ -300,9 +307,11 @@ export interface SizingChartsResponse {
   /** Global brands only. Private and unbranded rows keep their manual-fill tabs, because a web search
    *  cannot help either and offering Generate there would only waste a paid request. */
   brands: BrandResearchRow[];
-  /** Global brands whose research produced nothing, plus every private label — both route to manual
-   *  fill per doc Tab 3, which is why one tab holds them together. */
+  /** Private labels needing a hand-filled chart. */
   notFound: ChartGap[];
+  /** Global brands' categories and subcategories the shared registry does not cover. Shown on the
+   *  Global brands tab under the brand's charted row; only support can add them. */
+  globalGaps: ChartGap[];
   /** The unbranded sentinel's rows, grouped by category rather than brand. */
   noBrand: ChartGap[];
   totals: {
@@ -318,18 +327,36 @@ export interface SizingChartsResponse {
   researched: boolean;
   mappedLeaves: string[];
   leafCounts: Array<{ brandKey: string; leafKey: string; skuCount: number }>;
+  /** The store collections or categories each leaf was mapped from, with their storefront links. */
+  leafSources: Record<string, LeafSourceLink[]>;
+  /** Per chart brand and leaf: only the collections holding that brand's items, as storefront links
+   *  already filtered to the brand. Empty until a scan has saved collections per product. */
+  brandLeafSources: BrandLeafSourceLinks;
 }
 
 export const EMPTY_CHARTS_RESPONSE: SizingChartsResponse = {
   charts: [],
   brands: [],
   notFound: [],
+  globalGaps: [],
   noBrand: [],
   totals: { chartsFound: 0, brandsCharted: 0, chartedSkus: 0, pairsNeeded: 0, gapSkus: 0 },
   researched: false,
   mappedLeaves: [],
   leafCounts: [],
+  leafSources: {},
+  brandLeafSources: {},
 };
+
+/**
+ * A product filed in categories that disagree about what it is: a T-shirt that is also in a
+ * collection mapped to jeans, or a men's and a women's path. `paths[0]` is the one it is sized on.
+ */
+export interface SizingSamplePathConflict {
+  /** `group`: different measurements decide the size. `department`: different bodies. */
+  kind: "group" | "department";
+  paths: Array<{ personaPath: string; storeCategory: string }>;
+}
 
 export interface SizingSampleRow {
   externalId: string;
@@ -358,6 +385,8 @@ export interface SizingSampleRow {
   personaLeafKey: string | null;
   /** The merchant ancestor the mapping came from, when the product's own category has none. */
   mappingInheritedFrom: string[] | null;
+  /** Set when the product's categories map to different size groups or bodies. */
+  pathConflict: SizingSamplePathConflict | null;
   /** Present only when Stage 5 requests `include=resolution`. */
   primaryLeafKey?: string | null;
   canonicalBrandKey?: string;

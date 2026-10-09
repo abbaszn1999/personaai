@@ -221,6 +221,33 @@ describe("drainCatalogQueue — disconnect races", () => {
   });
 });
 
+describe("drainCatalogQueue — Start from scratch", () => {
+  const resetting = {
+    ...connection,
+    setupReset: { status: "running", startedAt: new Date().toISOString(), leaseUntil: null },
+  };
+
+  it("drops a batch claimed before the reset purged the queue", async () => {
+    getStoreConnectionById.mockResolvedValue(resetting);
+    queueOnce([message(1, "p-1")]);
+
+    const result = await drainCatalogQueue();
+
+    expect(syncProductsToAcs).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ indexed: 0, orphaned: 1 });
+  });
+
+  it("drops a prepared batch when the reset starts before it is written", async () => {
+    getStoreConnectionById.mockResolvedValueOnce(connection).mockResolvedValueOnce(resetting);
+    queueOnce([message(1, "p-1")]);
+
+    const result = await drainCatalogQueue();
+
+    expect(syncProductsToAcs).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ indexed: 0, orphaned: 1 });
+  });
+});
+
 describe("mergeSourceCategories", () => {
   it("keeps categories from both sides without duplicating", () => {
     expect(mergeSourceCategories(["10", "20"], ["20", "30"]).sort()).toEqual(["10", "20", "30"]);

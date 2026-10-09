@@ -1,5 +1,6 @@
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner, updateStoreConnection } from "@/lib/db/store-connections";
+import { refuseDuringSetupReset } from "@/lib/catalog/setup-reset-guard";
 import { hasApprovedCurrentMapping } from "@/lib/catalog/acs/field-overrides";
 import { MAPPER_VERSION } from "@/lib/catalog/acs/map-product";
 import { createSizingRun, getLastPublishedAt, getLatestSizingRun, rewindRun } from "@/lib/db/sizing-runs";
@@ -87,6 +88,8 @@ export async function POST() {
     if (!connection) {
       return Response.json({ error: "Store connection not found" }, { status: 404 });
     }
+    const resetting = refuseDuringSetupReset(connection);
+    if (resetting) return resetting;
 
     // Gated on the same approval the index is gated on. The scan reads sizes and audience through the
     // merchant's option-group mapping, so scanning before that is approved would classify brands and

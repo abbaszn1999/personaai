@@ -21,6 +21,7 @@ import { resolveCategoryPaths, resolveGarmentCategory } from "./index-product";
 import { loadSizingResolutionContext } from "@/lib/sizing/product-chart";
 import { sizingForRawProduct } from "./sizing-for-product";
 import { retireStaleAcsProducts } from "@/lib/catalog/acs/catalog-reads";
+import { setupResetPending } from "@/lib/catalog/setup-reset-state";
 import {
   getAcsPublishStampId,
   getActiveSizingRun,
@@ -274,6 +275,12 @@ async function processConnectionBatch(connectionId: string, batch: QueuedMessage
     console.warn(`[catalog process-queue] dropping ${batch.length} message(s) for inactive connection ${connectionId}`);
     return batch.map(() => "orphaned");
   }
+  // Start from scratch purges the queue, but a batch claimed just before that still arrives here;
+  // writing it would put back products the reset is removing.
+  if (setupResetPending(connection.setupReset)) {
+    console.warn(`[catalog process-queue] dropping ${batch.length} message(s) for ${connectionId}: Start from scratch is running`);
+    return batch.map(() => "orphaned");
+  }
 
   const sizingContext = connection.sizingBrandMapping && connection.storeSizeSettings
     ? await loadSizingResolutionContext(connection)
@@ -315,8 +322,8 @@ async function processConnectionBatch(connectionId: string, batch: QueuedMessage
   // Disconnect marks the row inactive before sweeping ACS. Re-check after preparation so a
   // batch claimed just before that transition cannot recreate products after the sweep.
   const current = await getStoreConnectionById(connectionId);
-  if (!current || current.status !== "connected") {
-    console.warn(`[catalog process-queue] dropping ${batch.length} prepared message(s) for inactive connection ${connectionId}`);
+  if (!current || current.status !== "connected" || setupResetPending(current.setupReset)) {
+    console.warn(`[catalog process-queue] dropping ${batch.length} prepared message(s) for ${connectionId}: inactive or being reset`);
     return batch.map(() => "orphaned");
   }
 

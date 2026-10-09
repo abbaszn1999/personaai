@@ -1,10 +1,12 @@
 import type { StoreCategory } from "@/modules/store/types";
 import {
+  ALL_PERSONA_LEAF_KEYS,
   EMPTY_PERSONA_SCOPE,
   PERSONA_CATEGORIES,
   PERSONA_DEPARTMENTS,
   PERSONA_SUB_CATEGORIES,
   PERSONA_TAXONOMY_VERSION,
+  canonicalLeafKey,
   derivePersonaValues,
   formatLeafLabel,
   formatPersonaPath,
@@ -19,6 +21,7 @@ import {
   type SerializedTaxonomyScope,
 } from "@/modules/store/mapping/persona-taxonomy";
 import type { SizingGroup } from "@/lib/sizing/measurements";
+import { mapToCanonical, type CanonicalMapping } from "@/lib/retrieval/taxonomy";
 import { buildCategoryIndex, type CategoryIndex } from "./category-parents";
 
 const DEPARTMENT_IDS = new Set(PERSONA_DEPARTMENTS.map((item) => item.id));
@@ -60,19 +63,46 @@ function parseCustomCategories(value: unknown): CustomCategoryDef[] {
   });
 }
 
+const ALL_LEAF_KEY_SET = new Set(ALL_PERSONA_LEAF_KEYS);
+
+function customLeafKeySet(customLeaves: readonly Pick<CustomTaxonomyItem, "deptId" | "catId" | "subCategory">[]): Set<string> {
+  return new Set(customLeaves.map((leaf) => `${leaf.deptId}:${leaf.catId}:${leaf.subCategory}`));
+}
+
+/**
+ * A stored leaf key in today's taxonomy, or null when it names nothing that exists. A leaf the
+ * taxonomy has since folded into another becomes that other (`women:top:blouse` is now
+ * `women:top:shirt`); a merchant's own custom leaf is never rewritten, even when it reuses a removed
+ * name; a leaf under a custom category is kept because the standard vocabulary says nothing about it.
+ */
+function currentLeafKey(leafKey: string, customKeys: ReadonlySet<string>): string | null {
+  if (customKeys.has(leafKey)) return leafKey;
+  const current = canonicalLeafKey(leafKey);
+  if (ALL_LEAF_KEY_SET.has(current)) return current;
+  const catId = leafKey.split(":")[1] ?? "";
+  return CATEGORY_IDS.has(catId as PersonaCategoryId) ? null : leafKey;
+}
+
 export function parsePersonaScope(value: unknown): SerializedTaxonomyScope {
   if (!value || typeof value !== "object") return { ...EMPTY_PERSONA_SCOPE };
   const raw = value as Record<string, unknown>;
+  const customLeaves = parseCustomLeaves(raw.customLeaves);
+  const customKeys = customLeafKeySet(customLeaves);
   return {
     configured: raw.configured === true,
     enabledDeptIds: strings(raw.enabledDeptIds).filter((id) => DEPARTMENT_IDS.has(id as PersonaDepartmentId)),
-    enabledLeafKeys: strings(raw.enabledLeafKeys),
-    customLeaves: parseCustomLeaves(raw.customLeaves),
+    enabledLeafKeys: [...new Set(
+      strings(raw.enabledLeafKeys).flatMap((key) => {
+        const current = currentLeafKey(key, customKeys);
+        return current ? [current] : [];
+      }),
+    )],
+    customLeaves,
     customCategories: parseCustomCategories(raw.customCategories),
   };
 }
 
-function parseMapping(value: unknown): PersonaCategoryMapping | null {
+function parseMapping(value: unknown, customKeys: ReadonlySet<string>): PersonaCategoryMapping | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Record<string, unknown>;
   if (raw.status === "excluded") {
@@ -90,23 +120,32 @@ function parseMapping(value: unknown): PersonaCategoryMapping | null {
     !raw.subCategory.trim()
   ) return null;
   if (!DEPARTMENT_IDS.has(raw.departmentId as PersonaDepartmentId)) return null;
+  const currentKey = currentLeafKey(`${raw.departmentId}:${raw.categoryId}:${raw.subCategory.trim()}`, customKeys);
+  if (!currentKey) return null;
+  const subCategory = currentKey.split(":")[2];
+  const convertedLeaf = subCategory !== raw.subCategory.trim();
   return {
     status: "mapped",
     departmentId: raw.departmentId as PersonaDepartmentId,
     categoryId: raw.categoryId,
-    subCategory: raw.subCategory.trim(),
-    personaPath: typeof raw.personaPath === "string" ? raw.personaPath : undefined,
+    subCategory,
+    personaPath: !convertedLeaf && typeof raw.personaPath === "string" ? raw.personaPath : undefined,
     isAutoMatched: raw.isAutoMatched === true,
   };
 }
 
-export function parsePersonaCategoryMap(value: unknown, categories: readonly StoreCategory[]): PersonaCategoryMap {
+export function parsePersonaCategoryMap(
+  value: unknown,
+  categories: readonly StoreCategory[],
+  customLeaves: readonly Pick<CustomTaxonomyItem, "deptId" | "catId" | "subCategory">[] = [],
+): PersonaCategoryMap {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const validIds = new Set(categories.map((category) => category.id));
+  const customKeys = customLeafKeySet(customLeaves);
   const parsed: PersonaCategoryMap = {};
   for (const [sourceId, itemValue] of Object.entries(value as Record<string, unknown>)) {
     if (!validIds.has(sourceId)) continue;
-    const mapping = parseMapping(itemValue);
+    const mapping = parseMapping(itemValue, customKeys);
     if (mapping) parsed[sourceId] = mapping;
   }
   return parsed;
@@ -143,10 +182,11 @@ export function buildPersonaMappingConfig(
     : undefined;
   if (cached) return cached;
 
+  const scope = parsePersonaScope(scopeValue);
   const config: HierarchicalPersonaMappingConfig = {
     taxonomyVersion: PERSONA_TAXONOMY_VERSION,
-    scope: parsePersonaScope(scopeValue),
-    mappings: parsePersonaCategoryMap(mapValue, categories),
+    scope,
+    mappings: parsePersonaCategoryMap(mapValue, categories, scope.customLeaves),
     hierarchy: buildCategoryIndex(categories),
   };
 
@@ -264,29 +304,82 @@ function resolveOne(
   };
 }
 
+/** What the product says about itself, used only to choose between equally specific categories. */
+export interface PersonaPathEvidence {
+  title?: string | null;
+}
+
+/** The retrieval vocabulary's plural or shortened subcategory names, in Persona's leaf spelling. */
+const CANONICAL_TO_PERSONA_SUB: Record<string, string> = {
+  jeans: "jean",
+  trousers: "trouser",
+  chinos: "chino",
+  shorts: "short",
+  leggings: "legging",
+  joggers: "jogger",
+  sneakers: "sneaker",
+  boots: "boot",
+  sandals: "sandal",
+  loafers: "loafer",
+  heels: "heel",
+  flats: "flat",
+  slippers: "slipper",
+  socks: "sock",
+  polo: "polo-shirt",
+  "swim-shorts": "swim-short",
+};
+
+/**
+ * How strongly the product's own title agrees with a path: 2 when it names the path's subcategory
+ * ("…Printed T-shirt" on `top:t-shirt`), 1 when it only names the path's sizing group, 0 otherwise.
+ */
+function evidenceScore(path: ResolvedPersonaPath, evidence: CanonicalMapping | null): number {
+  if (!evidence) return 0;
+  if (evidence.subcategory) {
+    const sub = CANONICAL_TO_PERSONA_SUB[evidence.subcategory] ?? evidence.subcategory;
+    // The title's garment is read in this path's own department, because a leaf folds differently
+    // there: "Jeans" is `jean` for adults but sits under `trouser` for kids, and "Blouse" is `shirt`.
+    const named = canonicalLeafKey(`${path.departmentId}:${path.categoryId}:${sub}`);
+    if (path.key === named) return 2;
+  }
+  return path.sizingGroup === evidence.category ? 1 : 0;
+}
+
 /**
  * Resolves every mapped Persona path for one product; merchant paths never leave this boundary.
  *
  * The first entry is the product's primary path — the one its size chart is chosen from — so the
  * order is a decision, not an accident of how a platform lists categories. The most specific
- * category wins (`Men > Tops > Polos` over `Men > Tops` over `Sale`), and equally specific ones are
- * ordered by id, so the same product resolves to the same path on every walk and on every platform.
+ * category wins (`Men > Tops > Polos` over `Men > Tops` over `Sale`). Equally specific ones — every
+ * Shopify collection, since collections are flat — are ordered by how well the product's own title
+ * agrees with each path, then by id, so the same product resolves to the same path on every walk.
+ * Without the title, a catch-all collection mapped to `men:bottom:jean` would size a T-shirt sharing
+ * it with `women:top:t-shirt` as jeans whenever the catch-all's id sorted first.
  */
 export function resolvePersonaPaths(
   sourceCategoryIds: readonly string[],
   config: HierarchicalPersonaMappingConfig,
+  evidence?: PersonaPathEvidence,
 ): ResolvedPersonaPath[] {
-  const candidates: Array<{ path: ResolvedPersonaPath; depth: number; sourceId: string }> = [];
+  const titleEvidence = evidence?.title ? mapToCanonical(evidence.title) : null;
+  const candidates: Array<{ path: ResolvedPersonaPath; depth: number; score: number; sourceId: string }> = [];
   for (const sourceId of new Set(sourceCategoryIds)) {
     const effective = effectiveMappingFor(sourceId, config.mappings, config.hierarchy);
     const resolved = resolveOne(effective?.mapping, config.scope);
     if (!resolved) continue;
     const path = { ...resolved, sourceCategoryId: sourceId, inheritedFromCategoryId: effective?.inheritedFrom ?? null };
-    candidates.push({ path, depth: config.hierarchy?.depthOf.get(sourceId) ?? 0, sourceId });
+    candidates.push({
+      path,
+      depth: config.hierarchy?.depthOf.get(sourceId) ?? 0,
+      score: evidenceScore(path, titleEvidence),
+      sourceId,
+    });
   }
 
   if (config.hierarchy) {
-    candidates.sort((a, b) => b.depth - a.depth || a.sourceId.localeCompare(b.sourceId));
+    candidates.sort(
+      (a, b) => b.depth - a.depth || b.score - a.score || a.sourceId.localeCompare(b.sourceId),
+    );
   }
 
   const byKey = new Map<string, ResolvedPersonaPath>();
@@ -294,6 +387,36 @@ export function resolvePersonaPaths(
     if (!byKey.has(path.key)) byKey.set(path.key, path);
   }
   return [...byKey.values()];
+}
+
+export interface PersonaPathConflict {
+  /** `group`: the paths size the product on different measurements (a T-shirt also filed as jeans).
+   *  `department`: same group, but for different bodies (men and women, or adult and kids). */
+  kind: "group" | "department";
+  /** Every path the product resolves to, primary first. */
+  paths: ResolvedPersonaPath[];
+}
+
+function audienceOf(departmentId: string): string | null {
+  if (departmentId === "unisex" || departmentId === "kids-unisex") return null;
+  return departmentId;
+}
+
+/**
+ * Whether a product's categories disagree about what it is, in a way that changes its size chart.
+ *
+ * Several subcategories inside one group (a tee also filed under sweaters) are routine and size the
+ * same way. Different groups, or a men's and a women's path, are not: one of the merchant's
+ * categories is mapped wrong for this product, usually a catch-all collection mapped to one leaf.
+ * Unisex paths never conflict with a gendered one, since a unisex chart fits either.
+ */
+export function personaPathConflict(paths: readonly ResolvedPersonaPath[]): PersonaPathConflict | null {
+  if (paths.length < 2) return null;
+  if (new Set(paths.map((path) => path.sizingGroup)).size > 1) return { kind: "group", paths: [...paths] };
+  const ages = new Set(paths.map((path) => path.ageGroup));
+  const audiences = new Set(paths.map((path) => audienceOf(path.departmentId)).filter((id) => id !== null));
+  if (ages.size > 1 || audiences.size > 1) return { kind: "department", paths: [...paths] };
+  return null;
 }
 
 /**
@@ -324,7 +447,7 @@ export function personaPathLabel(path: ResolvedPersonaPath, config: PersonaMappi
       (leaf) =>
         leaf.deptId === path.departmentId && leaf.catId === path.categoryId && leaf.subCategory === path.subCategory,
     );
-    segments.push(customLeaf?.label ?? formatLeafLabel(path.subCategory));
+    segments.push(customLeaf?.label ?? formatLeafLabel(path.subCategory, path.departmentId));
   }
 
   return segments.join(" > ");

@@ -502,7 +502,7 @@ export function CatalogScopeModal({ isOpen, onClose, scopeState, onSaveScope }: 
                   const customSubs = customLeaves.filter((cl) => cl.deptId === currentDept.id && cl.catId === cat.id);
 
                   const allItems = [
-                    ...defaultSubs.map((sub) => ({ key: `${currentDept.id}:${cat.id}:${sub}`, label: formatLeafLabel(sub), isCustom: false as const, customObj: undefined as CustomTaxonomyItem | undefined })),
+                    ...defaultSubs.map((sub) => ({ key: `${currentDept.id}:${cat.id}:${sub}`, label: formatLeafLabel(sub, currentDept.id), isCustom: false as const, customObj: undefined as CustomTaxonomyItem | undefined })),
                     ...customSubs.map((cl) => ({ key: `${cl.deptId}:${cl.catId}:${cl.subCategory}`, label: cl.label, isCustom: true as const, customObj: cl })),
                   ];
 

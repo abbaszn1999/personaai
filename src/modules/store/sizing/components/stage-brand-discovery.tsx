@@ -21,6 +21,7 @@ import { formatPersonaSegments, leafLabel } from "@/modules/store/mapping/person
 import { useSizingStore } from "../store";
 import { isScanIncomplete, type CoverageBrand, type ServerBrandType } from "../server-types";
 import { StageHeaderBanner } from "./stage-header-banner";
+import { RescanCatalogButton } from "./rescan-catalog-button";
 import { ScanProgress } from "./scan-progress";
 
 const TYPE_META: Record<
@@ -123,18 +124,14 @@ export function StageBrandDiscovery() {
   const summary = useSizingStore((s) => s.summary);
   const runLoading = useSizingStore((s) => s.runLoading);
   const loadRun = useSizingStore((s) => s.loadRun);
-  const stopPolling = useSizingStore((s) => s.stopPolling);
 
   const [typeFilter, setTypeFilter] = React.useState<BrandTypeFilter>("all");
   const [query, setQuery] = React.useState("");
   const [showAll, setShowAll] = React.useState(false);
 
   React.useEffect(() => {
-    void loadRun();
-    // The poll chain reschedules itself, so leaving this stage has to break it explicitly or it
-    // keeps requesting in the background for as long as the dashboard stays open.
-    return () => stopPolling();
-  }, [loadRun, stopPolling]);
+    void loadRun({ ifStale: true });
+  }, [loadRun]);
 
   const brands = summary.brands;
   // "Brands" for the header count and stat cards — the unbranded sentinel isn't a brand, it's a
@@ -173,9 +170,12 @@ export function StageBrandDiscovery() {
         description={`Found in ${summary.totalSkus.toLocaleString()} sized items. Each brand/category pair—or unbranded category—becomes one chart, not one per product.`}
         aiPowered
         actions={
-          <Button variant="ghost" size="sm" onClick={() => void loadRun()}>
-            <RefreshCw className="h-3.5 w-3.5" /> Refresh
-          </Button>
+          <div className="flex items-center gap-1">
+            <RescanCatalogButton />
+            <Button variant="ghost" size="sm" onClick={() => void loadRun()}>
+              <RefreshCw className="h-3.5 w-3.5" /> Refresh
+            </Button>
+          </div>
         }
       />
 
@@ -383,6 +383,7 @@ function RouteSummary({
  */
 function BrandTypeControl({ brand }: { brand: CoverageBrand }) {
   const loadRun = useSizingStore((s) => s.loadRun);
+  const invalidateBrandDerived = useSizingStore((s) => s.invalidateBrandDerived);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -401,6 +402,7 @@ function BrandTypeControl({ brand }: { brand: CoverageBrand }) {
         setError(data.error ?? "Could not change the brand type.");
         return;
       }
+      invalidateBrandDerived();
       await loadRun();
     } catch {
       setError("Could not reach the server.");

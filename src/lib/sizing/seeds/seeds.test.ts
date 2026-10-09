@@ -21,7 +21,12 @@ import { AUDIENCES, normalizeBrandKey } from "@/lib/sizing/keys";
 import { rowsFromColumns } from "./types";
 import { decidingMeasurementsFor, validateManifestParity } from "./manifest";
 import { sanitizeCoverage, variantTags } from "@/lib/sizing/variant-match";
-import { PERSONA_CATEGORIES, PERSONA_DEPARTMENTS, leafKeysFor } from "@/modules/store/mapping/persona-taxonomy";
+import {
+  ALL_PERSONA_LEAF_KEYS,
+  PERSONA_CATEGORIES,
+  PERSONA_DEPARTMENTS,
+  leafKeysFor,
+} from "@/modules/store/mapping/persona-taxonomy";
 
 /**
  * The seed's acceptance test, and the bar the extraction prompt is aiming at.
@@ -83,6 +88,16 @@ describe("chart seeds", () => {
       const key = `${chart.brandKey}|${chart.sizingCategory}|${chart.variantName}`;
       expect(seen.has(key), `duplicate identity: ${key}`).toBe(false);
       seen.add(key);
+    }
+  });
+
+  it("claims only current taxonomy leaves, each once per chart", () => {
+    for (const chart of charts) {
+      const label = `${chart.brandKey} ${chart.variantName}`;
+      expect(new Set(chart.coversLeaves).size, `${label} lists a leaf twice`).toBe(chart.coversLeaves.length);
+      for (const leaf of chart.coversLeaves) {
+        expect(ALL_PERSONA_LEAF_KEYS, `${label} claims ${leaf}, which is not a v4 leaf`).toContain(leaf);
+      }
     }
   });
 
@@ -343,19 +358,15 @@ const ALLOWED_GAPS: Record<string, string[]> = {
     // brand simply does not sell these as full-body products for men.
     "men:full-body:jumpsuit",
     "men:full-body:thobe",
-    "men:full-body:overall",
     "men:full-body:set",
     // Rompers, all-in-ones, sleepsuits and one-piece swimsuits are baby garments in this brand's own
     // range (see the Infant `dresses` chart); Tommy prints no such heading for boys or girls aged
     // 3-16, and boys' swimwear is trunks (already `bottom:swim-short`), not a one-piece.
     "kids-boys:full-body:romper",
-    "kids-boys:full-body:all-in-one",
     "kids-boys:full-body:sleepsuit",
     "kids-boys:full-body:swimsuit",
     "kids-girls:full-body:romper",
-    "kids-girls:full-body:all-in-one",
     "kids-girls:full-body:sleepsuit",
-    "kids-girls:top:bra",
     // No infant-specific swimwear table in this guide.
     "kids-unisex:full-body:swimsuit",
     // Tommy's kids sock guide sizes by age band and US shoe size ("S: US 9-11, ages 4-7"), not by
@@ -365,48 +376,38 @@ const ALLOWED_GAPS: Record<string, string[]> = {
     "kids-boys:footwear:sock",
     "kids-girls:footwear:sock",
     "kids-unisex:footwear:sock",
+    // Tommy publishes no first-bra or girls' lingerie table.
+    "kids-girls:top:bra",
   ],
   tom_tailor: [
     // The official guide names only T-shirts/polos, knits/sweats and blouses in women's tops.
-    "women:top:camisole",
-    "women:top:crop-top",
-    "women:top:bodysuit",
-    "women:top:tunic",
     "women:top:activewear-top",
     "women:top:swim-top",
     "women:top:sleep-top",
     "women:top:bra",
     // Trousers, jeans and skirts are the only published women's bottom tables.
-    "women:bottom:culotte",
-    "women:bottom:activewear-bottom",
     "women:bottom:swim-bottom",
     "women:bottom:sleep-bottom",
-    // The full-body source heading names dresses only.
-    "women:full-body:gown",
-    "women:full-body:romper",
+    // The full-body source heading names dresses and jumpsuits only.
     "women:full-body:kaftan",
-    "women:full-body:abaya",
     "women:full-body:swimsuit",
     "women:full-body:set",
     "women:full-body:sleepwear-set",
     // Only jackets and blazers have published women's outerwear tables.
-    "women:outerwear:trench",
-    "women:outerwear:kimono",
     "women:outerwear:activewear-jacket",
     // This guide publishes no foot-length table.
     ...leafKeysFor("women", "footwear"),
     // Men's tops cover shirts and the explicitly named T-shirt/polo/knit/sweat family only.
     "men:top:activewear-top",
     "men:top:sleep-top",
-    // Only jeans and trousers have published men's bottom tables.
-    "men:bottom:jogger",
+    // Men's tops do not name activewear or sleep tops; only jeans, trousers and shorts have
+    // published men's bottom tables.
     "men:bottom:activewear-bottom",
+    "men:bottom:swim-short",
     "men:bottom:sleep-bottom",
     // No men's full-body table is published.
     ...leafKeysFor("men", "full-body"),
     // The source names jackets and blazers, not the remaining outerwear classes.
-    "men:outerwear:suit-jacket",
-    "men:outerwear:coat",
     "men:outerwear:activewear-jacket",
     ...leafKeysFor("men", "footwear"),
     // Children's tables name tops, jackets/coats, dresses and trousers/jeans/jogging/leggings/skirts
@@ -420,14 +421,12 @@ const ALLOWED_GAPS: Record<string, string[]> = {
     "kids-boys:bottom:swim-short",
     "kids-boys:bottom:sleep-bottom",
     "kids-boys:full-body:romper",
-    "kids-boys:full-body:all-in-one",
     "kids-boys:full-body:sleepsuit",
     "kids-boys:full-body:set",
     "kids-boys:full-body:swimsuit",
     "kids-boys:full-body:bathrobe",
     "kids-boys:outerwear:cardigan",
     "kids-boys:outerwear:snowsuit",
-    "kids-boys:outerwear:pramsuit",
     ...leafKeysFor("kids-boys", "footwear"),
     "kids-girls:top:bodysuit",
     "kids-girls:top:activewear-top",
@@ -436,65 +435,52 @@ const ALLOWED_GAPS: Record<string, string[]> = {
     "kids-girls:bottom:short",
     "kids-girls:bottom:sleep-bottom",
     "kids-girls:full-body:romper",
-    "kids-girls:full-body:all-in-one",
     "kids-girls:full-body:sleepsuit",
     "kids-girls:full-body:set",
     "kids-girls:full-body:swimsuit",
     "kids-girls:full-body:bathrobe",
     "kids-girls:outerwear:cardigan",
     "kids-girls:outerwear:snowsuit",
-    "kids-girls:outerwear:pramsuit",
     ...leafKeysFor("kids-girls", "footwear"),
   ],
   penti: [
-    // The ordinary apparel table has no blouse-specific table.
-    "women:top:blouse",
+    // The ordinary apparel table has no knit- or hoodie-specific table.
     "women:top:knit",
-    "women:top:sweater",
     "women:top:hoodie",
-    "women:top:sweatshirt",
-    "women:top:tunic",
     // Penti's cited ordinary and swim sources publish no denim table.
     "women:bottom:jean",
-    "women:bottom:culotte",
-    // Neither source names gowns or abayas.
-    "women:full-body:gown",
+    // Neither source names jumpsuits or rompers.
     "women:full-body:jumpsuit",
-    "women:full-body:romper",
-    "women:full-body:abaya",
-    // The ordinary table supports the brand's kimono product class, but the available official
-    // sources publish no chart for the other outerwear classes.
+    // The ordinary table supports the brand's kimono product class (now `jacket`), but the
+    // available official sources publish no chart for the other outerwear classes.
     "women:outerwear:blazer",
-    "women:outerwear:jacket",
-    "women:outerwear:coat",
-    "women:outerwear:trench",
     "women:outerwear:cardigan",
-    "women:outerwear:vest",
     "women:outerwear:activewear-jacket",
     // No foot-length table is published in the cited sources.
     ...leafKeysFor("women", "footwear"),
-    // Penti's general kids chart supports apparel, swim shorts and sleepwear. It does not publish
-    // infant one-piece measurements, outerwear-specific tables or foot lengths.
+    // The only men's table is the pajama table, which sizes sleepwear sets and nothing else.
+    ...leafKeysFor("men", "top"),
+    ...leafKeysFor("men", "bottom"),
+    "men:full-body:suit",
+    "men:full-body:jumpsuit",
+    "men:full-body:thobe",
+    "men:full-body:set",
+    ...leafKeysFor("men", "outerwear"),
+    ...leafKeysFor("men", "footwear"),
+    // Penti's general kids chart supports apparel and sleepwear. It does not publish infant
+    // one-piece measurements, a boys' swim chart, outerwear-specific tables or foot lengths.
     "kids-boys:top:bodysuit",
     "kids-boys:full-body:romper",
-    "kids-boys:full-body:all-in-one",
     "kids-boys:full-body:swimsuit",
     ...leafKeysFor("kids-boys", "outerwear"),
     ...leafKeysFor("kids-boys", "footwear"),
     "kids-girls:top:bodysuit",
     "kids-girls:full-body:romper",
-    "kids-girls:full-body:all-in-one",
     // The girls' swim table publishes bust/waist/hip but no required height, so it cannot safely
     // drive the child recommendation model without fabricating a height mapping.
     "kids-girls:full-body:swimsuit",
     ...leafKeysFor("kids-girls", "outerwear"),
     ...leafKeysFor("kids-girls", "footwear"),
-    // The only published men's chart located for Penti is the pajamas table.
-    ...leafKeysFor("men", "top"),
-    ...leafKeysFor("men", "bottom"),
-    ...leafKeysFor("men", "full-body").filter((leaf) => leaf !== "men:full-body:sleepwear-set"),
-    ...leafKeysFor("men", "outerwear"),
-    ...leafKeysFor("men", "footwear"),
   ],
   xint: [
     // XINT's embedded guide publishes tops, bottoms and shoes only.

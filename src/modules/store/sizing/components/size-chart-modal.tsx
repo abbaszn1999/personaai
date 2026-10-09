@@ -30,10 +30,35 @@ import {
 import { isAudience, type Audience } from "@/lib/sizing/keys";
 import { SIZE_TYPE_LABELS, sizeTypeFor } from "@/lib/sizing/size-types";
 import { leafLabel } from "@/modules/store/mapping/persona-taxonomy";
+import { mergeBrandSourceLinks } from "@/lib/sizing/brand-leaf-sources";
+import { BrandItemsLinks } from "./brand-items-links";
 import { useStoreConnectionStore } from "@/modules/store/store";
 import { useSizingStore, type ChartModalChart } from "../store";
 import type { ResearchedChart } from "../server-types";
 import type { SizingProduct } from "../types";
+
+/**
+ * This merchant's own collections holding the brand's items under the leaves the chart covers, each
+ * opening on the storefront already filtered to the brand. Global brands have no per-leaf checklist
+ * like private ones, so the chart's covered leaves are combined into one list. Renders nothing until a
+ * scan has saved collections per product.
+ */
+function YourItemsLinks({
+  brandKey,
+  brandName,
+  leaves,
+}: {
+  brandKey: string;
+  brandName: string;
+  leaves: readonly string[];
+}) {
+  const bySource = useSizingStore((s) => s.chartBrandLeafSources[brandKey]);
+  const links = React.useMemo(
+    () => mergeBrandSourceLinks(leaves.map((leaf) => bySource?.[leaf])),
+    [bySource, leaves],
+  );
+  return <BrandItemsLinks links={links} brandName={brandName} label="Your items" />;
+}
 
 /** A real stored chart carries its own defect list; the sync views' mock charts do not. Narrowing on
  *  that is what lets one modal render either without the caller having to say which it passed. */
@@ -624,6 +649,9 @@ function CategoryBlock({
           : chart.isInheritedFromSetup && (
               <Badge variant="default">{chart.inheritedFromSetupLabel ?? "Reused from setup"}</Badge>
             )}
+        {researched && (
+          <YourItemsLinks brandKey={chart.brandKey} brandName={brandName} leaves={visibleCoveredLeaves} />
+        )}
       </div>
 
       {/* Defects found in the chart itself, spelled out rather than reduced to a colour. The

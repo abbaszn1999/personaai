@@ -65,7 +65,7 @@ export function useSetupWizard() {
 
       setWorkspace(workspace);
 
-      router.push("/try-on");
+      router.push("/analytics");
     } catch {
       setSubmitError("Network error — please try again");
       setIsSubmitting(false);

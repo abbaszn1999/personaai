@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner, updateAcsFieldMapping, type StoreConnectionRow } from "@/lib/db/store-connections";
+import { refuseDuringSetupReset } from "@/lib/catalog/setup-reset-guard";
 import { fetchSampleRawProducts, fetchStoreBrandNames } from "@/lib/catalog/acs/preview";
 import { columnSampleText } from "@/lib/catalog/acs/map-product";
 import {
@@ -262,7 +263,7 @@ function categoriesSampleFor(connection: StoreConnectionRow, products: readonly 
   const config = buildPersonaMappingConfig(connection.personaTaxonomyScope, connection.personaCategoryMap, connection.categories);
 
   for (const product of products) {
-    const [path] = resolvePersonaPaths(product.sourceCategoryIds, config);
+    const [path] = resolvePersonaPaths(product.sourceCategoryIds, config, { title: product.title });
     if (path) return personaPathLabel(path, config);
   }
   return null;
@@ -344,6 +345,8 @@ export async function PATCH(req: NextRequest) {
     if (!connection) {
       return Response.json({ error: "Store connection not found" }, { status: 404 });
     }
+    const resetting = refuseDuringSetupReset(connection);
+    if (resetting) return resetting;
 
     const body = await req.json().catch(() => null);
     if (!isRecord(body)) {
