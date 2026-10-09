@@ -119,6 +119,42 @@ describe("validateSearchIntent", () => {
     expect(none.ok && none.spec.sizes).toEqual([]);
   });
 
+  it("ignores spacing, punctuation and accents in values, brands and keys, and sends every spelling", () => {
+    const config = buildPathConfig([
+      acsProduct("a", "men > top > shirt", 30, {
+        brands: ["Tommy-Hilfiger"],
+        colorInfo: { colors: ["Off-White"] },
+        attributes: { sleeve_length: { text: ["Long Sleeve"] } },
+      }),
+      acsProduct("b", "men > top > shirt", 40, { brands: ["TOMMY HILFIGER"], colorInfo: { colors: ["OFF WHITE"] } }),
+      acsProduct("c", "men > top > shirt", 50, { colorInfo: { colors: ["Écru"] } }),
+    ]);
+    const result = validateSearchIntent(config, {
+      path: "men > top > shirt",
+      brands: ["tommy hilfiger"],
+      attributes: [
+        { key: "color", values: ["off white", "ecru"] },
+        { key: "Sleeve Length", values: ["long-sleeve"] },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect([...result.spec.brands].sort()).toEqual(["TOMMY HILFIGER", "Tommy-Hilfiger"]);
+    const [color, sleeve] = result.spec.attributes;
+    expect(color.kind === "text" && [...color.values].sort()).toEqual(["OFF WHITE", "Off-White", "Écru"]);
+    expect(sleeve).toMatchObject({ field: "attributes.sleeve_length", values: ["Long Sleeve"] });
+  });
+
+  it("matches sizes by meaning: 2XL is XXL, Arabic size words are alpha sizes", () => {
+    const config = buildPathConfig([acsProduct("a", "men > top > shirt", 30, { sizes: ["M", "XXL", "L"] })]);
+    const twoXl = validateSearchIntent(config, { path: "men > top > shirt", sizes: ["2XL"] });
+    expect(twoXl.ok && twoXl.spec.sizes).toEqual(["XXL"]);
+    const arabic = validateSearchIntent(config, { path: "men > top > shirt", sizes: ["لارج"] });
+    expect(arabic.ok && arabic.spec.sizes).toEqual(["L"]);
+    const medium = validateSearchIntent(config, { path: "men > top > shirt", sizes: ["ميديم"] });
+    expect(medium.ok && medium.spec.sizes).toEqual(["M"]);
+  });
+
   it("exposes merchant genders as a filterable attribute", () => {
     const config = buildPathConfig([acsProduct("a", "unisex > top > t-shirt", 20, { genders: ["female"] })]);
     const result = validateSearchIntent(config, {

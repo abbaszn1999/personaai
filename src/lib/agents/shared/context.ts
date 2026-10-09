@@ -152,7 +152,12 @@ export async function buildAgentContext(input: BuildAgentContextInput): Promise<
   const connection = await getStoreConnectionByOwner(input.ownerId);
   const categoryScope =
     connection && mappedSourceCategoryIds(connection.personaCategoryMap).length > 0 ? ["persona"] : [];
-  const catalogReady = connection?.catalogSyncStatus === "ready" && isAcsConfigured();
+  const syncStatus = connection?.catalogSyncStatus;
+  // The hourly reconcile and every republish re-import a live catalog with the status at
+  // `indexing`, while the published products stay searchable throughout. Only a store that has
+  // never had a config built is still being prepared.
+  const readable =
+    Boolean(connection) && categoryScope.length > 0 && isAcsConfigured() && (syncStatus === "ready" || syncStatus === "indexing");
 
   const turns = toConversationTurns(input.messages);
   const last = turns[turns.length - 1];
@@ -175,12 +180,19 @@ export async function buildAgentContext(input: BuildAgentContextInput): Promise<
   if (referencedItemId) referencedIds.add(referencedItemId);
 
   const [pathConfig, candidates] =
-    connection && catalogReady && categoryScope.length > 0
+    connection && readable
       ? await Promise.all([
-          loadPathConfig(connection.id),
-          getCatalogProductsByExternalIds(connection.id, [...referencedIds], categoryScope),
+          // Mid-import the catalog is incomplete, so no first build is started from it.
+          syncStatus === "ready" ? loadPathConfig(connection.id) : getPersonaPathConfig(connection.id),
+          // A failed read (ACS throttling, a dropped connection) costs this turn its card context,
+          // never the whole turn.
+          getCatalogProductsByExternalIds(connection.id, [...referencedIds], categoryScope).catch((error) => {
+            console.warn("[agents context] could not rehydrate cards:", error instanceof Error ? error.message : error);
+            return [] as CatalogCandidate[];
+          }),
         ])
       : [null, [] as CatalogCandidate[]];
+  const catalogReady = readable && (syncStatus === "ready" || (pathConfig?.config.inStock ?? 0) > 0);
 
   const measurements = parseShopperMeasurements(input.measurements);
   const body = measurements ? bodyMeasurements(measurements) : null;

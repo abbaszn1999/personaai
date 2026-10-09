@@ -3,7 +3,10 @@ import { buildAcsVisitorId } from "@/lib/catalog/acs/isolation";
 import { toCandidate } from "@/lib/catalog/acs/search-adapter";
 import { recordSearchEvent } from "@/lib/catalog/acs/user-events";
 import type { AcsSearchResultItem } from "@/lib/catalog/acs/types";
+import { normalizePath } from "@/lib/catalog/path-config/lookup";
 import type { CatalogCandidate } from "@/lib/retrieval/types";
+import type { SizingGroup } from "@/lib/sizing/measurements";
+import { personaSizingGroup } from "@/modules/store/mapping/persona-taxonomy";
 import type { AgentContext } from "../types";
 import { toAcsFilter, type SearchSpec } from "./acs-translator";
 import { bodyMeasurements, fitFilterClause, fittingSizes, isChildShopper } from "./fit";
@@ -31,6 +34,23 @@ function unsupportedFitField(error: unknown): string | null {
 }
 
 /**
+ * The sizing groups a search can return: a Persona category is sized on exactly one group, so a
+ * shirt search needs only the tops clause. Null — every group — when a path is a whole
+ * department. Sending only what can match keeps the filter short, and a group whose field ACS
+ * does not index yet (no footwear anywhere) cannot fail a search that never wanted it.
+ */
+export function sizingGroupsFor(paths: readonly string[]): SizingGroup[] | null {
+  const groups = new Set<SizingGroup>();
+  for (const path of paths) {
+    const category = normalizePath(path).split(" > ")[1];
+    const group = category ? personaSizingGroup(category) : null;
+    if (!group) return null;
+    groups.add(group);
+  }
+  return groups.size > 0 ? [...groups] : null;
+}
+
+/**
  * One catalog search. An empty `query` is ACS browse mode (structural filter only); a written
  * description ranks by meaning inside the same filter. Variants collapse to their product, first
  * occurrence wins, so a colourway match never shows the same product twice.
@@ -49,9 +69,10 @@ export async function searchCatalog(
   const specFilter = toAcsFilter(spec, ctx.connection.id);
   const body = ctx.session.measurements ? bodyMeasurements(ctx.session.measurements) : null;
   const child = isChildShopper(ctx.session.audience);
+  const groups = sizingGroupsFor(spec.paths);
   const filterWith = (unsupported: ReadonlySet<string>): string | null => {
     if (!body) return specFilter;
-    const fit = fitFilterClause(body, child, unsupported);
+    const fit = fitFilterClause(body, child, unsupported, groups);
     return fit ? `${specFilter} AND (${fit})` : null;
   };
 
@@ -71,8 +92,10 @@ export async function searchCatalog(
         });
         return { filter, response };
       } catch (error) {
+        // Retried only when the filter that failed still named the field: a concurrent search may
+        // already have learned it, and one that did not name it would loop.
         const field = unsupportedFitField(error);
-        if (!field || unsupportedFitFields.has(field)) throw error;
+        if (!field || !filter.includes(field)) throw error;
         unsupportedFitFields.set(field, Date.now() + UNSUPPORTED_FIELD_TTL_MS);
       }
     }
@@ -105,12 +128,11 @@ export async function searchCatalog(
 
   let { filter, response } = await run(query);
   let candidates = collect(response?.results);
-  // A long styling description can match only products nobody can be shown (no image) or none
-  // at all, while the validated filter still has stock. Every product inside that filter
-  // satisfies the request, so browse it instead.
-  // When the filter itself matched nothing there is nothing to browse: the same filter without a
-  // query can only return the same empty set, and the extra search would be billed for nothing.
-  if (response && response.results?.length && query.trim() && !candidates.some(isDisplayable)) {
+  // A styling description retrieves only products whose text matches it, so it can come back with
+  // nothing (or nothing that can be shown) while the validated filter still has stock. Every
+  // product inside that filter satisfies the request, so browse it instead. A search that could
+  // not be sent at all (no fit clause possible) has nothing to browse.
+  if (response && query.trim() && !candidates.some(isDisplayable)) {
     ({ filter, response } = await run(""));
     candidates = collect(response?.results);
   }

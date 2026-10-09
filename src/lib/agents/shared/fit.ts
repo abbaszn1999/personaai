@@ -118,14 +118,16 @@ export function fitGroupClause(
   return `(${clauses.join(" AND ")})`;
 }
 
-/** Every sizing group's `fitGroupClause` the shopper has measurements for, joined with OR. An
- *  empty string means nothing can fit. */
+/** Every sizing group's `fitGroupClause` the shopper has measurements for — only `groups` when
+ *  the search names them — joined with OR. An empty string means nothing can fit. */
 export function fitFilterClause(
   body: Partial<Record<Measurement, number>>,
   child: boolean,
-  unsupportedFields: ReadonlySet<string> = new Set()
+  unsupportedFields: ReadonlySet<string> = new Set(),
+  groups: readonly SizingGroup[] | null = null
 ): string {
-  return GROUPS.map((group) => fitGroupClause(group, body, child, unsupportedFields))
+  return (groups ?? GROUPS)
+    .map((group) => fitGroupClause(group, body, child, unsupportedFields))
     .filter((clause): clause is string => clause !== null)
     .join(" OR ");
 }

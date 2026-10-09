@@ -1,5 +1,6 @@
-import { findNode, floorPrice, normalizePath, unisexCounterpart } from "@/lib/catalog/path-config/lookup";
+import { comparableValue, findNode, floorPrice, normalizePath, unisexCounterpart } from "@/lib/catalog/path-config/lookup";
 import type { PathConfigAttribute, PathConfigNode, PersonaPathConfig } from "@/lib/catalog/path-config/types";
+import { sizeLabelCandidates } from "@/lib/sizing/size-label-forms";
 import type { ResolvedAttribute, SearchSpec } from "./acs-translator";
 import type { AttributeConstraint } from "../types";
 
@@ -19,7 +20,19 @@ export type ValidationResult =
   | { ok: true; spec: SearchSpec; node: PathConfigNode; counterpart: PathConfigNode | null }
   | { ok: false; problems: string[] };
 
-const fold = (value: string) => value.trim().toLowerCase();
+const squash = comparableValue;
+
+/** Every stored spelling of each value, keyed by its comparison form. */
+function spellingsBySquash(values: Iterable<string>): Map<string, string[]> {
+  const bySquash = new Map<string, string[]>();
+  for (const value of values) {
+    const key = squash(value);
+    const spellings = bySquash.get(key) ?? [];
+    if (!spellings.includes(value)) spellings.push(value);
+    bySquash.set(key, spellings);
+  }
+  return bySquash;
+}
 
 /** Stocked nodes whose path shares a word with the one the model asked for — the hint a
  *  corrective retry needs. */
@@ -36,20 +49,20 @@ export function suggestPaths(config: PersonaPathConfig, rawPath: string, limit =
 }
 
 function findAttribute(nodes: PathConfigNode[], key: string): PathConfigAttribute | null {
-  const wanted = fold(key);
+  const wanted = squash(key);
   for (const node of nodes) {
-    const match = node.attributes.find((attribute) => fold(attribute.key) === wanted);
+    const match = node.attributes.find((attribute) => squash(attribute.key) === wanted);
     if (match) return match;
   }
   return null;
 }
 
 function textValuesOf(nodes: PathConfigNode[], key: string): string[] {
-  const wanted = fold(key);
+  const wanted = squash(key);
   const values = new Set<string>();
   for (const node of nodes) {
     for (const attribute of node.attributes) {
-      if (fold(attribute.key) === wanted) attribute.values?.forEach((value) => values.add(value));
+      if (squash(attribute.key) === wanted) attribute.values?.forEach((value) => values.add(value));
     }
   }
   return [...values];
@@ -96,11 +109,10 @@ function resolveAttributes(
     }
 
     const vocabulary = textValuesOf(nodes, attribute.key);
-    const byFold = new Map<string, string[]>();
-    for (const entry of vocabulary) byFold.set(fold(entry), [...(byFold.get(fold(entry)) ?? []), entry]);
+    const bySquash = spellingsBySquash(vocabulary);
     const canonical: string[] = [];
     for (const value of values) {
-      const match = byFold.get(fold(value));
+      const match = bySquash.get(squash(value));
       if (match) canonical.push(...match);
       else problems.push(`${attribute.key} "${value}" is not stocked on ${nodes[0].path} (stocked: ${vocabulary.join(", ")})`);
     }
@@ -114,47 +126,52 @@ function resolveAttributes(
 /** Every stored spelling of each brand: stores often write one brand several ways ("MOUSTACHE
  *  MEN", "Moustache Men") and the ACS brand filter is an exact match, so all of them are sent. */
 function resolveBrands(nodes: PathConfigNode[], brands: string[], problems: string[]): string[] {
-  const byFold = new Map<string, Set<string>>();
-  for (const node of nodes) {
-    for (const brand of node.brands) {
-      const key = fold(brand.name);
-      if (!byFold.has(key)) byFold.set(key, new Set());
-      byFold.get(key)!.add(brand.name);
-    }
-  }
+  const bySquash = spellingsBySquash(nodes.flatMap((node) => node.brands.map((brand) => brand.name)));
   const canonical: string[] = [];
   for (const brand of brands) {
     if (!brand?.trim()) continue;
-    const match = byFold.get(fold(brand));
+    const match = bySquash.get(squash(brand));
     if (match) canonical.push(...match);
     else problems.push(`brand "${brand}" has nothing in stock on ${nodes[0].path}`);
   }
   return [...new Set(canonical)];
 }
 
-const SIZE_WORDS: Record<string, string> = {
-  "extra small": "xs",
-  "x-small": "xs",
-  small: "s",
-  medium: "m",
-  large: "l",
-  "extra large": "xl",
-  "x-large": "xl",
-  "xx-large": "xxl",
+/** Size words shoppers type in Arabic letters, as the alpha sizes they mean. */
+const ARABIC_SIZE_WORDS: Record<string, string> = {
+  "اكس سمول": "XS",
+  "إكس سمول": "XS",
+  سمول: "S",
+  ميديم: "M",
+  مديم: "M",
+  ميديوم: "M",
+  وسط: "M",
+  لارج: "L",
+  "اكس لارج": "XL",
+  "إكس لارج": "XL",
+  "اكس اكس لارج": "XXL",
+  "إكس إكس لارج": "XXL",
+  "دبل اكس لارج": "XXL",
+  "تربل اكس لارج": "XXXL",
 };
 
+/** The comparison forms of a size: `Medium` is `M`, `2XL` is `XXL`, `W32/L34` is `3234`. */
+function sizeForms(label: string): string[] {
+  const arabic = ARABIC_SIZE_WORDS[label.trim().replace(/\s+/g, " ")];
+  return sizeLabelCandidates(arabic ?? label);
+}
+
 function resolveSizes(nodes: PathConfigNode[], sizes: string[], problems: string[]): string[] {
-  const byFold = new Map<string, string[]>();
-  for (const node of nodes) {
-    for (const size of node.sizes ?? []) byFold.set(fold(size), [...(byFold.get(fold(size)) ?? []), size]);
-  }
+  const stocked = [...new Set(nodes.flatMap((node) => node.sizes ?? []))];
+  const stockedForms = stocked.map((size) => ({ size, forms: new Set(sizeForms(size)) }));
   const canonical: string[] = [];
   for (const size of sizes) {
     if (!size?.trim()) continue;
-    const match = byFold.get(fold(size)) ?? byFold.get(SIZE_WORDS[fold(size)] ?? "");
-    if (match) canonical.push(...match);
+    const wanted = sizeForms(size);
+    const match = stockedForms.filter((entry) => wanted.some((form) => entry.forms.has(form))).map((entry) => entry.size);
+    if (match.length > 0) canonical.push(...match);
     else {
-      const listed = [...new Set([...byFold.values()].map((spellings) => spellings[0]))];
+      const listed = [...spellingsBySquash(stocked).values()].map((spellings) => spellings[0]);
       problems.push(
         `size "${size}" is not listed on ${nodes[0].path}${listed.length ? ` (listed: ${listed.join(", ")})` : " (no sizes recorded there)"}`
       );

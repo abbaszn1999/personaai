@@ -56,6 +56,39 @@ describe("buildAgentContext", () => {
     expect(ctx.session).toEqual({ audience: "kids-girl", department: "kids-girls", budget: 120, measurements: null });
   });
 
+  it("keeps a live store searchable while a reconcile or republish re-imports it", async () => {
+    deps.getStoreConnectionByOwner.mockResolvedValue({ id: "conn", catalogSyncStatus: "indexing", personaCategoryMap: {}, styleGuide: null });
+    deps.getPersonaPathConfig.mockResolvedValue({ staleAt: null, config: { inStock: 120 } });
+    const ctx = await buildAgentContext(base);
+    expect(ctx.catalogReady).toBe(true);
+    expect(ctx.pathConfig).not.toBeNull();
+  });
+
+  it("keeps a store that was never built blocked during its first import", async () => {
+    deps.getStoreConnectionByOwner.mockResolvedValue({ id: "conn", catalogSyncStatus: "indexing", personaCategoryMap: {}, styleGuide: null });
+    deps.getPersonaPathConfig.mockResolvedValue(null);
+    const ctx = await buildAgentContext(base);
+    expect(ctx.catalogReady).toBe(false);
+    expect(ctx.pathConfig).toBeNull();
+  });
+
+  it("is not searchable before any catalog sync", async () => {
+    deps.getPersonaPathConfig.mockClear();
+    deps.getStoreConnectionByOwner.mockResolvedValue({ id: "conn", catalogSyncStatus: "idle", personaCategoryMap: {}, styleGuide: null });
+    const ctx = await buildAgentContext(base);
+    expect(ctx.catalogReady).toBe(false);
+    expect(deps.getPersonaPathConfig).not.toHaveBeenCalled();
+  });
+
+  it("answers without card context when the cards cannot be read, instead of failing the turn", async () => {
+    deps.getCatalogProductsByExternalIds.mockRejectedValueOnce(new Error("ACS API error 429"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const ctx = await buildAgentContext({ ...base, retrievalState: { shownProductIds: ["a"] } });
+    expect(ctx.products.size).toBe(0);
+    expect(ctx.shownProductIds).toEqual([]);
+    expect(ctx.catalogReady).toBe(true);
+  });
+
   it("carries the onboarding measurements", async () => {
     const ctx = await buildAgentContext({ ...base, measurements: { heightCm: 180, chestCm: 100, waistCm: 84 } });
     expect(ctx.session.measurements).toEqual({ heightCm: 180, chestCm: 100, waistCm: 84, hipsCm: null, shoeSizeEu: null });

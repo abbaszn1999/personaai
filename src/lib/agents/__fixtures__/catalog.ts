@@ -4,6 +4,12 @@ import type { CatalogCandidate } from "@/lib/retrieval/types";
 
 export const CONNECTION_ID = "11111111-1111-1111-1111-111111111111";
 
+/** What a published size chart leaves on a product; the path config only counts sized products. */
+export const SIZED_ATTRIBUTES: NonNullable<AcsProduct["attributes"]> = {
+  fit_group: { text: ["tops"] },
+  fit_chest_cm: { text: ["98", "99", "100"] },
+};
+
 export function acsProduct(
   id: string,
   path: string,
@@ -19,6 +25,7 @@ export function acsProduct(
     availability: "IN_STOCK",
     images: [{ uri: `https://example.com/${id}.jpg` }],
     ...extra,
+    attributes: { ...SIZED_ATTRIBUTES, ...extra.attributes },
   };
 }
 

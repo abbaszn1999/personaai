@@ -13,7 +13,13 @@ const SKILL_FILES = [
   "persona/skills/filter.md",
 ] as const;
 
-const HISTORY_TURNS = 5;
+const HISTORY_TURNS = 8;
+/** A pasted essay is still one request; past this the model reads noise, not intent. */
+const MAX_MESSAGE_CHARS = 2_000;
+
+function clip(text: string, limit: number): string {
+  return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
 
 const NO_CONFIG_TEXT =
   "NO PATHS — this store's catalog is still being prepared. Do not search: answer or ask only, and tell the shopper products will be available shortly.";
@@ -44,16 +50,23 @@ export interface PersonaTurnExtras {
   message: string;
   referenced: CatalogCandidate | null;
   onScreen: CatalogCandidate[];
+  /** False when the store's catalog cannot be searched right now. */
+  canSearch: boolean;
   /** Set on the corrective retry. */
   problems?: string[];
-  /** Set when the search ran and returned nothing. */
-  empty?: { constraints: string[]; nearby: string[] };
+  /** Set when the corrective retry still could not become a search. */
+  unavailable?: { problems: string[]; nearby: string[] };
+  /** Set when the search ran and returned nothing. `exhausted` means it returned nothing new:
+   *  everything matching is already on screen. */
+  empty?: { constraints: string[]; nearby: string[]; exhausted?: boolean };
 }
 
 /** The variable half — everything after the cached boundary. */
 export function renderPersonaTurn(ctx: AgentContext, extras: PersonaTurnExtras): string {
   const blocks = [
-    `## SESSION\nshopper: ${ctx.session.audience ?? "unknown"}\ndepartment: ${ctx.session.department ?? "unknown"}`,
+    `## SESSION\nshopper: ${ctx.session.audience ?? "unknown"}\ndepartment: ${ctx.session.department ?? "unknown"}\ncatalog: ${
+      extras.canSearch ? "searchable" : "unavailable right now — answer or ask only"
+    }`,
     `## ON SCREEN\n${
       extras.onScreen.length > 0
         ? extras.onScreen.map((candidate, index) => `${index + 1}. ${renderProductLine(candidate)}`).join("\n")
@@ -65,7 +78,7 @@ export function renderPersonaTurn(ctx: AgentContext, extras: PersonaTurnExtras):
   }
   blocks.push(`## LAST SEARCH\n${renderLastSearch(ctx.lastSearch)}`);
   blocks.push(`## CONVERSATION\n${renderHistory(ctx.history, HISTORY_TURNS)}`);
-  blocks.push(`## MESSAGE\n${extras.message}`);
+  blocks.push(`## MESSAGE\n${clip(extras.message.trim(), MAX_MESSAGE_CHARS)}`);
 
   if (extras.problems?.length) {
     blocks.push(
@@ -74,7 +87,22 @@ export function renderPersonaTurn(ctx: AgentContext, extras: PersonaTurnExtras):
         .join("\n")}\nFix exactly these and decide again. If the shopper's constraint does not exist in this store, return action "answer" and say so honestly, with quick options built from what does exist.`
     );
   }
-  if (extras.empty) {
+  if (extras.unavailable) {
+    blocks.push(
+      `## CANNOT SEARCH\nThis message cannot become a search in this store:\n${extras.unavailable.problems
+        .map((problem) => `- ${problem}`)
+        .join("\n")}\nStocked nearby:\n${
+        extras.unavailable.nearby.map((path) => `- ${path}`).join("\n") || "- nothing close"
+      }\nReturn action "answer" in the shopper's language: say plainly what is not possible and why, in one or two sentences, and offer up to four quick options built from what does exist, written as a shopper would say them (never as paths).`
+    );
+  }
+  if (extras.empty?.exhausted) {
+    blocks.push(
+      `## NOTHING MORE TO SHOW\nThe shopper asked for more of the same search, and every product matching it is already on screen:\n${extras.empty.constraints
+        .map((line) => `- ${line}`)
+        .join("\n")}\nReturn action "answer": say that is everything the store has for this right now, and offer quick options that each change exactly one constraint using real values (a nearby category, another colour, a wider price).`
+    );
+  } else if (extras.empty) {
     blocks.push(
       `## SEARCH RETURNED NOTHING\nThe search for this message ran with these constraints and found nothing in stock:\n${extras.empty.constraints
         .map((line) => `- ${line}`)

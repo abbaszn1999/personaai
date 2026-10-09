@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { CUSTOM_OPTION_ATTRIBUTE_PREFIX, PIPELINE_ATTRIBUTE_KEYS } from "@/lib/catalog/acs/map-product";
 import type { AcsProduct } from "@/lib/catalog/acs/types";
+import { FIT_INDEX_ATTRIBUTES } from "@/lib/sizing/fit-index";
 import {
   PATH_CONFIG_VERSION,
   type PathConfigAttribute,
@@ -40,10 +41,43 @@ interface NodeAccumulator {
   text: Map<string, { field: string; source: "native" | "custom"; values: Map<string, string> }>;
   numbers: Map<string, { field: string; min: number; max: number }>;
   sizes: Set<string>;
+  titleWords: Map<string, number>;
+}
+
+/** Words that describe nothing about a garment, in the languages catalogs are written in. */
+const TITLE_STOPWORDS = new Set([
+  "and", "the", "for", "with", "men", "mens", "man", "women", "womens", "woman", "unisex", "kids", "boys", "girls",
+  "new", "collection", "size", "pack", "piece", "set", "item", "product", "style", "basic", "basics", "fit",
+  "pour", "avec", "homme", "femme", "les", "des", "une", "sans",
+  "رجالي", "حريمي", "نسائي", "للرجال", "مقاس", "جديد",
+]);
+const MAX_LEAF_WORDS = 15;
+
+function titleTokens(title: string): string[] {
+  return [
+    ...new Set(
+      title
+        .toLowerCase()
+        .normalize("NFC")
+        .split(/[^\p{L}]+/u)
+        .filter((token) => token.length >= 3 && !TITLE_STOPWORDS.has(token))
+    ),
+  ];
 }
 
 function clean(value: string): string {
   return value.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Whether a size chart reached this product: a sizing group plus at least one indexed fit value.
+ * Every shopper has measurements, and every search is fit-filtered on them, so a product without
+ * one can never be shown — counting it would advertise stock, brands and prices nobody can see.
+ */
+export function isSizedProduct(product: AcsProduct): boolean {
+  const attributes = product.attributes ?? {};
+  if (!attributes.fit_group?.text?.some((value) => value.trim())) return false;
+  return FIT_INDEX_ATTRIBUTES.some((key) => (attributes[key]?.text?.length ?? 0) > 0);
 }
 
 /** `persona > women > bottom > trouser` → its department / category / leaf nodes. */
@@ -67,6 +101,42 @@ function attributeLabel(key: string, taken: ReadonlySet<string>): string {
   const stripped = key.startsWith(CUSTOM_OPTION_ATTRIBUTE_PREFIX) ? key.slice(CUSTOM_OPTION_ATTRIBUTE_PREFIX.length) : key;
   if (stripped && !taken.has(stripped)) return stripped;
   return taken.has(key) ? `custom_${key}` : key;
+}
+
+const ARABIC_LETTER = /[\u0600-\u06FF]/g;
+const LATIN_LETTER = /[A-Za-zÀ-ÖØ-öø-ÿ]/g;
+/** Words and letters that only French product titles carry, against an English baseline. */
+const FRENCH_MARKER =
+  /[éèêàçùûôîœ]|\b(?:homme|femme|enfant|chemise|pantalon|robe|veste|manteau|chaussures?|pull|jupe|baskets?|coton|lin|laine|cuir|pour|avec|sans|manches?|longues?|courtes?|noire?|blanche?|bleue?|rouge|taille)\b/i;
+/** Below this share of titles a script is not one the catalog is written in. */
+const LANGUAGE_SHARE = 0.25;
+
+/**
+ * The language a store writes its product titles in, from the titles themselves: Arabic by
+ * script, French by the words and accents English titles never carry, otherwise English. Two
+ * languages when each is a real share of the catalog. Null for no titles.
+ */
+export function detectCatalogLanguage(titles: readonly string[]): string | null {
+  let arabic = 0;
+  let latin = 0;
+  let french = 0;
+  for (const title of titles) {
+    const arabicLetters = title.match(ARABIC_LETTER)?.length ?? 0;
+    const latinLetters = title.match(LATIN_LETTER)?.length ?? 0;
+    if (arabicLetters === 0 && latinLetters === 0) continue;
+    if (arabicLetters >= latinLetters) arabic += 1;
+    else {
+      latin += 1;
+      if (FRENCH_MARKER.test(title)) french += 1;
+    }
+  }
+  const total = arabic + latin;
+  if (total === 0) return null;
+  const latinLanguage = latin > 0 && french / latin >= 0.5 ? "French" : "English";
+  const languages: string[] = [];
+  if (latin / total >= LANGUAGE_SHARE) languages.push(latinLanguage);
+  if (arabic / total >= LANGUAGE_SHARE) languages.push("Arabic");
+  return languages.join(" and ");
 }
 
 /** Tertiles over the in-stock price list. Boundaries are whole currency units so the rendered
@@ -115,7 +185,26 @@ function newAccumulator(path: string, level: PathConfigNodeLevel, segments: stri
     text: new Map(),
     numbers: new Map(),
     sizes: new Set(),
+    titleWords: new Map(),
   };
+}
+
+/**
+ * The leaf's most used title words that say something a filter cannot: not a brand, colour,
+ * size or the garment's own name, and used by at least two products.
+ */
+function leafWords(node: NodeAccumulator): string[] {
+  const known = new Set<string>();
+  const addWords = (value: string) => value.toLowerCase().split(/[^\p{L}]+/u).forEach((word) => word && known.add(word));
+  for (const brand of node.brands.keys()) addWords(brand);
+  for (const entry of node.text.values()) for (const value of entry.values.values()) addWords(value);
+  for (const size of node.sizes) addWords(size);
+  if (node.leaf) addWords(node.leaf.replace(/-/g, " "));
+  return [...node.titleWords.entries()]
+    .filter(([word, count]) => count >= 2 && !known.has(word) && !known.has(word.replace(/s$/, "")))
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, MAX_LEAF_WORDS)
+    .map(([word]) => word);
 }
 
 function addText(
@@ -180,21 +269,23 @@ function finalizeNode(node: NodeAccumulator): PathConfigNode {
     brands,
     attributes,
     sizes: [...node.sizes].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
+    ...(node.level === "leaf" ? { words: leafWords(node) } : {}),
   };
 }
 
 /**
  * Summarises one store's ACS documents into its path config.
  *
- * Only in-stock `PRIMARY` documents with an image count: variants would double-count products,
- * and an out-of-stock or imageless product is not something any agent can show. Every leaf and every brand is kept —
- * nothing is capped — because a value missing from the config is a value the agent can never
- * filter on.
+ * Only in-stock, sized `PRIMARY` documents with an image count: variants would double-count
+ * products, and an out-of-stock, unsized or imageless product is not something any agent can show.
+ * Every leaf and every brand is kept — nothing is capped — because a value missing from the config
+ * is a value the agent can never filter on.
  */
 export function buildPathConfig(products: readonly AcsProduct[]): PersonaPathConfig {
   const nodes = new Map<string, NodeAccumulator>();
   const currencies = new Map<string, number>();
   const inStockIds = new Set<string>();
+  const titles: string[] = [];
 
   const customKeys = new Set<string>();
   for (const product of products) {
@@ -211,11 +302,13 @@ export function buildPathConfig(products: readonly AcsProduct[]): PersonaPathCon
   for (const product of products) {
     if ((product.type ?? "PRIMARY") !== "PRIMARY") continue;
     if (product.availability !== "IN_STOCK") continue;
-    // Nothing without an image is ever shown, so it must not set a floor or a brand either.
+    // Nothing without an image or a size chart is ever shown, so it must not set a floor or a brand either.
     if (!product.images?.some((image) => image.uri)) continue;
+    if (!isSizedProduct(product)) continue;
 
     const personaNodes = personaNodesOf(product.categories ?? []);
     if (personaNodes.length === 0) continue;
+    if (!inStockIds.has(product.id) && product.title) titles.push(product.title);
     inStockIds.add(product.id);
 
     const price = product.priceInfo?.price;
@@ -232,6 +325,9 @@ export function buildPathConfig(products: readonly AcsProduct[]): PersonaPathCon
       }
       if (node.productIds.has(product.id)) continue;
       node.productIds.add(product.id);
+      if (level === "leaf" && product.title) {
+        for (const token of titleTokens(product.title)) node.titleWords.set(token, (node.titleWords.get(token) ?? 0) + 1);
+      }
       if (typeof price === "number" && Number.isFinite(price) && price > 0) node.prices.push(price);
       if (brand) node.brands.set(brand, (node.brands.get(brand) ?? 0) + 1);
       for (const size of product.sizes ?? []) {
@@ -265,6 +361,7 @@ export function buildPathConfig(products: readonly AcsProduct[]): PersonaPathCon
   return {
     version: PATH_CONFIG_VERSION,
     currency,
+    catalogLanguage: detectCatalogLanguage(titles),
     inStock: inStockIds.size,
     nodes: [...nodes.values()].map(finalizeNode).sort((a, b) => a.path.localeCompare(b.path)),
   };

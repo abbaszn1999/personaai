@@ -5,6 +5,7 @@ import {
   deactivateAcsCatalogForRemapping,
   deleteAllAcsProductsForConnection,
   getAcsVariantIds,
+  forgetCachedProductReads,
   getCatalogProductsByExternalIds,
   markAcsProductOutOfStockIfExists,
   sweepAcsProductsForConnection,
@@ -285,6 +286,14 @@ describe("deleteAllAcsProductsForConnection", () => {
 describe("getCatalogProductsByExternalIds", () => {
   beforeEach(() => {
     process.env.ACS_PROJECT_ID = "test-project";
+    forgetCachedProductReads();
+  });
+
+  it("reads a card once for consecutive turns instead of on every turn", async () => {
+    const getSpy = vi.spyOn(client, "getProduct").mockResolvedValue(product());
+    await getCatalogProductsByExternalIds(CONNECTION_ID, ["27770"], ["Men > Clothing"]);
+    await getCatalogProductsByExternalIds(CONNECTION_ID, ["27770"], ["Men > Clothing"]);
+    expect(getSpy).toHaveBeenCalledTimes(1);
   });
 
   afterEach(() => {

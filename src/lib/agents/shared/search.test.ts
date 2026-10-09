@@ -80,11 +80,29 @@ describe("searchCatalog", () => {
     expect(outcome.candidates).toHaveLength(1);
   });
 
-  it("does not browse again when the filter matched nothing, since that search is billed and cannot find more", async () => {
+  it("browses the same filter when the query retrieves nothing, since a query narrows retrieval", async () => {
+    acs.searchProducts
+      .mockResolvedValueOnce({ results: [] })
+      .mockResolvedValueOnce({ results: [item("b", "https://x/b.jpg")] });
+    const outcome = await searchCatalog(ctx, spec, "formal office tailored", 10);
+    expect(acs.searchProducts.mock.calls.map((args) => args[0].query)).toEqual(["formal office tailored", ""]);
+    expect(outcome.candidates.map((candidate) => candidate.externalId)).toEqual(["b"]);
+  });
+
+  it("does not browse again for a plain filter that matched nothing", async () => {
     acs.searchProducts.mockResolvedValue({ results: [] });
-    const outcome = await searchCatalog(ctx, spec, "very specific styling words", 10);
+    const outcome = await searchCatalog(ctx, spec, "", 10);
     expect(acs.searchProducts).toHaveBeenCalledTimes(1);
     expect(outcome.candidates).toEqual([]);
+  });
+
+  it("sends only the fit clause of the searched category", async () => {
+    acs.searchProducts.mockResolvedValue({ results: [] });
+    await searchCatalog(fitted, { ...spec, paths: ["men > bottom > jean", "unisex > bottom > jean"] }, "", 10);
+    const filter = acs.searchProducts.mock.calls[0][0].extraFilter as string;
+    expect(filter).toContain('attributes.fit_group: ANY("bottoms")');
+    expect(filter).not.toContain('"tops"');
+    expect(filter).not.toContain("fit_foot_length_cm");
   });
 
   it("with measurements, filters on fit and returns only products with a fitting size", async () => {
@@ -117,10 +135,27 @@ describe("searchCatalog", () => {
         new acs.AcsApiError(400, 'Unsupported field \\"attributes.fit_waist_cm\\" on \\":\\" operator.')
       )
       .mockResolvedValueOnce({ results: [] });
-    await searchCatalog(fitted, spec, "", 10);
+    await searchCatalog(fitted, { ...spec, paths: ["men"] }, "", 10);
     expect(acs.searchProducts).toHaveBeenCalledTimes(2);
     expect(acs.searchProducts.mock.calls[1][0].extraFilter).not.toContain('"bottoms"');
     expect(acs.searchProducts.mock.calls[1][0].extraFilter).toContain('"tops"');
+  });
+
+  it("retries a search sent before a concurrent one learned the unsupported field", async () => {
+    let rejectFirst: (error: Error) => void = () => {};
+    acs.searchProducts
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectFirst = reject)))
+      .mockRejectedValueOnce(new acs.AcsApiError(400, 'Unsupported field \\"attributes.fit_foot_length_cm\\" on \\":\\" operator.'))
+      .mockResolvedValue({ results: [] });
+    const shod = {
+      ...fitted,
+      session: { ...fitted.session, measurements: { ...fitted.session.measurements!, shoeSizeEu: 43 } },
+    } as AgentContext;
+    const first = searchCatalog(shod, { ...spec, paths: ["men"] }, "", 10);
+    const second = searchCatalog(shod, { ...spec, paths: ["men"] }, "", 10);
+    await second;
+    rejectFirst(new acs.AcsApiError(400, 'Unsupported field \\"attributes.fit_foot_length_cm\\" on \\":\\" operator.'));
+    await expect(first).resolves.toMatchObject({ candidates: [] });
   });
 
   it("never searches without a store or a mapped scope", async () => {

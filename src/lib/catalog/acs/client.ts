@@ -60,11 +60,26 @@ function sleep(ms: number): Promise<void> {
 /** A connection that drops mid-request leaves a write's outcome unknown, so only these are resent. */
 const NETWORK_RETRY_METHODS = new Set(["GET", "DELETE"]);
 
+/** A search is a POST that only reads, so resending one whose connection dropped changes nothing. */
+function isIdempotent(path: string, init: RequestInit): boolean {
+  return NETWORK_RETRY_METHODS.has((init.method ?? "GET").toUpperCase()) || path.endsWith(":search");
+}
+
 async function acsFetch<T>(path: string, init: RequestInit): Promise<T> {
   for (let attempt = 0; ; attempt++) {
+    const lastAttempt = attempt >= MAX_REQUEST_ATTEMPTS - 1;
+    let token: string;
+    try {
+      token = await getAcsAccessToken();
+    } catch (error) {
+      // Nothing reached ACS yet, so any request can try again.
+      if (lastAttempt) throw error;
+      await sleep(backoffMs(attempt, null));
+      continue;
+    }
+
     let res: Response;
     try {
-      const token = await getAcsAccessToken();
       res = await fetch(`${API_BASE}/${path}`, {
         ...init,
         headers: {
@@ -74,8 +89,7 @@ async function acsFetch<T>(path: string, init: RequestInit): Promise<T> {
         },
       });
     } catch (error) {
-      const method = (init.method ?? "GET").toUpperCase();
-      if (!NETWORK_RETRY_METHODS.has(method) || attempt >= MAX_REQUEST_ATTEMPTS - 1) throw error;
+      if (!isIdempotent(path, init) || lastAttempt) throw error;
       await sleep(backoffMs(attempt, null));
       continue;
     }

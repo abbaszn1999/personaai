@@ -2,6 +2,7 @@ import type { ChatMessage } from "@/modules/commerce/types";
 import type { ConversationTurn } from "@/lib/retrieval/types";
 
 const ASSISTANT_CHARS = 240;
+const SHOPPER_CHARS = 1_000;
 
 /** Turns before the current message, oldest first, limited to real conversation. */
 export function toConversationTurns(history: readonly ChatMessage[]): ConversationTurn[] {
@@ -22,7 +23,10 @@ export function renderHistory(history: readonly ConversationTurn[], turns: numbe
   if (recent.length === 0) return "(no earlier messages)";
   return recent
     .map((turn) => {
-      if (turn.role === "user") return `Shopper: ${turn.content.trim()}`;
+      if (turn.role === "user") {
+        const said = turn.content.trim();
+        return `Shopper: ${said.length > SHOPPER_CHARS ? `${said.slice(0, SHOPPER_CHARS)}…` : said}`;
+      }
       const text = turn.content.replace(/\s+/g, " ").trim();
       return `Assistant: ${text.length > ASSISTANT_CHARS ? `${text.slice(0, ASSISTANT_CHARS)}…` : text}`;
     })

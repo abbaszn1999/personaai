@@ -92,6 +92,31 @@ export async function getProductGroup(
  *  rather than a real throughput limit, same spirit as `DELETE_CONCURRENCY`. */
 const GET_CONCURRENCY = 20;
 
+/**
+ * Every chat turn rehydrates the cards still on screen, and ACS allows the whole project only a few
+ * hundred product reads a minute — re-reading the same cards each turn would exhaust that with a
+ * handful of shoppers. A card read a few minutes ago is exact enough to talk about; what is shown
+ * again is re-checked against the live store anyway.
+ */
+const PRODUCT_READ_TTL_MS = 3 * 60_000;
+const PRODUCT_READ_CACHE_SIZE = 5_000;
+const productReads = new Map<string, { product: AcsProduct | null; expiresAt: number }>();
+
+async function getProductCached(acsProductId: string): Promise<AcsProduct | null> {
+  const cached = productReads.get(acsProductId);
+  if (cached && cached.expiresAt > Date.now()) return cached.product;
+  const product = await getProduct(acsProductId);
+  productReads.delete(acsProductId);
+  productReads.set(acsProductId, { product, expiresAt: Date.now() + PRODUCT_READ_TTL_MS });
+  if (productReads.size > PRODUCT_READ_CACHE_SIZE) productReads.delete(productReads.keys().next().value!);
+  return product;
+}
+
+/** For tests, and for a caller that has just written products and must read them back. */
+export function forgetCachedProductReads(): void {
+  productReads.clear();
+}
+
 /** True when a product carries at least one of the scope's category ids — the same membership
  *  test `categoryScopeFilterClause` applies server-side for a search, reimplemented here because
  *  a direct `GetProduct` (see below) has no filter clause of its own to enforce it. */
@@ -126,7 +151,7 @@ export async function getCatalogProductsByExternalIds(
       chunk(externalIds, GET_CONCURRENCY).map((batch) =>
         Promise.all(
           batch.map(async (externalId) => {
-            const product = await getProduct(buildAcsProductId(connectionId, externalId));
+            const product = await getProductCached(buildAcsProductId(connectionId, externalId));
             return product ? { externalId, product } : null;
           })
         )

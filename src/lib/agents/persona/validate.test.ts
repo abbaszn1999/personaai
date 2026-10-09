@@ -32,6 +32,36 @@ describe("planDecision", () => {
   });
 });
 
+describe("own department only", () => {
+  const config = buildPathConfig([
+    acsProduct("m-shirt", "men > top > shirt", 40),
+    acsProduct("w-dress", "women > full-body > dress", 60),
+    acsProduct("u-tee", "unisex > top > t-shirt", 20),
+    acsProduct("kb-tee", "kids-boys > top > t-shirt", 15),
+  ]);
+
+  it("lets a profile shop its own department and its unisex twin", () => {
+    expect(planDecision(config, decision({ action: "filter", path: "men > top > shirt" }), "men").kind).toBe("search");
+    expect(planDecision(config, decision({ action: "filter", path: "unisex > top > t-shirt" }), "men").kind).toBe("search");
+  });
+
+  it("refuses a search sized for someone else and says what to do", () => {
+    const plan = planDecision(config, decision({ action: "cosine", path: "women > full-body > dress", query: "x" }), "men");
+    expect(plan.kind).toBe("invalid");
+    expect(plan.kind === "invalid" && plan.problems[0]).toMatch(/women department.*profile is men.*Add profile/);
+    expect(planDecision(config, decision({ action: "filter", path: "kids-boys > top" }), "men").kind).toBe("invalid");
+  });
+
+  it("lets a unisex profile wear either gendered department of its age group", () => {
+    expect(planDecision(config, decision({ action: "filter", path: "women > full-body > dress" }), "unisex").kind).toBe("search");
+    expect(planDecision(config, decision({ action: "filter", path: "kids-boys > top" }), "unisex").kind).toBe("invalid");
+  });
+
+  it("places no restriction when the profile's department is unknown", () => {
+    expect(planDecision(config, decision({ action: "filter", path: "women > full-body > dress" }), null).kind).toBe("search");
+  });
+});
+
 describe("sizes", () => {
   it("carries a named size into the spec and reports an unlisted one", () => {
     const config = buildPathConfig([acsProduct("s", "women > top > shirt", 30, { sizes: ["S", "M"] })]);

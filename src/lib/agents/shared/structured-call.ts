@@ -16,6 +16,9 @@ export function attributeModel(): string {
   return process.env.GEMINI_ATTRIBUTE_MODEL ?? agentModel();
 }
 
+/** `off` is the lowest level the model accepts, `low` a short think, `on` the model's default. */
+export type ThinkingMode = "off" | "low" | "on";
+
 export interface StructuredCallInput {
   apiKey: string;
   model: string;
@@ -28,7 +31,7 @@ export interface StructuredCallInput {
   /** Everything after the cached boundary for this turn. */
   userText: string;
   schema: Record<string, unknown>;
-  thinking?: "off" | "on";
+  thinking?: ThinkingMode;
   timeoutMs?: number;
   meter?: SessionMeter;
   label: string;
@@ -57,12 +60,14 @@ function offThinkingLevel(model: string): ThinkingLevel {
 }
 
 async function generate(input: StructuredCallInput, useCache: boolean) {
+  // Decided from what this attempt sends, not from the shared set at failure time: concurrent
+  // calls all sent MINIMAL before the first rejection taught the set, and each must retry.
+  const sentMinimal =
+    input.thinking !== "on" && input.thinking !== "low" && !modelsWithoutMinimalThinking.has(input.model);
   try {
     return await send(input, useCache);
   } catch (error) {
-    if (input.thinking === "on" || modelsWithoutMinimalThinking.has(input.model) || !isMinimalThinkingUnsupportedError(error)) {
-      throw error;
-    }
+    if (!sentMinimal || !isMinimalThinkingUnsupportedError(error)) throw error;
     modelsWithoutMinimalThinking.add(input.model);
     return send(input, useCache);
   }
@@ -80,7 +85,13 @@ async function send(input: StructuredCallInput, useCache: boolean) {
         ...(useCache && input.cacheName ? { cachedContent: input.cacheName } : { systemInstruction: input.prefix }),
         responseMimeType: "application/json",
         responseJsonSchema: input.schema,
-        ...(input.thinking === "on" ? {} : { thinkingConfig: { thinkingLevel: offThinkingLevel(input.model) } }),
+        ...(input.thinking === "on"
+          ? {}
+          : {
+              thinkingConfig: {
+                thinkingLevel: input.thinking === "low" ? ThinkingLevel.LOW : offThinkingLevel(input.model),
+              },
+            }),
       },
     });
   } finally {
@@ -131,9 +142,51 @@ export async function callStructured<T>(request: StructuredCallInput): Promise<S
   return { value, usage };
 }
 
+const TIMEOUT_STATUS = 504;
+
+/** The call ran out of time, as opposed to being refused. */
+export function isStructuredCallTimeout(error: unknown): boolean {
+  return error instanceof GeminiChatError && error.status === TIMEOUT_STATUS;
+}
+
+type Settled<T> = { kind: "value"; value: T } | { kind: "error"; error: unknown } | { kind: "late" };
+
+/**
+ * Runs `first`; if it has not answered within `hedgeAfterMs`, or timed out before then, starts
+ * `second` and takes whichever answers first. An occasional model call stalls far past its normal
+ * few seconds while the same request sent again is answered in normal time, so a second request
+ * is the cure for that tail rather than a longer wait. Any other failure is thrown as is.
+ */
+export async function hedged<T>(first: () => Promise<T>, second: () => Promise<T>, hedgeAfterMs: number): Promise<T> {
+  const one = first();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const early = await Promise.race<Settled<T>>([
+    one.then(
+      (value) => ({ kind: "value", value }),
+      (error) => ({ kind: "error", error })
+    ),
+    new Promise<Settled<T>>((resolve) => {
+      timer = setTimeout(() => resolve({ kind: "late" }), hedgeAfterMs);
+    }),
+  ]);
+  clearTimeout(timer);
+  if (early.kind === "value") return early.value;
+  if (early.kind === "error") {
+    if (!isStructuredCallTimeout(early.error)) throw early.error;
+    return second();
+  }
+  try {
+    return await Promise.any([one, second()]);
+  } catch (error) {
+    throw error instanceof AggregateError ? error.errors[0] : error;
+  }
+}
+
 function toAgentError(error: unknown): GeminiChatError {
   if (error instanceof GeminiChatError) return error;
-  if (error instanceof Error && error.name === "AbortError") return new GeminiChatError("The request to Gemini timed out.");
+  if (error instanceof Error && error.name === "AbortError") {
+    return new GeminiChatError("The request to Gemini timed out.", TIMEOUT_STATUS);
+  }
   const message = error instanceof Error ? error.message : "Gemini request failed.";
   const status = (error as { status?: unknown } | null)?.status;
   if (status === 429 || /RESOURCE_EXHAUSTED|rate limit|quota/i.test(message)) {

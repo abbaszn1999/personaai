@@ -75,13 +75,29 @@ export async function markPathConfigStale(connectionId: string): Promise<void> {
   await markPersonaPathConfigStale(connectionId);
 }
 
-/** Drains a few stale rows per call — invoked from the reconcile cron. */
-export async function rebuildStalePathConfigs(limit = 3): Promise<RebuildResult[]> {
-  const ids = await listStalePersonaPathConfigIds(limit);
+const STALE_REBUILD_BATCH = 10;
+const STALE_REBUILD_BUDGET_MS = 120_000;
+
+/**
+ * Drains stale rows, oldest first, until none are left or the time budget runs out — invoked from
+ * the hourly reconcile cron. Each row is tried once per call, so one that keeps failing cannot
+ * spin the loop.
+ */
+export async function rebuildStalePathConfigs(budgetMs = STALE_REBUILD_BUDGET_MS): Promise<RebuildResult[]> {
+  const deadline = Date.now() + budgetMs;
+  const attempted = new Set<string>();
   const results: RebuildResult[] = [];
-  for (const id of ids) {
-    const result = await rebuildPersonaPathConfig(id);
-    if (result) results.push(result);
+  while (Date.now() < deadline) {
+    const ids = (await listStalePersonaPathConfigIds(attempted.size + STALE_REBUILD_BATCH)).filter(
+      (id) => !attempted.has(id)
+    );
+    if (ids.length === 0) break;
+    for (const id of ids) {
+      if (Date.now() >= deadline) break;
+      attempted.add(id);
+      const result = await rebuildPersonaPathConfig(id);
+      if (result) results.push(result);
+    }
   }
   return results;
 }

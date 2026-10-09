@@ -1,4 +1,5 @@
-import type { PathConfigAttribute, PathConfigNode, PathConfigTier, PersonaPathConfig } from "./types";
+import { comparableValue } from "./lookup";
+import type { PathConfigAttribute, PathConfigBrand, PathConfigNode, PathConfigTier, PersonaPathConfig } from "./types";
 
 function formatAmount(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
@@ -9,24 +10,60 @@ export function renderTiers(tiers: readonly PathConfigTier[]): string {
   return tiers.map((tier) => `${tier.label}[${formatAmount(tier.min)}-${formatAmount(tier.max)}, ${tier.count}]`).join("  ");
 }
 
+/** Built-in fields whose values a shopper names in words; a bare number there is a merchant's
+ *  internal colour or fabric code, which nobody can ask for. */
+const WORD_VALUED_FIELDS = new Set(["colors", "materials", "patterns"]);
+
+/**
+ * One entry per value however the store spelled it ("Black", "BLACK"), first spelling in sort
+ * order. Validation matches the same way and sends every stored spelling, so nothing is lost.
+ */
+function distinctValues(attribute: PathConfigAttribute): string[] {
+  const seen = new Set<string>();
+  const values: string[] = [];
+  for (const value of attribute.values ?? []) {
+    if (WORD_VALUED_FIELDS.has(attribute.field) && /^[\d\s.\-/]+$/.test(value)) continue;
+    const key = comparableValue(value);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    values.push(value);
+  }
+  return values;
+}
+
 export function renderAttribute(attribute: PathConfigAttribute): string {
   if (attribute.kind === "number" && attribute.range) {
     return `${attribute.key}(number ${formatAmount(attribute.range.min)}..${formatAmount(attribute.range.max)})`;
   }
-  return `${attribute.key}(${(attribute.values ?? []).join("|")})`;
+  return `${attribute.key}(${distinctValues(attribute).join("|")})`;
+}
+
+/** A brand written several ways is one brand: its most stocked spelling, with the combined count. */
+function distinctBrands(brands: readonly PathConfigBrand[]): PathConfigBrand[] {
+  const merged = new Map<string, PathConfigBrand>();
+  for (const brand of brands) {
+    const key = comparableValue(brand.name);
+    const current = merged.get(key);
+    if (current) current.count += brand.count;
+    else merged.set(key, { name: brand.name, count: brand.count });
+  }
+  return [...merged.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 }
 
 function renderLeaf(node: PathConfigNode, indent: string): string[] {
   const lines = [`${indent}${node.path} — ${node.inStock} in stock`];
   lines.push(`${indent}  tiers: ${renderTiers(node.tiers)}`);
+  const brands = distinctBrands(node.brands);
   lines.push(
-    `${indent}  brands: ${node.brands.length > 0 ? node.brands.map((brand) => `${brand.name} (${brand.count})`).join(", ") : "none recorded"}`
+    `${indent}  brands: ${brands.length > 0 ? brands.map((brand) => `${brand.name} (${brand.count})`).join(", ") : "none recorded"}`
   );
-  if (node.attributes.length > 0) {
-    lines.push(`${indent}  attrs: ${node.attributes.map(renderAttribute).join(" · ")}`);
+  const attributes = node.attributes.filter((attribute) => attribute.kind === "number" || distinctValues(attribute).length > 0);
+  if (attributes.length > 0) {
+    lines.push(`${indent}  attrs: ${attributes.map(renderAttribute).join(" · ")}`);
   } else {
     lines.push(`${indent}  attrs: none recorded`);
   }
+  if (node.words?.length) lines.push(`${indent}  title words: ${node.words.join(", ")}`);
   return lines;
 }
 
@@ -50,11 +87,12 @@ export function renderPathConfig(config: PersonaPathConfig): string {
     `Currency: ${config.currency ?? "store default"} · ${config.inStock} products in stock across ${
       config.nodes.filter((node) => node.level === "leaf").length
     } leaves.`,
-    "",
   ];
+  if (config.catalogLanguage) lines.push(`Catalog language: ${config.catalogLanguage} (product titles and descriptions are written in it).`);
+  lines.push("");
 
   if (departments.length === 0) {
-    lines.push("NO PATHS — this store has no in-stock products mapped to Persona yet.");
+    lines.push("NO PATHS — this store has no in-stock products with a size chart mapped to Persona yet.");
     return lines.join("\n");
   }
 

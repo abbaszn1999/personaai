@@ -67,8 +67,9 @@ export function renderProductLine(candidate: CatalogCandidate): string {
     .filter(([key]) => key !== "size")
     .map(([key, values]) => `${key}=${values.slice(0, 4).join("/")}`)
     .join("; ");
+  const fits = candidate.fitSizes?.length ? ` · fits the shopper in ${candidate.fitSizes.join("/")}` : "";
   return `[${candidate.externalId}] ${candidate.title} · ${candidate.brand ?? "no brand"} · ${money(
     candidate.price,
     candidate.currency
-  )}${facts ? ` · ${facts}` : ""}`;
+  )}${facts ? ` · ${facts}` : ""}${fits}`;
 }

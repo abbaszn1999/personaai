@@ -55,6 +55,20 @@ export function floorPrice(node: PathConfigNode): number | null {
   return node.priceRange?.min ?? null;
 }
 
+/**
+ * The comparison form of a catalog value: case, accents, spacing and punctuation never decide a
+ * match, so "Off-White", "off white" and "OFFWHITE" are one colour and "Tommy-Hilfiger" is
+ * "Tommy Hilfiger". A value made only of symbols keeps its plain lowercase form.
+ */
+export function comparableValue(value: string): string {
+  const squashed = value
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "");
+  return squashed || value.trim().toLowerCase();
+}
+
 export function toAcsCategory(path: string): string {
   return `persona${SEPARATOR}${normalizePath(path)}`;
 }

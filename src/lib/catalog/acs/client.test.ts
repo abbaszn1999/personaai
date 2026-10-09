@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { deleteProduct, getProduct, importProducts, patchProduct, searchProducts } from "./client";
 import type { AcsProduct } from "./types";
 
-vi.mock("./auth", () => ({ getAcsAccessToken: () => Promise.resolve("test-token") }));
+const auth = vi.hoisted(() => ({ getAcsAccessToken: vi.fn(() => Promise.resolve("test-token")) }));
+vi.mock("./auth", () => ({ getAcsAccessToken: auth.getAcsAccessToken }));
 
 const CONNECTION_ID = "11111111-1111-1111-1111-111111111111";
 const originalProjectId = process.env.ACS_PROJECT_ID;
@@ -173,14 +174,38 @@ describe("acsFetch retries", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
-  it("does not resend a POST whose connection dropped, since it may have landed", async () => {
+  it("does not resend a write whose connection dropped, since it may have landed", async () => {
     const fetchSpy = vi.spyOn(global, "fetch").mockRejectedValue(new TypeError("fetch failed"));
 
-    const rejection = expect(search()).rejects.toThrow("fetch failed");
+    const rejection = expect(patchProduct({ id: `${CONNECTION_ID}_a`, availability: "OUT_OF_STOCK" })).rejects.toThrow("fetch failed");
     await vi.runAllTimersAsync();
     await rejection;
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries any request whose access token could not be fetched, since nothing reached ACS", async () => {
+    auth.getAcsAccessToken.mockRejectedValueOnce(new Error("Client network socket disconnected"));
+    const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue(json({}));
+
+    const pending = patchProduct({ id: `${CONNECTION_ID}_a`, availability: "OUT_OF_STOCK" });
+    await vi.runAllTimersAsync();
+
+    await expect(pending).resolves.toBeUndefined();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("resends a search whose connection dropped, since a search only reads", async () => {
+    const fetchSpy = vi
+      .spyOn(global, "fetch")
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValue(json({ results: [] }));
+
+    const pending = search();
+    await vi.runAllTimersAsync();
+
+    await expect(pending).resolves.toEqual({ results: [] });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 });
 
