@@ -2,7 +2,7 @@ import type { StoreCategory } from "@/modules/store/types";
 import type { Product, ProductVariant } from "@/modules/commerce/types";
 import type { CatalogPageOptions, RawCatalogProduct, RawCatalogVariant, VariantOptionGroups } from "@/lib/catalog/sync-types";
 import { createTimeoutSignal, sleep } from "@/lib/catalog/timeout";
-import { pickSizedVariant } from "@/lib/sizing/cart-variant";
+import { pickSizedVariant, soldOutMessage } from "@/lib/sizing/cart-variant";
 import { variantTypeForOptionName } from "@/lib/catalog/option-groups";
 
 const API_BASE = "/wp-json/wc/v3";
@@ -1132,14 +1132,15 @@ const ADD_TO_CART_LOOKUP_TIMEOUT_MS = 12_000;
  *
  * With `sizes` (the sizes that fit the shopper, best first), a variable product only resolves to
  * an in-stock variation in one of them — adding a different size would put a garment that doesn't
- * fit in the cart.
+ * fit in the cart. `colors` (what the shopper asked for) keeps that variation in their colour too.
  */
 export async function resolveAddToCartItemId(
   siteUrl: string,
   username: string,
   appPassword: string,
   productId: string,
-  sizes: readonly string[] = []
+  sizes: readonly string[] = [],
+  colors: readonly string[] = []
 ): Promise<number> {
   const productLookup = createTimeoutSignal(ADD_TO_CART_LOOKUP_TIMEOUT_MS);
   let product: WooCommerceProductTypeLookup;
@@ -1186,9 +1187,10 @@ export async function resolveAddToCartItemId(
       variations,
       sizes,
       (variation) => (variation.attributes ?? []).map((attribute) => ({ name: attribute.name, value: attribute.option })),
-      (variation) => variation.purchasable && variation.stock_status === "instock"
+      (variation) => variation.purchasable && variation.stock_status === "instock",
+      colors
     );
-    if (!sized) throw new WooCommerceApiError(`Size ${sizes.join(" / ")} just sold out for this item.`, 409);
+    if (!sized) throw new WooCommerceApiError(soldOutMessage(sizes, colors), 409);
     return sized.id;
   }
 

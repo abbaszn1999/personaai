@@ -76,7 +76,7 @@ const COLOUR_SHORTHAND: Array<[RegExp, string]> = [
   [/^n\s*\.\s*blue\b/i, "navy"],
 ];
 
-function isColourAttribute(attribute: Pick<PathConfigAttribute, "key" | "field">): boolean {
+export function isColourAttribute(attribute: Pick<PathConfigAttribute, "key" | "field">): boolean {
   return attribute.field === "colors" || /colou?r/i.test(attribute.key);
 }
 
@@ -86,9 +86,24 @@ function isColourAttribute(attribute: Pick<PathConfigAttribute, "key" | "field">
  */
 export function comparableAttributeValue(attribute: Pick<PathConfigAttribute, "key" | "field">, value: string): string {
   if (!isColourAttribute(attribute)) return comparableValue(value);
+  return comparableValue(expandColourShorthand(value)).replace(/gray/g, "grey").replace(/^navyblue$/, "navy");
+}
+
+function expandColourShorthand(value: string): string {
   let expanded = value.trim();
   for (const [pattern, word] of COLOUR_SHORTHAND) expanded = expanded.replace(pattern, word);
-  return comparableValue(expanded).replace(/gray/g, "grey").replace(/^navyblue$/, "navy");
+  return expanded;
+}
+
+/** A colour value's words, read through the same shorthand: "L.GREY" is `["light", "grey"]`. */
+export function colourWords(value: string): string[] {
+  return expandColourShorthand(value)
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean)
+    .map((word) => (word === "gray" ? "grey" : word));
 }
 
 export function toAcsCategory(path: string): string {

@@ -3,7 +3,7 @@ import type { Product, ProductVariant } from "@/modules/commerce/types";
 import type { CatalogPageOptions, RawCatalogProduct, RawCatalogVariant, VariantOptionGroups } from "@/lib/catalog/sync-types";
 import { variantTypeForOptionName } from "@/lib/catalog/option-groups";
 import { isCacheDisabled } from "@/lib/utils/disable-cache";
-import { pickSizedVariant } from "@/lib/sizing/cart-variant";
+import { pickSizedVariant, soldOutMessage } from "@/lib/sizing/cart-variant";
 
 // Bumped from the now-unsupported `2024-10` (retired; Shopify falls forward to its oldest
 // accessible stable version for a retired target rather than erroring, which would have made this
@@ -1563,13 +1563,15 @@ function shopifyVariantInStock(variant: ShopifyRestVariant): boolean {
  *
  * With `sizes` (the sizes that fit the shopper, best first), only an in-stock variant in one of
  * them is acceptable — adding a different size would put a garment that doesn't fit in the cart.
+ * `colors` (what the shopper asked for) keeps that variant in their colour too.
  * Without, picks the first available variant, falling back to any variant.
  */
 export async function resolveShopifyCartVariantId(
   domain: string,
   accessToken: string,
   productId: string,
-  sizes: readonly string[] = []
+  sizes: readonly string[] = [],
+  colors: readonly string[] = []
 ): Promise<number> {
   const bareId = bareShopifyId(productId);
   const controller = new AbortController();
@@ -1609,9 +1611,10 @@ export async function resolveShopifyCartVariantId(
             const value = variant[`option${option.position}` as "option1" | "option2" | "option3"];
             return value ? [{ name: option.name, value }] : [];
           }),
-        shopifyVariantInStock
+        shopifyVariantInStock,
+        colors
       );
-      if (!sized) throw new ShopifyApiError(`Size ${sizes.join(" / ")} just sold out for this item.`, 409);
+      if (!sized) throw new ShopifyApiError(soldOutMessage(sizes, colors), 409);
       return sized.id;
     }
     const best = variants.find(shopifyVariantInStock) ?? variants[0];

@@ -194,6 +194,22 @@ describe("runPersona", () => {
     expect(spec.attributes).toEqual([expect.objectContaining({ key: "color", values: ["Navy"] })]);
   });
 
+  it("marks each card with the colour the shopper asked for, so the cart adds that colour", async () => {
+    deps.callStructured.mockResolvedValueOnce(
+      decision({ action: "filter", path: "women > bottom > trouser", attributes: [{ key: "color", values: ["Navy"] }] })
+    );
+    deps.searchCatalog.mockResolvedValue({ candidates: [candidate({ externalId: "n-1" })], filter: "f" });
+    const events = await run(context({ message: "navy trousers" }));
+    expect(events).toContainEqual({ type: "products", products: [{ id: "n-1", preferredColors: ["Navy"] }] });
+  });
+
+  it("leaves the colour open when the shopper named none", async () => {
+    deps.callStructured.mockResolvedValueOnce(decision({ action: "filter", path: "women > bottom > trouser" }));
+    deps.searchCatalog.mockResolvedValue({ candidates: [candidate({ externalId: "t-1" })], filter: "f" });
+    const events = await run(context({ message: "trousers" }));
+    expect(events).toContainEqual({ type: "products", products: [{ id: "t-1" }] });
+  });
+
   it("says nothing comes in their size when the search finds stock once fit is left out", async () => {
     deps.callStructured
       .mockResolvedValueOnce(decision({ action: "filter", path: "women > bottom > trouser" }))

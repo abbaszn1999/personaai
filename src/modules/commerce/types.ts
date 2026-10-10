@@ -39,6 +39,9 @@ export interface Product {
   attributes?: Record<string, string[]>;
   /** In-stock sizes the store's size chart says fit this shopper, best first. */
   fitSizes?: string[];
+  /** The colours the shopper asked for on the turn that showed this product, as the store spells
+   *  them. Add to cart keeps to them when the product comes in several colours. */
+  preferredColors?: string[];
 }
 
 export interface ProductVariant {

@@ -5,6 +5,7 @@ import {
   listShopifyCatalogPage,
   listShopifyCollectionTitles,
   mapShopifyWebhookProduct,
+  resolveShopifyCartVariantId,
 } from "./client";
 
 afterEach(() => {
@@ -227,5 +228,41 @@ describe("Shopify Admin GraphQL 2026-07 compatibility", () => {
     expect(page.products[0]?.variants[0]).toEqual(
       expect.objectContaining({ weight: 0.4, weightUnit: "KILOGRAMS" })
     );
+  });
+});
+
+describe("resolveShopifyCartVariantId", () => {
+  const product = {
+    id: 7,
+    options: [
+      { name: "Color", position: 1 },
+      { name: "Size", position: 2 },
+    ],
+    variants: [
+      { id: 101, option1: "White", option2: "M", inventory_quantity: 4 },
+      { id: 102, option1: "Navy", option2: "S", inventory_quantity: 2 },
+      { id: 103, option1: "Navy", option2: "M", inventory_quantity: 0 },
+      { id: 104, option1: "Navy", option2: "L", inventory_quantity: 3 },
+    ],
+  };
+
+  const resolve = (sizes: string[], colors: string[] = []) => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ product })));
+    return resolveShopifyCartVariantId("store.myshopify.com", "token", "gid://shopify/Product/7", sizes, colors);
+  };
+
+  it("adds the shopper's fitting size in the colour they asked for", async () => {
+    await expect(resolve(["M", "L"], ["NAVY"])).resolves.toBe(104);
+  });
+
+  it("adds the best fitting size in any colour when the shopper named none", async () => {
+    await expect(resolve(["M", "L"])).resolves.toBe(101);
+  });
+
+  it("refuses with the size and colour rather than add another colour", async () => {
+    await expect(resolve(["M"], ["Navy"])).rejects.toMatchObject({
+      status: 409,
+      message: "Size M in Navy just sold out for this item.",
+    });
   });
 });

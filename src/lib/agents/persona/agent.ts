@@ -1,4 +1,4 @@
-import { findNode } from "@/lib/catalog/path-config/lookup";
+import { findNode, isColourAttribute } from "@/lib/catalog/path-config/lookup";
 import { renderTiers } from "@/lib/catalog/path-config/render";
 import { savePersonaGeminiCache } from "@/lib/db/persona-path-configs";
 import { recordPersonaTurn } from "@/lib/db/persona-turn-metrics";
@@ -109,6 +109,14 @@ function quickOptions(options: readonly string[]): string[] {
       .map(standardArabic)
       .filter((option): option is string => option !== null)
   );
+}
+
+/** The colours the turn's validated filter asked for, every stored spelling, so the cart adds the
+ *  colour the shopper chose rather than the first one in stock. */
+function requestedColours(spec: SearchSpec): string[] {
+  return [
+    ...new Set(spec.attributes.flatMap((attribute) => (attribute.kind === "text" && isColourAttribute(attribute) ? attribute.values : []))),
+  ];
 }
 
 /** How hard the model thinks before deciding; `off` unless the deployment sets otherwise. */
@@ -444,7 +452,9 @@ export async function* runPersona(ctx: AgentContext, options: RunPersonaOptions 
   const ids = verified.map((candidate) => candidate.externalId);
   recordShown(ctx, search.query || search.path, outcome.attributionToken, ids);
   yield* textEvents(decision.reply || text.found);
-  yield { type: "products", products: toProducts(verified) };
+  const colours = requestedColours(spec);
+  const products = toProducts(verified);
+  yield { type: "products", products: colours.length ? products.map((product) => ({ ...product, preferredColors: colours })) : products };
   yield { type: "product_recommendations", productIds: ids };
   const quick = quickOptions(decision.quick_options);
   if (quick.length) yield { type: "quick_options", options: quick };

@@ -26,6 +26,17 @@ interface RequestBody {
   /** The sizes that fit the shopper, best first. When set, only an in-stock variant in one of
    *  them is added; the request fails rather than falling back to another size. */
   sizes?: string[];
+  /** The colours the shopper asked for when this product was shown. With `sizes`, the variant
+   *  added is in one of them whenever the product sells one. */
+  colors?: string[];
+}
+
+function textList(value: unknown, limit: number): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((entry): entry is string => typeof entry === "string" && entry.trim() !== "")
+    .map((entry) => entry.trim().slice(0, 80))
+    .slice(0, limit);
 }
 
 export async function OPTIONS() {
@@ -50,9 +61,8 @@ export async function POST(req: NextRequest) {
     if (!productId) {
       return embedJson({ error: "Missing product id" }, { status: 400 });
     }
-    const sizes = Array.isArray(body.sizes)
-      ? body.sizes.filter((size): size is string => typeof size === "string" && size.trim() !== "").slice(0, 10)
-      : [];
+    const sizes = textList(body.sizes, 10);
+    const colors = textList(body.colors, 5);
 
     const connection = await getStoreConnectionByOwner(workspace.ownerId);
     if (!connection || connection.status !== "connected" || !connection.apiKeyEncrypted) {
@@ -73,7 +83,7 @@ export async function POST(req: NextRequest) {
         return embedJson({ platform: "shopify" as const, id: explicitVariantId });
       }
       const token = await getShopifyAccessToken(domain, clientId, clientSecret, connection.id);
-      const id = await resolveShopifyCartVariantId(domain, token, productId, sizes);
+      const id = await resolveShopifyCartVariantId(domain, token, productId, sizes, colors);
       return embedJson({ platform: "shopify" as const, id });
     }
 
@@ -83,7 +93,7 @@ export async function POST(req: NextRequest) {
         return embedJson({ error: "WordPress credentials are incomplete." }, { status: 400 });
       }
       const siteUrl = normalizeWordPressUrl(connection.storeUrl);
-      const id = await resolveAddToCartItemId(siteUrl, wpUsername, wpAppPassword, productId, sizes);
+      const id = await resolveAddToCartItemId(siteUrl, wpUsername, wpAppPassword, productId, sizes, colors);
       return embedJson({ platform: "wordpress" as const, id });
     }
 

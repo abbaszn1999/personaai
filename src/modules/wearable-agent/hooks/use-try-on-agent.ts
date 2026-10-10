@@ -1690,8 +1690,14 @@ export function useTryOnAgent(
       update((s) => {
         const next = { ...s.knownProducts };
         for (const product of products) {
-          const fitSizes = product.fitSizes ?? s.knownProducts[product.id]?.fitSizes;
-          next[product.id] = fitSizes ? { ...product, fitSizes } : product;
+          const known = s.knownProducts[product.id];
+          const fitSizes = product.fitSizes ?? known?.fitSizes;
+          const preferredColors = product.preferredColors ?? known?.preferredColors;
+          next[product.id] = {
+            ...product,
+            ...(fitSizes ? { fitSizes } : {}),
+            ...(preferredColors ? { preferredColors } : {}),
+          };
         }
         // Keep the ref in sync immediately so later events in the same SSE turn can resolve
         // products without waiting for a re-render.
@@ -2004,6 +2010,7 @@ export function useTryOnAgent(
                   productId: product.id,
                   ...(products.length === 1 && variantId ? { variantId } : {}),
                   ...(product.fitSizes?.length ? { sizes: product.fitSizes } : {}),
+                  ...(product.preferredColors?.length ? { colors: product.preferredColors } : {}),
                 }),
                 signal: controller.signal,
               });
