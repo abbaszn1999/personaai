@@ -1,9 +1,11 @@
 import { getCatalogQueueDepth } from "@/lib/db/catalog-queue";
+import { claimScheduledJob } from "@/lib/db/scheduled-jobs";
 import { runSizingJobPass } from "@/lib/sizing/jobs";
 import { runCatalogEnqueuePass } from "./jobs";
 import { drainCatalogQueue, settleFinishedRuns } from "./process-queue";
 import { runCmsColumnDiscoveryPass } from "./discover-cms-columns";
 import { runSetupResetCleanupPass } from "./start-from-scratch";
+import { RECONCILE_EVERY_SECONDS, RECONCILE_JOB, runCatalogReconcilePass } from "./reconcile";
 
 /** Gap between idle polls. Short enough that saving a category selection feels like it starts
  *  indexing immediately, long enough that an idle install isn't querying in a tight loop. */
@@ -12,6 +14,9 @@ const IDLE_POLL_MS = 5_000;
 /** Backoff after an unexpected tick failure, so a persistent fault (database unreachable, say)
  *  doesn't spin. */
 const ERROR_BACKOFF_MS = 30_000;
+
+/** How often an instance asks whether the hourly reconcile is due. */
+const RECONCILE_CHECK_MS = 60_000;
 
 /**
  * Drives catalog indexing from inside the Next.js server.
@@ -40,6 +45,8 @@ export function isCatalogWorkerEnabled(): boolean {
 
 let running = false;
 let setupResetPass: Promise<unknown> | null = null;
+let reconcilePass: Promise<unknown> | null = null;
+let nextReconcileCheck = 0;
 
 export function startCatalogWorker(): void {
   // Dev server module reloads re-run the startup hook; a second loop would double every
@@ -92,6 +99,21 @@ export async function runCatalogTick(): Promise<number> {
     .finally(() => {
       setupResetPass = null;
     });
+
+  // The hourly reconcile walks every store's catalog for minutes, so it too runs beside the loop:
+  // what it enqueues is drained here meanwhile. The claim makes one instance run it per hour.
+  if (!reconcilePass && Date.now() >= nextReconcileCheck) {
+    nextReconcileCheck = Date.now() + RECONCILE_CHECK_MS;
+    reconcilePass = claimScheduledJob(RECONCILE_JOB, RECONCILE_EVERY_SECONDS)
+      .then((claimed) => (claimed ? runCatalogReconcilePass() : null))
+      .then((result) => {
+        if (result) console.log(`[catalog worker] reconciled ${JSON.stringify(result.reconciled)}`);
+      })
+      .catch((err) => console.error("[catalog worker] reconcile pass failed", err))
+      .finally(() => {
+        reconcilePass = null;
+      });
+  }
 
   // Checked before draining so an idle install does one cheap count instead of a queue read
   // plus the whole batch machinery.
