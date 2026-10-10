@@ -24,6 +24,8 @@ const PUBLIC_PATHS = [
   // Stripe has no session cookie. It signs the raw body, and the route checks that
   // signature itself. A login redirect here makes every delivery a 307.
   "/api/stripe/webhook",
+  // The load balancer's health check: it has no session, and a redirect reads as unhealthy.
+  "/api/health",
 ];
 
 function isPublicPath(pathname: string): boolean {
