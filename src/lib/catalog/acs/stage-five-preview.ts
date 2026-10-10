@@ -14,7 +14,7 @@ import {
   type SizingResolutionContext,
 } from "@/lib/sizing/product-chart";
 import { createSwrCache } from "@/lib/cache/swr-cache";
-import { rawCatalogProductToAcsProducts } from "./map-product";
+import { hasProductImage, rawCatalogProductToAcsProducts } from "./map-product";
 import {
   filterStageFiveRecords,
   toStageFiveRecord,
@@ -50,6 +50,8 @@ export interface GeneratedSizingSummary {
   excluded: number;
   /** Snapshot products the store no longer returns (deleted or unpublished since the scan). */
   unavailable: number;
+  /** Snapshot products that lost their last image since the scan: never published. */
+  withoutImage: number;
   /** Outcome of every product that does publish, matched included. */
   byStatus: Partial<Record<ProductChartStatus, number>>;
   /** Largest groups first, capped; `unresolved` below is the exact total behind them. */
@@ -196,6 +198,7 @@ async function buildCatalogSnapshot(
   let matched = 0;
   let excluded = 0;
   let unavailable = 0;
+  let withoutImage = 0;
   let unresolved = 0;
   let variantCount = 0;
 
@@ -204,6 +207,10 @@ async function buildCatalogSnapshot(
     const raw = raws.get(externalId);
     if (!raw) {
       unavailable += 1;
+      continue;
+    }
+    if (!hasProductImage(raw)) {
+      withoutImage += 1;
       continue;
     }
     const categoryPaths = resolveCategoryPaths(raw, connection);
@@ -261,6 +268,7 @@ async function buildCatalogSnapshot(
       matched,
       excluded,
       unavailable,
+      withoutImage,
       byStatus,
       unresolved,
       unresolvedGroups: [...groups.values()]

@@ -35,9 +35,18 @@ export interface SavePathConfigInput {
   taxonomyVersion: number;
 }
 
-/** Writes a new config. The Gemini cache columns are cleared because the cached prefix they name
- *  was built from the text being replaced. */
+/** Writes a new config. The Gemini cache columns are cleared when the text the cached prefix was
+ *  built from changes; a rewrite of the same text keeps them. */
 export async function savePersonaPathConfig(input: SavePathConfigInput): Promise<void> {
+  const { data: current, error: readError } = await db
+    .from(TABLE)
+    .select("fingerprint, rendered_text")
+    .eq("connection_id", input.connectionId)
+    .maybeSingle();
+  if (readError) console.error("[db/persona-path-configs save]", input.connectionId, readError);
+  const sameText = Boolean(
+    current && (current.fingerprint === input.fingerprint || current.rendered_text === input.renderedText)
+  );
   const { error } = await db.from(TABLE).upsert(
     {
       connection_id: input.connectionId,
@@ -49,9 +58,7 @@ export async function savePersonaPathConfig(input: SavePathConfigInput): Promise
       in_stock_count: input.config.inStock,
       built_at: new Date().toISOString(),
       stale_at: null,
-      gemini_cache_name: null,
-      gemini_cache_key: null,
-      gemini_cache_expires_at: null,
+      ...(sameText ? {} : { gemini_cache_name: null, gemini_cache_key: null, gemini_cache_expires_at: null }),
     },
     { onConflict: "connection_id" }
   );

@@ -3,19 +3,22 @@ import { getCatalogProductsByExternalIds } from "@/lib/catalog/acs/catalog-reads
 import { mappedSourceCategoryIds } from "@/lib/catalog/persona-mapping";
 import { rebuildPersonaPathConfig, scheduleRebuildPersonaPathConfig } from "@/lib/catalog/path-config/rebuild";
 import { getPersonaPathConfig } from "@/lib/db/persona-path-configs";
-import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
+import { getStoreConnectionByOwner, type StoreConnectionRow } from "@/lib/db/store-connections";
+import { createShortLivedCache } from "@/lib/cache/short-lived";
 import { createTimeoutSignal } from "@/lib/catalog/timeout";
 import type { UsageSurface } from "@/lib/billing/pricing";
 import type { SessionMeter } from "@/lib/billing/session-meter";
 import type { ChatMessage } from "@/modules/commerce/types";
 import type { CatalogCandidate } from "@/lib/retrieval/types";
-import type { StoredPathConfig } from "@/lib/catalog/path-config/types";
+import { PATH_CONFIG_VERSION, type StoredPathConfig } from "@/lib/catalog/path-config/types";
 import type { AgentAttachment, AgentContext, AgentTrigger, LastSearch, LookRecord } from "../types";
 import { bodyMeasurements, fittingSizes, isChildShopper, parseShopperMeasurements } from "./fit";
 import { toConversationTurns } from "./history";
 
 /** Newest cards first; ordinals only ever resolve against what the shopper can still see. */
 const SHOWN_LIMIT = 24;
+/** The prompt reads the last few exchanges; anything older a client sends is never parsed. */
+const MAX_MESSAGES = 40;
 /** A first turn on a store whose config was never built waits this long for it. */
 const FIRST_BUILD_WAIT_MS = 8_000;
 
@@ -53,6 +56,8 @@ export interface BuildAgentContextInput {
   attachment?: unknown;
   trigger?: unknown;
   referencedItemId?: unknown;
+  /** The request's own signal: aborts model calls and searches when the shopper leaves. */
+  signal?: AbortSignal;
 }
 
 function stringIds(value: unknown): string[] {
@@ -124,10 +129,29 @@ export function parseTrigger(value: unknown): AgentTrigger | null {
     : { type: "complete_look", productId: raw.productId };
 }
 
+/**
+ * Every turn reads the store's connection and path config; with many shoppers on one store those
+ * are the same two rows asked for many times a second. A few seconds of staleness is invisible: a
+ * rebuilt config or a changed setting reaches the next turns almost at once either way.
+ */
+const READ_TTL_MS = 5_000;
+const connections = createShortLivedCache<StoreConnectionRow | null>({ ttlMs: READ_TTL_MS, maxEntries: 2_000 });
+const pathConfigs = createShortLivedCache<StoredPathConfig | null>({ ttlMs: READ_TTL_MS, maxEntries: 2_000 });
+
+function readPathConfig(connectionId: string): Promise<StoredPathConfig | null> {
+  return pathConfigs.get(connectionId, () => getPersonaPathConfig(connectionId));
+}
+
+/** Drops the remembered rows. Tests only. */
+export function forgetAgentContextReads(): void {
+  connections.clear();
+  pathConfigs.clear();
+}
+
 async function loadPathConfig(connectionId: string): Promise<StoredPathConfig | null> {
-  const stored = await getPersonaPathConfig(connectionId);
+  const stored = await readPathConfig(connectionId);
   if (stored) {
-    if (stored.staleAt) scheduleRebuildPersonaPathConfig(connectionId);
+    if (stored.staleAt || stored.config?.version !== PATH_CONFIG_VERSION) scheduleRebuildPersonaPathConfig(connectionId);
     return stored;
   }
   // Never built (a store that finished syncing before path configs existed). Give the first
@@ -141,7 +165,8 @@ async function loadPathConfig(connectionId: string): Promise<StoredPathConfig | 
   } finally {
     cancel();
   }
-  return getPersonaPathConfig(connectionId);
+  pathConfigs.forget(connectionId);
+  return readPathConfig(connectionId);
 }
 
 /**
@@ -149,7 +174,7 @@ async function loadPathConfig(connectionId: string): Promise<StoredPathConfig | 
  * cannot drift — a feature wired into only one would pass testing and fail on a merchant's site.
  */
 export async function buildAgentContext(input: BuildAgentContextInput): Promise<AgentContext> {
-  const connection = await getStoreConnectionByOwner(input.ownerId);
+  const connection = await connections.get(input.ownerId, () => getStoreConnectionByOwner(input.ownerId));
   const categoryScope =
     connection && mappedSourceCategoryIds(connection.personaCategoryMap).length > 0 ? ["persona"] : [];
   const syncStatus = connection?.catalogSyncStatus;
@@ -159,7 +184,7 @@ export async function buildAgentContext(input: BuildAgentContextInput): Promise<
   const readable =
     Boolean(connection) && categoryScope.length > 0 && isAcsConfigured() && (syncStatus === "ready" || syncStatus === "indexing");
 
-  const turns = toConversationTurns(input.messages);
+  const turns = toConversationTurns(Array.isArray(input.messages) ? input.messages.slice(-MAX_MESSAGES) : []);
   const last = turns[turns.length - 1];
   const message = last?.role === "user" ? last.content.trim() : "";
   const history = last?.role === "user" ? turns.slice(0, -1) : turns;
@@ -183,7 +208,7 @@ export async function buildAgentContext(input: BuildAgentContextInput): Promise<
     connection && readable
       ? await Promise.all([
           // Mid-import the catalog is incomplete, so no first build is started from it.
-          syncStatus === "ready" ? loadPathConfig(connection.id) : getPersonaPathConfig(connection.id),
+          syncStatus === "ready" ? loadPathConfig(connection.id) : readPathConfig(connection.id),
           // A failed read (ACS throttling, a dropped connection) costs this turn its card context,
           // never the whole turn.
           getCatalogProductsByExternalIds(connection.id, [...referencedIds], categoryScope).catch((error) => {
@@ -226,5 +251,6 @@ export async function buildAgentContext(input: BuildAgentContextInput): Promise<
     trigger,
     referencedItemId: referencedItemId && candidates.some((candidate) => candidate.externalId === referencedItemId) ? referencedItemId : null,
     styleGuide: connection?.styleGuide ?? null,
+    ...(input.signal ? { signal: input.signal } : {}),
   };
 }

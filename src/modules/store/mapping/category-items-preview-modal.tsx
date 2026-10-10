@@ -31,6 +31,7 @@ const DEFAULT_PAGE_SIZE: PageSize = 50;
 interface LoadedPage {
   items: CategorySampleProduct[];
   nextCursor: string | null;
+  hiddenNoImage: number;
 }
 
 function formatPrice(item: CategorySampleProduct): string {
@@ -109,7 +110,11 @@ function useCategoryPreviewPages(categoryId: string, fallbackTotal: number) {
       .then(async (response) => {
         const data = (await response.json().catch(() => ({}))) as Partial<CategorySamplePage> & { error?: string };
         if (!response.ok) throw new Error(data.error ?? "Could not load products");
-        const loaded: LoadedPage = { items: data.items ?? [], nextCursor: data.nextCursor ?? null };
+        const loaded: LoadedPage = {
+          items: data.items ?? [],
+          nextCursor: data.nextCursor ?? null,
+          hiddenNoImage: data.hiddenNoImage ?? 0,
+        };
         cacheRef.current.set(cacheKey, loaded);
         cursorsRef.current[pageIndex + 1] = loaded.nextCursor;
         if (data.total !== null && data.total !== undefined) {
@@ -416,6 +421,14 @@ function PreviewBody({
             ? isLoading ? "Loading…" : "No products"
             : `${firstShown.toLocaleString()}–${lastShown.toLocaleString()} of ${pages.total.toLocaleString()}${pages.totalExact ? "" : "+"}`}
           {search.trim() && items.length > 0 && ` · ${filteredItems.length} match on this page`}
+          {(pages.page?.hiddenNoImage ?? 0) > 0 && (
+            <span
+              className="text-[var(--color-warning)]"
+              title="Products without an image cannot be shown to shoppers, so they are never published."
+            >
+              {` · ${pages.page!.hiddenNoImage.toLocaleString()} hidden: no image`}
+            </span>
+          )}
         </span>
         <div className="flex items-center gap-2">
           <span className="font-medium text-[var(--color-text-muted)]">

@@ -1,13 +1,16 @@
-import { findNode } from "@/lib/catalog/path-config/lookup";
+import { findNode, normalizePath } from "@/lib/catalog/path-config/lookup";
 import type { PersonaPathConfig } from "@/lib/catalog/path-config/types";
 import type { SearchSpec } from "../shared/acs-translator";
 import { validateSearchIntent } from "../shared/validate-intent";
+import type { LastSearch } from "../types";
 import type { PersonaDecision } from "./schema";
 
 export interface PlannedSearch {
   spec: SearchSpec;
   query: string;
   path: string;
+  /** The further leaves the shopper named with `path`, in the config's spelling. */
+  alsoPaths: string[];
 }
 
 export type DecisionPlan =
@@ -35,6 +38,52 @@ const SHOPPER_DEPARTMENTS: Record<string, readonly string[]> = {
 /** Null when the profile's department is unknown, which places no restriction. */
 export function shopperDepartments(department: string | null): readonly string[] | null {
   return department ? SHOPPER_DEPARTMENTS[department] ?? [department] : null;
+}
+
+const constraintKey = (key: string) => key.trim().toLowerCase();
+
+/**
+ * A refinement as the full search it stands for. The model writes only what the shopper changed
+ * and sets `refine`; everything else on LAST SEARCH is carried here, in code, so a brand or a price
+ * cannot quietly fall away when the shopper only asked for another colour. `drop` names what the
+ * shopper removed. A different garment is a new search, so nothing is carried across paths.
+ */
+export function mergeRefinement(decision: PersonaDecision, last: LastSearch | null): PersonaDecision {
+  if (!decision.refine || !last || (decision.action !== "filter" && decision.action !== "cosine")) return decision;
+  const path = decision.path.trim() || last.path;
+  if (normalizePath(path) !== normalizePath(last.path)) return decision;
+
+  const dropped = new Set(decision.drop.map(constraintKey));
+  const keep = (name: string) => !dropped.has(name);
+  const named = new Set(decision.attributes.map((attribute) => constraintKey(attribute.key)));
+  const namedExcluded = new Set(decision.exclude_attributes.map((attribute) => constraintKey(attribute.key)));
+  // A new price bound replaces the old window whole: a lower ceiling against the old floor could
+  // leave a window nothing fits.
+  const keepPrice = keep("price") && decision.price_min === null && decision.price_max === null;
+
+  return {
+    ...decision,
+    path,
+    also_paths: decision.also_paths.length > 0 ? decision.also_paths : keep("paths") ? last.alsoPaths ?? [] : [],
+    brands: decision.brands.length > 0 ? decision.brands : keep("brands") ? last.brands : [],
+    exclude_brands:
+      decision.exclude_brands.length > 0 || !keep("exclusions") ? decision.exclude_brands : last.excludeBrands ?? [],
+    price_min: keepPrice ? last.priceMin : decision.price_min,
+    price_max: keepPrice ? last.priceMax : decision.price_max,
+    attributes: [
+      ...decision.attributes,
+      ...last.attributes.filter((attribute) => !named.has(constraintKey(attribute.key)) && keep(constraintKey(attribute.key))),
+    ],
+    exclude_attributes: [
+      ...decision.exclude_attributes,
+      ...(keep("exclusions") ? last.excludeAttributes ?? [] : []).filter(
+        (attribute) => !namedExcluded.has(constraintKey(attribute.key)) && keep(constraintKey(attribute.key))
+      ),
+    ],
+    sizes: decision.sizes.length > 0 ? decision.sizes : keep("sizes") ? last.sizes : [],
+    query:
+      decision.action === "cosine" && !decision.query && keep("query") && last.action === "cosine" ? last.query : decision.query,
+  };
 }
 
 /** A search the model itself doubts goes back to it once, like an invalid one. */
@@ -71,16 +120,26 @@ export function planDecision(
 ): DecisionPlan {
   if (decision.action === "answer" || decision.action === "ask") return { kind: "reply" };
 
-  const outside = departmentProblem(config, decision.path, department);
-  if (outside) return { kind: "invalid", problems: [outside] };
+  for (const path of [decision.path, ...decision.also_paths]) {
+    const outside = departmentProblem(config, path, department);
+    if (outside) return { kind: "invalid", problems: [outside] };
+  }
 
   const result = validateSearchIntent(config, decision);
   if (!result.ok) return { kind: "invalid", problems: result.problems };
+  const alsoPaths = [
+    ...new Set(
+      decision.also_paths
+        .map((path) => findNode(config, path)?.path)
+        .filter((path): path is string => Boolean(path) && path !== result.node.path)
+    ),
+  ];
   return {
     kind: "search",
     search: {
       spec: result.spec,
       path: result.node.path,
+      alsoPaths,
       query: decision.action === "cosine" ? decision.query : "",
     },
   };

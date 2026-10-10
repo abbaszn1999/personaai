@@ -457,6 +457,85 @@ export async function listStaleMirrorIds(connectionId: string, runId: string): P
   }
 }
 
+const ID_CHUNK = 200;
+
+/**
+ * Which of these documents the store's mirror holds, or null when the mirror is not trusted and the
+ * caller cannot tell from it. Lets a write that must remove documents skip the ACS calls for ones
+ * that were never there.
+ */
+export async function mirroredIds(connectionId: string, acsIds: readonly string[]): Promise<Set<string> | null> {
+  const db = await database();
+  if (!db) return null;
+  try {
+    const { data: state, error: stateError } = await db
+      .from(STATE)
+      .select("complete_at")
+      .eq("connection_id", connectionId)
+      .maybeSingle();
+    if (stateError) {
+      report("ids state", stateError);
+      return null;
+    }
+    if (!(state as { complete_at: string | null } | null)?.complete_at) return null;
+
+    const found = new Set<string>();
+    for (let i = 0; i < acsIds.length; i += ID_CHUNK) {
+      const { data, error } = await db
+        .from(MIRROR)
+        .select("acs_id")
+        .eq("connection_id", connectionId)
+        .in("acs_id", acsIds.slice(i, i + ID_CHUNK));
+      if (error) {
+        report("ids", error);
+        return null;
+      }
+      for (const row of (data ?? []) as Array<{ acs_id: string }>) found.add(row.acs_id);
+    }
+    return found;
+  } catch (error) {
+    console.warn("[acs/mirror mirroredIds]", error instanceof Error ? error.message : error);
+    return null;
+  }
+}
+
+/** Every document of the store's products that have no image on any record, grouped under their
+ *  parent — what the one-time cleanup removes. Null when the mirror is not trusted. */
+export async function listImagelessMirrorIds(connectionId: string): Promise<string[] | null> {
+  const db = await database();
+  if (!db) return null;
+  try {
+    const { data: state } = await db.from(STATE).select("complete_at").eq("connection_id", connectionId).maybeSingle();
+    if (!(state as { complete_at: string | null } | null)?.complete_at) return null;
+
+    const groups = new Map<string, { ids: string[]; hasImage: boolean }>();
+    for (let offset = 0; ; offset += DOCUMENT_PAGE) {
+      const { data, error } = await db
+        .from(MIRROR)
+        .select("acs_id, primary_id, record")
+        .eq("connection_id", connectionId)
+        .order("acs_id", { ascending: true })
+        .range(offset, offset + DOCUMENT_PAGE - 1);
+      if (error) {
+        report("imageless", error);
+        return null;
+      }
+      const rows = (data ?? []) as Array<{ acs_id: string; primary_id: string; record: { imageUrl?: string | null } | null }>;
+      for (const row of rows) {
+        const group = groups.get(row.primary_id) ?? { ids: [], hasImage: false };
+        group.ids.push(row.acs_id);
+        if (row.record?.imageUrl) group.hasImage = true;
+        groups.set(row.primary_id, group);
+      }
+      if (rows.length < DOCUMENT_PAGE) break;
+    }
+    return [...groups.values()].filter((group) => !group.hasImage).flatMap((group) => group.ids);
+  } catch (error) {
+    console.warn("[acs/mirror listImagelessMirrorIds]", error instanceof Error ? error.message : error);
+    return null;
+  }
+}
+
 async function counts(db: Db, connectionId: string): Promise<AcsStageFiveListing["counts"]> {
   const totals = { primary: 0, variant: 0, inStock: 0, outOfStock: 0, otherAvailability: 0 };
   const { data, error } = await db.rpc("acs_catalog_mirror_counts", { p_connection_id: connectionId });

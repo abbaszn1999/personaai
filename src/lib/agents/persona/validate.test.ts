@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildPathConfig } from "@/lib/catalog/path-config/build";
 import { CONFIG, acsProduct } from "../__fixtures__/catalog";
 import { normalizeDecision, type PersonaDecision } from "./schema";
-import { gateOnConfidence, planDecision, type DecisionPlan } from "./validate";
+import { gateOnConfidence, mergeRefinement, planDecision, type DecisionPlan } from "./validate";
 
 function decision(overrides: Partial<PersonaDecision>): PersonaDecision {
   return normalizeDecision({ reasoning: "", reply: "", ...overrides });
@@ -97,5 +97,72 @@ describe("normalizeDecision", () => {
     expect(normalized.brands).toEqual([]);
     expect(normalized.price_max).toBeNull();
     expect(normalized.sizes).toEqual([]);
+  });
+});
+
+describe("several leaves and exclusions", () => {
+  it("searches every named leaf, with exclusions in the store's spelling", () => {
+    const plan = planDecision(
+      CONFIG,
+      decision({
+        action: "filter",
+        path: "women > bottom > trouser",
+        also_paths: ["women > top > t-shirt"],
+        exclude_brands: ["acme", "Nobody"],
+        exclude_attributes: [{ key: "color", values: ["black"] }],
+      })
+    );
+    expect(plan.kind).toBe("search");
+    if (plan.kind !== "search") return;
+    expect(plan.search.spec.paths).toEqual(expect.arrayContaining(["women > bottom > trouser", "women > top > t-shirt"]));
+    expect(plan.search.alsoPaths).toEqual(["women > top > t-shirt"]);
+    expect(plan.search.spec.excludeBrands).toEqual(["Acme"]);
+    expect(plan.search.spec.excludeAttributes).toEqual([expect.objectContaining({ key: "color", values: ["Black"] })]);
+  });
+
+  it("returns a problem for an extra leaf the store doesn't stock", () => {
+    const plan = planDecision(CONFIG, decision({ action: "filter", path: "women > bottom > trouser", also_paths: ["women > top > blouse"] }));
+    expect(plan.kind).toBe("invalid");
+  });
+});
+
+describe("mergeRefinement", () => {
+  const last = {
+    action: "filter" as const,
+    path: "women > bottom > trouser",
+    brands: ["Acme"],
+    priceMin: 20,
+    priceMax: 60,
+    attributes: [{ key: "color", values: ["Black"] }],
+    sizes: [],
+    query: "",
+  };
+
+  it("carries every constraint the refinement leaves empty", () => {
+    const merged = mergeRefinement(
+      decision({ action: "filter", refine: true, path: "women > bottom > trouser", attributes: [{ key: "material", values: ["Cotton"] }] }),
+      last
+    );
+    expect(merged.brands).toEqual(["Acme"]);
+    expect([merged.price_min, merged.price_max]).toEqual([20, 60]);
+    expect(merged.attributes.map((attribute) => attribute.key)).toEqual(["material", "color"]);
+  });
+
+  it("drops what the shopper removed and replaces a changed price window whole", () => {
+    const merged = mergeRefinement(
+      decision({ action: "filter", refine: true, path: "", price_max: 30, drop: ["brands", "color"] }),
+      last
+    );
+    expect(merged.path).toBe("women > bottom > trouser");
+    expect(merged.brands).toEqual([]);
+    expect([merged.price_min, merged.price_max]).toEqual([null, 30]);
+    expect(merged.attributes).toEqual([]);
+  });
+
+  it("carries nothing into a different garment or a non-refinement", () => {
+    const other = decision({ action: "filter", refine: true, path: "women > top > t-shirt" });
+    expect(mergeRefinement(other, last).brands).toEqual([]);
+    const fresh = decision({ action: "filter", refine: false, path: "women > bottom > trouser" });
+    expect(mergeRefinement(fresh, last).brands).toEqual([]);
   });
 });

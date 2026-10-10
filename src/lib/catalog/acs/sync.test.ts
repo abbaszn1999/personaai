@@ -11,6 +11,7 @@ import {
 import * as client from "./client";
 import * as catalogReads from "./catalog-reads";
 import * as attributesConfig from "./attributes-config";
+import * as mirror from "./mirror";
 
 function raw(overrides: Partial<RawCatalogProduct> = {}): RawCatalogProduct {
   return {
@@ -26,7 +27,7 @@ function raw(overrides: Partial<RawCatalogProduct> = {}): RawCatalogProduct {
     currency: "USD",
     inStock: true,
     productUrl: null,
-    imageUrl: null,
+    imageUrl: "https://cdn.example.com/p.jpg",
     images: [],
     variantOptions: {},
     customFields: {},
@@ -203,5 +204,80 @@ describe("acs/sync â€” dynamic attribute registration", () => {
 
     expect(attributesConfig.ensureDynamicAttributeRegistered).toHaveBeenCalledTimes(1);
     expect(attributesConfig.ensureDynamicAttributeRegistered).toHaveBeenCalledWith("opt_fit", "TEXTUAL");
+  });
+});
+
+describe("acs/sync — products without an image", () => {
+  const originalProjectId = process.env.ACS_PROJECT_ID;
+  const CONNECTION = "11111111-1111-1111-1111-111111111111";
+  const input = (overrides: Partial<RawCatalogProduct>) => ({
+    raw: raw(overrides),
+    connectionId: CONNECTION,
+    categoryPaths: [["Men"]],
+    garmentCategory: null,
+    garmentSubcategory: null,
+    sourceCategoryIds: ["cat-1"],
+  });
+
+  beforeEach(() => {
+    process.env.ACS_PROJECT_ID = "test-project";
+    vi.spyOn(client, "importProducts").mockResolvedValue(undefined);
+    vi.spyOn(client, "deleteProduct").mockResolvedValue(true);
+    vi.spyOn(attributesConfig, "ensureDynamicAttributeRegistered").mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    if (originalProjectId) process.env.ACS_PROJECT_ID = originalProjectId;
+    else delete process.env.ACS_PROJECT_ID;
+    vi.restoreAllMocks();
+  });
+
+  it("never writes a product with no image, and takes it out of ACS when it is there", async () => {
+    vi.spyOn(mirror, "mirroredIds").mockResolvedValue(new Set([`${CONNECTION}_bare`]));
+
+    await expect(
+      syncProductsToAcs([input({ externalId: "shown" }), input({ externalId: "bare", imageUrl: null })])
+    ).resolves.toBe(true);
+
+    const written = vi.mocked(client.importProducts).mock.calls.flatMap((call) => call[0].map((product) => product.id));
+    expect(written).toEqual([`${CONNECTION}_shown`]);
+    expect(client.deleteProduct).toHaveBeenCalledWith(`${CONNECTION}_bare`);
+  });
+
+  it("skips the delete when the mirror says ACS never held the product", async () => {
+    vi.spyOn(mirror, "mirroredIds").mockResolvedValue(new Set());
+
+    await syncProductToAcs(input({ externalId: "bare", imageUrl: null }));
+
+    expect(client.importProducts).not.toHaveBeenCalled();
+    expect(client.deleteProduct).not.toHaveBeenCalled();
+  });
+
+  it("writes a product photographed only on its variants, with the variant photo as its own", async () => {
+    vi.spyOn(mirror, "mirroredIds").mockResolvedValue(new Set());
+    const variant = (id: string, imageUrl: string | null) => ({
+      externalId: id,
+      sku: null,
+      barcode: null,
+      title: null,
+      price: 20,
+      compareAtPrice: null,
+      currency: "USD",
+      inStock: true,
+      inventoryQuantity: 1,
+      imageUrl,
+      selectedOptions: {},
+      weight: null,
+      weightUnit: null,
+      productUrl: null,
+      customFields: {},
+    });
+
+    await syncProductToAcs(
+      input({ externalId: "variant-only", imageUrl: null, variants: [variant("v1", null), variant("v2", "https://cdn.example.com/v2.jpg")] })
+    );
+
+    const [[written]] = vi.mocked(client.importProducts).mock.calls;
+    expect(written[0].images).toEqual([{ uri: "https://cdn.example.com/v2.jpg" }]);
   });
 });

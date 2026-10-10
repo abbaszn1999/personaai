@@ -7,12 +7,13 @@ function sseLine(payload: unknown): string {
 /**
  * Streams a turn's events as SSE. A disconnected client stops the stream quietly; an error that
  * escapes the agents still ends with `error` + `done` so the client never hangs.
- * `onFinished` runs only when the whole turn reached the client.
+ * `onSettled` runs once the turn ends however it ended: the model calls and searches that ran
+ * before a shopper left were paid for, so they are metered like any other.
  */
 export function agentEventStream(
   events: AsyncGenerator<AgentEvent>,
   signal: AbortSignal,
-  onFinished: () => Promise<void>,
+  onSettled: () => Promise<void>,
   label: string
 ): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
@@ -38,13 +39,11 @@ export function agentEventStream(
       };
       signal.addEventListener("abort", close, { once: true });
 
-      let finished = false;
       try {
         for await (const event of events) {
           if (closed || signal.aborted) break;
           send(event);
         }
-        finished = !closed && !signal.aborted;
       } catch (error) {
         if (!closed && !signal.aborted) {
           console.error(`[${label}]`, error);
@@ -56,7 +55,11 @@ export function agentEventStream(
         close();
       }
 
-      if (finished) await onFinished();
+      try {
+        await onSettled();
+      } catch (error) {
+        console.error(`[${label}] settling the turn failed`, error);
+      }
     },
   });
 }

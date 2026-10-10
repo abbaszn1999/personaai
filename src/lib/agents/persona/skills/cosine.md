@@ -31,7 +31,7 @@ When in doubt, the query. A wrong attribute value empties the search and looks l
 
 The catalog describes what a garment IS — titles and descriptions written to sell it. The shopper says what they want to DO. Translate intent into the words a merchant would write.
 
-1. **Remove what the filter already says.** The garment word ("jacket", "shirt" — the path already says it), brand, price, colour or any value already in `attributes` never appears in the query. The one exception is a category path with two garments named ("shirts or polos"), where those garment words lead the query.
+1. **Remove what the filter already says.** The garment word ("jacket", "shirt" — the path and `also_paths` already say it), brand, price, colour or any value already in `attributes` never appears in the query.
 2. **Translate the intent into garment qualities:** fabric, weight, cut, finish, formality, season, occasion. "For the beach" is "lightweight linen summer", not "beach".
 3. **Write it in the catalog language** named in the PATH CONFIG header — an Arabic or French request still gets an English query when the catalog is English.
 4. **Prefer the leaf's `title words`** when one fits: they are the words this store's own titles use, so they are the words that match.
@@ -48,6 +48,8 @@ The catalog describes what a garment IS — titles and descriptions written to s
 | "my dad would wear it to a BBQ" | "relaxed short sleeve casual summer" |
 | "looks expensive but isn't" | "minimal tailored clean refined" |
 | "for a long flight" · "للسفر" | "comfortable stretch relaxed travel" |
+| "a dress for a beach wedding" · "فستان لفرح على البحر" | "light flowy summer elegant" |
+| "something warm for school" (kids) · "حاجة دافية للمدرسة" | "warm soft cosy everyday" |
 | "light jacket for spring evenings" · "جاكيت خفيف" | "lightweight light layer spring" |
 | "keeps me warm on my commute" · "للشتا" | "padded warm winter insulated" |
 | "the cheapest" · "أرخص حاجة" | not a query — `price_max` at the top of tier A |
@@ -61,14 +63,14 @@ Rules:
 
 ## Refinements — merge, don't restart
 
-When the message refines a `cosine` LAST SEARCH, keep its query and change only what the shopper changed:
+When the message refines a `cosine` LAST SEARCH, set `refine: true`. Write a new query only when the wording changes; an empty query keeps the last one:
 
 | LAST SEARCH query | message | new query |
 |---|---|---|
 | "evening refined tailored" | "something more casual" | "relaxed casual smart" |
 | "lightweight linen summer" | "with long sleeves" | "lightweight linen summer long sleeve" |
-| "smart formal office" | "cheaper" | same query, lower `price_max` |
-| any | "show me more" | same query, every ON SCREEN id in `exclude_ids` |
+| "smart formal office" | "cheaper" | empty (kept), lower `price_max` |
+| any | "show me more" | empty (kept), nothing else |
 
 ## Referenced items — build from the record, not the words
 
@@ -89,6 +91,7 @@ Example — REFERENCED ITEM: `Navy Linen Shirt Slim Fit`, path `men > top > shir
 {
   "reasoning": "English. Similar to the referenced navy linen shirt, cheaper. Same path, linen/slim/summer in the query, ceiling under 32, exclude it.",
   "action": "cosine",
+  "refine": false,
   "reply": "Here are similar linen shirts for less.",
   "path": "men > top > shirt",
   "brands": [],
@@ -109,9 +112,10 @@ MESSAGE: "عايز بليزر لفرح مش أغلى من ١٠٠". SESSION depar
 
 ```json
 {
-  "reasoning": "Egyptian Arabic. One garment, occasion-led. Blazer leaf exists. Price ceiling 100. 'Wedding' has no field — English query.",
+  "reasoning": "Arabic (Egyptian dialect), so the reply is Modern Standard Arabic. One garment, occasion-led. Blazer leaf exists. Price ceiling 100. 'Wedding' has no field — English query.",
   "action": "cosine",
-  "reply": "دي بليزرات شيك تنفع للفرح، كلها تحت ١٠٠.",
+  "refine": false,
+  "reply": "إليك سترات أنيقة تناسب حفل الزفاف، جميعها بأقل من ١٠٠.",
   "path": "men > outerwear > blazer",
   "brands": [],
   "price_min": null,

@@ -3,6 +3,7 @@ import { GeminiChatError } from "@/lib/ai/gemini-chat";
 import { renderPathConfig } from "@/lib/catalog/path-config/render";
 import type { StoredPathConfig } from "@/lib/catalog/path-config/types";
 import { CONFIG, candidate } from "../__fixtures__/catalog";
+import { createSessionMeter } from "@/lib/billing/session-meter";
 import type { AgentContext, AgentEvent, LastSearch } from "../types";
 
 const deps = vi.hoisted(() => ({
@@ -20,12 +21,15 @@ vi.mock("../shared/search", () => ({
   searchCatalog: deps.searchCatalog,
   verifyForDisplay: deps.verifyForDisplay,
   recordShown: vi.fn(),
+  isDisplayable: (item: { inStock: boolean; imageUrl?: string | null; price: number | null }) =>
+    item.inStock && Boolean(item.imageUrl) && item.price !== null,
 }));
 vi.mock("../shared/hydrate", () => ({
   toProducts: (items: Array<{ externalId: string }>) => items.map((item) => ({ id: item.externalId })),
 }));
 vi.mock("@/lib/ai/gemini-cache", () => ({ resolvePrefixCache: () => null }));
 vi.mock("@/lib/db/persona-path-configs", () => ({ savePersonaGeminiCache: vi.fn() }));
+vi.mock("@/lib/db/persona-turn-metrics", () => ({ recordPersonaTurn: vi.fn() }));
 vi.mock("../shared/stream", async (original) => ({
   ...(await original<typeof import("../shared/stream")>()),
   textEvents: async function* (text: string) {
@@ -165,7 +169,58 @@ describe("runPersona", () => {
     const events = await run(context({ message: "hi" }));
     expect(text(events)).toBe("Hi! What are you shopping for today?");
     expect(deps.callStructured).toHaveBeenCalledTimes(2);
-    expect(deps.callStructured.mock.calls[1][0].timeoutMs).toBe(20_000);
+    expect(deps.callStructured.mock.calls[1][0].timeoutMs).toBeLessThanOrEqual(17_000);
+  });
+
+  it("carries the last search's brand and price into a refinement that only changes the colour", async () => {
+    const last: LastSearch = {
+      action: "filter",
+      path: "women > bottom > trouser",
+      brands: ["Acme"],
+      priceMin: null,
+      priceMax: 60,
+      attributes: [{ key: "color", values: ["Black"] }],
+      sizes: [],
+      query: "",
+    };
+    deps.callStructured.mockResolvedValueOnce(
+      decision({ action: "filter", refine: true, path: "women > bottom > trouser", attributes: [{ key: "color", values: ["Navy"] }] })
+    );
+    deps.searchCatalog.mockResolvedValue({ candidates: [candidate({ externalId: "n-1" })], filter: "f" });
+    await run(context({ lastSearch: last, message: "in navy?" }));
+    const spec = deps.searchCatalog.mock.calls[0][1];
+    expect(spec.brands).toEqual(["Acme"]);
+    expect(spec.priceMax).toBe(60);
+    expect(spec.attributes).toEqual([expect.objectContaining({ key: "color", values: ["Navy"] })]);
+  });
+
+  it("says nothing comes in their size when the search finds stock once fit is left out", async () => {
+    deps.callStructured
+      .mockResolvedValueOnce(decision({ action: "filter", path: "women > bottom > trouser" }))
+      .mockResolvedValueOnce(decision({ action: "answer", reply: "Nothing in your size right now." }));
+    deps.searchCatalog
+      .mockResolvedValueOnce({ candidates: [], filter: "f" })
+      .mockResolvedValueOnce({ candidates: [candidate({ externalId: "other-size" })], filter: "f" });
+    const measurements = { heightCm: 170, chestCm: 90, waistCm: 70, hipsCm: 96, shoeSizeEu: 39 };
+    await run(context({ session: { audience: "woman", department: "women", budget: null, measurements } }));
+    expect(deps.searchCatalog.mock.calls[1][4]).toEqual({ skipFit: true });
+    expect(promptOf(1)).toContain("## NOTHING IN THEIR SIZE");
+  });
+
+  it("keeps Arabic quick options in Modern Standard Arabic", async () => {
+    deps.callStructured.mockResolvedValueOnce(
+      decision({ action: "answer", reply: "نعم، إنه من القطن.", quick_options: ["وريني خيارات أخرى", "ألوان أخرى", "عايز أرخص", "كده تمام"] })
+    );
+    const events = await run(context({ message: "ده قطن؟" }));
+    expect(events).toContainEqual({ type: "quick_options", options: ["أرني خيارات أخرى", "ألوان أخرى", "أريد أرخص"] });
+  });
+
+  it("answers in the shopper's language when no model call can word the reply", async () => {
+    deps.callStructured
+      .mockResolvedValueOnce(decision({ action: "filter", path: "women > bottom > skirt" }))
+      .mockResolvedValueOnce(decision({ action: "filter", path: "women > bottom > skirt" }))
+      .mockRejectedValueOnce(new Error("Gemini down"));
+    expect(text(await run(context({ message: "عايزة جيبة" })))).toMatch(/لم أجد/);
   });
 
   it("does not resend a refusal", async () => {
@@ -174,12 +229,29 @@ describe("runPersona", () => {
     expect(deps.callStructured).toHaveBeenCalledTimes(1);
   });
 
-  it("meters only the request that answered", async () => {
-    const meter = { nanos: 0, geminiCalls: 0, acsSearches: 0 } as unknown as NonNullable<AgentContext["meter"]>;
+  it("meters every request it sends, once each", async () => {
+    const meter = createSessionMeter();
     deps.callStructured.mockResolvedValueOnce(decision({ action: "answer", reply: "Hi!" }));
     await run(context({ message: "hi", meter }));
+    await Promise.allSettled(meter.pending);
     expect(deps.callStructured.mock.calls[0][0].meter).toBeUndefined();
-    expect((meter as unknown as { geminiCalls: number }).geminiCalls).toBe(1);
+    expect(meter.geminiCalls).toBe(1);
+  });
+
+  it("charges the backup request that lost the race too, once it settles", async () => {
+    vi.useFakeTimers();
+    const meter = createSessionMeter();
+    let finishSlow: (value: unknown) => void = () => {};
+    deps.callStructured
+      .mockImplementationOnce(() => new Promise((resolve) => (finishSlow = resolve)))
+      .mockResolvedValueOnce(decision({ action: "answer", reply: "Hi!" }));
+    const turn = run(context({ message: "hi", meter }));
+    await vi.advanceTimersByTimeAsync(8_100);
+    await turn;
+    finishSlow(decision({ action: "answer", reply: "late" }));
+    await Promise.allSettled(meter.pending);
+    vi.useRealTimers();
+    expect(meter.geminiCalls).toBe(2);
   });
 
   it("starts a fresh screen for a new search", async () => {

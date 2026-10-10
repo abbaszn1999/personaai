@@ -15,7 +15,11 @@ import type { AttributeConstraint } from "../types";
 /** A search as a model wrote it — every field still unverified. */
 export interface RawSearchIntent {
   path: string;
+  /** Up to two further leaves searched together with `path`. */
+  also_paths?: string[] | null;
   brands?: string[] | null;
+  exclude_brands?: string[] | null;
+  exclude_attributes?: AttributeConstraint[] | null;
   price_min?: number | null;
   price_max?: number | null;
   attributes?: AttributeConstraint[] | null;
@@ -174,6 +178,24 @@ function resolveBrands(nodes: PathConfigNode[], brands: string[], problems: stri
   return [...new Set(canonical)];
 }
 
+/** Ruled-out brands, every stored spelling. One the path doesn't stock is already excluded, so it
+ *  is dropped rather than sent back as a problem. */
+function resolveExcludedBrands(nodes: PathConfigNode[], brands: string[]): string[] {
+  return resolveBrands(nodes, brands, []);
+}
+
+/** Ruled-out text values in the store's spelling; numeric keys and unknown values are dropped. */
+function resolveExcludedAttributes(
+  nodes: PathConfigNode[],
+  constraints: AttributeConstraint[]
+): Extract<ResolvedAttribute, { kind: "text" }>[] {
+  return resolveAttributes(nodes, constraints, []).filter(
+    (attribute): attribute is Extract<ResolvedAttribute, { kind: "text" }> => attribute.kind === "text"
+  );
+}
+
+const MAX_ALSO_PATHS = 2;
+
 /** Size words shoppers type in Arabic letters, as the alpha sizes they mean. */
 const ARABIC_SIZE_WORDS: Record<string, string> = {
   "اكس سمول": "XS",
@@ -236,13 +258,32 @@ export function validateSearchIntent(config: PersonaPathConfig, intent: RawSearc
     };
   }
 
-  const counterpart = unisexCounterpart(config, node);
-  const nodes = counterpart && counterpart.inStock > 0 ? [node, counterpart] : [node];
   const problems: string[] = [];
+  const named = [node];
+  for (const extra of (intent.also_paths ?? []).slice(0, MAX_ALSO_PATHS)) {
+    if (!extra?.trim()) continue;
+    const extraNode = findNode(config, extra);
+    if (!extraNode || extraNode.inStock === 0) {
+      const nearby = suggestPaths(config, extra);
+      problems.push(`path "${extra}" is not stocked in this store${nearby.length ? ` (stocked nearby: ${nearby.join("; ")})` : ""}`);
+    } else if (!named.some((entry) => entry.path === extraNode.path)) {
+      named.push(extraNode);
+    }
+  }
+
+  const counterpart = unisexCounterpart(config, node);
+  const nodes: PathConfigNode[] = [];
+  for (const entry of named) {
+    nodes.push(entry);
+    const twin = entry === node ? counterpart : unisexCounterpart(config, entry);
+    if (twin && twin.inStock > 0 && !nodes.some((existing) => existing.path === twin.path)) nodes.push(twin);
+  }
 
   const brands = resolveBrands(nodes, intent.brands ?? [], problems);
   const attributes = resolveAttributes(nodes, intent.attributes ?? [], problems);
   const sizes = resolveSizes(nodes, intent.sizes ?? [], problems);
+  const excludeBrands = resolveExcludedBrands(nodes, intent.exclude_brands ?? []);
+  const excludeAttributes = resolveExcludedAttributes(nodes, intent.exclude_attributes ?? []);
 
   const priceMin = typeof intent.price_min === "number" && intent.price_min > 0 ? intent.price_min : null;
   const priceMax = typeof intent.price_max === "number" && intent.price_max > 0 ? intent.price_max : null;
@@ -260,7 +301,7 @@ export function validateSearchIntent(config: PersonaPathConfig, intent: RawSearc
   return {
     ok: true,
     node,
-    counterpart: nodes.length > 1 ? counterpart : null,
+    counterpart: counterpart && nodes.includes(counterpart) ? counterpart : null,
     spec: {
       paths: nodes.map((entry) => entry.path),
       brands,
@@ -269,6 +310,8 @@ export function validateSearchIntent(config: PersonaPathConfig, intent: RawSearc
       attributes,
       sizes,
       excludeIds: [...new Set((intent.exclude_ids ?? []).filter(Boolean))],
+      ...(excludeBrands.length > 0 ? { excludeBrands } : {}),
+      ...(excludeAttributes.length > 0 ? { excludeAttributes } : {}),
     },
   };
 }

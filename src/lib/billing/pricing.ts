@@ -34,11 +34,54 @@ const GEMINI_FLASH_STANDARD_RATES: GeminiTokenRates = { input: 1_500, output: 7_
 /** First instant of the standard price list (UTC). */
 export const GEMINI_STANDARD_PRICING_STARTS_MS = Date.UTC(2027, 0, 1);
 
-/** The Gemini token prices in force at `at`. All Gemini 3.x Flash models bill identically, which
- *  is why this takes no model: a different tier (Pro, Flash-Lite) would need its own rates. */
-export function geminiTokenRates(at: Date | number = Date.now()): GeminiTokenRates {
+/**
+ * What an unpriced model is charged: the highest Flash rates Google lists (Priority tier, 2027:
+ * $2.70 in, $13.50 out, $0.27 cached). A model nobody priced here must cost the store at least what
+ * it costs us, never nothing.
+ */
+const UNPRICED_MODEL_RATES: GeminiTokenRates = { input: 2_700, output: 13_500, cachedInput: 270 };
+
+/** Every Gemini 3.x Flash model, Standard tier — 3.6, 3.7 and 3.8 share one price list. */
+const FLASH_MODEL = /^gemini-3(?:\.\d+)?-flash(?:-preview)?(?:-[\w.]+)?$/i;
+const warnedModels = new Set<string>();
+
+/** The Gemini token prices in force at `at` for `model`. Omitting the model means the agents'
+ *  Flash model; an unknown model is charged at `UNPRICED_MODEL_RATES` and logged once. */
+export function geminiTokenRates(at: Date | number = Date.now(), model?: string | null): GeminiTokenRates {
+  if (model && !FLASH_MODEL.test(model)) {
+    if (!warnedModels.has(model)) {
+      warnedModels.add(model);
+      console.error(`[billing/pricing] no price list for model "${model}"; charging the highest known Flash rates`);
+    }
+    return UNPRICED_MODEL_RATES;
+  }
   const time = typeof at === "number" ? at : at.getTime();
   return time >= GEMINI_STANDARD_PRICING_STARTS_MS ? GEMINI_FLASH_STANDARD_RATES : GEMINI_FLASH_INTRO_RATES;
+}
+
+/** Explicit context-cache storage, nano-dollars per token per hour: $0.50 per 1M tokens per hour
+ *  through 2026, $1.00 from January 1, 2027. */
+export function geminiCacheStorageNanosPerTokenHour(at: Date | number = Date.now()): number {
+  const time = typeof at === "number" ? at : at.getTime();
+  return time >= GEMINI_STANDARD_PRICING_STARTS_MS ? 1_000 : 500;
+}
+
+/**
+ * What one explicit cache costs: creating it bills its tokens as input (only when created, not when
+ * extended), and keeping it bills storage for every hour of TTL bought.
+ */
+export function geminiCacheCostNanos(input: {
+  tokens: number;
+  ttlSeconds: number;
+  created: boolean;
+  at?: Date | number;
+  model?: string | null;
+}): number {
+  const tokens = wholeTokens(input.tokens);
+  const at = input.at ?? Date.now();
+  const creation = input.created ? tokens * geminiTokenRates(at, input.model).input : 0;
+  const storage = Math.ceil((tokens * geminiCacheStorageNanosPerTokenHour(at) * Math.max(input.ttlSeconds, 0)) / 3_600);
+  return creation + storage;
 }
 
 export interface GeminiTokenCounts {
@@ -57,11 +100,15 @@ function wholeTokens(value: number | undefined): number {
 
 /** Nano-dollar cost of one Gemini call: cached input at the cached rate, the rest of the input at
  *  the input rate, plus output. Cache storage is not per call and is not included. */
-export function geminiTokenCostNanos(tokens: GeminiTokenCounts, at: Date | number = Date.now()): number {
+export function geminiTokenCostNanos(
+  tokens: GeminiTokenCounts,
+  at: Date | number = Date.now(),
+  model?: string | null
+): number {
   const input = wholeTokens(tokens.inputTokens);
   const output = wholeTokens(tokens.outputTokens);
   const cached = Math.min(wholeTokens(tokens.cachedTokens), input);
-  const rates = geminiTokenRates(at);
+  const rates = geminiTokenRates(at, model);
   return (input - cached) * rates.input + cached * rates.cachedInput + output * rates.output;
 }
 

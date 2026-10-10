@@ -26,12 +26,16 @@ export interface AttributeConstraint {
 export interface LastSearch {
   action: "filter" | "cosine";
   path: string;
+  /** Further leaves searched together with `path` ("shirts or polos"). */
+  alsoPaths?: string[];
   brands: string[];
   priceMin: number | null;
   priceMax: number | null;
   attributes: AttributeConstraint[];
   sizes: string[];
   query: string;
+  excludeBrands?: string[];
+  excludeAttributes?: AttributeConstraint[];
 }
 
 /** One slot of a look as Bundle searched it — kept on the look so a follow-up can swap one slot
@@ -124,4 +128,7 @@ export interface AgentContext {
    *  it wins over resolving the reference from the message text. */
   referencedItemId: string | null;
   styleGuide: string | null;
+  /** Aborts when the shopper's connection closes, so no model call or search keeps running for
+   *  a reply nobody will read. */
+  signal?: AbortSignal;
 }

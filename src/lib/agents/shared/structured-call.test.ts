@@ -1,5 +1,5 @@
 import { ThinkingLevel } from "@google/genai";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const generateContent = vi.fn();
 
@@ -7,9 +7,11 @@ vi.mock("@/lib/ai/gemini", () => ({
   getGeminiClient: () => ({ models: { generateContent } }),
 }));
 
+const forgetPrefixCache = vi.fn();
+
 vi.mock("@/lib/ai/gemini-cache", () => ({
   resolvePrefixCache: () => null,
-  forgetPrefixCache: vi.fn(),
+  forgetPrefixCache: (name: string) => forgetPrefixCache(name),
 }));
 
 import { GeminiChatError } from "@/lib/ai/gemini-chat";
@@ -92,6 +94,44 @@ describe("callStructured thinking level", () => {
   });
 });
 
+describe("callStructured usage log", () => {
+  const usageMetadata = { promptTokenCount: 12_236, cachedContentTokenCount: 12_192, candidatesTokenCount: 140, thoughtsTokenCount: 8 };
+
+  beforeEach(() => {
+    generateContent.mockReset();
+    forgetPrefixCache.mockReset();
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("logs one line per call with the cache mode and token counts", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    generateContent.mockResolvedValueOnce({ text: '{"a":1}', usageMetadata });
+    await callStructured({ ...request("model-log"), cacheName: "cachedContents/abc", label: "persona" });
+    expect(generateContent.mock.calls[0][0].config.cachedContent).toBe("cachedContents/abc");
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(log.mock.calls[0][0]).toMatch(
+      /^\[gemini usage\] label=persona model=model-log cache=explicit prompt=12236 cached=12192 out=148 ms=\d+$/
+    );
+  });
+
+  it("reports inline when no cache was sent or the cache was gone", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    generateContent.mockResolvedValueOnce({ text: '{"a":1}', usageMetadata: { promptTokenCount: 50 } });
+    await callStructured(request("model-log"));
+    expect(log.mock.calls[0][0]).toMatch(/cache=inline prompt=50 cached=0 out=0 /);
+
+    generateContent
+      .mockRejectedValueOnce(new Error("CachedContent not found (or permission denied)"))
+      .mockResolvedValueOnce({ text: '{"a":1}', usageMetadata });
+    await callStructured({ ...request("model-log"), cacheName: "cachedContents/gone" });
+    expect(forgetPrefixCache).toHaveBeenCalledWith("cachedContents/gone");
+    expect(generateContent.mock.calls[2][0].config.systemInstruction).toBe("p");
+    expect(log).toHaveBeenCalledTimes(2);
+    expect(log.mock.calls[1][0]).toMatch(/cache=inline prompt=12236 cached=12192 out=148 /);
+  });
+});
+
 describe("hedged", () => {
   const later = <T>(ms: number, value: T) => new Promise<T>((resolve) => setTimeout(() => resolve(value), ms));
   const failLater = (ms: number, error: unknown) => new Promise<never>((_resolve, reject) => setTimeout(() => reject(error), ms));
@@ -115,6 +155,17 @@ describe("hedged", () => {
   it("sends the second request at once when the first times out early", async () => {
     const timeout = new GeminiChatError("timed out", 504);
     expect(await hedged(() => failLater(5, timeout), () => later(5, "second"), 1_000)).toBe("second");
+  });
+
+  it("sends the second request at once when Gemini is briefly unavailable", async () => {
+    const unavailable = new GeminiChatError('{"error":{"code":503,"status":"UNAVAILABLE"}}', 503);
+    expect(await hedged(() => failLater(5, unavailable), () => later(5, "second"), 1_000)).toBe("second");
+  });
+
+  it("never retries into a rate limit", async () => {
+    const second = vi.fn(() => later(5, "second"));
+    await expect(hedged(() => failLater(5, new GeminiChatError("busy", 429, true)), second, 1_000)).rejects.toThrow("busy");
+    expect(second).not.toHaveBeenCalled();
   });
 
   it("throws a refusal without a second request", async () => {

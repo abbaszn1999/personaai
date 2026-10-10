@@ -1,6 +1,7 @@
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
 import { summarizeGeneratedSizing } from "@/lib/catalog/acs/stage-five-preview";
+import { getLatestSizingRun } from "@/lib/db/sizing-runs";
 import {
   PRODUCT_CHART_STATUSES,
   type ProductChartStatus,
@@ -23,7 +24,7 @@ export async function GET() {
     const connection = await getStoreConnectionByOwner(user.id);
     if (!connection) return Response.json({ error: "Store connection not found" }, { status: 404 });
 
-    const live = await summarizeGeneratedSizing(connection);
+    const [live, run] = await Promise.all([summarizeGeneratedSizing(connection), getLatestSizingRun(connection.id)]);
     const byStatus = Object.fromEntries(
       PRODUCT_CHART_STATUSES.map((status) => [status, live.byStatus[status] ?? 0]),
     ) as Record<ProductChartStatus, number>;
@@ -43,6 +44,8 @@ export async function GET() {
       unmatchedLabels: [],
       brandMappingCurrent: live.brandMappingCurrent,
       unavailable: live.unavailable,
+      // Left out at the scan, plus any that lost their last image since.
+      withoutImage: (run?.productsWithoutImage ?? 0) + (live.withoutImage ?? 0),
       builtAt: live.builtAt,
       refreshing: live.refreshing,
     });

@@ -53,11 +53,18 @@ const MAX_RAW_PAGES_PER_PREVIEW = 8;
  */
 export async function readCategoryPreviewPage(
   pager: Pick<CatalogPager, "groups" | "fetchPage">,
-  options: { pageSize: number; cursor?: string | null },
-): Promise<{ products: RawCatalogProduct[]; nextCursor: string | null }> {
+  options: {
+    pageSize: number;
+    cursor?: string | null;
+    /** Products failing this are passed over, counted in `hidden`, and do not take a slot. */
+    keep?: (product: RawCatalogProduct) => boolean;
+  },
+): Promise<{ products: RawCatalogProduct[]; nextCursor: string | null; hidden: number }> {
   let position: PreviewPosition = decodePreviewCursor(options.cursor) ?? { group: 0, raw: null, skip: 0 };
   const products: RawCatalogProduct[] = [];
   const seen = new Set<string>();
+  const keep = options.keep ?? (() => true);
+  let hidden = 0;
   let rawPages = 0;
 
   while (products.length < options.pageSize && position.group < pager.groups.length) {
@@ -65,7 +72,8 @@ export async function readCategoryPreviewPage(
     rawPages += 1;
 
     const page = await pager.fetchPage(pager.groups[position.group], position.raw);
-    const unused = page.products.slice(position.skip).filter((product) => !seen.has(product.externalId));
+    const fresh = page.products.slice(position.skip).filter((product) => !seen.has(product.externalId));
+    const unused = fresh.filter(keep);
     const room = options.pageSize - products.length;
 
     if (unused.length > room) {
@@ -74,11 +82,15 @@ export async function readCategoryPreviewPage(
       for (const product of taken) seen.add(product.externalId);
       products.push(...taken);
       const consumedFromSlice = page.products.slice(position.skip).findIndex((product) => product === taken[room - 1]) + 1;
+      const consumed = page.products.slice(position.skip, position.skip + consumedFromSlice);
+      hidden += consumed.filter((product) => !keep(product) && !seen.has(product.externalId)).length;
+      for (const product of consumed) seen.add(product.externalId);
       position = { group: position.group, raw: position.raw, skip: position.skip + consumedFromSlice };
       break;
     }
 
-    for (const product of unused) seen.add(product.externalId);
+    hidden += fresh.length - unused.length;
+    for (const product of fresh) seen.add(product.externalId);
     products.push(...unused);
     position = page.nextCursor
       ? { group: position.group, raw: page.nextCursor, skip: 0 }
@@ -88,5 +100,6 @@ export async function readCategoryPreviewPage(
   return {
     products,
     nextCursor: position.group >= pager.groups.length ? null : encodePreviewCursor(position),
+    hidden,
   };
 }

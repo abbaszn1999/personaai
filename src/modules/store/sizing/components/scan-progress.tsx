@@ -198,6 +198,11 @@ export function ScanProgress() {
               {run.productsScanned.toLocaleString()}
             </span>
             <p className="font-mono text-[11px] text-[var(--color-text-muted)]">products read</p>
+            {(run.productsWithoutImage ?? 0) > 0 && (
+              <p className="font-mono text-[11px] text-[var(--color-warning)]" title="They cannot be shown to shoppers, so they are never published.">
+                {run.productsWithoutImage!.toLocaleString()} without an image left out
+              </p>
+            )}
           </div>
         </div>
 

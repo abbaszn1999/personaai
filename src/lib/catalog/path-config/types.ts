@@ -5,7 +5,10 @@
  * shape the agents read and emit. Code adds the root back when it builds an ACS filter.
  */
 
-export const PATH_CONFIG_VERSION = 1;
+/** Bump with every change to what the builder or renderer produces: a stored config of an older
+ *  version is rebuilt on its store's next chat turn, so an improvement reaches every store without
+ *  waiting for its catalog to change. */
+export const PATH_CONFIG_VERSION = 2;
 
 export type PathConfigNodeLevel = "department" | "category" | "leaf";
 

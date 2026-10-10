@@ -18,6 +18,7 @@ import { buildAgentContext } from "@/lib/agents/shared/context";
 import type { AgentEvent, LastSearch } from "@/lib/agents/types";
 import { rebuildPersonaPathConfig } from "@/lib/catalog/path-config/rebuild";
 import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
+import { getPersonaPathConfig } from "@/lib/db/persona-path-configs";
 import type { ChatMessage, Product } from "@/modules/commerce/types";
 
 process.env.PERSONA_TRACE = "1";
@@ -38,6 +39,15 @@ interface Expect {
   lang?: Lang;
   /** The reply must match. */
   reply?: RegExp;
+  /** The search kept a brand from an earlier turn (a refinement that only changed something else). */
+  brandKept?: boolean;
+  /** One of the extra leaves searched must match. */
+  alsoPath?: string;
+  /** One of the excluded brands must match. */
+  excludedBrand?: RegExp;
+  /** The garment may not exist in every store: when no men's/unisex leaf matches this, the right
+   *  answer is an honest "not carried" reply with no cards instead of the search. */
+  stocked?: string;
 }
 
 interface Turn {
@@ -77,7 +87,7 @@ const SCENARIOS: Scenario[] = [
     turns: [
       { say: "Tom Tailor jeans", expect: { action: SEARCH, path: "jean", products: true } },
       { say: "black polo shirts", expect: { action: SEARCH, path: "polo", products: true } },
-      { say: "blazers under 100", expect: { action: SEARCH, path: "blazer" } },
+      { say: "blazers under 100", expect: { action: SEARCH, path: "blazer", stocked: "blazer" } },
       { say: "white or sky blue shirts", expect: { action: SEARCH, path: "shirt", products: true } },
       { say: "t-shirts in any colour except black", expect: { action: SEARCH, path: "t-shirt", products: true } },
       { say: "jackets", expect: { action: SEARCH, path: "jacket", products: true } },
@@ -143,7 +153,7 @@ const SCENARIOS: Scenario[] = [
     lang: "en",
     turns: [
       { say: "cheap jeans", expect: { action: SEARCH, path: "jean" } },
-      { say: "a premium blazer", expect: { action: SEARCH, path: "blazer" } },
+      { say: "a premium blazer", expect: { action: SEARCH, path: "blazer", stocked: "blazer" } },
       { say: "polo shirts under 5 dollars", expect: { action: REPLY, products: false } },
     ],
   },
@@ -239,7 +249,7 @@ const SCENARIOS: Scenario[] = [
       { say: "je cherche une chemise blanche", expect: { action: SEARCH, path: "shirt", products: true } },
       { say: "moins cher", expect: { action: SEARCH, path: "shirt" } },
       { say: "le deuxième est en coton ?", expect: { action: REPLY, products: false } },
-      { say: "une veste pour le soir", expect: { action: ["cosine"], path: "blazer|jacket" } },
+      { say: "une veste pour le soir", expect: { action: ["cosine"], path: "blazer|jacket", stocked: "blazer|jacket" } },
       { say: "une robe pour ma femme", expect: { action: REPLY, products: false } },
       { say: "merci beaucoup", expect: { action: REPLY, products: false } },
     ],
@@ -283,6 +293,39 @@ const SCENARIOS: Scenario[] = [
       { say: "hola, busco una camisa blanca", expect: { action: SEARCH, path: "shirt", products: true, reply: /\b(aquí|camisas?|tienes|tu talla|blancas?)\b/i } },
     ],
   },
+  // ── New decision fields: several leaves, exclusions, refinements that keep earlier cuts ──
+  {
+    id: "fields-en",
+    suite: "fields",
+    lang: "en",
+    turns: [
+      { say: "shirts or polos", expect: { action: SEARCH, path: "shirt|polo", alsoPath: "polo|shirt", products: true } },
+      { say: "polo shirts but not Tom Tailor", expect: { action: SEARCH, path: "polo", excludedBrand: /tom tailor/i, products: true } },
+      { say: "Tom Tailor jeans", expect: { action: SEARCH, path: "jean", products: true } },
+      { say: "in black", expect: { action: SEARCH, path: "jean", brandKept: true } },
+      { say: "any brand", expect: { action: SEARCH, path: "jean" } },
+      { say: "t-shirts that aren't white", expect: { action: SEARCH, path: "t-shirt", products: true } },
+    ],
+  },
+  {
+    id: "fields-ar",
+    suite: "fields",
+    lang: "ar",
+    turns: [
+      { say: "عايز قمصان أو بولو", expect: { action: SEARCH, path: "shirt|polo", alsoPath: "polo|shirt", products: true } },
+      { say: "بنطلون جينز توم تايلور", expect: { action: SEARCH, path: "jean", products: true } },
+      { say: "في منه أسود؟", expect: { action: SEARCH, path: "jean", brandKept: true } },
+    ],
+  },
+  {
+    id: "dialects",
+    suite: "fields",
+    lang: "ar",
+    turns: [
+      { say: "أبي قميص أبيض", expect: { action: SEARCH, path: "shirt", products: true } },
+      { say: "بدي بنطلون كحلي", expect: { action: SEARCH, path: "trouser", products: true } },
+    ],
+  },
   // ── Stress: a long run of refinements in one conversation ─────────────────────────────────
   {
     id: "stress-chain",
@@ -322,10 +365,23 @@ function arabicShare(text: string): number {
   return arabic + latin === 0 ? 0 : arabic / (arabic + latin);
 }
 
+/** Words only a dialect uses. Every Arabic reply must be Modern Standard Arabic, whatever the shopper
+ *  wrote in, so any of these in a reply or a quick option is a failure. */
+const DIALECT_WORDS = /(?:^|[^\p{L}])(عايز|عايزة|إيه|كده|دلوقتي|عشان|بتاع|بتاعك|وريني|أوريك|مش|ده|دي|دول|بدي|شو|ليش|وش)(?![\p{L}])/u;
+
+function dialectProblem(text: string): string | null {
+  const match = text.match(DIALECT_WORDS);
+  return match ? `not Modern Standard Arabic ("${match[1]}")` : null;
+}
+
 function languageProblem(text: string, lang: Lang): string | null {
   if (!text.trim()) return "empty reply";
   const share = arabicShare(text);
   if (lang === "ar" && share < 0.5) return `reply not in Arabic (${Math.round(share * 100)}% Arabic letters)`;
+  if (lang === "ar") {
+    const dialect = dialectProblem(text);
+    if (dialect) return dialect;
+  }
   if ((lang === "en" || lang === "fr") && share > 0.1) return `reply contains Arabic (${Math.round(share * 100)}%)`;
   if (lang === "fr" && !FRENCH_WORDS.test(text)) return "reply not in French";
   if (lang === "en" && FRENCH_WORDS.test(text) && /\b(vous|voici|avec|très)\b/i.test(text)) return "reply in French";
@@ -339,7 +395,7 @@ interface TurnResult {
   say: string;
   reply: string;
   quickOptions: string[];
-  products: Array<{ id: string; name: string; price: number; fitSizes: string[]; tags: string[] }>;
+  products: Array<{ id: string; name: string; price: number; fitSizes: string[]; tags: string[]; imageUrl: string }>;
   lastSearch: LastSearch | null;
   trace: Record<string, unknown> | null;
   action: string | null;
@@ -352,17 +408,26 @@ function finalDecision(trace: Record<string, unknown> | null): Record<string, un
   return (trace.final ?? trace.second ?? trace.first ?? null) as Record<string, unknown> | null;
 }
 
-function check(turn: Turn, lang: Lang, result: Omit<TurnResult, "failures">, errors: string[]): string[] {
+function check(turn: Turn, lang: Lang, result: Omit<TurnResult, "failures">, errors: string[], leaves: readonly string[]): string[] {
   const failures: string[] = [...errors];
-  const expect = turn.expect ?? {};
+  const declared = turn.expect ?? {};
+  const carried = !declared.stocked || leaves.some((leaf) => new RegExp(declared.stocked!).test(leaf));
+  const expect: Expect = carried ? declared : { ...declared, action: REPLY, path: undefined, products: false };
   const replyLang = expect.lang ?? lang;
-  if (replyLang !== "mixed" && replyLang !== "arabizi") {
-    const problem = languageProblem(result.reply, replyLang);
+  // Arabizi is Arabic: it is answered in Modern Standard Arabic, in Arabic script.
+  const effectiveLang: Lang = replyLang === "arabizi" ? "ar" : replyLang;
+  if (effectiveLang !== "mixed") {
+    const problem = languageProblem(result.reply, effectiveLang);
     if (problem) failures.push(problem);
-    if (replyLang === "ar" && result.quickOptions.length > 0) {
+    if (effectiveLang === "ar" && result.quickOptions.length > 0) {
       const arabicOptions = result.quickOptions.filter((option) => arabicShare(option) > 0.5).length;
       if (arabicOptions < Math.ceil(result.quickOptions.length / 2)) failures.push(`quick options not in Arabic: ${result.quickOptions.join(" | ")}`);
+      const dialectOption = result.quickOptions.map(dialectProblem).find(Boolean);
+      if (dialectOption) failures.push(`quick option ${dialectOption}`);
     }
+  } else if (arabicShare(result.reply) > 0.5) {
+    const dialect = dialectProblem(result.reply);
+    if (dialect) failures.push(dialect);
   }
   if (replyLang !== "en" && FALLBACK_LINES.some((line) => result.reply.includes(line))) failures.push("English fallback in a non-English conversation");
   if (result.quickOptions.length > 4) failures.push("more than 4 quick options");
@@ -378,15 +443,36 @@ function check(turn: Turn, lang: Lang, result: Omit<TurnResult, "failures">, err
   if (expect.products === true && result.products.length === 0) failures.push("no products shown");
   if (expect.products === false && result.products.length > 0) failures.push(`${result.products.length} products shown`);
   if (expect.reply && !expect.reply.test(result.reply)) failures.push(`reply does not match ${expect.reply}`);
+  if (result.ms > TURN_LIMIT_MS) failures.push(`turn took ${result.ms}ms (limit ${TURN_LIMIT_MS}ms)`);
+  const search = result.lastSearch;
+  if (expect.brandKept && !(search?.brands.length)) failures.push("refinement dropped the brand from the last search");
+  if (expect.alsoPath && !(search?.alsoPaths ?? []).some((path) => new RegExp(expect.alsoPath!).test(path))) {
+    failures.push(`no extra leaf matching ${expect.alsoPath} (searched ${JSON.stringify(search?.alsoPaths ?? [])})`);
+  }
+  if (expect.excludedBrand && !(search?.excludeBrands ?? []).some((brand) => expect.excludedBrand!.test(brand))) {
+    failures.push(`no excluded brand matching ${expect.excludedBrand}`);
+  }
+  const searchedLeaves = search ? [search.path, ...(search.alsoPaths ?? [])].map((path) => path.split(" > ").at(-1)!) : [];
+  const brands = (search?.brands ?? []).map((brand) => brand.toLowerCase());
+  const excluded = (search?.excludeBrands ?? []).map((brand) => brand.toLowerCase());
   for (const product of result.products) {
+    const tags = product.tags.map((tag) => tag.toLowerCase());
     if (product.fitSizes.length === 0) failures.push(`product ${product.id} has no fitting size`);
-    if (!product.tags.some((tag) => tag === "men" || tag === "unisex")) failures.push(`product ${product.id} outside men/unisex`);
-    const search = result.lastSearch;
+    if (!product.imageUrl) failures.push(`product ${product.id} has no image`);
+    if (!tags.some((tag) => tag === "men" || tag === "unisex")) failures.push(`product ${product.id} outside men/unisex`);
+    if (search && search.path.split(" > ").length === 3 && !searchedLeaves.some((leaf) => tags.includes(leaf))) {
+      failures.push(`product ${product.id} is not in ${searchedLeaves.join("/")} (tags ${product.tags.join(", ")})`);
+    }
+    if (brands.length > 0 && !brands.some((brand) => tags.includes(brand))) failures.push(`product ${product.id} is not one of the brands ${brands.join("/")}`);
+    if (excluded.some((brand) => tags.includes(brand))) failures.push(`product ${product.id} is an excluded brand`);
     if (search?.priceMax != null && product.price > search.priceMax + 0.01) failures.push(`product ${product.id} costs ${product.price} > ${search.priceMax}`);
     if (search?.priceMin != null && product.price < search.priceMin - 0.01) failures.push(`product ${product.id} costs ${product.price} < ${search.priceMin}`);
   }
   return failures;
 }
+
+/** A shopper should never wait longer than this for a reply. */
+const TURN_LIMIT_MS = Number(process.env.EVAL_TURN_LIMIT_MS) || 25_000;
 
 const traces: Array<Record<string, unknown>> = [];
 const originalLog = console.log;
@@ -404,7 +490,7 @@ console.log = (...args: unknown[]) => {
   originalLog(...args);
 };
 
-async function runScenario(ownerId: string, scenario: Scenario): Promise<TurnResult[]> {
+async function runScenario(ownerId: string, scenario: Scenario, leaves: readonly string[]): Promise<TurnResult[]> {
   const messages: ChatMessage[] = [];
   let retrievalState: { shownProductIds: string[]; lastSearch: unknown } = { shownProductIds: [], lastSearch: null };
   const results: TurnResult[] = [];
@@ -456,13 +542,14 @@ async function runScenario(ownerId: string, scenario: Scenario): Promise<TurnRes
         price: product.price,
         fitSizes: product.fitSizes ?? [],
         tags: product.tags,
+        imageUrl: product.imageUrl,
       })),
       lastSearch: products.length > 0 || action === "filter" || action === "cosine" ? lastSearch : null,
       trace,
       action,
       ms: Date.now() - started,
     };
-    results.push({ ...partial, failures: check(turn, scenario.lang, partial, errors) });
+    results.push({ ...partial, failures: check(turn, scenario.lang, partial, errors, leaves) });
   }
   return results;
 }
@@ -492,10 +579,16 @@ async function main() {
     originalLog(await rebuildPersonaPathConfig(connection.id));
   }
 
+  // What this store really stocks for the shopper, so a turn about a garment it does not carry expects an honest "not carried".
+  const stored = await getPersonaPathConfig(connection.id);
+  const leaves = (stored?.config.nodes ?? [])
+    .filter((node) => node.level === "leaf" && node.inStock > 0 && /^(men|unisex) > /.test(node.path))
+    .map((node) => node.path);
+
   const selected = SCENARIOS.filter((scenario) => suites.length === 0 || suites.includes(scenario.suite) || suites.includes(scenario.id));
   const concurrency = Number(process.env.EVAL_CONCURRENCY) || 4;
   originalLog(`running ${selected.length} conversations, ${selected.reduce((sum, s) => sum + s.turns.length, 0)} turns, thinking=${process.env.PERSONA_THINKING ?? "off"}`);
-  const results = (await pool(selected, concurrency, (scenario) => runScenario(ownerId, scenario))).flat();
+  const results = (await pool(selected, concurrency, (scenario) => runScenario(ownerId, scenario, leaves))).flat();
 
   const bySuite = new Map<string, { passed: number; total: number }>();
   for (const result of results) {

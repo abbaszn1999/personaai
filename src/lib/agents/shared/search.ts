@@ -8,7 +8,7 @@ import type { CatalogCandidate } from "@/lib/retrieval/types";
 import type { SizingGroup } from "@/lib/sizing/measurements";
 import { personaSizingGroup } from "@/modules/store/mapping/persona-taxonomy";
 import type { AgentContext } from "../types";
-import { toAcsFilter, type SearchSpec } from "./acs-translator";
+import { IMAGE_FILTER_FIELD, toAcsFilter, type SearchSpec } from "./acs-translator";
 import { bodyMeasurements, fitFilterClause, fittingSizes, isChildShopper } from "./fit";
 import { hydrateLiveFacts } from "./hydrate";
 
@@ -18,19 +18,26 @@ export interface SearchOutcome {
   filter: string;
 }
 
-/** Fit fields ACS rejected as unknown (no product carries them yet), retried after a while. */
-const unsupportedFitFields = new Map<string, number>();
+/** Attribute fields ACS rejected as unknown (no product carries them yet), retried after a while.
+ *  Global on purpose: every store shares one ACS catalog, so a field it does not know yet is
+ *  unknown for all of them. */
+const unsupportedFields = new Map<string, number>();
 const UNSUPPORTED_FIELD_TTL_MS = 10 * 60_000;
 
 function currentUnsupportedFields(): Set<string> {
   const now = Date.now();
-  for (const [field, expires] of unsupportedFitFields) if (expires <= now) unsupportedFitFields.delete(field);
-  return new Set(unsupportedFitFields.keys());
+  for (const [field, expires] of unsupportedFields) if (expires <= now) unsupportedFields.delete(field);
+  return new Set(unsupportedFields.keys());
 }
 
-function unsupportedFitField(error: unknown): string | null {
+function unsupportedField(error: unknown): string | null {
   if (!(error instanceof AcsApiError) || error.status !== 400) return null;
-  return error.body.match(/Unsupported field \\?"(attributes\.fit_[a-z_]+)\\?"/)?.[1] ?? null;
+  return error.body.match(/Unsupported field \\?"(attributes\.[a-z_]+)\\?"/)?.[1] ?? null;
+}
+
+export interface SearchOptions {
+  /** Leave the shopper's fit out — only to learn whether fit is what emptied a search. */
+  skipFit?: boolean;
 }
 
 /**
@@ -63,14 +70,16 @@ export async function searchCatalog(
   ctx: AgentContext,
   spec: SearchSpec,
   query: string,
-  pageSize: number
+  pageSize: number,
+  options: SearchOptions = {}
 ): Promise<SearchOutcome> {
   if (!ctx.connection || ctx.categoryScope.length === 0) return { candidates: [], filter: "" };
-  const specFilter = toAcsFilter(spec, ctx.connection.id);
-  const body = ctx.session.measurements ? bodyMeasurements(ctx.session.measurements) : null;
+  const connectionId = ctx.connection.id;
+  const body = ctx.session.measurements && !options.skipFit ? bodyMeasurements(ctx.session.measurements) : null;
   const child = isChildShopper(ctx.session.audience);
   const groups = sizingGroupsFor(spec.paths);
   const filterWith = (unsupported: ReadonlySet<string>): string | null => {
+    const specFilter = toAcsFilter(spec, connectionId, { hideImageless: !unsupported.has(IMAGE_FILTER_FIELD) });
     if (!body) return specFilter;
     const fit = fitFilterClause(body, child, unsupported, groups);
     return fit ? `${specFilter} AND (${fit})` : null;
@@ -78,25 +87,27 @@ export async function searchCatalog(
 
   const run = async (text: string) => {
     for (;;) {
-      const filter = filterWith(currentUnsupportedFields());
-      if (filter === null) return { filter: specFilter, response: null };
+      const unsupported = currentUnsupportedFields();
+      const filter = filterWith(unsupported);
+      if (filter === null) return { filter: toAcsFilter(spec, connectionId), response: null };
       try {
         const response = await searchProducts({
-          connectionId: ctx.connection!.id,
+          connectionId,
           categoryScope: ctx.categoryScope,
-          visitorId: buildAcsVisitorId(ctx.connection!.id, ctx.visitorId),
+          visitorId: buildAcsVisitorId(connectionId, ctx.visitorId),
           query: text,
           pageSize,
           extraFilter: filter,
           meter: ctx.meter,
+          signal: ctx.signal,
         });
         return { filter, response };
       } catch (error) {
         // Retried only when the filter that failed still named the field: a concurrent search may
         // already have learned it, and one that did not name it would loop.
-        const field = unsupportedFitField(error);
+        const field = unsupportedField(error);
         if (!field || !filter.includes(field)) throw error;
-        unsupportedFitFields.set(field, Date.now() + UNSUPPORTED_FIELD_TTL_MS);
+        unsupportedFields.set(field, Date.now() + UNSUPPORTED_FIELD_TTL_MS);
       }
     }
   };
@@ -139,7 +150,7 @@ export async function searchCatalog(
   return { candidates, attributionToken: response?.attributionToken, filter };
 }
 
-function isDisplayable(candidate: CatalogCandidate): boolean {
+export function isDisplayable(candidate: CatalogCandidate): boolean {
   return candidate.inStock && Boolean(candidate.imageUrl) && candidate.price !== null;
 }
 

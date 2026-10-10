@@ -47,6 +47,7 @@ const REQUIRED_ATTRIBUTES: RequiredAttribute[] = [
     indexable: false,
     retrievable: false,
   },
+  { name: "persona_has_image", purpose: "excluding records with no image from agent searches", retrievable: false },
   { name: "sizing_chart_key", purpose: "targeted sizing republishes", retrievable: false },
   { name: "fit_leaf", purpose: "resolved Persona leaf diagnostics", retrievable: false },
   { name: "fit_group", purpose: "sizing-group filters", retrievable: false },

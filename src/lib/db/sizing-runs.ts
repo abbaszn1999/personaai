@@ -48,6 +48,8 @@ export interface SizingRunRow {
   status: SizingRunStatus;
   stage: SizingRunStage;
   productsScanned: number;
+  /** Products the scan left out because they have no image; they are never published. */
+  productsWithoutImage?: number;
   /** Null between passes, and on any run written before phases existed. */
   phase: SizingRunPhase | null;
   /** Units done within the phase, null where the phase cannot count them. */
@@ -86,6 +88,7 @@ function rowToRun(row: Record<string, unknown>): SizingRunRow {
     status: row.status as SizingRunStatus,
     stage: row.stage as SizingRunStage,
     productsScanned: (row.products_scanned as number) ?? 0,
+    productsWithoutImage: (row.products_without_image as number | null) ?? 0,
     phase: toPhase(row.phase),
     phaseDone: (row.phase_done as number | null) ?? null,
     phaseTotal: (row.phase_total as number | null) ?? null,
@@ -219,6 +222,7 @@ export interface SizingRunPatch {
   status?: SizingRunStatus;
   stage?: SizingRunStage;
   productsScanned?: number;
+  productsWithoutImage?: number;
   /** Null on leaving the scan stage, for the same reason `error` is cleared: a phase left behind
    *  describes work that is no longer happening. */
   phase?: SizingRunPhase | null;
@@ -242,6 +246,7 @@ export async function updateSizingRun(runId: string, patch: SizingRunPatch): Pro
   if (patch.status !== undefined) update.status = patch.status;
   if (patch.stage !== undefined) update.stage = patch.stage;
   if (patch.productsScanned !== undefined) update.products_scanned = patch.productsScanned;
+  if (patch.productsWithoutImage !== undefined) update.products_without_image = patch.productsWithoutImage;
   if (patch.phase !== undefined) update.phase = patch.phase;
   if (patch.phaseDone !== undefined) update.phase_done = patch.phaseDone;
   if (patch.phaseTotal !== undefined) update.phase_total = patch.phaseTotal;

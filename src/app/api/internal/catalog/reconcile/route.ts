@@ -2,6 +2,7 @@ import { enqueueCatalogSync } from "@/lib/catalog/enqueue-sync";
 import { listConnectedStores, updateCatalogSyncState } from "@/lib/db/store-connections";
 import { isInternalRequest } from "@/lib/utils/internal-auth";
 import { rebuildStalePathConfigs } from "@/lib/catalog/path-config/rebuild";
+import { findBillingGaps } from "@/lib/db/session-usage";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -69,7 +70,16 @@ export async function POST(request: Request) {
     // merchant's single-product edits reach the agents' prompt without waiting for a full sync.
     const pathConfigs = await rebuildStalePathConfigs();
 
-    return Response.json({ reconciled, pathConfigs });
+    // Every turn's cost must be covered by the units burned for it; a gap above one unit means a
+    // charge went missing (or was doubled) somewhere and is worth a person looking at it.
+    const billingGaps = await findBillingGaps();
+    for (const gap of billingGaps) {
+      console.error(
+        `[billing reconcile] owner ${gap.ownerId}: turns cost ${gap.costNanos} nanos, units burned ${gap.unitsNanos} nanos, gap ${gap.gapNanos}`
+      );
+    }
+
+    return Response.json({ reconciled, pathConfigs, billingGaps: billingGaps.length });
   } catch (err) {
     console.error("[internal/catalog/reconcile]", err);
     return Response.json({ error: "Reconcile failed" }, { status: 500 });

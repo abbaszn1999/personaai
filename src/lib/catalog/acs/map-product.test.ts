@@ -355,7 +355,7 @@ describe("rawCatalogProductToAcsProduct", () => {
 
     // No attribute named after an empty sanitized key was added — merchant_id is the only one
     // guaranteed regardless of input.
-    expect(Object.keys(product.attributes ?? {})).toEqual(["merchant_id"]);
+    expect(Object.keys(product.attributes ?? {})).toEqual(["merchant_id", "persona_has_image"]);
   });
 
   it("sends the SKU as a non-searchable, indexable custom attribute", () => {

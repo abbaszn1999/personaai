@@ -3,7 +3,7 @@ import { createCatalogPager, membership } from "@/lib/catalog/pager";
 import { resolveCategoryPaths } from "@/lib/catalog/index-product";
 import { buildCategoryIndex } from "@/lib/catalog/category-parents";
 import { buildPersonaMappingConfig, resolvePersonaPaths, type ResolvedPersonaPath } from "@/lib/catalog/persona-mapping";
-import { extractVariantAttributes, resolveProductBrand } from "@/lib/catalog/acs/map-product";
+import { extractVariantAttributes, hasProductImage, resolveProductBrand } from "@/lib/catalog/acs/map-product";
 import { sleep } from "@/lib/catalog/timeout";
 import type { StoreConnectionRow } from "@/lib/db/store-connections";
 import { replaceSizingCoverage } from "@/lib/db/sizing-coverage";
@@ -118,6 +118,9 @@ export async function runSizingScan(connection: StoreConnectionRow, run: SizingR
   );
 
   const scanned: ScanRow[] = [];
+  // Products with no image are never published, so they are kept out of coverage too: counted here
+  // so the merchant can see how many, but never a reason to research a chart or report a gap.
+  let withoutImage = 0;
   let pages = 0;
   let flushedAt = 0;
 
@@ -133,6 +136,10 @@ export async function runSizingScan(connection: StoreConnectionRow, run: SizingR
       pages += 1;
 
       for (const raw of result.products) {
+        if (!hasProductImage(raw)) {
+          withoutImage += 1;
+          continue;
+        }
         const sourceCategoryIds = membership(raw, group);
         // Routed through the mapper's own extraction so sizes and audience are read exactly as the
         // index will read them. Deriving them here from `variantOptions` directly is how a store
@@ -164,7 +171,7 @@ export async function runSizingScan(connection: StoreConnectionRow, run: SizingR
 
       if (scanned.length - flushedAt >= PROGRESS_FLUSH_PRODUCTS) {
         flushedAt = scanned.length;
-        await updateSizingRun(run.id, { productsScanned: scanned.length, phaseDone: scanned.length });
+        await updateSizingRun(run.id, { productsScanned: scanned.length, phaseDone: scanned.length, productsWithoutImage: withoutImage });
       }
 
       if (!result.nextCursor) break;
@@ -173,7 +180,7 @@ export async function runSizingScan(connection: StoreConnectionRow, run: SizingR
     }
   }
 
-  await updateSizingRun(run.id, { productsScanned: scanned.length, phaseDone: scanned.length });
+  await updateSizingRun(run.id, { productsScanned: scanned.length, phaseDone: scanned.length, productsWithoutImage: withoutImage });
 
   // ─── 2. Aggregate the mapped brand field ────────────────────────────────────
   // There is deliberately no product-level LLM pass here. A non-empty brand field is already the
@@ -281,7 +288,7 @@ export async function runSizingScan(connection: StoreConnectionRow, run: SizingR
     );
   }
 
-  await updateSizingRun(run.id, { productsScanned: stats.counted });
+  await updateSizingRun(run.id, { productsScanned: stats.counted, productsWithoutImage: withoutImage });
 
   return { stats, rows: rows.length, pages, pathRows: pathRows.length };
 }

@@ -35,6 +35,8 @@ export interface StructuredCallInput {
   timeoutMs?: number;
   meter?: SessionMeter;
   label: string;
+  /** Aborts the call when the shopper's connection closes. */
+  signal?: AbortSignal;
 }
 
 export interface StructuredCallResult<T> {
@@ -81,7 +83,7 @@ async function send(input: StructuredCallInput, useCache: boolean) {
       model: input.model,
       contents: [{ role: "user", parts: [{ text: input.userText }] }],
       config: {
-        abortSignal: signal,
+        abortSignal: input.signal ? AbortSignal.any([signal, input.signal]) : signal,
         ...(useCache && input.cacheName ? { cachedContent: input.cacheName } : { systemInstruction: input.prefix }),
         responseMimeType: "application/json",
         responseJsonSchema: input.schema,
@@ -116,12 +118,15 @@ export async function callStructured<T>(request: StructuredCallInput): Promise<S
             displayName: request.cacheAs,
           }),
         };
+  const started = Date.now();
+  let explicit = Boolean(input.cacheName);
   let response;
   try {
     response = await generate(input, true);
   } catch (error) {
     if (input.cacheName && isMissingCacheError(error)) {
       forgetPrefixCache(input.cacheName);
+      explicit = false;
       response = await generate(input, false);
     } else {
       throw toAgentError(error);
@@ -129,7 +134,11 @@ export async function callStructured<T>(request: StructuredCallInput): Promise<S
   }
 
   const usage = readGeminiTokenUsage(response.usageMetadata);
-  addTokenCost(input.meter, usage);
+  addTokenCost(input.meter, usage, undefined, input.model);
+  console.log(
+    `[gemini usage] label=${input.label} model=${input.model} cache=${explicit ? "explicit" : "inline"} ` +
+      `prompt=${usage.inputTokens} cached=${usage.cachedTokens} out=${usage.outputTokens} ms=${Date.now() - started}`
+  );
 
   const text = response.text?.trim();
   if (!text) throw new GeminiChatError(`${input.label}: the model returned no content.`);
@@ -149,13 +158,21 @@ export function isStructuredCallTimeout(error: unknown): boolean {
   return error instanceof GeminiChatError && error.status === TIMEOUT_STATUS;
 }
 
+/** Gemini was briefly unable to answer (500, 503 "UNAVAILABLE"): the same request sent again
+ *  usually goes through. A 429 is deliberately not one — retrying into a quota makes it worse. */
+function isTransientFailure(error: unknown): boolean {
+  if (!(error instanceof GeminiChatError)) return false;
+  return error.status === 500 || error.status === 503 || /UNAVAILABLE|overloaded/i.test(error.message);
+}
+
 type Settled<T> = { kind: "value"; value: T } | { kind: "error"; error: unknown } | { kind: "late" };
 
 /**
  * Runs `first`; if it has not answered within `hedgeAfterMs`, or timed out before then, starts
  * `second` and takes whichever answers first. An occasional model call stalls far past its normal
  * few seconds while the same request sent again is answered in normal time, so a second request
- * is the cure for that tail rather than a longer wait. Any other failure is thrown as is.
+ * is the cure for that tail rather than a longer wait. A brief outage (500/503) gets the same
+ * second request. Any other failure is thrown as is.
  */
 export async function hedged<T>(first: () => Promise<T>, second: () => Promise<T>, hedgeAfterMs: number): Promise<T> {
   const one = first();
@@ -172,7 +189,7 @@ export async function hedged<T>(first: () => Promise<T>, second: () => Promise<T
   clearTimeout(timer);
   if (early.kind === "value") return early.value;
   if (early.kind === "error") {
-    if (!isStructuredCallTimeout(early.error)) throw early.error;
+    if (!isStructuredCallTimeout(early.error) && !isTransientFailure(early.error)) throw early.error;
     return second();
   }
   try {

@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ACS_SEARCH_NANOS, geminiTokenRates } from "./pricing";
-import { addAcsSearch, addTokenCost, createSessionMeter, sessionUsageIdempotencyKey } from "./session-meter";
+import { addAcsSearch, addTokenCost, createSessionMeter, sessionUsageIdempotencyKey, trackPendingCost } from "./session-meter";
 
 const INTRO = Date.UTC(2026, 9, 6);
 
@@ -43,5 +43,37 @@ describe("session meter", () => {
     );
     expect(sessionUsageIdempotencyKey("session-1", "short")).toBeNull();
     expect(sessionUsageIdempotencyKey("  ", "msg-u-1710000000000")).toBeNull();
+  });
+});
+
+describe("session meter detail and stragglers", () => {
+  it("keeps the turn's token detail and model next to its cost", () => {
+    const meter = createSessionMeter();
+    addTokenCost(meter, { inputTokens: 13_000, outputTokens: 220, cachedTokens: 12_700 }, INTRO, "gemini-3.8-flash");
+    addTokenCost(meter, { inputTokens: 13_100, outputTokens: 180, cachedTokens: 12_700 }, INTRO, "gemini-3.8-flash");
+    expect(meter).toMatchObject({ inputTokens: 26_100, cachedTokens: 25_400, outputTokens: 400, model: "gemini-3.8-flash", geminiCalls: 2 });
+  });
+
+  it("charges an unpriced model at the highest known rates, never less", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const known = createSessionMeter();
+    const unknown = createSessionMeter();
+    addTokenCost(known, { inputTokens: 1_000, outputTokens: 100 }, INTRO, "gemini-3.8-flash");
+    addTokenCost(unknown, { inputTokens: 1_000, outputTokens: 100 }, INTRO, "gemini-9-ultra");
+    expect(unknown.nanos).toBeGreaterThan(known.nanos);
+  });
+
+  it("tracks a call still running, without ever turning its failure into an unhandled rejection", async () => {
+    const meter = createSessionMeter();
+    trackPendingCost(meter, Promise.reject(new Error("timed out")));
+    trackPendingCost(undefined, Promise.reject(new Error("no meter")));
+    await expect(Promise.all(meter.pending)).resolves.toEqual([undefined]);
+  });
+
+  it("keys each request on its own, so a retry of the same message is charged again", () => {
+    const first = sessionUsageIdempotencyKey("session-1", "msg-u-1710000000000", "req-aaaaaaaa");
+    const retry = sessionUsageIdempotencyKey("session-1", "msg-u-1710000000000", "req-bbbbbbbb");
+    expect(first).not.toBe(retry);
+    expect(sessionUsageIdempotencyKey("session-1", undefined, "req-cccccccc")).toBe("chat:session-1:turn:req-cccccccc");
   });
 });

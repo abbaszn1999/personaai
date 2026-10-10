@@ -3,7 +3,7 @@
 import * as React from "react";
 import { ArrowUp, ChevronDown, ChevronUp, GripVertical, MessageCircle } from "lucide-react";
 import type { UseTryOnAgentReturn } from "../hooks/use-try-on-agent";
-import type { Product } from "@/modules/commerce/types";
+import type { ChatMessage, Product } from "@/modules/commerce/types";
 import {
   AttachedItemBar,
   AttachedLookBar,
@@ -15,6 +15,7 @@ import { AvatarMannequinPanel } from "./avatar-mannequin-panel";
 import { ProfileSwitcher } from "./profile-switcher";
 import { useEmbedShopperSession } from "../hooks/embed-shopper-session";
 import { useBottomSheet } from "../hooks/use-bottom-sheet";
+import { MAX_RENDERED_MESSAGES, takeLastMessages } from "../utils/chat-history";
 import { MOBILE_SURFACE, NO_IOS_ZOOM_TEXT, SAFE_BOTTOM, SHEET_H } from "../mobile-surface";
 import { AgentOrb } from "@/components/ui/agent-orb";
 import { useVariantPicker } from "@/components/ui/variant-picker-popover";
@@ -244,6 +245,30 @@ function profilePhotoUrl(profile: TryOnProfile): string | null {
     : profile.photoUrl;
 }
 
+/** Long chats render only their newest messages until the shopper asks for the rest. */
+function useVisibleMessages(messages: ChatMessage[]) {
+  const [showAll, setShowAll] = React.useState(false);
+  const visible = showAll ? messages : takeLastMessages(messages, MAX_RENDERED_MESSAGES);
+  return { visible, hasEarlier: visible.length < messages.length, showEarlier: () => setShowAll(true) };
+}
+
+function ShowEarlierMessagesButton({ onClick, className }: { onClick: () => void; className?: string }) {
+  return (
+    <div className="flex justify-center">
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn(
+          "text-xs rounded-full border px-3 py-1.5 hover:border-[var(--color-brand)] hover:text-[var(--color-brand)] transition-all",
+          className ?? "border-[var(--color-border)] text-[var(--color-text-secondary)]"
+        )}
+      >
+        Show earlier messages
+      </button>
+    </div>
+  );
+}
+
 function ChatProfileSwitcher({ agent }: { agent: UseTryOnAgentReturn }) {
   const shopper = useEmbedShopperSession();
   return (
@@ -268,7 +293,9 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
   // showing them again below every subsequent turn is clutter, not a shortcut.
   const hasStartedChat = agent.messages.some((m) => m.role === "user");
   const canShowQuickReplies = !hasStartedChat && !agent.isScanning && !agent.isTyping && !agent.isGenerating;
-  const chatBusy = agent.isTyping || agent.isScanning;
+  const chatBusy = agent.isTyping || agent.isScanning || agent.isReplying;
+  const sendDisabled = agent.isTyping || agent.isGenerating || agent.isScanning || agent.isReplying;
+  const messageList = useVisibleMessages(agent.messages);
 
   React.useEffect(() => {
     const el = messagesRef.current;
@@ -311,7 +338,8 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
 
       {/* Messages — only this area scrolls as the conversation grows */}
       <div ref={messagesRef} className={cn("flex-1 overflow-y-auto space-y-4 min-h-0", compact ? "px-3 py-3" : "px-5 py-4")}>
-        {agent.messages.map((msg, idx) => {
+        {messageList.hasEarlier && <ShowEarlierMessagesButton onClick={messageList.showEarlier} />}
+        {messageList.visible.map((msg, idx) => {
           const msgProducts = (msg.productRecommendations ?? [])
             .map((id) => agent.knownProducts[id])
             .filter((p): p is NonNullable<typeof p> => !!p);
@@ -319,7 +347,7 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
             <WearableChatMessage
               key={msg.id}
               message={msg}
-              isLast={idx === agent.messages.length - 1}
+              isLast={idx === messageList.visible.length - 1}
               userPhotoUrl={profilePhotoUrl(agent.profile)}
               inlineProducts={msgProducts.length > 0 ? msgProducts : undefined}
               outfitItemIds={outfitItemIds}
@@ -332,6 +360,8 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
               attachedItemId={agent.attachment?.kind === "item" ? agent.attachment.product.id : null}
               attachedLookId={agent.attachment?.kind === "look" ? agent.attachment.look.id : null}
               isBusy={chatBusy}
+              sendDisabled={sendDisabled}
+              onRetry={msg.id === agent.retryMessageId ? agent.retryLastTurn : undefined}
               onAskAboutItem={agent.attachItem}
               onCompleteLook={agent.completeLook}
               onQuickOption={(label) => agent.sendMessage(label)}
@@ -353,6 +383,7 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
             <button
               key={qr.label}
               type="button"
+              dir="auto"
               onClick={() => agent.sendMessage(qr.query)}
               className="text-xs rounded-full border border-[var(--color-border)] px-3 py-1.5 text-[var(--color-text-secondary)] hover:border-[var(--color-brand)] hover:text-[var(--color-brand)] hover:bg-[var(--color-brand-light)] transition-all"
             >
@@ -374,17 +405,18 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
       {/* Input */}
       <div className={cn("border-t border-[var(--color-border)] flex gap-2 shrink-0", compact ? "px-3 py-3" : "px-5 py-4")}>
         <input
+          dir="auto"
           className="flex-1 h-10 px-4 text-sm bg-[var(--color-surface-base)] border border-[var(--color-border)] rounded-[var(--radius-xl)] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-brand)] transition-colors"
           placeholder={branding.inputPlaceholder}
           value={agent.input}
           onChange={(e) => agent.setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && agent.sendMessage()}
-          disabled={agent.isTyping || agent.isGenerating || agent.isScanning}
+          disabled={sendDisabled}
         />
         <button
           type="button"
           onClick={() => agent.sendMessage()}
-          disabled={!agent.input.trim() || agent.isTyping || agent.isGenerating || agent.isScanning}
+          disabled={!agent.input.trim() || sendDisabled}
           className={cn(
             "h-10 w-10 rounded-full gradient-brand text-[var(--color-brand-contrast)] flex items-center justify-center shrink-0 transition-all",
             "disabled:opacity-40 disabled:cursor-not-allowed hover:shadow-[var(--shadow-glow)]"
@@ -418,33 +450,47 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
   const branding = useWearableBranding();
   const panelBg = CHAT_PANEL_BG_BY_THEME[theme];
   const styles = MOBILE_SURFACE[theme];
-  const sheet = useBottomSheet();
+  // Destructured rather than read as `sheet.*` during render: the hook's return mixes refs with
+  // state, and the compiler treats every field of a ref-holding object as a ref.
+  const {
+    rootRef: sheetRootRef,
+    headerRef: sheetHeaderRef,
+    snap: sheetSnap,
+    setSnap,
+    toggle: toggleSheet,
+    isDragging: sheetDragging,
+    consumedDrag,
+    keyboardInset,
+    expanded: sheetExpanded,
+    handleProps: sheetHandleProps,
+  } = useBottomSheet();
   const messagesRef = React.useRef<HTMLDivElement>(null);
   const cartItemIds = agent.cartItems.map((p) => p.id);
   // Quick replies are just a cold-start nudge — once the shopper has sent a real message,
   // showing them again below every subsequent turn is clutter, not a shortcut.
   const hasStartedChat = agent.messages.some((m) => m.role === "user");
   const canShowQuickReplies = !hasStartedChat && !agent.isScanning && !agent.isTyping && !agent.isGenerating;
-  const chatBusy = agent.isTyping || agent.isScanning;
+  const chatBusy = agent.isTyping || agent.isScanning || agent.isReplying;
+  const sendDisabled = agent.isTyping || agent.isGenerating || agent.isScanning || agent.isReplying;
+  const messageList = useVisibleMessages(agent.messages);
   // The full header bar (title, profile switcher, grab handle) only makes sense once there's
   // an actual panel underneath it to be the header *of* — at rest, collapsed, it used to
   // render that same edge-to-edge bar with nothing open below it, which read as a flat,
   // slightly-broken strip glued to the bottom of the screen rather than an intentional
   // control. Mid-drag is treated as "chrome" too so the bar doesn't pop between the two
   // looks while the sheet is visibly resizing under the shopper's finger.
-  const showSheetChrome = sheet.expanded || sheet.isDragging;
+  const showSheetChrome = sheetExpanded || sheetDragging;
 
   React.useEffect(() => {
     const el = messagesRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  }, [agent.messages, agent.isTyping, agent.isScanning, sheet.snap]);
+  }, [agent.messages, agent.isTyping, agent.isScanning, sheetSnap]);
 
   // Open the sheet once, for the agent's first reply. Re-opening it on every later message
   // (what this used to do) yanks the sheet up over the avatar while the shopper is still
   // looking at a garment, and makes collapsing it impossible.
   const hasAutoOpened = React.useRef(false);
-  const setSnap = sheet.setSnap;
   React.useEffect(() => {
     if (hasAutoOpened.current || agent.messages.length <= 1) return;
     hasAutoOpened.current = true;
@@ -458,13 +504,13 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
   React.useEffect(() => {
     const added = agent.messages.length - seenCount.current;
     seenCount.current = agent.messages.length;
-    if (sheet.expanded) setUnread(0);
+    if (sheetExpanded) setUnread(0);
     else if (added > 0) setUnread((count) => count + added);
-  }, [agent.messages.length, sheet.expanded]);
+  }, [agent.messages.length, sheetExpanded]);
 
   return (
     <div
-      ref={sheet.rootRef}
+      ref={sheetRootRef}
       className="relative h-full min-h-0 overflow-hidden"
       style={{ background: panelBg, "--sheet-h": "72px" } as React.CSSProperties}
     >
@@ -493,7 +539,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
           isUploadingBackdrop={agent.isUploadingBackdrop}
           backdropUploadError={agent.backdropUploadError}
           mobile
-          onRequestSpace={() => sheet.setSnap("peek")}
+          onRequestSpace={() => setSnap("peek")}
           embed={embed}
           workspaceId={workspaceId}
         />
@@ -515,7 +561,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
         className={cn(
           "absolute inset-x-0 bottom-0 z-[30] flex flex-col backdrop-blur-2xl",
           showSheetChrome ? cn("rounded-t-[var(--radius-2xl)] border-t", styles.sheet) : "border-t border-transparent bg-transparent",
-          !sheet.isDragging &&
+          !sheetDragging &&
             "transition-[height,background-color,border-color] duration-300 ease-out motion-reduce:transition-none"
         )}
         style={{ height: SHEET_H }}
@@ -525,8 +571,8 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
              At rest and collapsed, this is a floating launcher button instead — see
              showSheetChrome above for why the two need to look nothing alike. ── */}
         <div
-          ref={sheet.headerRef}
-          {...sheet.handleProps}
+          ref={sheetHeaderRef}
+          {...sheetHandleProps}
           className={cn(
             "relative flex touch-none items-center shrink-0",
             showSheetChrome ? cn("gap-2 px-3 pt-3 pb-3", styles.headerPress) : "justify-center px-3 pt-2 pb-[max(1.5rem,calc(env(safe-area-inset-bottom)+0.75rem))]"
@@ -546,10 +592,10 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
               )}
               <button
                 type="button"
-                aria-expanded={sheet.expanded}
-                aria-label={sheet.expanded ? "Collapse chat" : "Expand chat"}
+                aria-expanded={sheetExpanded}
+                aria-label={sheetExpanded ? "Collapse chat" : "Expand chat"}
                 onClick={() => {
-                  if (!sheet.consumedDrag()) sheet.toggle();
+                  if (!consumedDrag()) toggleSheet();
                 }}
                 className="relative mt-1 flex min-h-11 min-w-0 flex-1 items-center justify-center"
               >
@@ -565,7 +611,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
                   <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-success)] animate-pulse-dot" />
                 </div>
                 <div className={cn("absolute right-0 flex items-center gap-2", styles.headerMeta)}>
-                  {sheet.expanded ? <ChevronDown className="h-5 w-5" /> : <ChevronUp className="h-5 w-5" />}
+                  {sheetExpanded ? <ChevronDown className="h-5 w-5" /> : <ChevronUp className="h-5 w-5" />}
                 </div>
               </button>
             </>
@@ -578,7 +624,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
               type="button"
               aria-label="Open chat"
               onClick={() => {
-                if (!sheet.consumedDrag()) sheet.toggle();
+                if (!consumedDrag()) toggleSheet();
               }}
               className={cn(
                 "relative flex min-h-14 items-center gap-2.5 rounded-full pl-2.5 pr-5 shadow-[0_10px_32px_rgba(0,0,0,0.35)] backdrop-blur-2xl transition-transform active:scale-[0.97]",
@@ -611,14 +657,17 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
         </div>
 
         {/* ── Messages + quick replies + input (only visible when expanded) ── */}
-        {sheet.expanded && (
+        {sheetExpanded && (
           <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
             {/* Messages */}
             <div
               ref={messagesRef}
               className="flex-1 overflow-y-auto overscroll-contain scrollbar-none px-3 py-2 space-y-3 min-h-0 [-webkit-overflow-scrolling:touch]"
             >
-              {agent.messages.map((msg, idx) => {
+              {messageList.hasEarlier && (
+                <ShowEarlierMessagesButton onClick={messageList.showEarlier} className={styles.quickReply} />
+              )}
+              {messageList.visible.map((msg, idx) => {
                 const msgProducts = (msg.productRecommendations ?? [])
                   .map((id) => agent.knownProducts[id])
                   .filter((p): p is NonNullable<typeof p> => !!p);
@@ -626,7 +675,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
                   <WearableChatMessage
                     key={msg.id}
                     message={msg}
-                    isLast={idx === agent.messages.length - 1}
+                    isLast={idx === messageList.visible.length - 1}
                     userPhotoUrl={profilePhotoUrl(agent.profile)}
                     inlineProducts={msgProducts.length > 0 ? msgProducts : undefined}
                     outfitItemIds={outfitItemIds}
@@ -639,6 +688,8 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
                     attachedItemId={agent.attachment?.kind === "item" ? agent.attachment.product.id : null}
                     attachedLookId={agent.attachment?.kind === "look" ? agent.attachment.look.id : null}
                     isBusy={chatBusy}
+                    sendDisabled={sendDisabled}
+                    onRetry={msg.id === agent.retryMessageId ? agent.retryLastTurn : undefined}
                     onAskAboutItem={agent.attachItem}
                     onCompleteLook={agent.completeLook}
                     onQuickOption={(label) => agent.sendMessage(label)}
@@ -660,6 +711,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
                   <button
                     key={qr.label}
                     type="button"
+                    dir="auto"
                     onClick={() => agent.sendMessage(qr.query)}
                     className={cn(
                       "flex min-h-9 items-center rounded-full border px-3 text-[12px] transition-all",
@@ -690,10 +742,11 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
             {/* Input — lifted above the on-screen keyboard, and padded clear of the home
                 indicator when there is no keyboard. */}
             <div
-              className={cn("flex gap-2 shrink-0 border-t px-3 pt-3", styles.inputRow, !sheet.keyboardInset && SAFE_BOTTOM)}
-              style={sheet.keyboardInset ? { paddingBottom: sheet.keyboardInset + 12 } : undefined}
+              className={cn("flex gap-2 shrink-0 border-t px-3 pt-3", styles.inputRow, !keyboardInset && SAFE_BOTTOM)}
+              style={keyboardInset ? { paddingBottom: keyboardInset + 12 } : undefined}
             >
               <input
+                dir="auto"
                 className={cn(
                   "flex-1 h-11 min-w-0 rounded-full border px-4 transition-colors focus:outline-none",
                   NO_IOS_ZOOM_TEXT,
@@ -702,15 +755,15 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
                 placeholder={branding.inputPlaceholder}
                 value={agent.input}
                 onChange={(e) => agent.setInput(e.target.value)}
-                onFocus={() => sheet.setSnap("full")}
+                onFocus={() => setSnap("full")}
                 onKeyDown={(e) => e.key === "Enter" && agent.sendMessage()}
-                disabled={agent.isTyping || agent.isGenerating || agent.isScanning}
+                disabled={sendDisabled}
               />
               <button
                 type="button"
                 aria-label="Send message"
                 onClick={() => agent.sendMessage()}
-                disabled={!agent.input.trim() || agent.isTyping || agent.isGenerating || agent.isScanning}
+                disabled={!agent.input.trim() || sendDisabled}
                 className={cn(
                   "h-11 w-11 rounded-full gradient-brand text-[var(--color-brand-contrast)] flex items-center justify-center shrink-0 transition-all",
                   "disabled:opacity-40 disabled:cursor-not-allowed"

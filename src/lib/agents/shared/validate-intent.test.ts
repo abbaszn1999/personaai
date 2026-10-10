@@ -250,6 +250,7 @@ describe("toAcsFilter", () => {
         `(brands: ANY("Acme"))`,
         `(price: IN(*, 60i))`,
         `(availability: ANY("IN_STOCK"))`,
+        `(NOT attributes.persona_has_image: ANY("false"))`,
         `(sizes: ANY("M"))`,
         `(colors: ANY("Black"))`,
         `(attributes.inseam: IN(30i, *))`,

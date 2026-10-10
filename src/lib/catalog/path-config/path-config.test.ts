@@ -176,10 +176,10 @@ describe("computePriceTiers", () => {
   it("splits around one price most products share instead of collapsing to one tier", () => {
     const counts: Array<[number, number]> = [[14, 3], [18, 2], [19, 72], [23, 7], [24, 9], [28, 5], [34, 2], [39, 4], [45, 4]];
     const prices = counts.flatMap(([price, count]) => Array.from({ length: count }, () => price));
+    // The 5 products under the shared price are too few to be "cheap" on their own, so they join it.
     expect(computePriceTiers(prices)).toEqual([
-      { label: "A", min: 14, max: 18, count: 5 },
-      { label: "B", min: 18, max: 19, count: 72 },
-      { label: "C", min: 19, max: 45, count: 31 },
+      { label: "A", min: 14, max: 19, count: 77 },
+      { label: "B", min: 19, max: 45, count: 31 },
     ]);
   });
 
@@ -188,6 +188,13 @@ describe("computePriceTiers", () => {
     const tiers = computePriceTiers(prices);
     expect(tiers.map((tier) => tier.label)).toEqual(["A", "B", "C"]);
     expect(tiers[0]).toEqual({ label: "A", min: 19, max: 19, count: 10 });
+    expect(tiers.reduce((sum, tier) => sum + tier.count, 0)).toBe(prices.length);
+  });
+
+  it("folds a band holding a sliver of the products into its neighbour", () => {
+    const prices = [14, 15, 16, ...Array.from({ length: 52 }, () => 19), ...Array.from({ length: 22 }, (_, i) => 20 + i)];
+    const tiers = computePriceTiers(prices);
+    expect(tiers[0].count).toBeGreaterThanOrEqual(Math.ceil(prices.length * 0.12));
     expect(tiers.reduce((sum, tier) => sum + tier.count, 0)).toBe(prices.length);
   });
 
@@ -251,7 +258,8 @@ describe("lookup", () => {
     expect(comparableAttributeValue(color, "L.GREY")).toBe(comparableAttributeValue(color, "light gray"));
     expect(comparableAttributeValue(color, "LT. BEIGE")).toBe("lightbeige");
     expect(comparableAttributeValue(color, "D.BLUE")).toBe("darkblue");
-    expect(comparableAttributeValue(color, "N.BLUE")).toBe("navyblue");
+    expect(comparableAttributeValue(color, "N.BLUE")).toBe("navy");
+    expect(comparableAttributeValue(color, "Navy Blue")).toBe(comparableAttributeValue(color, "NAVY"));
     expect(comparableAttributeValue(color, "N.GREEN")).toBe("ngreen");
     expect(comparableAttributeValue(color, "DENIM")).toBe("denim");
     expect(comparableAttributeValue({ key: "colour", field: "attributes.opt_colour" }, "D.GREEN")).toBe("darkgreen");

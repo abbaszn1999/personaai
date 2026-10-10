@@ -44,6 +44,8 @@ export interface SizingRun {
   status: SizingRunStatus;
   stage: SizingRunStage;
   productsScanned: number;
+  /** Products left out of the setup because they have no image; they are never published. */
+  productsWithoutImage?: number;
   phase: SizingRunPhase | null;
   /** Units done within the phase, and what it expects in total. Either can be null: the walk has no
    *  denominator until it ends, and aggregation has no unit worth counting. */
@@ -427,6 +429,8 @@ export interface SizingResolutionSummary {
   brandMappingCurrent: boolean;
   /** Scanned products the store no longer returns (deleted or unpublished since the scan). */
   unavailable?: number;
+  /** Products with no image, left out of the setup and never published. */
+  withoutImage?: number;
   /** When the numbers shown were computed (epoch ms). */
   builtAt?: number;
   /** True while a newer computation is running; the screen re-asks until it is false. */

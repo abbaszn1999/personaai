@@ -10,6 +10,8 @@ import { attributionForProduct } from "../utils/cart-attribution";
 import { resolveGarmentSlot } from "../utils/fit-metrics";
 import { parseTypedBudget } from "../utils/typed-budget";
 import { EMPTY_RETRIEVAL_STATE, normalizeRetrievalState, type RetrievalState } from "../utils/retrieval-state";
+import { MAX_PERSISTED_MESSAGES, MAX_SENT_MESSAGES, takeLastMessages } from "../utils/chat-history";
+import { browserLocale, widgetStrings } from "../widget-strings";
 import { AVATAR_GENERATION_STAGES } from "../constants";
 import { isKidsAudience, KIDS_AGE_RANGE } from "../audiences";
 import { INITIAL_WEARABLE_MESSAGE, SCAN_STAGE_DURATION_MS, SCAN_STAGES } from "../mocks/responses";
@@ -35,7 +37,6 @@ import { addItemToShopifyCart } from "@/lib/shopify/ajax-cart-client";
 const EXPECTED_AVATAR_VARIATION_COUNT = 3;
 const GENERIC_AVATAR_ERROR = "We couldn't generate your avatar. Please try again.";
 const GENERIC_TRYON_ERROR = "Sorry, I couldn't generate your try-on preview. Please try again.";
-const GENERIC_CHAT_ERROR = "Sorry, something went wrong on my end. Please try that again.";
 
 /** Passed only when this hook is powering the public `/embed/[token]` page or widget.js —
  *  swaps every `/api/agents/*` call for its public `/api/embed/*` counterpart and includes the
@@ -400,6 +401,15 @@ export interface GeneratedTryOn {
 /** `thinking` covers the opening stretch before any tool has run, which is short. */
 export type TypingStage = "thinking" | "searching" | "composing";
 
+type ChatTrigger = { type: "complete_look"; productId: string; askBudget?: boolean };
+
+/** What Retry resends, plus the bubbles of the failed attempt it replaces. */
+interface FailedChatTurn {
+  history: ChatMessage[];
+  trigger?: ChatTrigger;
+  messageIds: string[];
+}
+
 interface TryOnAgentState {
   profile: TryOnProfile;
   onboardingPhase: OnboardingPhase;
@@ -425,6 +435,11 @@ interface TryOnAgentState {
    *  minute says which half it is in rather than showing the same three dots throughout. Driven
    *  entirely by real events — never a timer. */
   typingStage: TypingStage;
+  /** True for the whole chat turn, from send until its stream closes. `isTyping` clears at the
+   *  first visible reply, while the turn can keep streaming cards and chips after it. */
+  isReplying: boolean;
+  /** The failed reply bubble that carries a Retry button; cleared by the next turn. */
+  retryMessageId: string | null;
   isGenerating: boolean;
   isRegeneratingAvatar: boolean;
   tryOnImages: GeneratedTryOn[];
@@ -615,6 +630,8 @@ export function useTryOnAgent(
     input: activeSlot?.input ?? "",
     isTyping: false,
     typingStage: "thinking",
+    isReplying: false,
+    retryMessageId: null,
     isGenerating: false,
     isRegeneratingAvatar: false,
     tryOnImages: activeSlot?.tryOnImages ?? [],
@@ -674,6 +691,11 @@ export function useTryOnAgent(
 
   const generationTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const scanTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  /** Non-null exactly while a chat turn is in flight. */
+  const chatAbortRef = React.useRef<AbortController | null>(null);
+  /** Bumped whenever a turn is superseded; a turn whose generation is stale drops its events. */
+  const chatGenerationRef = React.useRef(0);
+  const failedTurnRef = React.useRef<FailedChatTurn | null>(null);
   const customAvatarUrlRef = React.useRef<string | null>(null);
   const selectedAvatarIdRef = React.useRef<string | null>(null);
   /** Stable per-shopper id for embedded sessions — lets the server key its ephemeral avatar
@@ -731,6 +753,7 @@ export function useTryOnAgent(
       if (generationTimerRef.current) clearInterval(generationTimerRef.current);
       if (scanTimerRef.current) clearInterval(scanTimerRef.current);
       if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+      chatAbortRef.current?.abort();
     };
   }, []);
 
@@ -738,11 +761,18 @@ export function useTryOnAgent(
    *  whatever's passed in (fresh render state or a synchronous override), every other
    *  profile's slot comes from the last snapshot stashed in `inactiveProfilesRef`. */
   function buildProfilesSnapshot(activeData: Omit<StoredProfileSlot, "id" | "label">): StoredProfileSlot[] {
-    return profilesMeta.map((meta) =>
-      meta.id === activeProfileId
-        ? { id: meta.id, label: meta.label, ...sanitizeSlotForStorage(activeData) }
-        : { id: meta.id, label: meta.label, ...(inactiveProfilesRef.current?.[meta.id] ?? blankProfileSlotData()) }
-    );
+    return profilesMeta.map((meta) => {
+      const data =
+        meta.id === activeProfileId
+          ? sanitizeSlotForStorage(activeData)
+          : (inactiveProfilesRef.current?.[meta.id] ?? blankProfileSlotData());
+      return {
+        id: meta.id,
+        label: meta.label,
+        ...data,
+        messages: takeLastMessages(data.messages, MAX_PERSISTED_MESSAGES),
+      };
+    });
   }
 
   // Mirror the shopper-relevant slice of state into localStorage so an embedded session
@@ -919,6 +949,8 @@ export function useTryOnAgent(
 
   /** Applies a (possibly blank) profile slot as the new active one — shared by switch/add/remove. */
   function activateProfileData(id: string, data: Omit<StoredProfileSlot, "id" | "label">) {
+    abortChatTurn();
+    failedTurnRef.current = null;
     delete inactiveProfilesRef.current![id];
     setActiveProfileId(id);
     setState((s) => ({
@@ -941,7 +973,9 @@ export function useTryOnAgent(
       attachment: data.attachment,
       budget: data.budget,
       isTyping: false,
+      isReplying: false,
       isScanning: false,
+      retryMessageId: null,
     }));
     attachmentRef.current = data.attachment;
     budgetRef.current = data.budget;
@@ -963,6 +997,9 @@ export function useTryOnAgent(
     if (profilesMeta.length >= MAX_TRYON_PROFILES) return;
     void (async () => {
       if (profilesMetaRef.current.length >= MAX_TRYON_PROFILES) return;
+      // Stop the outgoing chat before stashing it — a reply still streaming across the awaits
+      // below would land in live state that activateProfileData then replaces.
+      abortChatTurn();
       stashActiveProfile();
       const currentId = activeProfileIdRef.current;
       const currentLabel = profilesMetaRef.current.find((p) => p.id === currentId)?.label ?? "Me";
@@ -1572,42 +1609,85 @@ export function useTryOnAgent(
     }, SCAN_STAGE_DURATION_MS);
   }
 
+  /** Cancels the chat turn in flight, if any. Its fetch can still settle with events it had
+   *  already read, so bumping the generation is what actually silences it. */
+  function abortChatTurn() {
+    chatGenerationRef.current += 1;
+    chatAbortRef.current?.abort();
+    chatAbortRef.current = null;
+    stopScanTicker();
+  }
+
   /** Sends one turn to the agents and streams the response, applying each SSE event to local
-   *  state as it arrives. `trigger` is set only for the "Complete the look" click. */
-  async function streamChatTurn(
-    history: ChatMessage[],
-    trigger?: { type: "complete_look"; productId: string; askBudget?: boolean }
-  ) {
-    setState((s) => ({ ...s, isTyping: true, typingStage: "thinking" }));
+   *  state as it arrives. `trigger` is set only for the "Complete the look" click. Starting a
+   *  turn cancels the one before it. */
+  async function streamChatTurn(history: ChatMessage[], trigger?: ChatTrigger) {
+    abortChatTurn();
+    const controller = new AbortController();
+    chatAbortRef.current = controller;
+    const generation = chatGenerationRef.current;
+    const isCurrent = () => generation === chatGenerationRef.current;
+    // Checked when React applies the update rather than when it's queued, so nothing from a turn
+    // superseded in between lands on the chat (after a profile switch, someone else's chat).
+    const update = (fn: (s: TryOnAgentState) => TryOnAgentState) => setState((s) => (isCurrent() ? fn(s) : s));
+    const strings = widgetStrings(browserLocale());
+
+    failedTurnRef.current = null;
+    setState((s) => ({ ...s, isTyping: true, isReplying: true, typingStage: "thinking", retryMessageId: null }));
 
     let assistantMessageId: string | null = null;
     // Quick options can arrive before the reply text; holding them until text lands avoids an
     // empty assistant bubble with chips under it.
     let pendingQuickOptions: string[] | null = null;
     let turnAttribution: TurnAttribution | null = null;
-    let sawAnyEvent = false;
+    let sawDone = false;
+    let failed = false;
 
-    const ensureAssistantMessage = () => {
-      if (assistantMessageId) return;
-      assistantMessageId = `msg-${Date.now()}`;
-      const id = assistantMessageId;
-      setState((s) => ({
+    const ensureAssistantMessage = (): string => {
+      if (assistantMessageId) return assistantMessageId;
+      const id = `msg-${Date.now()}`;
+      assistantMessageId = id;
+      update((s) => ({
         ...s,
         messages: [...s.messages, { id, role: "assistant", content: "", timestamp: new Date().toISOString() }],
       }));
+      return id;
     };
 
     const patchAssistantMessage = (patch: Partial<ChatMessage>) => {
       ensureAssistantMessage();
-      setState((s) => ({
+      update((s) => ({
         ...s,
         messages: s.messages.map((m) => (m.id === assistantMessageId ? { ...m, ...patch } : m)),
       }));
     };
 
+    /** Puts Retry on `bubbleId`; using it removes that bubble and any partial reply of this turn. */
+    const markFailed = (bubbleId: string) => {
+      failed = true;
+      failedTurnRef.current = {
+        history,
+        trigger,
+        messageIds: assistantMessageId && assistantMessageId !== bubbleId ? [assistantMessageId, bubbleId] : [bubbleId],
+      };
+      update((s) => ({ ...s, retryMessageId: bubbleId }));
+    };
+
+    /** A turn that broke off, or never started, ends in its own error bubble — unless a server
+     *  `error` event already put one on screen. */
+    const failTurn = (message: string) => {
+      if (failed) return;
+      const id = `msg-chat-error-${Date.now()}`;
+      update((s) => ({
+        ...s,
+        messages: [...s.messages, { id, role: "assistant", content: message, timestamp: new Date().toISOString() }],
+      }));
+      markFailed(id);
+    };
+
     const mergeKnownProducts = (products: Product[]) => {
       if (products.length === 0) return;
-      setState((s) => {
+      update((s) => {
         const next = { ...s.knownProducts };
         for (const product of products) {
           const fitSizes = product.fitSizes ?? s.knownProducts[product.id]?.fitSizes;
@@ -1622,13 +1702,23 @@ export function useTryOnAgent(
 
     try {
       // Text only: the server rehydrates products by id, and the model needs nothing else.
-      const slimHistory = history.map((m) => ({ id: m.id, role: m.role, content: m.content, timestamp: m.timestamp }));
+      const slimHistory = takeLastMessages(history, MAX_SENT_MESSAGES).map((m) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        timestamp: m.timestamp,
+      }));
 
       const res = await fetch(embed ? `${embed.apiBase}/wearable` : "/api/agents/wearable", {
         method: "POST",
         headers: embed ? embedRequestHeaders(embed.embedToken) : { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...(embed ? { embedToken: embed.embedToken, sessionId: embedSessionIdRef.current } : {}),
+          // A signed-in shopper's slots are their saved profiles, so the server sizes the turn on
+          // the stored measurements rather than on whatever this browser sends.
+          ...(embed && shopperRef.current && !unsavedIdsRef.current.has(activeProfileIdRef.current)
+            ? { profileId: activeProfileIdRef.current }
+            : {}),
           messages: slimHistory,
           audience: profileRef.current.audience,
           measurements: {
@@ -1643,11 +1733,13 @@ export function useTryOnAgent(
           attachment: trigger ? null : wireAttachment(attachmentRef.current),
           ...(trigger ? { trigger } : {}),
         }),
+        signal: controller.signal,
       });
 
       if (!res.ok || !res.body) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || GENERIC_CHAT_ERROR);
+        if (isCurrent()) failTurn(data.error || strings.chatError);
+        return;
       }
 
       const reader = res.body.getReader();
@@ -1663,11 +1755,11 @@ export function useTryOnAgent(
         buffer = rest;
 
         for (const event of events) {
-          sawAnyEvent = true;
+          if (!isCurrent()) break;
           // Only a result the shopper can actually see ends the wait. Clearing the indicator on
           // bookkeeping events left the chat looking dead until the reply arrived.
           if (SHOPPER_VISIBLE_EVENTS.has(event.type)) {
-            setState((s) => (s.isTyping ? { ...s, isTyping: false } : s));
+            update((s) => (s.isTyping ? { ...s, isTyping: false } : s));
           }
 
           switch (event.type) {
@@ -1675,22 +1767,22 @@ export function useTryOnAgent(
               if (event.stage === "composing") {
                 startBundleProgressTicker();
               } else {
-                setState((s) => ({ ...s, typingStage: event.stage }));
+                update((s) => ({ ...s, typingStage: event.stage }));
               }
               break;
             }
             case "products": {
               mergeKnownProducts(event.products);
-              setState((s) => (s.isScanning ? { ...s, scanResultCount: event.products.length } : s));
+              update((s) => (s.isScanning ? { ...s, scanResultCount: event.products.length } : s));
               break;
             }
             case "text": {
               stopScanTicker();
-              setState((s) => ({ ...s, isScanning: false }));
+              update((s) => ({ ...s, isScanning: false }));
               ensureAssistantMessage();
               const quickOptions = pendingQuickOptions;
               pendingQuickOptions = null;
-              setState((s) => ({
+              update((s) => ({
                 ...s,
                 messages: s.messages.map((m) =>
                   m.id === assistantMessageId
@@ -1726,7 +1818,7 @@ export function useTryOnAgent(
               // it drops is simply cleared.
               if (event.attachment === null || next) {
                 attachmentRef.current = next;
-                setState((s) => ({ ...s, attachment: next }));
+                update((s) => ({ ...s, attachment: next }));
               }
               break;
             }
@@ -1738,7 +1830,7 @@ export function useTryOnAgent(
               mergeKnownProducts(event.products);
               ensureAssistantMessage();
               const incomingIds = new Set(event.bundles.map((b) => b.id));
-              setState((s) => ({
+              update((s) => ({
                 ...s,
                 messages: s.messages.map((m) =>
                   m.id === assistantMessageId
@@ -1754,7 +1846,8 @@ export function useTryOnAgent(
             case "error": {
               stopScanTicker();
               patchAssistantMessage({ content: event.message });
-              setState((s) => ({ ...s, isScanning: false }));
+              update((s) => ({ ...s, isScanning: false }));
+              markFailed(ensureAssistantMessage());
               break;
             }
             case "attribution": {
@@ -1763,6 +1856,7 @@ export function useTryOnAgent(
               break;
             }
             case "done": {
+              sawDone = true;
               if (pendingQuickOptions) patchAssistantMessage({ quickOptions: pendingQuickOptions });
               logChatEvent("assistant", null, turnAttribution);
               break;
@@ -1772,24 +1866,19 @@ export function useTryOnAgent(
           }
         }
       }
-    } catch (err) {
-      if (!sawAnyEvent) {
-        setState((s) => ({
-          ...s,
-          messages: [
-            ...s.messages,
-            {
-              id: `msg-chat-error-${Date.now()}`,
-              role: "assistant",
-              content: err instanceof Error ? err.message : GENERIC_CHAT_ERROR,
-              timestamp: new Date().toISOString(),
-            },
-          ],
-        }));
-      }
+
+      // The server ends every turn with `done`, failed ones included, so a stream that closes
+      // without it was cut off mid-reply.
+      if (!sawDone && isCurrent()) failTurn(strings.chatError);
+    } catch {
+      // A turn cancelled by a newer one, a profile switch or unmount ends silently.
+      if (isCurrent() && !controller.signal.aborted) failTurn(strings.chatError);
     } finally {
-      stopScanTicker();
-      setState((s) => ({ ...s, isTyping: false, isScanning: false, typingStage: "thinking" }));
+      if (isCurrent()) {
+        chatAbortRef.current = null;
+        stopScanTicker();
+        setState((s) => ({ ...s, isTyping: false, isReplying: false, isScanning: false, typingStage: "thinking" }));
+      }
     }
   }
 
@@ -1808,6 +1897,9 @@ export function useTryOnAgent(
   }
 
   async function sendMessage(text?: string) {
+    // The composer and chips are disabled for the whole turn; this also covers a second Enter or
+    // tap that lands before that re-render.
+    if (chatAbortRef.current) return;
     const content = (text ?? state.input).trim();
     if (!content) return;
     setState((s) => ({ ...s, input: "" }));
@@ -1818,6 +1910,17 @@ export function useTryOnAgent(
       return;
     }
     await streamChatTurn(appendUserMessage(content));
+  }
+
+  /** Resends the failed turn as it was. The shopper's own message is already in the chat, so
+   *  only the failed reply's bubbles are swapped for the new attempt. */
+  async function retryLastTurn() {
+    const failedTurn = failedTurnRef.current;
+    if (!failedTurn || chatAbortRef.current) return;
+    failedTurnRef.current = null;
+    const failedIds = new Set(failedTurn.messageIds);
+    setState((s) => ({ ...s, messages: s.messages.filter((m) => !failedIds.has(m.id)), retryMessageId: null }));
+    await streamChatTurn(failedTurn.history, failedTurn.trigger);
   }
 
   /** "Complete the look" on a card: that item becomes the anchor of a new outfit. The first turn
@@ -2138,6 +2241,7 @@ export function useTryOnAgent(
     confirmAvatar,
     setInput,
     sendMessage,
+    retryLastTurn,
     regenerateAvatar,
     saveMeasurements,
     changeBackdrop,

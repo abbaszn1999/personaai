@@ -65,9 +65,21 @@ function isIdempotent(path: string, init: RequestInit): boolean {
   return NETWORK_RETRY_METHODS.has((init.method ?? "GET").toUpperCase()) || path.endsWith(":search");
 }
 
-async function acsFetch<T>(path: string, init: RequestInit): Promise<T> {
+/** A request that has not answered by now is treated like a dropped connection. */
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
+interface FetchOptions {
+  timeoutMs?: number;
+  attempts?: number;
+  /** The caller gave up (a shopper closed the chat): stop at once, never retry. */
+  signal?: AbortSignal;
+}
+
+async function acsFetch<T>(path: string, init: RequestInit, options: FetchOptions = {}): Promise<T> {
+  const attempts = options.attempts ?? MAX_REQUEST_ATTEMPTS;
   for (let attempt = 0; ; attempt++) {
-    const lastAttempt = attempt >= MAX_REQUEST_ATTEMPTS - 1;
+    options.signal?.throwIfAborted();
+    const lastAttempt = attempt >= attempts - 1;
     let token: string;
     try {
       token = await getAcsAccessToken();
@@ -78,26 +90,30 @@ async function acsFetch<T>(path: string, init: RequestInit): Promise<T> {
       continue;
     }
 
+    const timeout = AbortSignal.timeout(options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS);
+    const signal = options.signal ? AbortSignal.any([timeout, options.signal]) : timeout;
     let res: Response;
+    let text: string;
     try {
       res = await fetch(`${API_BASE}/${path}`, {
         ...init,
+        signal,
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
           ...init.headers,
         },
       });
+      text = await res.text();
     } catch (error) {
-      if (!isIdempotent(path, init) || lastAttempt) throw error;
+      if (options.signal?.aborted || !isIdempotent(path, init) || lastAttempt) throw error;
       await sleep(backoffMs(attempt, null));
       continue;
     }
 
-    const text = await res.text();
     if (res.ok) return text ? (JSON.parse(text) as T) : ({} as T);
 
-    if (!RETRYABLE_STATUSES.has(res.status) || attempt >= MAX_REQUEST_ATTEMPTS - 1) {
+    if (!RETRYABLE_STATUSES.has(res.status) || lastAttempt) {
       throw new AcsApiError(res.status, text, path);
     }
 
@@ -319,6 +335,35 @@ export interface SearchOptions {
   /** Set only for a shopper turn. Catalog maintenance omits it, and a `system:` visitor is
    *  never charged even if one is passed. */
   meter?: SessionMeter;
+  /** Aborts the search when the shopper leaves. */
+  signal?: AbortSignal;
+}
+
+/**
+ * A shopper waits on every search, so it gets a short timeout and one retry instead of the long
+ * backoff maintenance calls can afford, and at most this many run at once per instance: the ACS
+ * quota is shared by every store, and a burst past it would turn into retries that make it worse.
+ */
+const SEARCH_TIMEOUT_MS = 8_000;
+const SEARCH_ATTEMPTS = 2;
+const MAX_CONCURRENT_SEARCHES = 48;
+
+let activeSearches = 0;
+const waitingSearches: Array<() => void> = [];
+
+async function withSearchSlot<T>(work: () => Promise<T>): Promise<T> {
+  if (activeSearches >= MAX_CONCURRENT_SEARCHES) {
+    await new Promise<void>((resolve) => waitingSearches.push(resolve));
+  } else {
+    activeSearches += 1;
+  }
+  try {
+    return await work();
+  } finally {
+    const next = waitingSearches.shift();
+    if (next) next();
+    else activeSearches -= 1;
+  }
 }
 
 /**
@@ -339,7 +384,16 @@ export async function searchProducts(options: SearchOptions): Promise<AcsSearchR
   const clauses = [merchantFilterClause(options.connectionId), scopeClause];
   if (options.extraFilter) clauses.push(`(${options.extraFilter})`);
 
-  const response = await searchProductsRaw(clauses.join(" AND "), options);
+  const interactive = Boolean(options.meter);
+  const response = interactive
+    ? await withSearchSlot(() =>
+        searchProductsRaw(clauses.join(" AND "), options, {
+          timeoutMs: SEARCH_TIMEOUT_MS,
+          attempts: SEARCH_ATTEMPTS,
+          signal: options.signal,
+        })
+      )
+    : await searchProductsRaw(clauses.join(" AND "), options, { signal: options.signal });
   if (options.meter && !options.visitorId.startsWith("system:")) addAcsSearch(options.meter);
   return response;
 }
@@ -353,7 +407,8 @@ export async function searchProducts(options: SearchOptions): Promise<AcsSearchR
  */
 export async function searchProductsRaw(
   filter: string,
-  options: Pick<SearchOptions, "visitorId" | "query" | "pageSize" | "pageCategories" | "pageToken">
+  options: Pick<SearchOptions, "visitorId" | "query" | "pageSize" | "pageCategories" | "pageToken">,
+  fetchOptions: FetchOptions = {}
 ): Promise<AcsSearchResponse> {
   const config = getAcsConfig();
 
@@ -368,10 +423,11 @@ export async function searchProductsRaw(
     queryExpansionSpec: QUERY_EXPANSION_SPEC,
   };
 
-  return acsFetch<AcsSearchResponse>(`${defaultPlacementPath(config)}:search`, {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
+  return acsFetch<AcsSearchResponse>(
+    `${defaultPlacementPath(config)}:search`,
+    { method: "POST", body: JSON.stringify(body) },
+    fetchOptions
+  );
 }
 
 /**

@@ -7,7 +7,7 @@ import {
   DEFAULT_CATEGORY_PREVIEW_PAGE_SIZE,
   readCategoryPreviewPage,
 } from "@/lib/catalog/category-preview";
-import { extractVariantAttributes, resolveProductBrand } from "@/lib/catalog/acs/map-product";
+import { extractVariantAttributes, hasProductImage, resolveProductBrand } from "@/lib/catalog/acs/map-product";
 import type { CategorySampleProduct } from "@/modules/store/types";
 
 /**
@@ -53,7 +53,12 @@ export async function GET(req: NextRequest) {
       return Response.json({ items: [], nextCursor: null, total: 0, totalExact: true, pageSize });
     }
 
-    const { products, nextCursor } = await readCategoryPreviewPage(pager, { pageSize, cursor });
+    // Products without an image are never published, so the preview shows what the agent can sell.
+    const { products, nextCursor, hidden } = await readCategoryPreviewPage(pager, {
+      pageSize,
+      cursor,
+      keep: hasProductImage,
+    });
 
     const items: CategorySampleProduct[] = products.map((raw) => ({
       externalId: raw.externalId,
@@ -81,7 +86,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return Response.json({ items, nextCursor, total, totalExact, pageSize });
+    return Response.json({ items, nextCursor, total, totalExact, pageSize, hiddenNoImage: hidden });
   } catch (err) {
     console.error("[store-connection category-samples GET]", err);
     return Response.json({ error: "Could not load category samples" }, { status: 500 });

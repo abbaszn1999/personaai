@@ -1,9 +1,15 @@
-import { importProducts, markOutOfStock } from "./client";
+import { deleteProduct, importProducts, markOutOfStock } from "./client";
 import { isAcsConfigured } from "./config";
 import { ensureDynamicAttributeRegistered } from "./attributes-config";
 import { getAcsProductSourceCategoryIds, getAcsVariantIds, markAcsProductOutOfStockIfExists } from "./catalog-reads";
 import { buildAcsProductId } from "./isolation";
-import { PIPELINE_ATTRIBUTE_KEYS, rawCatalogProductToAcsProducts, type MapProductInput } from "./map-product";
+import {
+  hasProductImage,
+  PIPELINE_ATTRIBUTE_KEYS,
+  rawCatalogProductToAcsProducts,
+  type MapProductInput,
+} from "./map-product";
+import { mirroredIds } from "./mirror";
 import type { AcsProduct } from "./types";
 
 /**
@@ -41,6 +47,45 @@ async function ensureDynamicAttributesRegistered(products: AcsProduct[]): Promis
   await Promise.all([...keys].map(([key, type]) => ensureDynamicAttributeRegistered(key, type)));
 }
 
+const DELETE_CONCURRENCY = 20;
+
+/**
+ * Takes the documents of products that lost their last image out of ACS. Only what the store's
+ * mirror says is there is deleted; with no trusted mirror every document is deleted, which is safe
+ * because a delete of a document that does not exist is a no-op.
+ */
+async function removeImageless(connectionId: string, documents: AcsProduct[]): Promise<void> {
+  if (documents.length === 0) return;
+  const ids = documents.map((product) => product.id);
+  const present = await mirroredIds(connectionId, ids);
+  const doomed = present ? ids.filter((id) => present.has(id)) : ids;
+  for (let i = 0; i < doomed.length; i += DELETE_CONCURRENCY) {
+    await Promise.all(doomed.slice(i, i + DELETE_CONCURRENCY).map((id) => deleteProduct(id)));
+  }
+}
+
+/**
+ * The one write every path goes through — a publish, the hourly sync and a webhook edit alike.
+ *
+ * A product with no image anywhere is never written: no card can show it, and in ACS it would only
+ * take the top of a page of results that are then all thrown away. One that already sits in ACS (an
+ * image removed in the store) is deleted. It returns with its image on its next edit or sync.
+ */
+async function writeProducts(inputs: MapProductInput[]): Promise<void> {
+  const mapped = inputs.map(rawCatalogProductToAcsProducts);
+  const writable: AcsProduct[] = [];
+  const imageless: AcsProduct[] = [];
+  mapped.forEach((documents, index) => {
+    (hasProductImage(inputs[index].raw) ? writable : imageless).push(...documents);
+  });
+
+  if (writable.length > 0) {
+    await ensureDynamicAttributesRegistered(writable);
+    await importProducts(writable);
+  }
+  await removeImageless(inputs[0].connectionId, imageless);
+}
+
 /** Full upsert for one product — the webhook path's create-or-update. Uses `products:import`
  *  rather than `products.patch` even for a single item: import behaves as a genuine upsert
  *  regardless of whether the product already exists in ACS, while `patch` assumes it does and
@@ -50,9 +95,7 @@ export async function syncProductToAcs(input: MapProductInput): Promise<boolean>
   try {
     // PRIMARY plus every real VARIANT child (see `rawCatalogProductToAcsProducts`) — one product
     // in the merchant's store can be several documents in ACS once it has real per-SKU variants.
-    const products = rawCatalogProductToAcsProducts(input);
-    await ensureDynamicAttributesRegistered(products);
-    await importProducts(products);
+    await writeProducts([input]);
     return true;
   } catch (err) {
     logAcsError("syncProductToAcs", input.connectionId, input.raw.externalId, err);
@@ -66,9 +109,7 @@ export async function syncProductsToAcs(inputs: MapProductInput[]): Promise<bool
   if (inputs.length === 0) return true;
   if (!isAcsConfigured()) return false;
   try {
-    const products = inputs.flatMap(rawCatalogProductToAcsProducts);
-    await ensureDynamicAttributesRegistered(products);
-    await importProducts(products);
+    await writeProducts(inputs);
     return true;
   } catch (err) {
     // Batch failure — attribute to the batch's connection since a mixed-connection batch is not

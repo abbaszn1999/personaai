@@ -17,7 +17,7 @@ vi.mock("@/lib/catalog/path-config/rebuild", () => ({
   scheduleRebuildPersonaPathConfig: vi.fn(),
 }));
 
-import { buildAgentContext } from "./context";
+import { buildAgentContext, forgetAgentContextReads } from "./context";
 
 const base = {
   ownerId: "owner",
@@ -28,6 +28,7 @@ const base = {
 
 describe("buildAgentContext", () => {
   beforeEach(() => {
+    forgetAgentContextReads();
     deps.getStoreConnectionByOwner.mockResolvedValue({ id: "conn", catalogSyncStatus: "ready", personaCategoryMap: {}, styleGuide: null });
     deps.getPersonaPathConfig.mockResolvedValue({ staleAt: null });
     deps.getCatalogProductsByExternalIds.mockImplementation(async (_connection: string, ids: string[]) =>

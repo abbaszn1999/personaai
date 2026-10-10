@@ -1,0 +1,125 @@
+# Production topology for Persona. Chat and the catalog worker run as separate services from the same
+# build, so a large catalog sync never competes with shoppers' chats for CPU, memory or the ACS quota,
+# and the chat service can scale out on its own. Rate limits are shared through Key Value so adding
+# chat instances does not multiply them.
+#
+# Secrets live in the `persona-secrets` group and are entered once in the Render Dashboard.
+
+envVarGroups:
+  - name: persona-secrets
+    envVars:
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: APP_URL
+        sync: false
+      - key: INTERNAL_JOB_SECRET
+        sync: false
+      - key: OPENAI_KEY_ENCRYPTION_SECRET
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: APP_RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ACS_CLIENT_EMAIL
+        sync: false
+      - key: ACS_PRIVATE_KEY
+        sync: false
+      - key: ACS_PROJECT_ID
+        sync: false
+      - key: ACS_LOCATION
+        sync: false
+      - key: ACS_CATALOG_ID
+        sync: false
+      - key: ACS_BRANCH_ID
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_CHAT_MODEL
+        sync: false
+      - key: GEMINI_ATTRIBUTE_MODEL
+        sync: false
+      - key: DECART_API_KEY
+        sync: false
+      - key: PRUNA_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: SIZING_RESEARCH_MODEL
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PORTAL_CONFIGURATION_ID
+        sync: false
+      - key: STRIPE_PRICE_PLAN_TRIAL
+        sync: false
+      - key: STRIPE_PRICE_PLAN_MAIN
+        sync: false
+      - key: STRIPE_PRICE_GARMENT_UNITS
+        sync: false
+      - key: STRIPE_PRICE_SESSION_UNITS
+        sync: false
+      - key: STRIPE_PRICE_LIVE_MINUTE
+        sync: false
+
+services:
+  - type: web
+    name: personaai
+    runtime: node
+    region: frankfurt
+    plan: standard
+    buildCommand: corepack enable; pnpm install --frozen-lockfile; pnpm run build
+    startCommand: pnpm run start
+    healthCheckPath: /api/health
+    autoDeployTrigger: "off"
+    scaling:
+      minInstances: 2
+      maxInstances: 8
+      targetCPUPercent: 65
+      targetMemoryPercent: 75
+    envVars:
+      - fromGroup: persona-secrets
+      - key: CATALOG_WORKER
+        value: "0"
+      - key: NODE_VERSION
+        value: "22"
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: persona-limits
+          property: connectionString
+
+  - type: worker
+    name: persona-catalog-worker
+    runtime: node
+    region: frankfurt
+    plan: standard
+    buildCommand: corepack enable; pnpm install --frozen-lockfile; pnpm run build
+    startCommand: pnpm run start
+    autoDeployTrigger: "off"
+    envVars:
+      - fromGroup: persona-secrets
+      - key: CATALOG_WORKER
+        value: "1"
+      - key: NODE_VERSION
+        value: "22"
+
+  - type: keyvalue
+    name: persona-limits
+    region: frankfurt
+    plan: starter
+    maxmemoryPolicy: allkeys-lru
+    ipAllowList: []

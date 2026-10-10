@@ -73,7 +73,7 @@ export function comparableValue(value: string): string {
 const COLOUR_SHORTHAND: Array<[RegExp, string]> = [
   [/^(?:lt?\s*\.\s*|lt\s+)/i, "light "],
   [/^(?:dk?\s*\.\s*|dk\s+)/i, "dark "],
-  [/^n\s*\.\s*(?=blue\b)/i, "navy "],
+  [/^n\s*\.\s*blue\b/i, "navy"],
 ];
 
 function isColourAttribute(attribute: Pick<PathConfigAttribute, "key" | "field">): boolean {
@@ -88,7 +88,7 @@ export function comparableAttributeValue(attribute: Pick<PathConfigAttribute, "k
   if (!isColourAttribute(attribute)) return comparableValue(value);
   let expanded = value.trim();
   for (const [pattern, word] of COLOUR_SHORTHAND) expanded = expanded.replace(pattern, word);
-  return comparableValue(expanded).replace(/gray/g, "grey");
+  return comparableValue(expanded).replace(/gray/g, "grey").replace(/^navyblue$/, "navy");
 }
 
 export function toAcsCategory(path: string): string {

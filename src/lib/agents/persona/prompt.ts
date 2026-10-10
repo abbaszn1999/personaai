@@ -37,10 +37,15 @@ export function buildPersonaPrefix(pathConfigText: string | null, styleGuide: st
 function renderLastSearch(search: LastSearch | null): string {
   if (!search) return "none";
   const lines = [`action: ${search.action}`, `path: ${search.path}`];
+  if (search.alsoPaths?.length) lines.push(`also_paths: ${search.alsoPaths.join(", ")}`);
   if (search.brands.length) lines.push(`brands: ${search.brands.join(", ")}`);
+  if (search.excludeBrands?.length) lines.push(`exclude_brands: ${search.excludeBrands.join(", ")}`);
   if (search.priceMin !== null) lines.push(`price_min: ${search.priceMin}`);
   if (search.priceMax !== null) lines.push(`price_max: ${search.priceMax}`);
   for (const attribute of search.attributes) lines.push(`attribute ${attribute.key}: ${attribute.values.join(", ")}`);
+  for (const attribute of search.excludeAttributes ?? []) {
+    lines.push(`exclude attribute ${attribute.key}: ${attribute.values.join(", ")}`);
+  }
   if (search.sizes?.length) lines.push(`sizes: ${search.sizes.join(", ")}`);
   if (search.query) lines.push(`query: ${search.query}`);
   return lines.join("\n");
@@ -57,8 +62,9 @@ export interface PersonaTurnExtras {
   /** Set when the corrective retry still could not become a search. */
   unavailable?: { problems: string[]; nearby: string[] };
   /** Set when the search ran and returned nothing. `exhausted` means it returned nothing new:
-   *  everything matching is already on screen. */
-  empty?: { constraints: string[]; nearby: string[]; exhausted?: boolean };
+   *  everything matching is already on screen. `sizeOnly` means the same search does find stock
+   *  without the shopper's fit — nothing matching comes in their size. */
+  empty?: { constraints: string[]; nearby: string[]; exhausted?: boolean; sizeOnly?: boolean };
 }
 
 /** The variable half — everything after the cached boundary. */
@@ -101,6 +107,12 @@ export function renderPersonaTurn(ctx: AgentContext, extras: PersonaTurnExtras):
       `## NOTHING MORE TO SHOW\nThe shopper asked for more of the same search, and every product matching it is already on screen:\n${extras.empty.constraints
         .map((line) => `- ${line}`)
         .join("\n")}\nReturn action "answer": say that is everything the store has for this right now, and offer quick options that each change exactly one constraint using real values (a nearby category, another colour, a wider price).`
+    );
+  } else if (extras.empty?.sizeOnly) {
+    blocks.push(
+      `## NOTHING IN THEIR SIZE\nThe search for this message ran with these constraints:\n${extras.empty.constraints
+        .map((line) => `- ${line}`)
+        .join("\n")}\nThe store does stock matching products, but none in a size that fits this shopper. Return action "answer": say plainly, in one or two sentences, that nothing matching comes in their size right now, without blaming any other constraint. Offer quick options that change exactly one thing that could reach their size: a nearby category, another colour, another brand or a wider price — never a different size.`
     );
   } else if (extras.empty) {
     blocks.push(

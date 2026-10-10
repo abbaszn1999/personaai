@@ -358,6 +358,11 @@ export function StageFiveAcsTable({
               No longer in store: {summary!.unavailable!.toLocaleString()}
             </span>
           )}
+          {(summary?.withoutImage ?? 0) > 0 && (
+            <span className="text-amber-700" title="Products with no image cannot be shown to shoppers, so they are left out of the setup and never published.">
+              No image (not published): {summary!.withoutImage!.toLocaleString()}
+            </span>
+          )}
           <span className="ml-auto flex items-center gap-1.5 font-medium text-slate-400">
             {updating ? (
               <>

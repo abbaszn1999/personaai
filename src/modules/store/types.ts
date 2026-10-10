@@ -149,6 +149,8 @@ export interface CategorySamplePage {
   total: number | null;
   totalExact: boolean;
   pageSize: number;
+  /** Products passed over while filling this page because they have no image; never published. */
+  hiddenNoImage?: number;
 }
 
 /** One row of the mapping preview: the raw fields pulled from the merchant's store next to the

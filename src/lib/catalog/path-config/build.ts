@@ -161,6 +161,9 @@ function clusteredCuts(sorted: readonly number[], low: number, high: number): { 
   return { cutA, cutB: cutA === null ? null : closest((2 * sorted.length) / 3, cutA) };
 }
 
+const MIN_TIER_PRODUCTS = 2;
+const MIN_TIER_SHARE = 0.12;
+
 /** Tertiles over the in-stock price list. Boundaries are whole currency units so the rendered
  *  text is short and stable; each tier still counts exactly the products inside it. */
 export function computePriceTiers(prices: readonly number[]): PathConfigTier[] {
@@ -174,30 +177,41 @@ export function computePriceTiers(prices: readonly number[]): PathConfigTier[] {
   let cutB: number | null = Math.round(at(2 / 3));
   if (cutA >= cutB) ({ cutA, cutB } = clusteredCuts(sorted, low, high));
 
-  const bounds: Array<[PathConfigTier["label"], number, number]> =
+  const bands: Array<[number, number]> =
     high - low < 3 || cutA === null
-      ? [["A", low, high]]
+      ? [[low, high]]
       : cutB === null
         ? [
-            ["A", low, cutA],
-            ["B", cutA, high],
+            [low, cutA],
+            [cutA, high],
           ]
         : [
-            ["A", low, cutA],
-            ["B", cutA, cutB],
-            ["C", cutB, high],
+            [low, cutA],
+            [cutA, cutB],
+            [cutB, high],
           ];
 
-  return bounds
-    .map(([label, min, max], index) => ({
-      label,
-      min,
-      max,
-      count: sorted.filter((price) =>
-        index === 0 ? price >= min && price <= max : price > min && price <= max
-      ).length,
-    }))
-    .filter((tier) => tier.count > 0);
+  const countIn = (min: number, max: number, first: boolean) =>
+    sorted.filter((price) => (first ? price >= min : price > min) && price <= max).length;
+  const counted = bands
+    .map(([min, max], index) => ({ min, max, count: countIn(min, max, index === 0) }))
+    .filter((band) => band.count > 0);
+
+  // "Cheap" reads the top of tier A and "premium" the bottom of tier C, so a band holding a sliver
+  // of the products (3 of 77 polos) would turn either word into a search for almost nothing.
+  const minCount = Math.max(MIN_TIER_PRODUCTS, Math.ceil(sorted.length * MIN_TIER_SHARE));
+  while (counted.length > 1 && counted[0].count < minCount) {
+    const [thin, next] = counted.splice(0, 2);
+    counted.unshift({ min: thin.min, max: next.max, count: thin.count + next.count });
+  }
+  while (counted.length > 1 && counted[counted.length - 1].count < minCount) {
+    const thin = counted.pop()!;
+    const previous = counted.pop()!;
+    counted.push({ min: previous.min, max: thin.max, count: previous.count + thin.count });
+  }
+
+  const labels: PathConfigTier["label"][] = ["A", "B", "C"];
+  return counted.map((band, index) => ({ label: labels[index], ...band }));
 }
 
 function newAccumulator(path: string, level: PathConfigNodeLevel, segments: string[]): NodeAccumulator {

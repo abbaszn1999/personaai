@@ -9,6 +9,7 @@ import {
   Loader2,
   MessageSquare,
   PlusCircle,
+  RotateCcw,
   Ruler,
   Search,
   Shirt,
@@ -21,9 +22,9 @@ import {
 import type { ChatBudgetPrompt, ChatMessage as ChatMessageType } from "@/modules/commerce/types";
 import type { BundleSuggestion, Product } from "@/modules/commerce/types";
 import { CURRENCY_SYMBOLS, formatBudget, formatPrice } from "@/modules/commerce/constants";
-import { SCAN_STAGES } from "../mocks/responses";
 import type { TypingStage } from "../hooks/use-try-on-agent";
 import { useWearableBranding } from "../branding-context";
+import { useWidgetLocale, widgetStrings } from "../widget-strings";
 import { cn } from "@/lib/utils/cn";
 
 interface WearableChatMessageProps {
@@ -44,6 +45,10 @@ interface WearableChatMessageProps {
   attachedLookId?: string | null;
   /** Disables the chat CTAs while a turn is streaming. */
   isBusy?: boolean;
+  /** True whenever the composer is disabled — quick options and Retry send a message too. */
+  sendDisabled?: boolean;
+  /** Set only on the bubble of a failed reply. */
+  onRetry?: () => void;
   onWearItem?: (product: Product) => void;
   onAddToCart?: (product: Product) => void;
   onAskAboutItem?: (product: Product) => void;
@@ -56,9 +61,9 @@ interface WearableChatMessageProps {
   onChooseBudget?: (anchorId: string, budget: number | null) => void;
 }
 
-function formatTime(iso: string): string {
+function formatTime(iso: string, locale: string | undefined): string {
   try {
-    return new Date(iso).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+    return new Date(iso).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
   } catch {
     return "";
   }
@@ -77,6 +82,8 @@ export function WearableChatMessage({
   attachedItemId = null,
   attachedLookId = null,
   isBusy = false,
+  sendDisabled = false,
+  onRetry,
   onWearItem,
   onAddToCart,
   onAskAboutItem,
@@ -105,6 +112,8 @@ export function WearableChatMessage({
   );
   const isUser = message.role === "user";
   const branding = useWearableBranding();
+  const locale = useWidgetLocale();
+  const strings = widgetStrings(locale);
   // Old sessions may still contain a revoked `blob:` URL from the former onboarding uploader.
   // Remember only the URL that failed: a newly uploaded URL automatically gets another chance.
   const [failedUserPhotoUrl, setFailedUserPhotoUrl] = React.useState<string | null>(null);
@@ -143,6 +152,7 @@ export function WearableChatMessage({
 
       <div className={cn("flex flex-col gap-1.5", isUser ? "items-end" : "items-start", "max-w-[88%]")}>
         <div
+          dir="auto"
           className={cn(
             "rounded-[var(--radius-xl)] px-4 py-2.5 text-sm leading-relaxed",
             isUser
@@ -154,8 +164,20 @@ export function WearableChatMessage({
         </div>
 
         <span className="text-[10px] text-[var(--color-text-muted)] px-1">
-          {formatTime(message.timestamp)}
+          {formatTime(message.timestamp, locale)}
         </span>
+
+        {onRetry && (
+          <button
+            type="button"
+            dir="auto"
+            onClick={onRetry}
+            disabled={sendDisabled}
+            className="flex items-center gap-1.5 text-xs font-semibold rounded-full border border-[var(--color-border)] px-3 py-1.5 text-[var(--color-text-secondary)] hover:border-[var(--color-brand)] hover:text-[var(--color-brand)] hover:bg-[var(--color-brand-light)] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <RotateCcw className="h-3 w-3" /> {strings.retry}
+          </button>
+        )}
 
         {message.quickOptions && message.quickOptions.length > 0 && isLast && (
           <div className="flex flex-wrap gap-1.5 mt-0.5">
@@ -163,8 +185,10 @@ export function WearableChatMessage({
               <button
                 key={option}
                 type="button"
+                dir="auto"
                 onClick={() => onQuickOption?.(option)}
-                className="text-xs rounded-full border border-[var(--color-border)] px-3 py-1.5 text-[var(--color-text-secondary)] hover:border-[var(--color-brand)] hover:text-[var(--color-brand)] hover:bg-[var(--color-brand-light)] transition-all"
+                disabled={sendDisabled}
+                className="text-xs rounded-full border border-[var(--color-border)] px-3 py-1.5 text-[var(--color-text-secondary)] hover:border-[var(--color-brand)] hover:text-[var(--color-brand)] hover:bg-[var(--color-brand-light)] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {option}
               </button>
@@ -377,6 +401,11 @@ export function InlineSuggestionCard({
               )}
             </div>
           </div>
+        )}
+        {!product.inStock && (
+          <span className="absolute left-1.5 top-1.5 rounded-full bg-black/70 px-1.5 py-0.5 text-[9px] font-semibold text-white">
+            Out of stock
+          </span>
         )}
       </div>
 
@@ -1007,7 +1036,8 @@ export function WearableScanningIndicator({
   stageIndex: number;
   resultCount?: number | null;
 }) {
-  const lastStageIndex = SCAN_STAGES.length - 1;
+  const strings = widgetStrings(useWidgetLocale());
+  const lastStageIndex = strings.scanStages.length - 1;
   return (
     <div className="flex items-start gap-2.5 animate-fade-in">
       <div className="h-8 w-8 rounded-full gradient-violet flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
@@ -1015,11 +1045,11 @@ export function WearableScanningIndicator({
       </div>
       <div className="w-72 rounded-[var(--radius-xl)] rounded-bl-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-base)] px-4 py-3 space-y-2.5">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold text-[var(--color-text-primary)]">Building your outfit…</span>
+          <span dir="auto" className="text-xs font-semibold text-[var(--color-text-primary)]">{strings.scanTitle}</span>
           <Loader2 className="h-3.5 w-3.5 text-[var(--color-brand)] animate-spin" />
         </div>
         <div className="space-y-1.5">
-          {SCAN_STAGES.map((label, i) => (
+          {strings.scanStages.map((label, i) => (
             <div key={label} className="flex items-center gap-2">
               {i < stageIndex ? (
                 <CheckCircle2 className="h-3 w-3 text-[var(--color-success)] shrink-0" />
@@ -1029,14 +1059,13 @@ export function WearableScanningIndicator({
                 <span className="h-3 w-3 rounded-full border border-[var(--color-border)] shrink-0" />
               )}
               <span
+                dir="auto"
                 className={cn(
                   "text-[11px]",
                   i <= stageIndex ? "text-[var(--color-text-secondary)]" : "text-[var(--color-text-muted)]"
                 )}
               >
-                {i === lastStageIndex && typeof resultCount === "number"
-                  ? `Prepared ${resultCount} bundle item${resultCount === 1 ? "" : "s"}…`
-                  : label}
+                {i === lastStageIndex && typeof resultCount === "number" ? strings.scanResultCount(resultCount) : label}
               </span>
             </div>
           ))}
@@ -1082,15 +1111,15 @@ function TryOnResultCard({ items, recommendedSizes, fitNotes }: TryOnResultCardP
 /** Only the stages that are worth naming. The opening stretch before any tool has run is short
  *  enough that three dots say everything, and labelling it would be guessing at what the model
  *  is about to decide. */
-const TYPING_STAGE_LABELS: Partial<Record<TypingStage, string>> = {
-  // "Checking", not "searching": this tool can come back with a question instead of results, and
-  // the label has to stay true in that case too.
-  searching: "Checking the catalog…",
-  composing: "Putting your reply together…",
+const TYPING_STAGE_LABELS: Partial<Record<TypingStage, "searching" | "composing">> = {
+  searching: "searching",
+  composing: "composing",
 };
 
 export function WearableTypingIndicator({ stage = "thinking" }: { stage?: TypingStage }) {
-  const label = TYPING_STAGE_LABELS[stage];
+  const strings = widgetStrings(useWidgetLocale());
+  const labelKey = TYPING_STAGE_LABELS[stage];
+  const label = labelKey ? strings[labelKey] : null;
 
   return (
     <div className="flex items-end gap-2.5">
@@ -1107,7 +1136,7 @@ export function WearableTypingIndicator({ stage = "thinking" }: { stage?: Typing
             />
           ))}
         </div>
-        {label && <span className="text-[11px] text-[var(--color-text-muted)]">{label}</span>}
+        {label && <span dir="auto" className="text-[11px] text-[var(--color-text-muted)]">{label}</span>}
       </div>
     </div>
   );

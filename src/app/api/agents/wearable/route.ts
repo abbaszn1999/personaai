@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getPlatformGeminiApiKey } from "@/lib/ai/gemini";
@@ -62,6 +63,7 @@ export async function POST(req: NextRequest) {
   const history = Array.isArray(body.messages) ? body.messages : [];
 
   const meter = createSessionMeter();
+  const requestId = randomUUID();
   const context = await buildAgentContext({
     ownerId: user.id,
     // The dashboard preview is the merchant's own authenticated account — already a stable id.
@@ -77,6 +79,7 @@ export async function POST(req: NextRequest) {
     attachment: body.attachment,
     trigger: body.trigger,
     referencedItemId: body.referencedItemId,
+    signal: req.signal,
   });
 
   const stream = agentEventStream(
@@ -88,6 +91,7 @@ export async function POST(req: NextRequest) {
         ownerId: user.id,
         sessionId: user.id,
         history,
+        requestId,
         cycleStartIso: billing.cycleStartIso,
         includedAllowance: billing.tier.monthlySessionUnits,
         source: "preview",

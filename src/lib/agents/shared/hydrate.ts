@@ -93,6 +93,57 @@ export function toProducts(candidates: CatalogCandidate[]): Product[] {
 /** Bounded so a slow merchant store degrades to stored prices instead of stalling the turn. */
 const HYDRATION_TIMEOUT_MS = 5_000;
 
+interface LiveFact {
+  price: number | null;
+  currency: string | null;
+  inStock: boolean;
+}
+
+/**
+ * Live price and stock per product, shared by every shopper of a store for a short while. Every
+ * search turn checks the products it is about to show against the merchant's own store API, and
+ * with many shoppers browsing the same rails that is the same handful of products asked for again
+ * and again — enough to run into Shopify's per-store rate limit. A minute-old price is still
+ * fresher than the index; the store remains the truth on add to cart.
+ */
+const LIVE_FACT_TTL_MS = 45_000;
+const MAX_LIVE_FACTS = 5_000;
+const liveFacts = new Map<string, { fact: LiveFact; expiresAt: number }>();
+
+function liveFactKey(connectionId: string, externalId: string): string {
+  return `${connectionId}\u0000${externalId}`;
+}
+
+function cachedLiveFact(connectionId: string, externalId: string, now: number): LiveFact | null {
+  const entry = liveFacts.get(liveFactKey(connectionId, externalId));
+  if (!entry) return null;
+  if (entry.expiresAt > now) return entry.fact;
+  liveFacts.delete(liveFactKey(connectionId, externalId));
+  return null;
+}
+
+function rememberLiveFact(connectionId: string, externalId: string, fact: LiveFact, now: number): void {
+  if (liveFacts.size >= MAX_LIVE_FACTS) {
+    const oldest = liveFacts.keys().next().value;
+    if (oldest !== undefined) liveFacts.delete(oldest);
+  }
+  liveFacts.set(liveFactKey(connectionId, externalId), { fact, expiresAt: now + LIVE_FACT_TTL_MS });
+}
+
+function withFact(candidate: CatalogCandidate, fact: LiveFact): CatalogCandidate {
+  return {
+    ...candidate,
+    price: fact.price ?? candidate.price,
+    currency: fact.currency ?? candidate.currency,
+    inStock: fact.inStock,
+  };
+}
+
+/** Drops every remembered live fact. Tests only. */
+export function forgetLiveFacts(): void {
+  liveFacts.clear();
+}
+
 /**
  * Refreshes price and stock for the finalists against the merchant's live store.
  *
@@ -117,11 +168,24 @@ export async function hydrateLiveFacts(
   );
   if (isHostBlocked(storeHost)) return candidates;
 
+  const now = Date.now();
+  const known = new Map<string, LiveFact>();
+  for (const candidate of candidates) {
+    const fact = cachedLiveFact(connection.id, candidate.externalId, now);
+    if (fact) known.set(candidate.externalId, fact);
+  }
+  const fromCache = () =>
+    candidates.map((candidate) => {
+      const fact = known.get(candidate.externalId);
+      return fact ? withFact(candidate, fact) : candidate;
+    });
+  const externalIds = [...new Set(candidates.map((candidate) => candidate.externalId))].filter((id) => !known.has(id));
+  if (externalIds.length === 0) return fromCache();
+
   const { signal, cancel } = createTimeoutSignal(HYDRATION_TIMEOUT_MS);
 
   try {
     const credentials = decodeCredentials(connection.apiKeyEncrypted);
-    const externalIds = candidates.map((candidate) => candidate.externalId);
 
     const facts =
       connection.platform === "shopify"
@@ -146,18 +210,12 @@ export async function hydrateLiveFacts(
           );
 
     recordHostSuccess(storeHost);
-    const byId = new Map(facts.map((fact) => [fact.externalId, fact]));
-
-    return candidates.map((candidate) => {
-      const fresh = byId.get(candidate.externalId);
-      if (!fresh) return candidate;
-      return {
-        ...candidate,
-        price: fresh.price ?? candidate.price,
-        currency: fresh.currency ?? candidate.currency,
-        inStock: fresh.inStock,
-      };
-    });
+    for (const fresh of facts) {
+      const fact: LiveFact = { price: fresh.price ?? null, currency: fresh.currency ?? null, inStock: fresh.inStock };
+      known.set(fresh.externalId, fact);
+      rememberLiveFact(connection.id, fresh.externalId, fact, Date.now());
+    }
+    return fromCache();
   } catch (err) {
     recordHostFailure(storeHost);
     // Name and message only: an aborted `fetch` rejects with a DOMException whose enumerable
@@ -165,7 +223,7 @@ export async function hydrateLiveFacts(
     // them for every timeout while saying nothing the name doesn't.
     const reason = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
     console.error(`[persona hydrateLiveFacts] ${connection.id} ${storeHost ?? "unknown host"} ${reason}`);
-    return candidates;
+    return fromCache();
   } finally {
     cancel();
   }

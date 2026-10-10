@@ -49,6 +49,18 @@ describe("readCategoryPreviewPage", () => {
     expect(result.nextCursor).not.toBeNull();
   });
 
+  it("passes over products the caller leaves out, counting them, and still fills the page", async () => {
+    const pager = fakePager([["1"]], 300, 40);
+    const odd = (p: RawCatalogProduct) => Number(p.externalId) % 2 === 0;
+    const first = await readCategoryPreviewPage(pager, { pageSize: 50, keep: odd });
+    expect(first.products).toHaveLength(50);
+    expect(first.products.every(odd)).toBe(true);
+    expect(first.hidden).toBeGreaterThanOrEqual(49);
+    const second = await readCategoryPreviewPage(pager, { pageSize: 50, cursor: first.nextCursor, keep: odd });
+    const firstIds = new Set(first.products.map((p) => p.externalId));
+    expect(second.products.some((p) => firstIds.has(p.externalId))).toBe(false);
+  });
+
   it("keeps every product exactly once when raw pages split across preview pages", async () => {
     const pager = fakePager([["1"]], 250, 40);
     const pages = await readAll(pager, 100);
@@ -85,7 +97,7 @@ describe("readCategoryPreviewPage", () => {
   it("returns an empty final page for an empty category", async () => {
     const pager = fakePager([["1"]], 0, 100);
     const result = await readCategoryPreviewPage(pager, { pageSize: 25 });
-    expect(result).toEqual({ products: [], nextCursor: null });
+    expect(result).toEqual({ products: [], nextCursor: null, hidden: 0 });
   });
 });
 

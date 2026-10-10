@@ -30,6 +30,13 @@ export interface SourceHashConfig {
 }
 
 /**
+ * Bump whenever the mapper starts writing something new onto every record (2: the
+ * `persona_has_image` flag). Every stored hash then stops matching, so the next reconcile writes
+ * each product again and the new field reaches the whole catalog without a publish.
+ */
+const ACS_RECORD_REVISION = 2;
+
+/**
  * Fingerprints everything besides the product itself that changes what gets written: the publish
  * run (it is stamped on every document and moves whenever charts or sizing are rebuilt) and the
  * mapping and sizing settings. A product whose own data is untouched must still be written again
@@ -37,6 +44,7 @@ export interface SourceHashConfig {
  */
 export function sourceConfigKey(connection: SourceHashConfig, publishId: string | null): string {
   return sha256({
+    revision: ACS_RECORD_REVISION,
     publishId,
     scope: connection.personaTaxonomyScope ?? null,
     map: connection.personaCategoryMap ?? null,

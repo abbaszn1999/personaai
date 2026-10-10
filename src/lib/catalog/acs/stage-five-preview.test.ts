@@ -39,6 +39,7 @@ const loadSizingResolutionContext = vi.fn();
 vi.mock("@/lib/catalog/sizing-for-product", () => ({ resolveRawProductSizing }));
 vi.mock("@/lib/sizing/product-chart", () => ({ loadSizingResolutionContext }));
 vi.mock("./map-product", () => ({
+  hasProductImage: () => true,
   rawCatalogProductToAcsProducts: vi.fn((input: {
     raw: { externalId: string; title: string; brand?: string };
   }) => [

@@ -32,7 +32,7 @@ export async function resolveEmbedRequest(
   }
 
   const kind = options.kind ?? "standard";
-  if (!allowEmbedRequest(embedToken, { kind, clientKey: clientKeyFor(options.req) })) {
+  if (!(await allowEmbedRequest(embedToken, { kind, clientKey: clientKeyFor(options.req) }))) {
     return { error: embedJson({ error: "Too many requests — please slow down." }, { status: 429 }) };
   }
 

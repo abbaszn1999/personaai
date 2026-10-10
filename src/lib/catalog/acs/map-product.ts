@@ -87,10 +87,37 @@ export interface MapProductInput {
 
 export const PUBLISH_ID_ATTRIBUTE = "persona_publish_id";
 
+/**
+ * `"false"` on a record with no image. A card cannot be shown without one, so every agent search
+ * excludes these in the filter itself: left in, they take the top of a page and are only dropped at
+ * display, leaving the shopper with a handful of cards out of a full page of matches.
+ */
+export const IMAGE_ATTRIBUTE = "persona_has_image";
+
 function publishIdAttribute(publishId: string | null | undefined): Record<string, AcsCustomAttribute> {
   return publishId
     ? { [PUBLISH_ID_ATTRIBUTE]: textAttribute(publishId, { searchable: false, indexable: false }) }
     : {};
+}
+
+/**
+ * Whether a store product has a photo anywhere — its own images or any variant's. A product without
+ * one cannot be shown on a card, so the whole setup leaves it out: the scan does not count it, the
+ * Mapping preview does not list it, and it is never written to ACS.
+ */
+export function hasProductImage(raw: Pick<RawCatalogProduct, "imageUrl" | "images" | "variants">): boolean {
+  if (raw.imageUrl?.trim()) return true;
+  if (raw.images.some((image) => image?.trim())) return true;
+  return raw.variants.some((variant) => variant.imageUrl?.trim());
+}
+
+function withImageFlag(product: AcsProduct): AcsProduct {
+  const hasImage = Boolean(product.images?.some((image) => image.uri));
+  product.attributes = {
+    ...product.attributes,
+    [IMAGE_ATTRIBUTE]: textAttribute(hasImage ? "true" : "false", { searchable: false, indexable: true }),
+  };
+  return product;
 }
 
 /**
@@ -132,6 +159,7 @@ function toAvailability(inStock: boolean): AcsAvailability {
 export const PIPELINE_ATTRIBUTE_KEYS: ReadonlySet<string> = new Set([
   MERCHANT_ID_ATTRIBUTE,
   PUBLISH_ID_ATTRIBUTE,
+  IMAGE_ATTRIBUTE,
   "garment_category",
   "garment_subcategory",
   "product_group_id",
@@ -871,7 +899,11 @@ export function rawCatalogProductToAcsProduct(input: MapProductInput): AcsProduc
   const price = routed.price();
   if (price) product.priceInfo = price;
   const images = routed.list("images");
+  // A product photographed only on its variants still has a face: the first variant photo stands in,
+  // so the product card and every count that requires an image agree with `hasProductImage`.
+  const variantImage = raw.variants.find((variant) => variant.imageUrl?.trim())?.imageUrl;
   if (images.length > 0) product.images = images.map((uri) => ({ uri }));
+  else if (variantImage) product.images = [{ uri: variantImage }];
   const uri = routed.text("uri");
   if (uri) product.uri = uri;
 
@@ -891,7 +923,7 @@ export function rawCatalogProductToAcsProduct(input: MapProductInput): AcsProduc
   if (routedGenders.length > 0) product.genders = routedGenders;
   if (routedAgeGroups.length > 0) product.ageGroups = routedAgeGroups;
 
-  return product;
+  return withImageFlag(product);
 }
 
 /**
@@ -985,7 +1017,7 @@ export function buildVariantAcsProducts(input: MapProductInput, primary: AcsProd
     if (buckets.genders.length > 0) product.genders = buckets.genders;
     if (buckets.ageGroups.length > 0) product.ageGroups = buckets.ageGroups;
 
-    return product;
+    return withImageFlag(product);
   });
 }
 
