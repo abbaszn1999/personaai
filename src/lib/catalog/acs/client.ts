@@ -73,6 +73,9 @@ interface FetchOptions {
   attempts?: number;
   /** The caller gave up (a shopper closed the chat): stop at once, never retry. */
   signal?: AbortSignal;
+  /** Once per attempt Google may bill: one that answered, or one that timed out or dropped on the
+   *  way back (it may have run). A rejected attempt (429, 503, any error status) is not billed. */
+  onBillable?: () => void;
 }
 
 async function acsFetch<T>(path: string, init: RequestInit, options: FetchOptions = {}): Promise<T> {
@@ -106,12 +109,16 @@ async function acsFetch<T>(path: string, init: RequestInit, options: FetchOption
       });
       text = await res.text();
     } catch (error) {
+      options.onBillable?.();
       if (options.signal?.aborted || !isIdempotent(path, init) || lastAttempt) throw error;
       await sleep(backoffMs(attempt, null));
       continue;
     }
 
-    if (res.ok) return text ? (JSON.parse(text) as T) : ({} as T);
+    if (res.ok) {
+      options.onBillable?.();
+      return text ? (JSON.parse(text) as T) : ({} as T);
+    }
 
     if (!RETRYABLE_STATUSES.has(res.status) || lastAttempt) {
       throw new AcsApiError(res.status, text, path);
@@ -384,18 +391,16 @@ export async function searchProducts(options: SearchOptions): Promise<AcsSearchR
   const clauses = [merchantFilterClause(options.connectionId), scopeClause];
   if (options.extraFilter) clauses.push(`(${options.extraFilter})`);
 
-  const interactive = Boolean(options.meter);
-  const response = interactive
-    ? await withSearchSlot(() =>
-        searchProductsRaw(clauses.join(" AND "), options, {
-          timeoutMs: SEARCH_TIMEOUT_MS,
-          attempts: SEARCH_ATTEMPTS,
-          signal: options.signal,
-        })
-      )
-    : await searchProductsRaw(clauses.join(" AND "), options, { signal: options.signal });
-  if (options.meter && !options.visitorId.startsWith("system:")) addAcsSearch(options.meter);
-  return response;
+  const meter = options.meter && !options.visitorId.startsWith("system:") ? options.meter : undefined;
+  if (!options.meter) return searchProductsRaw(clauses.join(" AND "), options, { signal: options.signal });
+  return withSearchSlot(() =>
+    searchProductsRaw(clauses.join(" AND "), options, {
+      timeoutMs: SEARCH_TIMEOUT_MS,
+      attempts: SEARCH_ATTEMPTS,
+      signal: options.signal,
+      onBillable: meter ? () => addAcsSearch(meter) : undefined,
+    })
+  );
 }
 
 /**

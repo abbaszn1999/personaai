@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { deleteProduct, getProduct, importProducts, patchProduct, searchProducts } from "./client";
 import type { AcsProduct } from "./types";
+import { createSessionMeter, type SessionMeter } from "@/lib/billing/session-meter";
+import { ACS_SEARCH_NANOS } from "@/lib/billing/pricing";
 
 const auth = vi.hoisted(() => ({ getAcsAccessToken: vi.fn(() => Promise.resolve("test-token")) }));
 vi.mock("./auth", () => ({ getAcsAccessToken: auth.getAcsAccessToken }));
@@ -206,6 +208,80 @@ describe("acsFetch retries", () => {
 
     await expect(pending).resolves.toEqual({ results: [] });
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("search charges", () => {
+  const meteredSearch = (meter: SessionMeter, visitorId = "v1") =>
+    searchProducts({ connectionId: CONNECTION_ID, categoryScope: ["424"], visitorId, query: "q", meter });
+
+  beforeEach(() => {
+    process.env.ACS_PROJECT_ID = "test-project";
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    if (originalProjectId) process.env.ACS_PROJECT_ID = originalProjectId;
+    else delete process.env.ACS_PROJECT_ID;
+    vi.restoreAllMocks();
+  });
+
+  it("charges one unit for a search that answered", async () => {
+    mockFetch();
+    const meter = createSessionMeter();
+
+    await meteredSearch(meter);
+
+    expect(meter.acsSearches).toBe(1);
+    expect(meter.nanos).toBe(ACS_SEARCH_NANOS);
+  });
+
+  it("charges both runs of a search whose first attempt dropped on the way back", async () => {
+    vi.spyOn(global, "fetch")
+      .mockRejectedValueOnce(new DOMException("The operation timed out.", "TimeoutError"))
+      .mockResolvedValue(json({ results: [] }));
+    const meter = createSessionMeter();
+
+    const pending = meteredSearch(meter);
+    await vi.runAllTimersAsync();
+    await pending;
+
+    expect(meter.acsSearches).toBe(2);
+  });
+
+  it("charges a search that timed out on every attempt, since Google may have run each one", async () => {
+    vi.spyOn(global, "fetch").mockRejectedValue(new DOMException("The operation timed out.", "TimeoutError"));
+    const meter = createSessionMeter();
+
+    const rejection = expect(meteredSearch(meter)).rejects.toThrow(/timed out/);
+    await vi.runAllTimersAsync();
+    await rejection;
+
+    expect(meter.acsSearches).toBe(2);
+  });
+
+  it("does not charge attempts Google rejected", async () => {
+    vi.spyOn(global, "fetch")
+      .mockResolvedValueOnce(json({ error: "quota" }, 429))
+      .mockResolvedValue(json({ results: [] }));
+    const meter = createSessionMeter();
+
+    const pending = meteredSearch(meter);
+    await vi.runAllTimersAsync();
+    await pending;
+
+    expect(meter.acsSearches).toBe(1);
+  });
+
+  it("never charges a system visitor", async () => {
+    mockFetch();
+    const meter = createSessionMeter();
+
+    await meteredSearch(meter, "system:probe");
+
+    expect(meter.acsSearches).toBe(0);
+    expect(meter.nanos).toBe(0);
   });
 });
 

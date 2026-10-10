@@ -339,6 +339,22 @@ describe("resolvePrefixCache cost", () => {
     expect(charge.nanos).toBeLessThanOrEqual(12_000 * 750 + 12_000 * 500 + 1);
   });
 
+  it("charges storage from when Google created the cache, not from when the answer arrived", async () => {
+    const now = Date.now();
+    const createTime = new Date(now - 30 * 60_000).toISOString();
+    const expireTime = new Date(now + 30 * 60_000).toISOString();
+    create.mockResolvedValue({ name: "c/slow", createTime, expireTime, usageMetadata: { totalTokenCount: 12_000 } });
+    const onCost = vi.fn();
+    const tracked: Promise<void>[] = [];
+
+    mod.resolvePrefixCache({ apiKey: "k", model: "gemini-3.8-flash", prefix: `${LONG}created-at`, displayName: "t", onCost, track: (task: Promise<void>) => tracked.push(task) });
+    await Promise.all(tracked);
+
+    const [[charge]] = onCost.mock.calls;
+    // The full hour Google stores it: 12,000 tokens as input plus 12,000 token-hours of storage.
+    expect(charge.nanos).toBe(12_000 * 750 + 12_000 * 500);
+  });
+
   it("charges an extension only the storage hours it added", async () => {
     const prefix = `${LONG}extend-cost`;
     const key = prefixCacheKey("gemini-3.8-flash", prefix);

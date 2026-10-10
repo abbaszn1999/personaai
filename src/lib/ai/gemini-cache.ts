@@ -101,6 +101,12 @@ function expiryOf(cache: CachedContent): number {
   return Number.isFinite(expiresAt) ? expiresAt : Date.now() + TTL_SECONDS * 1000;
 }
 
+/** When Google started storing the cache, which is when its storage bill starts. */
+function createdAtOf(cache: CachedContent, fallback: number): number {
+  const createdAt = cache.createTime ? Date.parse(cache.createTime) : NaN;
+  return Number.isFinite(createdAt) ? Math.min(createdAt, fallback) : fallback;
+}
+
 function slotOf(input: ResolvePrefixCacheInput): string {
   return `${input.model}\n${input.displayName}`;
 }
@@ -197,6 +203,7 @@ function logCache(
 async function createCache(key: string, input: ResolvePrefixCacheInput): Promise<void> {
   try {
     const ai = getGeminiClient(input.apiKey);
+    const requestedAt = Date.now();
     const cache = await ai.caches.create({
       model: input.model,
       config: {
@@ -214,7 +221,7 @@ async function createCache(key: string, input: ResolvePrefixCacheInput): Promise
     input.onCost?.({
       nanos: geminiCacheCostNanos({
         tokens,
-        ttlSeconds: Math.max(0, (expiresAt - Date.now()) / 1000),
+        ttlSeconds: Math.max(0, (expiresAt - createdAtOf(cache, requestedAt)) / 1000),
         created: true,
         model: input.model,
       }),

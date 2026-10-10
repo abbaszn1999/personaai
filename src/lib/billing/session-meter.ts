@@ -60,8 +60,8 @@ export function trackPendingCost(meter: SessionMeter | undefined, call: Promise<
   if (meter) meter.pending.push(settled);
 }
 
-/** One successful `servingConfigs.search`. Failed calls throw before this runs, so a transport
- *  error is not charged. */
+/** One `servingConfigs.search` attempt Google may bill: every answered attempt, and every one that
+ *  timed out or dropped (it may have run), so a retried search is charged for each run. */
 export function addAcsSearch(meter: SessionMeter | undefined): void {
   if (!meter) return;
   meter.nanos += ACS_SEARCH_NANOS;
