@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RawCatalogProduct } from "@/lib/catalog/sync-types";
 import {
+  deleteAcsDocuments,
   downgradeAcsProductIfExists,
   fetchExistingAcsSourceCategoryIds,
   isAcsConfigured,
@@ -37,7 +38,7 @@ function raw(overrides: Partial<RawCatalogProduct> = {}): RawCatalogProduct {
   };
 }
 
-describe("acs/sync — safe to run without ACS configured", () => {
+describe("acs/sync â safe to run without ACS configured", () => {
   const originalProjectId = process.env.ACS_PROJECT_ID;
 
   beforeEach(() => {
@@ -117,7 +118,7 @@ describe("acs/sync — safe to run without ACS configured", () => {
   });
 });
 
-describe("acs/sync — dynamic attribute registration", () => {
+describe("acs/sync â dynamic attribute registration", () => {
   const originalProjectId = process.env.ACS_PROJECT_ID;
 
   beforeEach(() => {
@@ -207,7 +208,7 @@ describe("acs/sync — dynamic attribute registration", () => {
   });
 });
 
-describe("acs/sync � products without an image", () => {
+describe("acs/sync  products without an image", () => {
   const originalProjectId = process.env.ACS_PROJECT_ID;
   const CONNECTION = "11111111-1111-1111-1111-111111111111";
   const input = (overrides: Partial<RawCatalogProduct>) => ({
@@ -279,5 +280,69 @@ describe("acs/sync � products without an image", () => {
 
     const [[written]] = vi.mocked(client.importProducts).mock.calls;
     expect(written[0].images).toEqual([{ uri: "https://cdn.example.com/v2.jpg" }]);
+  });
+});
+
+describe("acs/sync  deleteAcsDocuments", () => {
+  const CONNECTION = "11111111-1111-1111-1111-111111111111";
+  const primary = `${CONNECTION}_gid://shopify/Product/1`;
+  const variant = (n: number) => `${primary}::gid://shopify/ProductVariant/${n}`;
+  const hasVariants = (...variants: string[]) =>
+    new client.AcsApiError(
+      400,
+      JSON.stringify({
+        error: {
+          code: 400,
+          message: `Product "projects/7/locations/global/catalogs/default_catalog/branches/0/products/${primary}" has variants: [${variants
+            .map((id) => `projects/7/locations/global/catalogs/default_catalog/branches/0/products/${id}`)
+            .join(", ")}].`,
+          status: "INVALID_ARGUMENT",
+        },
+      }),
+      "products/x"
+    );
+
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("deletes every variant before its primary, since ACS refuses a primary with variants", async () => {
+    const order: string[] = [];
+    vi.spyOn(client, "deleteProduct").mockImplementation(async (id) => {
+      order.push(id);
+      return true;
+    });
+
+    await expect(deleteAcsDocuments(CONNECTION, [primary, variant(1), variant(2)])).resolves.toBe(3);
+
+    expect(order.indexOf(primary)).toBe(2);
+  });
+
+  it("deletes the variants ACS names when it still holds ones the mapping no longer writes", async () => {
+    const deleted: string[] = [];
+    let refused = false;
+    vi.spyOn(client, "deleteProduct").mockImplementation(async (id) => {
+      if (id === primary && !refused) {
+        refused = true;
+        throw hasVariants(variant(7), variant(8));
+      }
+      deleted.push(id);
+      return true;
+    });
+
+    await expect(deleteAcsDocuments(CONNECTION, [primary])).resolves.toBe(1);
+
+    expect(deleted).toEqual([variant(7), variant(8), primary]);
+  });
+
+  it("logs a document that will not go instead of failing the batch around it", async () => {
+    vi.spyOn(client, "deleteProduct").mockRejectedValue(new client.AcsApiError(503, "unavailable", "products/x"));
+
+    await expect(deleteAcsDocuments(CONNECTION, [primary, variant(1)])).resolves.toBe(0);
+    expect(console.error).toHaveBeenCalled();
   });
 });

@@ -8,11 +8,9 @@
  * Reads each store's mirror of what it holds in ACS; a store whose mirror is not trusted is skipped
  * and reported, and the next full walk reconciles it before this is run again.
  */
-import { deleteProduct } from "@/lib/catalog/acs/client";
 import { listImagelessMirrorIds } from "@/lib/catalog/acs/mirror";
+import { deleteAcsDocuments } from "@/lib/catalog/acs/sync";
 import { listConnectedStores } from "@/lib/db/store-connections";
-
-const DELETE_CONCURRENCY = 20;
 
 async function main() {
   const dryRun = process.argv.includes("--dry-run");
@@ -25,12 +23,8 @@ async function main() {
     }
     console.log(`${store.id} ${store.storeUrl}: ${ids.length} imageless document(s)${dryRun ? " (dry run)" : ""}`);
     if (dryRun) continue;
-    let removed = 0;
-    for (let i = 0; i < ids.length; i += DELETE_CONCURRENCY) {
-      const results = await Promise.all(ids.slice(i, i + DELETE_CONCURRENCY).map((id) => deleteProduct(id)));
-      removed += results.filter(Boolean).length;
-    }
-    console.log(`  deleted ${removed}, already gone ${ids.length - removed}`);
+    const removed = await deleteAcsDocuments(store.id, ids);
+    console.log(`  removed ${removed}, left ${ids.length - removed} (logged above)`);
   }
 }
 

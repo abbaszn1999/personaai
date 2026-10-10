@@ -1,4 +1,4 @@
-import { deleteProduct, importProducts, markOutOfStock } from "./client";
+import { AcsApiError, deleteProduct, importProducts, markOutOfStock } from "./client";
 import { isAcsConfigured } from "./config";
 import { ensureDynamicAttributeRegistered } from "./attributes-config";
 import { getAcsProductSourceCategoryIds, getAcsVariantIds, markAcsProductOutOfStockIfExists } from "./catalog-reads";
@@ -49,6 +49,57 @@ async function ensureDynamicAttributesRegistered(products: AcsProduct[]): Promis
 
 const DELETE_CONCURRENCY = 20;
 
+/** A variant's id is its primary's id, `::`, and its own (see `rawCatalogProductToAcsProducts`). */
+function isVariantId(acsId: string): boolean {
+  return acsId.includes("::");
+}
+
+/** The variants ACS names when it refuses to delete their primary ("has variants: [...]"). */
+function variantsNamedIn(error: unknown, primaryId: string): string[] {
+  if (!(error instanceof AcsApiError) || error.status !== 400 || !/has variants/i.test(error.body)) return [];
+  const ids = [...error.body.matchAll(/\/products\/([^,\]\s"\\]+)/g)].map((match) => match[1]);
+  return [...new Set(ids)].filter((id) => id !== primaryId);
+}
+
+async function deleteEach(ids: readonly string[], remove: (id: string) => Promise<unknown>): Promise<void> {
+  for (let i = 0; i < ids.length; i += DELETE_CONCURRENCY) {
+    await Promise.all(ids.slice(i, i + DELETE_CONCURRENCY).map(remove));
+  }
+}
+
+/** A primary ACS still holds variants of (ones the current mapping no longer writes) loses them
+ *  first: ACS refuses to delete it otherwise. */
+async function deletePrimary(id: string): Promise<void> {
+  try {
+    await deleteProduct(id);
+  } catch (error) {
+    const variants = variantsNamedIn(error, id);
+    if (variants.length === 0) throw error;
+    await deleteEach(variants, deleteProduct);
+    await deleteProduct(id);
+  }
+}
+
+/**
+ * Deletes ACS documents, every variant before any primary: ACS refuses to delete a primary that
+ * still has variants. A document that will not go is logged and left, never thrown: these are
+ * products no shopper is shown, and the write of the rest of a batch must not fail because of one.
+ */
+export async function deleteAcsDocuments(connectionId: string, ids: readonly string[]): Promise<number> {
+  let removed = 0;
+  const attempt = (remove: (id: string) => Promise<unknown>) => async (id: string) => {
+    try {
+      await remove(id);
+      removed += 1;
+    } catch (err) {
+      logAcsError("deleteAcsDocuments", connectionId, id, err);
+    }
+  };
+  await deleteEach(ids.filter(isVariantId), attempt(deleteProduct));
+  await deleteEach(ids.filter((id) => !isVariantId(id)), attempt(deletePrimary));
+  return removed;
+}
+
 /**
  * Takes the documents of products that lost their last image out of ACS. Only what the store's
  * mirror says is there is deleted; with no trusted mirror every document is deleted, which is safe
@@ -58,10 +109,7 @@ async function removeImageless(connectionId: string, documents: AcsProduct[]): P
   if (documents.length === 0) return;
   const ids = documents.map((product) => product.id);
   const present = await mirroredIds(connectionId, ids);
-  const doomed = present ? ids.filter((id) => present.has(id)) : ids;
-  for (let i = 0; i < doomed.length; i += DELETE_CONCURRENCY) {
-    await Promise.all(doomed.slice(i, i + DELETE_CONCURRENCY).map((id) => deleteProduct(id)));
-  }
+  await deleteAcsDocuments(connectionId, present ? ids.filter((id) => present.has(id)) : ids);
 }
 
 /**
