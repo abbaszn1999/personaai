@@ -4,7 +4,6 @@ import * as React from "react";
 import type { ChatMessage, LookFitAnalysis } from "@/modules/commerce/types";
 import type { AvatarVariation, OnboardingPhase, TryOnAudience, TryOnProfile } from "@/modules/wearable-agent/types";
 import type { BundleSuggestion, Product, TurnAttribution } from "@/modules/commerce/types";
-import { formatBudget } from "@/modules/commerce/constants";
 import { isLookRecord, type AgentEvent, type LookRecord } from "@/lib/agents/types";
 import { attributionForProduct } from "../utils/cart-attribution";
 import { resolveGarmentSlot } from "../utils/fit-metrics";
@@ -80,11 +79,19 @@ const DEFAULT_PROFILE_ID = "default";
 
 /** What the shopper attached with "Ask about this item" (`item`), "Complete the look" (`anchor`,
  *  the product the looks are built around) or "Ask about this bundle" (`look`). While set, every
- *  typed turn goes to that mode's agent; only the × on the attachment bar clears it. */
+ *  typed turn goes to that mode's agent; only the × on the attachment bar clears it. An anchor
+ *  also carries the Bundle agent's memory of it — what the shopper asked of the looks and the
+ *  pieces already shown — which the server writes and this client only keeps and sends back. */
 export type ChatAttachment =
   | { kind: "item"; product: Product }
-  | { kind: "anchor"; product: Product }
+  | { kind: "anchor"; product: Product; brief?: string; shownIds?: string[] }
   | { kind: "look"; look: LookRecord };
+
+function anchorMemory(raw: { brief?: unknown; shownIds?: unknown }): { brief?: string; shownIds?: string[] } {
+  const brief = typeof raw.brief === "string" && raw.brief.trim() ? raw.brief : undefined;
+  const shownIds = Array.isArray(raw.shownIds) ? raw.shownIds.filter((id): id is string => typeof id === "string" && id.length > 0) : [];
+  return { ...(brief ? { brief } : {}), ...(shownIds.length > 0 ? { shownIds } : {}) };
+}
 
 /** Per-profile slice of persisted state — everything that's genuinely "whose this is":
  *  measurements/avatar, the try-on renders made for them, and their own conversation with the
@@ -150,21 +157,23 @@ function blankProfileSlotData(): Omit<StoredProfileSlot, "id" | "label"> {
 
 function normalizeAttachment(raw: unknown): ChatAttachment | null {
   if (!raw || typeof raw !== "object") return null;
-  const value = raw as { kind?: unknown; product?: Product; look?: BundleSuggestion };
+  const value = raw as { kind?: unknown; product?: Product; look?: BundleSuggestion; brief?: unknown; shownIds?: unknown };
   if (value.kind === "item" && value.product && typeof value.product.id === "string") {
     return { kind: "item", product: value.product };
   }
   if (value.kind === "anchor" && value.product && typeof value.product.id === "string") {
-    return { kind: "anchor", product: value.product };
+    return { kind: "anchor", product: value.product, ...anchorMemory(value) };
   }
   if (value.kind === "look" && value.look && isLookRecord(value.look)) return { kind: "look", look: value.look };
   return null;
 }
 
-/** The attachment as the server reads it: an item or anchor by id, a look whole. */
+/** The attachment as the server reads it: an item or anchor by id (an anchor with its memory),
+ *  a look whole. */
 export function wireAttachment(attachment: ChatAttachment | null) {
   if (!attachment) return null;
   if (attachment.kind === "look") return { kind: "look" as const, look: attachment.look };
+  if (attachment.kind === "anchor") return { kind: "anchor" as const, productId: attachment.product.id, ...anchorMemory(attachment) };
   return { kind: attachment.kind, productId: attachment.product.id };
 }
 
@@ -1816,11 +1825,18 @@ export function useTryOnAgent(
               break;
             }
             case "attachment": {
-              const next: ChatAttachment | null =
-                event.attachment?.kind === "look" ? { kind: "look", look: event.attachment.look } : null;
+              const incoming = event.attachment;
+              const current = attachmentRef.current;
               // The server only ever detaches (the attached product is gone or can't anchor a
-              // look) or refreshes an attached look; it never starts any other attachment.
-              if (event.attachment === null || next) {
+              // look), refreshes an attached look, or updates its memory of the attached anchor;
+              // it never starts any other attachment.
+              let next: ChatAttachment | null | undefined;
+              if (incoming === null) next = null;
+              else if (incoming.kind === "look") next = { kind: "look", look: incoming.look };
+              else if (incoming.kind === "anchor" && current?.kind === "anchor" && current.product.id === incoming.productId) {
+                next = { kind: "anchor", product: current.product, ...anchorMemory(incoming) };
+              }
+              if (next !== undefined) {
                 attachmentRef.current = next;
                 update((s) => ({ ...s, attachment: next }));
               }

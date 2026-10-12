@@ -49,13 +49,18 @@ export interface LookRecord extends BundleSuggestion {
   budget: number | null;
   department: string;
   slots: LookSlot[];
+  /** What the shopper had asked of the looks when this one was built, in their words. */
+  brief?: string;
 }
 
 export type AgentAttachment =
   /** "Ask about this item" — the Attribute agent answers every typed message. */
   | { kind: "item"; productId: string }
-  /** "Complete the look" — the product the looks are built around; the Bundle agent answers. */
-  | { kind: "anchor"; productId: string }
+  /** "Complete the look" — the product the looks are built around; the Bundle agent answers.
+   *  `brief` (everything the shopper has asked of the looks so far) and `shownIds` (pieces
+   *  already shown around it) are Bundle's memory of this anchor: the server writes them in an
+   *  `attachment` event and the widget sends them back with every turn. */
+  | { kind: "anchor"; productId: string; brief?: string; shownIds?: string[] }
   /** "Ask about this bundle" — the Bundle agent answers about this look. */
   | { kind: "look"; look: LookRecord };
 
@@ -86,8 +91,9 @@ export type AgentEvent =
   | { type: "products"; products: Product[] }
   | { type: "product_recommendations"; productIds: string[]; note?: string }
   | { type: "bundle"; bundles: LookRecord[]; products: Product[] }
-  /** Server-side attachment change: a follow-up updated the attached look, or the attached
-   *  product no longer exists in the store. Only the shopper's × ends a mode otherwise. */
+  /** Server-side attachment change: a follow-up updated the attached look, Bundle updated its
+   *  memory of the attached anchor, or the attached product no longer exists in the store. Only
+   *  the shopper's × ends a mode otherwise. */
   | { type: "attachment"; attachment: AgentAttachment | null }
   | { type: "quick_options"; options: string[] }
   /** The budget the shopper just named while a look's anchor is attached; the widget keeps it for later turns. */

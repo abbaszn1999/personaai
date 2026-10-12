@@ -76,6 +76,10 @@ export interface FollowUpResponse {
   reasoning: string;
   intent: FollowUpIntent;
   reply: string;
+  /** Everything the shopper has asked of the look so far that still holds, in their language. */
+  brief: string;
+  /** The language every reply is written in. */
+  language: string;
   slots: BundleSlotIntent[];
   drop_slots: string[];
   budget: number | null;
@@ -87,9 +91,42 @@ export const FOLLOW_UP_SCHEMA = {
     reasoning: { type: "string" },
     intent: { type: "string", enum: [...FOLLOW_UP_INTENTS] },
     reply: { type: "string" },
+    brief: { type: "string" },
+    language: { type: "string" },
     slots: { type: "array", items: SLOT_INTENT },
     drop_slots: STRING_ARRAY,
     budget: NULLABLE_NUMBER,
   },
-  required: ["reasoning", "intent", "reply", "slots", "drop_slots", "budget"],
+  required: ["reasoning", "intent", "reply", "brief", "language", "slots", "drop_slots", "budget"],
+} as const;
+
+export const ANCHOR_INTENTS = ["rerun", "answer", "detach"] as const;
+export type AnchorIntent = (typeof ANCHOR_INTENTS)[number];
+
+export interface AnchorResponse {
+  reasoning: string;
+  intent: AnchorIntent;
+  reply: string;
+  /** Everything the shopper has asked of the looks so far that still holds, in their language. */
+  brief: string;
+  /** The language every reply is written in. */
+  language: string;
+  /** The total the shopper just named; 0 for "no limit", null when they named none. */
+  budget: number | null;
+  /** They asked for pieces other than the ones already shown ("other looks", "something else"). */
+  new_pieces: boolean;
+}
+
+export const ANCHOR_SCHEMA = {
+  type: "object",
+  properties: {
+    reasoning: { type: "string" },
+    intent: { type: "string", enum: [...ANCHOR_INTENTS] },
+    reply: { type: "string" },
+    brief: { type: "string" },
+    language: { type: "string" },
+    budget: NULLABLE_NUMBER,
+    new_pieces: { type: "boolean" },
+  },
+  required: ["reasoning", "intent", "reply", "brief", "language", "budget", "new_pieces"],
 } as const;

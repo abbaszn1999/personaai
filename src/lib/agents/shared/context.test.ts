@@ -17,7 +17,25 @@ vi.mock("@/lib/catalog/path-config/rebuild", () => ({
   scheduleRebuildPersonaPathConfig: vi.fn(),
 }));
 
-import { buildAgentContext, forgetAgentContextReads } from "./context";
+import { buildAgentContext, forgetAgentContextReads, parseAttachment } from "./context";
+
+describe("parseAttachment", () => {
+  it("reads an anchor's memory, bounded and cleaned", () => {
+    const shownIds = Array.from({ length: 80 }, (_, index) => `p${index}`);
+    const parsed = parseAttachment({ kind: "anchor", productId: "a", brief: `  for a   wedding ${"x".repeat(600)}`, shownIds: [...shownIds, 7, "", "p1"] });
+    expect(parsed).toMatchObject({ kind: "anchor", productId: "a" });
+    if (parsed?.kind !== "anchor") return;
+    expect(parsed.brief?.startsWith("for a wedding x")).toBe(true);
+    expect(parsed.brief?.length).toBe(400);
+    expect(parsed.shownIds).toHaveLength(60);
+    expect(parseAttachment({ kind: "anchor", productId: "a", brief: "  ", shownIds: "x" })).toEqual({ kind: "anchor", productId: "a" });
+  });
+
+  it("keeps the brief a look was built with", () => {
+    const look = { id: "l", anchorId: "a", productIds: ["a"], brief: "office" };
+    expect(parseAttachment({ kind: "look", look })).toMatchObject({ kind: "look", look: { brief: "office" } });
+  });
+});
 
 const base = {
   ownerId: "owner",

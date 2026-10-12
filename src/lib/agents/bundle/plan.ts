@@ -1,4 +1,5 @@
-import type { PersonaPathConfig } from "@/lib/catalog/path-config/types";
+import { findNode } from "@/lib/catalog/path-config/lookup";
+import type { PathConfigTier, PersonaPathConfig } from "@/lib/catalog/path-config/types";
 import type { CatalogCandidate } from "@/lib/retrieval/types";
 import type { SearchSpec } from "../shared/acs-translator";
 import { validateSearchIntent } from "../shared/validate-intent";
@@ -15,8 +16,11 @@ export interface SlotSearch {
 export interface PlanLimits {
   /** Money left for the slots being searched; null when there is no budget. */
   remaining: number | null;
-  /** No-budget ceilings per slot, from the anchor's tier. */
+  /** No-budget ceilings per slot, from the anchor's tier on each slot's whole category. */
   fallbackCeilings: Map<string, number | null>;
+  /** The anchor's tier on its own path. With no budget, a slot searched on one leaf keeps that
+   *  tier on the leaf — a knit is priced against knits, not against every top. */
+  anchorTier?: PathConfigTier["label"] | null;
   excludeIds: string[];
   /** Hard per-slot ceilings no intent may exceed — "cheaper shoes" caps footwear below the
    *  current pair. */
@@ -28,6 +32,13 @@ export type SlotPlan =
   | { ok: false; problems: string[] };
 
 export const MAX_DIRECTIONS = 5;
+
+/**
+ * How far a slot's search may reach above the share of the budget the plan gave it. The shares
+ * add up to the budget; the searches overlap so a strong piece just over its share is still seen,
+ * and compose (then code) keeps each look's total inside the budget.
+ */
+export const CEILING_SLACK = 0.3;
 
 /** One planned look: a theme and one search per slot, written to go together. */
 export interface LookDirection {
@@ -76,7 +87,8 @@ export function validateSlotPlan(
     const cap = limits.caps?.get(slot.slot);
     if (cap !== undefined) priceMax = priceMax === null ? cap : Math.min(priceMax, cap);
     if (limits.remaining === null) {
-      const ceiling = limits.fallbackCeilings.get(slot.slot) ?? null;
+      const onPath = limits.anchorTier ? findNode(config, intent.path)?.tiers.find((tier) => tier.label === limits.anchorTier)?.max ?? null : null;
+      const ceiling = onPath ?? limits.fallbackCeilings.get(slot.slot) ?? null;
       priceMax = ceiling === null ? priceMax : Math.min(priceMax ?? ceiling, ceiling);
     } else if (priceMax === null) {
       problems.push(`slot "${slot.slot}" needs a price_max inside the budget`);
@@ -115,7 +127,26 @@ export function validateSlotPlan(
 
   if (problems.length > 0) return { ok: false, problems };
   if (searches.length === 0) return { ok: false, problems: ["no slot left to search"] };
-  return { ok: true, searches, skipped };
+  return { ok: true, searches: limits.remaining === null ? searches : widenCeilings(searches, bySlot, limits.remaining, limits.caps), skipped };
+}
+
+/** Each share plus the slack, never so high that the other slots' cheapest pieces could not fit
+ *  beside it, and never above a hard cap. */
+function widenCeilings(
+  searches: SlotSearch[],
+  bySlot: Map<string, SlotInPlay>,
+  remaining: number,
+  caps: Map<string, number> | undefined
+): SlotSearch[] {
+  return searches.map((search) => {
+    const share = search.spec.priceMax;
+    if (share === null) return search;
+    const others = searches.reduce((sum, other) => (other === search ? sum : sum + (bySlot.get(other.slot)?.floor ?? 0)), 0);
+    let ceiling = Math.min(round(share * (1 + CEILING_SLACK)), round(remaining - others));
+    const cap = caps?.get(search.slot);
+    if (cap !== undefined) ceiling = Math.min(ceiling, cap);
+    return { ...search, spec: { ...search.spec, priceMax: Math.max(share, ceiling) } };
+  });
 }
 
 /**

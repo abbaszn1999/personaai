@@ -254,6 +254,27 @@ describe("normalizePersistedState", () => {
     expect(result.profiles.map((profile) => profile.attachment?.kind ?? null)).toEqual(["look", null, "item", "anchor", null]);
     expect(result.profiles.map((profile) => profile.budget)).toEqual([120, null, null, 300, null]);
   });
+
+  it("keeps the Bundle agent's memory of an attached anchor across reloads", () => {
+    const result = normalizePersistedState({
+      profiles: [
+        {
+          id: "a",
+          label: "a",
+          profile: { ...BASE_PROFILE },
+          profileSubmitted: true,
+          selectedAvatarId: null,
+          tryOnImages: [],
+          currentImageIndex: 0,
+          messages: [],
+          attachment: { kind: "anchor", product: { id: "p2", name: "Dress" }, brief: "for a wedding", shownIds: ["x", 4, "y"] },
+          budget: null,
+        },
+      ],
+      activeProfileId: "a",
+    })!;
+    expect(result.profiles[0].attachment).toEqual({ kind: "anchor", product: { id: "p2", name: "Dress" }, brief: "for a wedding", shownIds: ["x", "y"] });
+  });
 });
 
 describe("wireAttachment", () => {
@@ -261,6 +282,12 @@ describe("wireAttachment", () => {
     const product = { id: "p1", name: "Tee" } as Product;
     expect(wireAttachment({ kind: "item", product })).toEqual({ kind: "item", productId: "p1" });
     expect(wireAttachment({ kind: "anchor", product })).toEqual({ kind: "anchor", productId: "p1" });
+    expect(wireAttachment({ kind: "anchor", product, brief: "office", shownIds: ["x"] })).toEqual({
+      kind: "anchor",
+      productId: "p1",
+      brief: "office",
+      shownIds: ["x"],
+    });
     const look = { id: "l", label: "L", productIds: [], items: [], anchorId: "a", total: 1, budget: null, department: "men", slots: [] };
     expect(wireAttachment({ kind: "look", look })).toEqual({ kind: "look", look });
     expect(wireAttachment(null)).toBeNull();

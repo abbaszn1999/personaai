@@ -21,6 +21,9 @@ const SHOWN_LIMIT = 24;
 const MAX_MESSAGES = 40;
 /** A first turn on a store whose config was never built waits this long for it. */
 const FIRST_BUILD_WAIT_MS = 8_000;
+/** Bundle's memory of an anchor comes back from the client, so it is bounded like any input. */
+const MAX_BRIEF_CHARS = 400;
+const MAX_SHOWN_PIECES = 60;
 
 const AUDIENCE_DEPARTMENTS: Record<string, string> = {
   woman: "women",
@@ -88,10 +91,16 @@ function parseLastSearch(value: unknown): LastSearch | null {
   };
 }
 
+function parseBrief(value: unknown): string | undefined {
+  const text = typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+  return text ? text.slice(0, MAX_BRIEF_CHARS) : undefined;
+}
+
 function parseLook(value: unknown): LookRecord | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Partial<LookRecord>;
   if (typeof raw.id !== "string" || typeof raw.anchorId !== "string" || !Array.isArray(raw.productIds)) return null;
+  const brief = parseBrief(raw.brief);
   return {
     id: raw.id,
     label: typeof raw.label === "string" ? raw.label : "Look",
@@ -103,17 +112,25 @@ function parseLook(value: unknown): LookRecord | null {
     budget: typeof raw.budget === "number" ? raw.budget : null,
     department: typeof raw.department === "string" ? raw.department : "",
     slots: Array.isArray(raw.slots) ? raw.slots : [],
+    ...(brief ? { brief } : {}),
   };
 }
 
 export function parseAttachment(value: unknown): AgentAttachment | null {
   if (!value || typeof value !== "object") return null;
-  const raw = value as { kind?: unknown; productId?: unknown; look?: unknown };
+  const raw = value as { kind?: unknown; productId?: unknown; look?: unknown; brief?: unknown; shownIds?: unknown };
   if (raw.kind === "item" && typeof raw.productId === "string" && raw.productId) {
     return { kind: "item", productId: raw.productId };
   }
   if (raw.kind === "anchor" && typeof raw.productId === "string" && raw.productId) {
-    return { kind: "anchor", productId: raw.productId };
+    const brief = parseBrief(raw.brief);
+    const shownIds = [...new Set(stringIds(raw.shownIds))].slice(0, MAX_SHOWN_PIECES);
+    return {
+      kind: "anchor",
+      productId: raw.productId,
+      ...(brief ? { brief } : {}),
+      ...(shownIds.length > 0 ? { shownIds } : {}),
+    };
   }
   if (raw.kind === "look") {
     const look = parseLook(raw.look);

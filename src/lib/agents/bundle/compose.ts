@@ -24,6 +24,10 @@ export interface LookRules {
   hardRules: HardRule[];
 }
 
+/** The one slot an outfit is complete without: compose may leave it out when every candidate
+ *  breaks the look's occasion or season (a hooded zip jacket for a wedding). */
+export const OPTIONAL_SLOTS: ReadonlySet<string> = new Set(["outerwear"]);
+
 function allowedDepartments(department: string): Set<string> {
   const twin = unisexDepartmentFor(department);
   return new Set(twin ? [department, twin] : [department]);
@@ -68,8 +72,11 @@ export function verifyLook(
     picks.push({ slot: slot.slot, item });
   }
 
-  const expected = slots.filter((slot) => slot.candidates.length > 0).length;
-  if (picks.length === 0 || picks.length < expected) return reject(`${picks.length} of ${expected} slots filled`);
+  const required = slots.filter((slot) => slot.candidates.length > 0 && !OPTIONAL_SLOTS.has(slot.slot));
+  const unfilled = required.filter((slot) => !picks.some((pick) => pick.slot === slot.slot));
+  if (picks.length === 0 || unfilled.length > 0) {
+    return reject(`${picks.length} of ${slots.filter((slot) => slot.candidates.length > 0).length} slots filled (missing ${unfilled.map((slot) => slot.slot).join(", ") || "all"})`);
+  }
   const pieces = [...rules.fixed, ...picks.map((pick) => pick.item)];
   if (rules.budget !== null && lookTotal(pieces) > rules.budget) return reject(`total ${lookTotal(pieces)} over budget ${rules.budget}`);
   if (!isValidBundle(pieces, rules.hardRules)) return reject("breaks a merchant rule");
@@ -89,16 +96,31 @@ export function distinctLooks<T extends ComposedLook>(looks: T[]): T[] {
   });
 }
 
+/** Candidates per slot the fallback weighs; ranks below this are rarely the better outfit. */
+const NAIVE_DEPTH = 8;
+
 /**
- * The top-ranked candidate of each slot, cheapest-first when the budget would otherwise break —
- * used only when the compose call produced nothing that verifies.
+ * The best-ranked combination that passes every check — ACS's top pick in each slot when it fits,
+ * otherwise the combination whose ranks add up lowest, cheapest pieces as the last resort. Used
+ * only when the compose call produced nothing that verifies.
  */
 export function naiveLook(slots: SlotCandidates[], rules: LookRules): ComposedLook | null {
   const filled = slots.filter((slot) => slot.candidates.length > 0);
   if (filled.length === 0) return null;
-  const first = { item_ids: filled.map((slot) => slot.candidates[0].externalId), reason: "" };
-  const ranked = verifyLook(first, slots, rules);
-  if (ranked) return ranked;
+  const pools = filled.map((slot) => slot.candidates.slice(0, NAIVE_DEPTH).map((item, rank) => ({ item, rank })));
+  const combinations: Array<{ ids: string[]; rank: number }> = [{ ids: [], rank: 0 }];
+  for (const pool of pools) {
+    const next: Array<{ ids: string[]; rank: number }> = [];
+    for (const partial of combinations) {
+      for (const entry of pool) next.push({ ids: [...partial.ids, entry.item.externalId], rank: partial.rank + entry.rank });
+    }
+    combinations.splice(0, combinations.length, ...next);
+  }
+  combinations.sort((a, b) => a.rank - b.rank);
+  for (const combination of combinations) {
+    const look = verifyLook({ item_ids: combination.ids, reason: "" }, slots, rules);
+    if (look) return look;
+  }
   const cheapest = {
     item_ids: filled.map(
       (slot) => [...slot.candidates].sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity))[0].externalId

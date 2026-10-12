@@ -3,13 +3,15 @@ import { buildPathConfig } from "@/lib/catalog/path-config/build";
 import { findNode } from "@/lib/catalog/path-config/lookup";
 import { CONFIG, acsProduct, candidate } from "../__fixtures__/catalog";
 import { distinctLooks, lookTotal, naiveLook, verifyLook, type LookRules, type SlotCandidates } from "./compose";
-import { fallbackSlotPlan, validateLookPlan, validateSlotPlan, type PlanLimits } from "./plan";
-import { renderComposeTurn, renderPlanTurn } from "./prompt";
+import { bundleLanguage, bundleMessages } from "./messages";
+import { CEILING_SLACK, fallbackSlotPlan, validateLookPlan, validateSlotPlan, type PlanLimits } from "./plan";
+import { renderComposeTurn, renderPlanTurn, renderStore } from "./prompt";
 import {
   fallbackCeilings,
   isOutfitLeaf,
   outfitPaths,
   pathBelongsToSlot,
+  premiumFloors,
   slotsForCategory,
   slotsInPlay,
   tierOf,
@@ -58,6 +60,38 @@ describe("slots", () => {
     const slots = slotsInPlay(CONFIG, "women", "top");
     const ceilings = fallbackCeilings(findNode(CONFIG, "women > top > t-shirt"), 25, slots);
     expect([...ceilings.keys()]).toEqual(["bottom", "footwear"]);
+  });
+
+  it("completes shoes with a top and a bottom, and a kids' piece from its unisex twin too", () => {
+    expect(slotsInPlay(CONFIG, "women", "footwear").map((slot) => slot.slot)).toEqual(["top", "bottom"]);
+    const kids = buildPathConfig([
+      acsProduct("k-tee", "kids-girls > top > t-shirt", 10),
+      acsProduct("k-jean", "kids-girls > bottom > jean", 20),
+      acsProduct("ku-jean", "kids-unisex > bottom > jean", 18),
+    ]);
+    const [bottom] = slotsInPlay(kids, "kids-girls", "top");
+    expect(bottom.node.path).toBe("kids-girls > bottom");
+    expect(bottom.twin?.path).toBe("kids-unisex > bottom");
+    expect(bottom.floor).toBe(18);
+  });
+});
+
+describe("premium company", () => {
+  const rich = buildPathConfig([
+    ...[10, 15, 20, 25, 30, 35].map((price, index) => acsProduct(`tee-${index}`, "women > top > t-shirt", price)),
+    ...[20, 30, 40, 50, 60, 70].map((price, index) => acsProduct(`trouser-${index}`, "women > bottom > trouser", price)),
+  ]);
+  const slots = slotsInPlay(rich, "women", "top");
+  const teeTiers = findNode(rich, "women > top > t-shirt")!.tiers;
+
+  it("gives a tier C anchor a floor at the middle of each slot's range", () => {
+    const floors = premiumFloors(tierOf(teeTiers, 35), slots);
+    expect(floors.get("bottom")).toBe(findNode(rich, "women > bottom")!.tiers.find((tier) => tier.label === "B")!.min);
+  });
+
+  it("leaves every other anchor unconstrained", () => {
+    expect(premiumFloors(tierOf(teeTiers, 20), slots).size).toBe(0);
+    expect(premiumFloors(null, slots).size).toBe(0);
   });
 });
 
@@ -153,6 +187,46 @@ describe("validateSlotPlan", () => {
     expect(over.ok === false && over.problems.join()).toMatch(/add up to 170/);
   });
 
+  it("lets each search reach above its share, never past what the other slots' cheapest pieces leave", () => {
+    const plan = validateSlotPlan(
+      CONFIG,
+      slots,
+      [
+        { slot: "bottom", path: "women > bottom", price_max: 60, query: "", attributes: [] },
+        { slot: "footwear", path: "women > footwear", price_max: 80, query: "", attributes: [] },
+      ],
+      budgetLimits
+    );
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    const [bottom, footwear] = plan.searches.map((search) => search.spec.priceMax);
+    // bottom: 60 × 1.3 = 78, but the cheapest shoes (80) must still fit in 150 → 70.
+    expect(bottom).toBe(70);
+    // footwear: 80 × 1.3 = 104, under 150 − the cheapest bottom (40).
+    expect(footwear).toBe(Math.floor(80 * (1 + CEILING_SLACK)));
+  });
+
+  it("keeps the shares as written when there is no budget", () => {
+    const plan = validateSlotPlan(
+      CONFIG,
+      slots,
+      [{ slot: "bottom", path: "women > bottom", price_max: 60, query: "", attributes: [] }],
+      { ...budgetLimits, remaining: null }
+    );
+    expect(plan.ok && plan.searches[0].spec.priceMax).toBe(60);
+  });
+
+  it("prices a no-budget leaf search against that leaf's own tier, not the whole category's", () => {
+    const own = findNode(CONFIG, "women > bottom > trouser")!.tiers.find((tier) => tier.label === "A")!.max;
+    const plan = validateSlotPlan(
+      CONFIG,
+      slots,
+      [{ slot: "bottom", path: "women > bottom > trouser", price_max: null, query: "", attributes: [] }],
+      { remaining: null, fallbackCeilings: new Map([["bottom", 999]]), excludeIds: [], anchorTier: "A" }
+    );
+    expect(plan.ok && plan.searches[0].spec.priceMax).toBe(own);
+  });
+
   it("applies a hard cap below whatever the intent asked for", () => {
     const plan = validateSlotPlan(
       CONFIG,
@@ -240,10 +314,67 @@ describe("renderComposeTurn", () => {
 });
 
 describe("renderPlanTurn", () => {
+  const base = { anchor, department: "women", budget: { kind: "budget" as const, budget: 200, committed: 25 }, slotsText: "" };
+
   it("says how many looks to plan", () => {
-    const base = { anchor, department: "women", budget: { kind: "budget" as const, budget: 200, committed: 25 }, slotsText: "" };
     expect(renderPlanTurn({ ...base, looks: 5 })).toContain("## LOOKS TO PLAN\nup to 5");
     expect(renderPlanTurn({ ...base, looks: 1 })).toContain("## LOOKS TO PLAN\nexactly 1");
+  });
+
+  it("carries the store's language, the anchor's price position, the reply language and the merchant's notes", () => {
+    const text = renderPlanTurn({
+      ...base,
+      looks: 3,
+      store: renderStore({ ...CONFIG, currency: "AED", catalogLanguage: "Arabic" }),
+      anchorTier: { path: "women > top > t-shirt", tier: { label: "C", min: 40, max: 90, count: 5 } },
+      language: "Modern Standard Arabic",
+      request: "عشاء في المساء",
+      styleGuide: "Modest cuts only.",
+    });
+    expect(text).toContain("## STORE\ncurrency: AED\ncatalog language: Arabic — product titles are written in it, so every query is too");
+    expect(text).toContain("price position: tier C of women > top > t-shirt (40–90) — the top third of its range");
+    expect(text).toContain("## REPLY LANGUAGE\nModern Standard Arabic");
+    expect(text).toContain("## SHOPPER REQUEST\nعشاء في المساء");
+    expect(text).toContain("## STORE STYLE NOTES (from the merchant — lean on them, never break the doctrine)\nModest cuts only.");
+  });
+
+  it("says plainly when no budget was named", () => {
+    const text = renderPlanTurn({ ...base, looks: 3, budget: { kind: "fallback", tier: "B", ceilings: new Map([["bottom", 50]]) } });
+    expect(text).toContain("## BUDGET\nnone — the shopper named no budget. Every piece stays in the anchor's tier B of the path you search: on a whole category that is bottom ≤ 50;");
+  });
+
+  it("falls back to the title words' language when the catalog's is not recorded", () => {
+    expect(renderStore({ ...CONFIG, catalogLanguage: null })).toContain("catalog language: not recorded");
+  });
+});
+
+describe("renderComposeTurn budget line", () => {
+  it("asks for the no-budget invitation only once", () => {
+    expect(renderComposeTurn({ anchor, kept: [], budget: null, directions: [], mentionBudget: true })).toContain("Mention it once");
+    expect(renderComposeTurn({ anchor, kept: [], budget: null, directions: [] })).toContain("do not mention budgets");
+  });
+
+  it("tells compose the ceilings overlap and the total is what counts", () => {
+    const text = renderComposeTurn({ anchor, kept: [], budget: 200, directions: [], language: "French" });
+    expect(text).toContain("may cost up to 175. Slot ceilings overlap");
+    expect(text).toContain("## REPLY LANGUAGE\nFrench");
+  });
+});
+
+describe("code-written replies", () => {
+  it("follow the language the model named, else the message's script", () => {
+    expect(bundleLanguage("Modern Standard Arabic")).toBe("ar");
+    expect(bundleLanguage("French")).toBe("fr");
+    expect(bundleLanguage("English", "بدي لوك")).toBe("en");
+    expect(bundleLanguage(null, "بدي لوك للشغل")).toBe("ar");
+    expect(bundleLanguage(null, "Une tenue pour le bureau")).toBe("fr");
+    expect(bundleLanguage(undefined, "go")).toBe("en");
+  });
+
+  it("name the missing pieces in the shopper's words", () => {
+    expect(bundleMessages("en").nothingInStock(["outerwear", "footwear"], true, false)).toContain("the jacket and shoes");
+    expect(bundleMessages("ar").nothingInStock(["outerwear"], false, true)).toContain("بمقاسك");
+    expect(bundleMessages("fr").budgetTooSmall("USD 50")).toContain("Le budget de USD 50");
   });
 });
 
@@ -301,5 +432,25 @@ describe("verifyLook", () => {
     const womenOnly: SlotCandidates[] = [{ ...slots[0], candidates: [trouser, unisex] }, slots[1]];
     expect(naiveLook(womenOnly, { ...rules, budget: 160 })?.picks.map((pick) => pick.item.externalId)).toEqual(["t2", "s1"]);
     expect(naiveLook(womenOnly, { ...rules, budget: 100 })).toBeNull();
+  });
+
+  it("picks the best-ranked combination that fits the budget, not just the cheapest", () => {
+    const piece = (id: string, price: number, leaf: string) => candidate({ externalId: id, price, categoryPaths: [["persona", "women", leaf.split(">")[0], leaf.split(">")[1]]] });
+    const ranked: SlotCandidates[] = [
+      { slot: "bottom", ceiling: 100, candidates: [piece("b1", 60, "bottom>trouser"), piece("b2", 50, "bottom>trouser"), piece("b3", 30, "bottom>trouser")] },
+      { slot: "footwear", ceiling: 100, candidates: [piece("s1", 80, "footwear>sneaker"), piece("s2", 70, "footwear>sneaker")] },
+    ];
+    expect(naiveLook(ranked, { ...rules, budget: 170 })?.picks.map((pick) => pick.item.externalId)).toEqual(["b1", "s1"]);
+    // 165 and 155 are over 150; the best-ranked combination that fits is b2 + s2 (145), not the cheapest (b3 + s2).
+    expect(naiveLook(ranked, { ...rules, budget: 150 })?.picks.map((pick) => pick.item.externalId)).toEqual(["b2", "s2"]);
+  });
+
+  it("lets a look leave out outerwear, and only outerwear", () => {
+    const jacket = candidate({ externalId: "j1", price: 50, categoryPaths: [["persona", "women", "outerwear", "jacket"]] });
+    const withJacket: SlotCandidates[] = [slots[0], { slot: "outerwear", ceiling: 90, candidates: [jacket] }];
+    expect(verifyLook({ item_ids: ["t1"], reason: "" }, withJacket, rules)?.picks.map((pick) => pick.slot)).toEqual(["bottom"]);
+    const reasons: string[] = [];
+    expect(verifyLook({ item_ids: ["j1"], reason: "" }, withJacket, rules, (reason) => reasons.push(reason))).toBeNull();
+    expect(reasons[0]).toMatch(/missing bottom/);
   });
 });
