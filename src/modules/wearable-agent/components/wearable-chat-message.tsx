@@ -22,7 +22,7 @@ import {
 import type { ChatBudgetPrompt, ChatMessage as ChatMessageType } from "@/modules/commerce/types";
 import type { BundleSuggestion, Product } from "@/modules/commerce/types";
 import { CURRENCY_SYMBOLS, formatBudget, formatPrice } from "@/modules/commerce/constants";
-import type { TypingStage } from "../hooks/use-try-on-agent";
+import type { ChatAttachment, TypingStage } from "../hooks/use-try-on-agent";
 import { useWearableBranding } from "../branding-context";
 import { useWidgetLocale, widgetStrings } from "../widget-strings";
 import { cn } from "@/lib/utils/cn";
@@ -328,9 +328,12 @@ interface InlineSuggestionCardProps {
 function ProductPreviewImage({
   product,
   className,
+  bare = false,
 }: {
   product: Product;
   className: string;
+  /** Thumbnails: no product name on the placeholder, which would not fit. */
+  bare?: boolean;
 }) {
   // Preserve the original direct-preview behavior first. The proxy is a resilience fallback,
   // not a ten-second gate in front of an image the browser may be able to load immediately.
@@ -344,7 +347,7 @@ function ProductPreviewImage({
     return (
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-[var(--color-surface-base)] px-2 text-center">
         <ImageOff className="h-5 w-5 text-[var(--color-text-muted)]" />
-        <span className="line-clamp-2 text-[9px] text-[var(--color-text-muted)]">{product.name}</span>
+        {!bare && <span className="line-clamp-2 text-[9px] text-[var(--color-text-muted)]">{product.name}</span>}
       </div>
     );
   }
@@ -617,102 +620,111 @@ function BudgetPromptCard({ prompt, currency, isBusy, onChoose }: BudgetPromptCa
   );
 }
 
-interface AttachedItemBarProps {
-  product: Product;
+/** The most piece thumbnails a look shows in the composer before "+N". */
+const ATTACHED_LOOK_THUMBS = 4;
+
+interface ComposerAttachmentProps {
+  attachment: ChatAttachment;
+  knownProducts: Record<string, Product>;
   onClear: () => void;
   /** The mobile sheet is dark-on-dark; the desktop panel is the themed card surface. */
   tone?: "light" | "dark";
-  /** What the attachment means; the default is "Ask about this item". */
-  mode?: "ask" | "complete";
 }
 
 /**
- * Names the product attached with "Ask about this item" or "Complete the look", directly above
- * the composer. While it shows, every message goes to that mode's agent; the × hands the chat
+ * What the shopper attached, shown as a card inside the composer — the product's own thumbnail
+ * for "Ask about this item" and "Complete the look", the look's piece thumbnails for "Ask about
+ * this bundle". While it shows, every message goes to that mode's agent; the × hands the chat
  * back to the shopping assistant.
  */
-export function AttachedItemBar({ product, onClear, tone = "light", mode = "ask" }: AttachedItemBarProps) {
-  const Icon = mode === "complete" ? Layers : MessageSquare;
+export function ComposerAttachment({ attachment, knownProducts, onClear, tone = "light" }: ComposerAttachmentProps) {
+  const dark = tone === "dark";
+  const isLook = attachment.kind === "look";
+  const pieces: Product[] = isLook
+    ? attachment.look.items.map((item) => knownProducts[item.productId]).filter((piece): piece is Product => Boolean(piece))
+    : [attachment.product];
+  const pieceCount = isLook ? attachment.look.items.length : 1;
+  const shown = pieces.slice(0, isLook ? ATTACHED_LOOK_THUMBS : 1);
+  const extra = Math.max(0, pieceCount - shown.length);
+  const currency = pieces[0]?.currency;
+
+  const label =
+    attachment.kind === "item" ? "Asking about this item" : attachment.kind === "anchor" ? "Completing the look" : "Asking about this look";
+  const Icon = attachment.kind === "item" ? MessageSquare : Layers;
+  const title = isLook
+    ? pieces.length > 0
+      ? pieces.map((piece) => piece.name).join(" + ")
+      : `${pieceCount} pieces`
+    : attachment.product.name;
+  const detail = isLook
+    ? `${pieceCount} pieces${currency ? ` · ${formatPrice(attachment.look.total, currency)}` : ""}`
+    : formatPrice(attachment.product.price, attachment.product.currency);
+
   return (
     <div
       className={cn(
-        "flex items-center gap-2 text-xs",
-        tone === "dark" ? "text-white/70" : "text-[var(--color-text-secondary)]"
+        "flex w-full items-center gap-3 rounded-[var(--radius-lg)] border p-2 pr-2.5",
+        dark
+          ? "border-white/10 bg-white/[0.06] text-white"
+          : "border-[var(--color-brand)]/30 bg-[var(--color-brand-light)]/40 text-[var(--color-text-primary)]"
       )}
     >
-      <Icon className="h-3 w-3 shrink-0 text-[var(--color-brand)]" />
-      <span className="shrink-0">{mode === "complete" ? "Completing the look with:" : "Asking about:"}</span>
-      <span
-        className={cn(
-          "truncate font-semibold",
-          tone === "dark" ? "text-white" : "text-[var(--color-text-primary)]"
+      <div className="flex shrink-0 items-center">
+        {shown.length === 0 ? (
+          <div className="flex h-14 w-11 items-center justify-center rounded-md bg-[var(--color-surface-base)]">
+            <Layers className="h-4 w-4 text-[var(--color-text-muted)]" />
+          </div>
+        ) : (
+          shown.map((piece, index) => (
+            <div
+              key={piece.id}
+              className={cn(
+                "relative h-14 w-11 shrink-0 overflow-hidden rounded-md border",
+                dark ? "border-[#1d1527]" : "border-[var(--color-surface-card)]",
+                index > 0 && "-ml-3"
+              )}
+              style={{ zIndex: shown.length - index }}
+            >
+              <ProductPreviewImage product={piece} className="object-cover" bare />
+            </div>
+          ))
         )}
-      >
-        {product.name}
-      </span>
+        {extra > 0 && (
+          <div
+            className={cn(
+              "-ml-3 flex h-14 w-11 shrink-0 items-center justify-center rounded-md border text-[11px] font-semibold",
+              dark
+                ? "border-[#1d1527] bg-white/10 text-white/80"
+                : "border-[var(--color-surface-card)] bg-[var(--color-surface-base)] text-[var(--color-text-secondary)]"
+            )}
+          >
+            +{extra}
+          </div>
+        )}
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-brand)]">
+          <Icon className="h-3 w-3 shrink-0" />
+          {label}
+        </p>
+        <p className="truncate text-xs font-semibold">{title}</p>
+        <p className={cn("truncate text-[11px]", dark ? "text-white/60" : "text-[var(--color-text-muted)]")}>{detail}</p>
+      </div>
+
       <button
         type="button"
         onClick={onClear}
-        aria-label={mode === "complete" ? "Stop completing this look" : "Detach this item"}
+        aria-label="Remove attachment"
         title="Back to searching the store"
         className={cn(
-          "ml-auto h-5 w-5 shrink-0 rounded-full flex items-center justify-center transition-colors",
-          tone === "dark"
-            ? "text-white/50 hover:text-white hover:bg-white/10"
+          "h-6 w-6 shrink-0 self-start rounded-full flex items-center justify-center transition-colors",
+          dark
+            ? "text-white/60 hover:text-white hover:bg-white/10"
             : "text-[var(--color-text-muted)] hover:text-[var(--color-brand)] hover:bg-[var(--color-brand-light)]"
         )}
       >
-        <X className="h-3 w-3" />
-      </button>
-    </div>
-  );
-}
-
-interface AttachedLookBarProps {
-  bundle: BundleSuggestion;
-  knownProducts: Record<string, Product>;
-  onClear: () => void;
-  tone?: "light" | "dark";
-}
-
-/**
- * The look equivalent of `AttachedItemBar`. Lists the pieces rather than saying "1 outfit",
- * because a follow-up can be about any one of them ("cheaper shoes").
- */
-export function AttachedLookBar({ bundle, knownProducts, onClear, tone = "light" }: AttachedLookBarProps) {
-  const names = bundle.items
-    .map((item) => knownProducts[item.productId]?.name)
-    .filter((name): name is string => Boolean(name));
-
-  return (
-    <div
-      className={cn(
-        "flex items-center gap-2 text-xs",
-        tone === "dark" ? "text-white/70" : "text-[var(--color-text-secondary)]"
-      )}
-    >
-      <MessageSquare className="h-3 w-3 shrink-0 text-[var(--color-brand)]" />
-      <span className="shrink-0">Asking about look:</span>
-      <span
-        className={cn(
-          "truncate font-semibold",
-          tone === "dark" ? "text-white" : "text-[var(--color-text-primary)]"
-        )}
-      >
-        {names.length > 0 ? names.join(" + ") : `${bundle.items.length} items`}
-      </span>
-      <button
-        type="button"
-        onClick={onClear}
-        aria-label="Detach this look"
-        className={cn(
-          "ml-auto h-5 w-5 shrink-0 rounded-full flex items-center justify-center transition-colors",
-          tone === "dark"
-            ? "text-white/50 hover:text-white hover:bg-white/10"
-            : "text-[var(--color-text-muted)] hover:text-[var(--color-brand)] hover:bg-[var(--color-brand-light)]"
-        )}
-      >
-        <X className="h-3 w-3" />
+        <X className="h-3.5 w-3.5" />
       </button>
     </div>
   );
