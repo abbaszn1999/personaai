@@ -8,7 +8,8 @@
  *
  * EVAL_REBUILD=1 rebuilds the store's path config first. EVAL_CONCURRENCY (default 4) runs that
  * many conversations at once. EVAL_LABEL names the report in scripts/out/eval-persona/.
- * PERSONA_THINKING=low|on compares thinking levels.
+ * PERSONA_THINKING=low|on compares thinking levels. EVAL_STYLE_GUIDE sets the merchant's style
+ * guide for every conversation — explicit shopper requests must still win over it.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -508,6 +509,7 @@ async function runScenario(ownerId: string, scenario: Scenario, leaves: readonly
       measurements: MEASUREMENTS,
       retrievalState,
     });
+    if (process.env.EVAL_STYLE_GUIDE) context.styleGuide = process.env.EVAL_STYLE_GUIDE;
 
     let reply = "";
     let quickOptions: string[] = [];

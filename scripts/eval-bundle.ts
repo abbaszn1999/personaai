@@ -9,7 +9,8 @@
  *   pnpm dlx tsx --env-file=.env.local scripts/eval-bundle.ts <ownerId> [scenario-or-group ...]
  *
  * EVAL_CONCURRENCY (default 4) runs that many conversations at once. EVAL_LABEL names the report
- * in scripts/out/eval-bundle/. EVAL_NO_JUDGE=1 skips the stylist scores.
+ * in scripts/out/eval-bundle/. EVAL_NO_JUDGE=1 skips the stylist scores. A scenario's `styleGuide`
+ * stands in for the store's own, and the judge then also scores how well the looks follow it.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -18,7 +19,7 @@ import { getPlatformGeminiApiKey } from "@/lib/ai/gemini";
 import { dispatchTurn } from "@/lib/agents/dispatch";
 import { tierOf } from "@/lib/agents/bundle/slots";
 import { buildAgentContext } from "@/lib/agents/shared/context";
-import { personaPathOf, renderProductRecord } from "@/lib/agents/shared/product-record";
+import { departmentsOf, personaPathOf, renderProductRecord } from "@/lib/agents/shared/product-record";
 import { agentModel, callStructured } from "@/lib/agents/shared/structured-call";
 import { isLookRecord, type AgentEvent, type LookRecord } from "@/lib/agents/types";
 import { getCatalogProductsByExternalIds } from "@/lib/catalog/acs/catalog-reads";
@@ -72,12 +73,21 @@ interface Scenario {
   /** Leaves to pick the anchor from, in order of preference. */
   leaves: string[];
   price: "low" | "mid" | "high";
+  /** Only anchors whose colour values or title match — a navy polo, a striped top. */
+  colour?: RegExp;
   lang: Lang;
   /** The widget's budget before the first turn. */
   budget?: number;
   sized?: boolean;
+  /** The merchant's style guide for this conversation, in place of the store's own. */
+  styleGuide?: string;
   turns: TurnSpec[];
 }
+
+const MINIMAL_GUIDE =
+  "Lean minimalist and neutral: navy, white, grey, beige and black. Favour clean, tailored silhouettes. Avoid loud patterns, big logos and graphic prints.";
+const MODEST_GUIDE =
+  "We are a modest-wear store: favour longer lengths, loose and relaxed fits and layering. Nothing sheer, cropped or short — no shorts and no mini skirts.";
 
 const MEN_BODY = { heightCm: 178, chestCm: 100, waistCm: 86, hipsCm: 100, shoeSizeEu: 43 };
 const WOMEN_BODY = { heightCm: 165, chestCm: 90, waistCm: 72, hipsCm: 98, shoeSizeEu: 38 };
@@ -296,6 +306,83 @@ const SCENARIOS: Scenario[] = [
     turns: [{ say: "casual weekend", expect: { looks: true } }, { say: "a different top", on: "look", expect: { looks: true, swapped: "top" } }],
   },
   { id: "w-bra", group: "women", department: "women", leaves: ["bra"], price: "mid", lang: "en", turns: [{ say: "go", expect: { looks: false, detached: true } }] },
+
+  // ── Colour: the stylist reads the anchor's colour and pairs around it ─────────────────────
+  { id: "c-navy-polo", group: "colour", department: "men", leaves: ["polo-shirt"], price: "mid", colour: /navy/i, lang: "en", turns: [{ say: "go", expect: { looks: true } }] },
+  {
+    id: "c-olive-trouser",
+    group: "colour",
+    department: "men",
+    leaves: ["trouser"],
+    price: "mid",
+    colour: /olive|khaki/i,
+    lang: "en",
+    turns: [{ say: "smart casual weekend", expect: { looks: true } }],
+  },
+  { id: "c-black-tee", group: "colour", department: "men", leaves: ["t-shirt"], price: "mid", colour: /black/i, lang: "en", turns: [{ say: "go", expect: { looks: true } }] },
+  {
+    id: "c-white-shirt",
+    group: "colour",
+    department: "men",
+    leaves: ["shirt"],
+    price: "mid",
+    colour: /white/i,
+    lang: "fr",
+    turns: [{ say: "un dîner entre amis", expect: { looks: true } }],
+  },
+  {
+    id: "c-beige-trouser",
+    group: "colour",
+    department: "women",
+    leaves: ["trouser"],
+    price: "mid",
+    colour: /beige|stone|camel|sand|ecru/i,
+    lang: "en",
+    turns: [{ say: "go", expect: { looks: true } }],
+  },
+  {
+    id: "c-striped-top",
+    group: "colour",
+    department: "women",
+    leaves: ["t-shirt", "shirt"],
+    price: "mid",
+    colour: /strip/i,
+    lang: "ar",
+    turns: [{ say: "لوك كاجوال للنهار", expect: { looks: true } }],
+  },
+  {
+    id: "c-graphic-tee",
+    group: "colour",
+    department: "men",
+    leaves: ["t-shirt"],
+    price: "mid",
+    colour: /print|graphic|design/i,
+    lang: "en",
+    turns: [{ say: "go", expect: { looks: true } }],
+  },
+
+  // ── The merchant's style guide ────────────────────────────────────────────────────────────
+  { id: "n-minimal", group: "notes", department: "men", leaves: ["shirt"], price: "mid", lang: "en", styleGuide: MINIMAL_GUIDE, turns: [{ say: "go", expect: { looks: true } }] },
+  {
+    id: "n-minimal-ar",
+    group: "notes",
+    department: "men",
+    leaves: ["trouser"],
+    price: "mid",
+    lang: "ar",
+    styleGuide: MINIMAL_GUIDE,
+    turns: [{ say: "أريد إطلالة للعمل", expect: { looks: true } }],
+  },
+  {
+    id: "n-modest",
+    group: "notes",
+    department: "women",
+    leaves: ["shirt", "knit"],
+    price: "mid",
+    lang: "en",
+    styleGuide: MODEST_GUIDE,
+    turns: [{ say: "a casual day out in summer", expect: { looks: true } }],
+  },
 ];
 
 // ── Language checks, the same rules as the Persona eval ────────────────────────────────────
@@ -352,6 +439,8 @@ interface LookScore {
   balance: number;
   occasion: number;
   overall: number;
+  /** How faithfully the look follows the merchant's STORE NOTES; 0 when there are none. */
+  notes: number;
   note: string;
 }
 
@@ -363,6 +452,8 @@ Score every look from 1 to 5 on:
 - balance: silhouette and material contrast work (no shine on shine, no denim on denim, at most one statement piece).
 - occasion: the look fits everything the shopper asked for across the whole conversation (occasion, style, season). When they asked for nothing specific, judge it as a sensible everyday outfit.
 - overall: would you put this on a real client today, as is.
+
+- notes: when STORE NOTES are given (the merchant's own styling guidance), how faithfully the look follows them, 1 to 5. When there are none, 0.
 
 Be strict: 5 = a professional stylist would ship it unchanged; 4 = good, one small note; 3 = wearable but generic or one clear miss; 2 = a real mistake; 1 = clashing or wrong for the request. Price is not a factor. A look of only two pieces is fine when the store has nothing else for it. note: one short line naming the biggest weakness, or "none".`;
 
@@ -380,16 +471,23 @@ const JUDGE_SCHEMA = {
           balance: { type: "integer" },
           occasion: { type: "integer" },
           overall: { type: "integer" },
+          notes: { type: "integer" },
           note: { type: "string" },
         },
-        required: ["look", "colour", "formality", "balance", "occasion", "overall", "note"],
+        required: ["look", "colour", "formality", "balance", "occasion", "overall", "notes", "note"],
       },
     },
   },
   required: ["looks"],
 } as const;
 
-async function judgeLooks(said: string[], anchor: CatalogCandidate, looks: LookRecord[], records: Map<string, CatalogCandidate>): Promise<LookScore[]> {
+async function judgeLooks(
+  said: string[],
+  anchor: CatalogCandidate,
+  looks: LookRecord[],
+  records: Map<string, CatalogCandidate>,
+  storeNotes: string | null
+): Promise<LookScore[]> {
   const record = (item: CatalogCandidate) => renderProductRecord(item, { descriptionChars: 160, includeSizes: false });
   const blocks = looks.map((look, index) => {
     const pieces = look.productIds
@@ -402,7 +500,7 @@ async function judgeLooks(said: string[], anchor: CatalogCandidate, looks: LookR
     apiKey: getPlatformGeminiApiKey(),
     model: agentModel(),
     prefix: JUDGE_PREFIX,
-    userText: `## SHOPPER SAID\n${said.map((line) => `- ${line}`).join("\n")}\n\n## ANCHOR\n${record(anchor)}\n\n## LOOKS\n${blocks.join("\n\n")}`,
+    userText: `## SHOPPER SAID\n${said.map((line) => `- ${line}`).join("\n")}\n\n## STORE NOTES\n${storeNotes ?? "none"}\n\n## ANCHOR\n${record(anchor)}\n\n## LOOKS\n${blocks.join("\n\n")}`,
     schema: JUDGE_SCHEMA,
     thinking: "low",
     label: "eval bundle judge",
@@ -438,9 +536,11 @@ interface StoreFacts {
 }
 
 function pickAnchor(store: StoreFacts, scenario: Scenario): CatalogCandidate | null {
+  const coloured = (item: CatalogCandidate) => !scenario.colour || scenario.colour.test([...(item.attributes?.color ?? []), item.title].join(" "));
   for (const leaf of scenario.leaves) {
     const matches = store.pool
       .filter((item) => personaPathOf(item) === `${scenario.department} > ${categoryForLeaf(store.config, scenario.department, leaf)} > ${leaf}`)
+      .filter(coloured)
       .sort((a, b) => (a.price ?? 0) - (b.price ?? 0) || a.externalId.localeCompare(b.externalId));
     if (matches.length === 0) continue;
     const index = scenario.price === "low" ? Math.floor(matches.length * 0.1) : scenario.price === "high" ? matches.length - 1 : Math.floor(matches.length / 2);
@@ -507,6 +607,7 @@ async function runScenario(ownerId: string, store: StoreFacts, scenario: Scenari
         budget,
         attachment,
       });
+      if (scenario.styleGuide) context.styleGuide = scenario.styleGuide;
       for await (const event of dispatchTurn(context) as AsyncIterable<AgentEvent>) {
         if (event.type === "text") reply += event.delta;
         else if (event.type === "bundle") {
@@ -570,8 +671,8 @@ async function runScenario(ownerId: string, store: StoreFacts, scenario: Scenari
       if (slots.length === 0) failures.push(`${look.label}: no pieces besides the anchor`);
       for (const id of look.productIds) {
         const item = records.get(id);
-        const department = item ? personaPathOf(item)?.split(" > ")[0] : null;
-        if (department && !allowed.has(department)) failures.push(`${look.label}: ${id} is ${department}`);
+        const departments = item ? departmentsOf(item) : [];
+        if (departments.length > 0 && !departments.some((department) => allowed.has(department))) failures.push(`${look.label}: ${id} is ${departments.join("/")}`);
         if (scenario.sized && id !== anchor.externalId && !fitting.has(id)) failures.push(`${look.label}: ${id} has no fitting size`);
       }
     }
@@ -613,7 +714,7 @@ async function runScenario(ownerId: string, store: StoreFacts, scenario: Scenari
     let scores: LookScore[] = [];
     if (judge && looks.length > 0) {
       try {
-        scores = await judgeLooks(said, anchorRecord, looks, records);
+        scores = await judgeLooks(said, anchorRecord, looks, records, scenario.styleGuide ?? null);
       } catch (error) {
         failures.push(`judge failed: ${error instanceof Error ? error.message : error}`);
       }
@@ -706,6 +807,18 @@ async function loadStore(ownerId: string): Promise<StoreFacts> {
   return { connectionId: connection.id, config: stored.config, pool };
 }
 
+/** Slots searched with a preferred colour, and how many of those had to let it go. */
+function colourPreference(builds: TurnResult[]): { slots: number; preferred: number; softened: number } {
+  const total = { slots: 0, preferred: 0, softened: 0 };
+  for (const line of builds.flatMap((result) => result.logs)) {
+    if (!line.includes("directions=")) continue;
+    total.slots += (line.match(/<=/g) ?? []).length;
+    total.preferred += Number(line.match(/colour_pref=(\d+)/)?.[1] ?? 0);
+    total.softened += Number(line.match(/softened=(\d+)/)?.[1] ?? 0);
+  }
+  return total;
+}
+
 const mean = (values: number[]) => (values.length === 0 ? null : Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 100) / 100);
 const percentile = (values: number[], share: number) => {
   const sorted = [...values].sort((a, b) => a - b);
@@ -765,7 +878,9 @@ async function main() {
       occasion: mean(scores.map((score) => score.occasion)),
       shareFourPlus: scores.length ? Math.round((scores.filter((score) => score.overall >= 4).length / scores.length) * 100) : null,
       looksScored: scores.length,
+      storeNotes: mean(scores.filter((score) => score.notes > 0).map((score) => score.notes)),
     },
+    colourPreference: colourPreference(builds),
     budgetUse: mean(budgeted.flatMap((result) => result.looks.map((look) => look.total / result.budgetAfter!))),
     premiumPartnersInTierA: premiumPartners.length ? Math.round((premiumPartners.filter((piece) => piece.tier === "A").length / premiumPartners.length) * 100) : null,
     buildMedianMs: percentile(builds.map((result) => result.ms), 0.5),

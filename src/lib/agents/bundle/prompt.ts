@@ -7,21 +7,23 @@ import type { AgentContext, LookRecord } from "../types";
 import type { SlotCandidates } from "./compose";
 
 const GENERAL = "bundle/skills/general.md";
+const STYLIST = "bundle/skills/stylist.md";
 const BUNDLE = "bundle/skills/bundle.md";
 const FOLLOW_UP_TURNS = 3;
 
 /** Each stage gets only the sections it uses — the compose call in particular is the expensive
- *  one, and the planning sections would be dead weight in it. */
+ *  one, and the planning sections would be dead weight in it. Every stage that chooses or judges
+ *  pieces gets the stylist's craft. */
 export function planPrefix(): string {
-  return [loadSkill(GENERAL), pickSections(loadSkill(BUNDLE), ["1", "2", "3", "4"])].join("\n\n");
+  return [loadSkill(GENERAL), loadSkill(STYLIST), pickSections(loadSkill(BUNDLE), ["1", "2", "3", "4"])].join("\n\n");
 }
 
 export function composePrefix(): string {
-  return [loadSkill(GENERAL), pickSections(loadSkill(BUNDLE), ["5"])].join("\n\n");
+  return [loadSkill(GENERAL), loadSkill(STYLIST), pickSections(loadSkill(BUNDLE), ["5"])].join("\n\n");
 }
 
 export function followUpPrefix(): string {
-  return [loadSkill(GENERAL), pickSections(loadSkill(BUNDLE), ["6"])].join("\n\n");
+  return [loadSkill(GENERAL), loadSkill(STYLIST), pickSections(loadSkill(BUNDLE), ["6"])].join("\n\n");
 }
 
 export function anchorPrefix(): string {
@@ -117,11 +119,15 @@ export function renderPlanTurn(input: PlanTurnInput): string {
 
 export interface ComposeDirection {
   theme: string;
+  /** The colour story the plan wrote for this look. */
+  palette?: string;
   slots: SlotCandidates[];
 }
 
 export interface ComposeTurnInput {
   anchor: CatalogCandidate;
+  /** How the plan read the anchor (colour, family, formality, season…). */
+  anchorRead?: string | null;
   kept: CatalogCandidate[];
   budget: number | null;
   /** One group per planned look, numbered from 1 in this order. */
@@ -141,6 +147,7 @@ export interface ComposeTurnInput {
 export function renderComposeTurn(input: ComposeTurnInput): string {
   const fixedTotal = Math.round([input.anchor, ...input.kept].reduce((sum, item) => sum + (item.price ?? 0), 0) * 100) / 100;
   const blocks = [`## ANCHOR\n${renderProductRecord(input.anchor, { descriptionChars: 300, includeSizes: false })}`];
+  if (input.anchorRead?.trim()) blocks.push(`## ANCHOR READ\n${input.anchorRead.trim()}`);
   if (input.kept.length > 0) {
     blocks.push(`## KEPT PIECES (already in the look — do not pick again)\n${input.kept.map(renderProductLine).join("\n")}`);
   }
@@ -170,7 +177,10 @@ export function renderComposeTurn(input: ComposeTurnInput): string {
   blocks.push(
     `## CANDIDATES\n${input.directions
       .map((direction, index) =>
-        [`### look ${index + 1}${direction.theme ? ` — ${direction.theme}` : ""}`, ...direction.slots.map(renderSlot)].join("\n\n")
+        [
+          `### look ${index + 1}${direction.theme ? ` — ${direction.theme}` : ""}${direction.palette?.trim() ? ` · palette: ${direction.palette.trim()}` : ""}`,
+          ...direction.slots.map(renderSlot),
+        ].join("\n\n")
       )
       .join("\n\n")}`
   );
@@ -222,6 +232,7 @@ export function renderFollowUpTurn(input: FollowUpTurnInput): string {
       .map((piece) => `${piece.externalId === look.anchorId ? "ANCHOR " : ""}${renderProductRecord(piece, { descriptionChars: 200, includeSizes: false })}`)
       .join("\n---\n")}${look.rationale ? `\nwhy it works: ${look.rationale}` : ""}`,
     `## LOOK SLOTS\n${slotLines.join("\n") || "- none recorded"}`,
+    `## LOOK PALETTE\n${look.palette ?? "not recorded"}${look.anchorRead ? `\nanchor read: ${look.anchorRead}` : ""}`,
     `## ASKED SO FAR\n${look.brief ?? "not recorded"}`,
     `## BUDGET\n${input.budget ?? "none"}`,
   ];

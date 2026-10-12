@@ -270,6 +270,51 @@ describe("the Bundle agent with an anchor attached", () => {
     expect(deps.searchCatalog).toHaveBeenCalledTimes(1);
   });
 
+  it("dresses the anchor to the plan's palette: preferred colours first, the anchor read and palette to compose and onto the look", async () => {
+    deps.callStructured
+      .mockResolvedValueOnce(reply({ intent: "rerun", brief: "weekend" }))
+      .mockResolvedValueOnce({
+        value: {
+          reasoning: "",
+          anchor_read: { colour: "white", family: "light neutral", undertone: "cool", formality: 2, season: "summer", silhouette: "regular", material: "cotton", statement: false },
+          looks: [
+            {
+              theme: "Weekend",
+              palette: "white, navy, white trainers",
+              slots: [
+                { slot: "bottom", path: "women > bottom", price_max: null, query: "navy trouser", attributes: [], prefer_colors: ["Navy"] },
+                { slot: "footwear", path: "women > footwear", price_max: null, query: "white trainer", attributes: [], prefer_colors: ["White"] },
+              ],
+            },
+          ],
+        },
+        usage: { cachedTokens: 0 },
+      })
+      .mockRejectedValue(new Error("down")); // compose falls back to code
+    const navy = candidate({ externalId: "w-trouser-2", price: 50, categoryPaths: [["persona", "women", "bottom", "trouser"]] });
+    deps.searchCatalog.mockImplementation(async (_ctx: unknown, spec: SearchSpec) => {
+      if (spec.paths.some((path) => path.includes("> footwear"))) return { candidates: [sneakers] };
+      const navyOnly = spec.attributes.some((attribute) => attribute.field === "colors");
+      return { candidates: navyOnly ? [navy] : [trousers, navy] };
+    });
+
+    const events = await run(context({ message: "weekend" }));
+
+    const bottoms = specs().filter((spec) => spec.paths.some((path) => path.includes("> bottom")));
+    expect(bottoms[0].attributes).toContainEqual(expect.objectContaining({ field: "colors", values: ["Navy"] }));
+    // One navy trouser is too little to choose from: the slot searches again, the navy one first.
+    expect(bottoms[1].attributes.some((attribute) => attribute.field === "colors")).toBe(false);
+    const compose = userText(2);
+    expect(compose).toContain("## ANCHOR READ\ncolour: white (light neutral, cool) · formality 2");
+    expect(compose).toContain("### look 1 — Weekend · palette: white, navy, white trainers");
+    const bundle = events.find((event): event is Extract<AgentEvent, { type: "bundle" }> => event.type === "bundle");
+    expect(bundle?.bundles[0]).toMatchObject({
+      productIds: ["w-tee-1", "w-trouser-2", "w-sneaker-1"],
+      palette: "white, navy, white trainers",
+      anchorRead: expect.stringContaining("colour: white"),
+    });
+  });
+
   it("completes a unisex piece from the shopper's own department", async () => {
     const config = buildPathConfig([
       acsProduct("u-tee", "unisex > top > t-shirt", 20),

@@ -5,7 +5,9 @@ import { CONFIG, acsProduct, candidate } from "../__fixtures__/catalog";
 import { distinctLooks, lookTotal, naiveLook, verifyLook, type LookRules, type SlotCandidates } from "./compose";
 import { bundleLanguage, bundleMessages } from "./messages";
 import { CEILING_SLACK, fallbackSlotPlan, validateLookPlan, validateSlotPlan, type PlanLimits } from "./plan";
-import { renderComposeTurn, renderPlanTurn, renderStore } from "./prompt";
+import { composePrefix, followUpPrefix, planPrefix, renderComposeTurn, renderFollowUpTurn, renderPlanTurn, renderStore } from "./prompt";
+import { renderAnchorRead } from "./schema";
+import type { AgentContext, LookRecord } from "../types";
 import {
   fallbackCeilings,
   isOutfitLeaf,
@@ -361,6 +363,91 @@ describe("renderComposeTurn budget line", () => {
   });
 });
 
+describe("the stylist", () => {
+  const slots = slotsInPlay(CONFIG, "women", "top");
+  const limits: PlanLimits = { remaining: null, fallbackCeilings: new Map(), excludeIds: [] };
+
+  it("is part of every stage that chooses or judges pieces", () => {
+    for (const prefix of [planPrefix(), composePrefix(), followUpPrefix()]) {
+      expect(prefix).toContain("# STYLIST — THE CRAFT");
+      expect(prefix).toContain("## Colour pairing");
+    }
+  });
+
+  it("turns a slot's preferred colours into the store's spelling, unless a colour is already required", () => {
+    const plan = validateSlotPlan(
+      CONFIG,
+      slots,
+      [{ slot: "bottom", path: "women > bottom", price_max: null, query: "navy trouser", attributes: [], prefer_colors: ["navy", "Teal"] }],
+      limits
+    );
+    expect(plan.ok && plan.searches[0].preferColours).toMatchObject({ field: "colors", values: ["Navy"] });
+
+    const required = validateSlotPlan(
+      CONFIG,
+      slots,
+      [{ slot: "bottom", path: "women > bottom", price_max: null, query: "trouser", attributes: [{ key: "color", values: ["Black"] }], prefer_colors: ["Navy"] }],
+      limits
+    );
+    expect(required.ok && required.searches[0].preferColours).toBeUndefined();
+  });
+
+  it("keeps each planned look's palette", () => {
+    const plan = validateLookPlan(
+      CONFIG,
+      slots,
+      [{ theme: "Weekend", palette: " white, navy, tan accent ", slots: [{ slot: "bottom", path: "women > bottom", price_max: 70, query: "navy chino", attributes: [] }] }],
+      limits
+    );
+    expect(plan.ok && plan.directions[0].palette).toBe("white, navy, tan accent");
+  });
+
+  it("renders the anchor read as one line, and nothing when it is empty", () => {
+    expect(
+      renderAnchorRead({ colour: "navy", family: "dark neutral", undertone: "cool", formality: 2, season: "summer", silhouette: "regular", material: "cotton piqué", statement: false })
+    ).toBe("colour: navy (dark neutral, cool) · formality 2 · season: summer · silhouette: regular · material: cotton piqué · not a statement piece");
+    expect(renderAnchorRead(null)).toBeNull();
+    expect(renderAnchorRead({ colour: " ", family: "", undertone: "", formality: 0, season: "", silhouette: "", material: "", statement: false })).toBeNull();
+  });
+
+  it("gives compose the anchor read and every look's palette", () => {
+    const text = renderComposeTurn({
+      anchor,
+      anchorRead: "colour: white (light neutral, cool) · formality 2",
+      kept: [],
+      budget: null,
+      directions: [{ theme: "Weekend", palette: "white, navy, tan accent", slots: [] }],
+    });
+    expect(text).toContain("## ANCHOR READ\ncolour: white (light neutral, cool) · formality 2");
+    expect(text).toContain("### look 1 — Weekend · palette: white, navy, tan accent");
+  });
+
+  it("shows a follow-up the look's palette, so a swap keeps to it", () => {
+    const look: LookRecord = {
+      id: "l",
+      label: "Weekend",
+      productIds: ["w-tee-1"],
+      items: [],
+      anchorId: "w-tee-1",
+      total: 25,
+      budget: null,
+      department: "women",
+      slots: [],
+      palette: "white, navy, tan accent",
+      anchorRead: "colour: white",
+    };
+    const text = renderFollowUpTurn({
+      ctx: { history: [], styleGuide: null } as unknown as AgentContext,
+      message: "cheaper shoes",
+      look,
+      pieces: [anchor],
+      budget: null,
+      slotsText: "",
+    });
+    expect(text).toContain("## LOOK PALETTE\nwhite, navy, tan accent\nanchor read: colour: white");
+  });
+});
+
 describe("code-written replies", () => {
   it("follow the language the model named, else the message's script", () => {
     expect(bundleLanguage("Modern Standard Arabic")).toBe("ar");
@@ -409,6 +496,19 @@ describe("verifyLook", () => {
       verifyLook({ item_ids: ["t1", "s1"], reason: "" }, [{ ...slots[0], ceiling: 55 }, slots[1]], rules)
     ).toBeNull();
     expect(verifyLook({ item_ids: ["t1", "s1"], reason: "" }, slots, { ...rules, budget: 150 })).toBeNull();
+  });
+
+  it("accepts a piece the merchant lists under both departments", () => {
+    const both = candidate({
+      externalId: "t4",
+      price: 40,
+      categoryPaths: [
+        ["persona", "men", "bottom", "trouser"],
+        ["persona", "women", "bottom", "trouser"],
+      ],
+    });
+    const withBoth: SlotCandidates[] = [{ ...slots[0], candidates: [both] }, slots[1]];
+    expect(verifyLook({ item_ids: ["t4", "s1"], reason: "" }, withBoth, rules)).not.toBeNull();
   });
 
   it("enforces merchant hard rules", () => {

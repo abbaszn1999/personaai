@@ -80,8 +80,8 @@ interface StoreConnectionState {
   syncedAt: string | null;
   catalogSync: CatalogSyncState;
   acsMapping: AcsMappingState;
-  /** The merchant's soft styling guidance — read by the budget allocator and the stylist's
-   *  vision prompt. `null` until a merchant sets one. */
+  /** The merchant's soft styling guidance — read by the Bundle agent in every styling step and by
+   *  Persona to lean open requests. `null` until a merchant sets one. */
   styleGuide: string | null;
   mapping: MappingState;
   /** False until the first load settles. Anything that gates on connection state needs this:

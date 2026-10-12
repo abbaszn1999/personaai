@@ -41,6 +41,7 @@ import {
   COMPOSE_SCHEMA,
   FOLLOW_UP_SCHEMA,
   PLAN_SCHEMA,
+  renderAnchorRead,
   type AnchorResponse,
   type BundleSlotIntent,
   type ComposeResponse,
@@ -155,6 +156,9 @@ interface BuildInput {
    *  still has enough else to choose from. */
   avoid?: string[];
   caps?: Map<string, number>;
+  /** A follow-up's look: its colour story and how the anchor was read, kept through a swap. */
+  palette?: string;
+  anchorRead?: string | null;
 }
 
 interface BuildOutput {
@@ -194,7 +198,7 @@ function toLookRecord(
   kept: KeptPiece[],
   look: ComposedLook,
   direction: LookDirection,
-  input: { budget: number | null; department: string; request?: string }
+  input: { budget: number | null; department: string; request?: string; anchorRead?: string | null }
 ): LookRecord {
   const pieces = [anchor, ...kept.map((piece) => piece.item), ...look.picks.map((pick) => pick.item)];
   const ids = pieces.map((piece) => piece.externalId);
@@ -214,6 +218,8 @@ function toLookRecord(
       ...searches.filter((search) => look.picks.some((pick) => pick.slot === search.slot)).map(toLookSlot),
     ],
     ...(input.request ? { brief: input.request } : {}),
+    ...(direction.palette ? { palette: direction.palette } : {}),
+    ...(input.anchorRead ? { anchorRead: input.anchorRead } : {}),
   };
 }
 
@@ -231,9 +237,12 @@ async function planLooks(
 ): Promise<DirectionPlan> {
   const config = ctx.pathConfig!.config;
   const single = input.intents !== undefined;
+  const kept = { palette: input.palette ?? "", anchorRead: input.anchorRead ?? null };
   if (input.intents?.length) {
     const direct = validateSlotPlan(config, input.slots, input.intents, limits);
-    if (direct.ok) return { ok: true, directions: [{ theme: "", searches: direct.searches, skipped: direct.skipped }] };
+    if (direct.ok) {
+      return { ok: true, anchorRead: kept.anchorRead, directions: [{ theme: "", palette: kept.palette, searches: direct.searches, skipped: direct.skipped }] };
+    }
   }
 
   const slotsText = renderSlotsInPlay(config, input.slots);
@@ -266,7 +275,11 @@ async function planLooks(
         signal: ctx.signal,
       });
       const plan = validateLookPlan(config, input.slots, value.looks ?? [], limits, looks);
-      if (plan.ok) return plan;
+      if (plan.ok) {
+        // A single-look plan (a follow-up) keeps the attached look's colour story when it wrote none.
+        const directions = single ? plan.directions.map((direction) => ({ ...direction, palette: direction.palette || kept.palette })) : plan.directions;
+        return { ...plan, directions, anchorRead: renderAnchorRead(value.anchor_read) ?? kept.anchorRead };
+      }
       problems = plan.problems;
     } catch (error) {
       console.warn("[agents bundle] plan call failed:", error instanceof Error ? error.message : error);
@@ -275,14 +288,15 @@ async function planLooks(
   }
   const fallback = fallbackSlotPlan(config, input.slots, input.anchor, limits);
   return fallback.ok
-    ? { ok: true, directions: [{ theme: "", searches: fallback.searches, skipped: fallback.skipped }] }
+    ? { ok: true, anchorRead: kept.anchorRead, directions: [{ theme: "", palette: kept.palette, searches: fallback.searches, skipped: fallback.skipped }] }
     : fallback;
 }
 
 async function composeLooks(
   ctx: AgentContext,
   input: BuildInput,
-  directions: SearchedDirection[]
+  directions: SearchedDirection[],
+  anchorRead: string | null
 ): Promise<{ looks: DirectedLook[]; reply: string }> {
   const rules = {
     fixed: [input.anchor, ...input.kept.map((piece) => piece.item)],
@@ -299,9 +313,10 @@ async function composeLooks(
       cacheAs: "bundle-compose",
       userText: renderComposeTurn({
         anchor: input.anchor,
+        anchorRead,
         kept: input.kept.map((piece) => piece.item),
         budget: input.budget,
-        directions: directions.map((direction) => ({ theme: direction.theme, slots: direction.slots })),
+        directions: directions.map((direction) => ({ theme: direction.theme, palette: direction.palette, slots: direction.slots })),
         request: input.request,
         language: input.language,
         replacing: input.replacing,
@@ -435,13 +450,24 @@ async function buildLooks(ctx: AgentContext, input: BuildInput): Promise<BuildOu
   const floors = premiumFloors(tier, input.slots);
   const avoid = input.avoid ?? [];
   let softened = 0;
+  let colourPreferred = 0;
+  // Soft constraints — the palette's colours, premium company, pieces not shown yet — are tried
+  // together first; below MIN_SOFT_CANDIDATES the slot searches without them, the preferred
+  // candidates kept first.
   const searchSlot = async (search: SlotSearch): Promise<SlotCandidates> => {
     const floor = floors.get(search.slot) ?? null;
     const priceMin = floor !== null && (search.spec.priceMax === null || floor < search.spec.priceMax) ? floor : null;
     const excludeIds = avoid.filter((id) => !search.spec.excludeIds.includes(id));
+    const colours = search.preferColours ?? null;
+    if (colours) colourPreferred += 1;
     let candidates: CatalogCandidate[] = [];
-    if (priceMin !== null || excludeIds.length > 0) {
-      const spec = { ...search.spec, priceMin: priceMin ?? search.spec.priceMin, excludeIds: [...search.spec.excludeIds, ...excludeIds] };
+    if (priceMin !== null || excludeIds.length > 0 || colours) {
+      const spec = {
+        ...search.spec,
+        priceMin: priceMin ?? search.spec.priceMin,
+        excludeIds: [...search.spec.excludeIds, ...excludeIds],
+        attributes: colours ? [...search.spec.attributes, colours] : search.spec.attributes,
+      };
       candidates = showable((await searchCatalog(ctx, spec, search.query, pageSize)).candidates);
       if (candidates.length < MIN_SOFT_CANDIDATES) {
         softened += 1;
@@ -463,8 +489,13 @@ async function buildLooks(ctx: AgentContext, input: BuildInput): Promise<BuildOu
   const searchedSlots = new Set(searched.flatMap((direction) => direction.searches.map((search) => search.slot)));
   const missing = input.slots.map((slot) => slot.slot).filter((slot) => searchedSlots.has(slot) && !filled.has(slot));
   const describe = (direction: LookDirection) =>
-    `${direction.theme || "-"}: ${direction.searches
-      .map((search) => `${search.slot}=${search.path}<=${search.spec.priceMax ?? "any"}${search.query ? `~"${search.query}"` : ""}`)
+    `${direction.theme || "-"}${direction.palette ? ` [${direction.palette}]` : ""}: ${direction.searches
+      .map(
+        (search) =>
+          `${search.slot}=${search.path}<=${search.spec.priceMax ?? "any"}${search.query ? `~"${search.query}"` : ""}${
+            search.preferColours ? `{${search.preferColours.values.join("/")}}` : ""
+          }`
+      )
       .join(" > ")}`;
 
   if (filled.size === 0) {
@@ -478,14 +509,17 @@ async function buildLooks(ctx: AgentContext, input: BuildInput): Promise<BuildOu
   }
 
   const composable = searched.filter((direction) => direction.slots.some((slot) => slot.candidates.length > 0));
-  const composed = await composeLooks(ctx, input, composable);
+  const anchorRead = plan.anchorRead ?? input.anchorRead ?? null;
+  const composed = await composeLooks(ctx, input, composable, anchorRead);
   const verified = await verifyLive(ctx, input, composed.looks, composable);
   log(ctx, {
     directions: searched.length,
     searches: searched.map(describe).join(" | "),
+    anchor_read: anchorRead,
     candidates: searched.reduce((sum, direction) => sum + direction.slots.reduce((n, slot) => n + slot.candidates.length, 0), 0),
     floors: [...floors].map(([slot, value]) => `${slot}>=${value}`).join(",") || "none",
     avoided: avoid.length,
+    colour_pref: colourPreferred,
     softened,
     composed: composed.looks.length,
     shown: verified.length,
@@ -501,6 +535,7 @@ async function buildLooks(ctx: AgentContext, input: BuildInput): Promise<BuildOu
       budget: input.budget,
       department: input.department,
       request: input.request,
+      anchorRead,
     })
   );
   const products = new Map<string, CatalogCandidate>();
@@ -759,6 +794,8 @@ async function* followUp(ctx: AgentContext, look: LookRecord): AsyncGenerator<Ag
     language: value.language,
     replacing: replaced,
     caps,
+    palette: look.palette,
+    anchorRead: look.anchorRead,
   });
   if (output.looks.length === 0) {
     yield* textEvents(`${output.reply}${say.lookUnchanged}`);

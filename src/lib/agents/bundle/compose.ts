@@ -1,7 +1,7 @@
 import type { CatalogCandidate, HardRule } from "@/lib/retrieval/types";
 import { unisexDepartmentFor } from "@/lib/catalog/path-config/lookup";
 import { isValidBundle } from "../shared/hard-rules";
-import { departmentOf } from "../shared/product-record";
+import { departmentsOf } from "../shared/product-record";
 
 export interface SlotCandidates {
   slot: string;
@@ -66,8 +66,8 @@ export function verifyLook(
     const item = slot.candidates.find((candidate) => candidate.externalId === id)!;
     if (!item.inStock || item.price === null) return reject(`${id} unavailable`);
     if (slot.ceiling !== null && item.price > slot.ceiling) return reject(`${slot.slot} ${item.price} over ceiling ${slot.ceiling}`);
-    const department = departmentOf(item);
-    if (department && !departments.has(department)) return reject(`${id} is ${department}`);
+    const listed = departmentsOf(item);
+    if (listed.length > 0 && !listed.some((department) => departments.has(department))) return reject(`${id} is ${listed.join("/")}`);
     used.add(id);
     picks.push({ slot: slot.slot, item });
   }

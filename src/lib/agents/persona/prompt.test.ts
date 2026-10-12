@@ -10,15 +10,22 @@ describe("buildPersonaPrefix", () => {
     expect(buildPersonaPrefix(configText, "Warm and brief.")).toBe(buildPersonaPrefix(configText, "Warm and brief."));
   });
 
-  it("orders the four skills, then the path config, then the store voice", () => {
+  it("orders the four skills, then the path config, then the store's style notes", () => {
     const prefix = buildPersonaPrefix(configText, "Warm and brief.");
     const pathConfig = prefix.indexOf("## PATH CONFIG");
     const config = prefix.indexOf(configText);
-    const voice = prefix.indexOf("## STORE VOICE");
+    const notes = prefix.indexOf("## STORE STYLE NOTES");
     expect(pathConfig).toBeGreaterThan(0);
     expect(config).toBeGreaterThan(pathConfig);
-    expect(voice).toBeGreaterThan(config);
+    expect(notes).toBeGreaterThan(config);
+    expect(prefix.slice(notes)).toContain("never a filter, never over the shopper's words");
     expect(prefix.endsWith("Warm and brief.")).toBe(true);
+  });
+
+  it("tells the model how to use the store's style notes", () => {
+    const prefix = buildPersonaPrefix(configText, null);
+    expect(prefix).toContain("## Store style notes");
+    expect(prefix).toContain("Lean on STORE STYLE NOTES only where the shopper left room.");
   });
 
   it("changes only when the config or voice changes", () => {

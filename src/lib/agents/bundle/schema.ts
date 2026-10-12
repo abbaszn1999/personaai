@@ -7,6 +7,9 @@ export interface BundleSlotIntent {
   price_max: number | null;
   query: string;
   attributes: AttributeConstraint[];
+  /** Colour values from the slot's `color(...)` line that suit the look's palette — tried first,
+   *  let go when they would leave too little to choose from. */
+  prefer_colors?: string[];
 }
 
 const SLOT_INTENT = {
@@ -17,17 +20,48 @@ const SLOT_INTENT = {
     price_max: NULLABLE_NUMBER,
     query: { type: "string" },
     attributes: ATTRIBUTE_CONSTRAINTS,
+    prefer_colors: STRING_ARRAY,
   },
-  required: ["slot", "path", "price_max", "query", "attributes"],
+  required: ["slot", "path", "price_max", "query", "attributes", "prefer_colors"],
+} as const;
+
+/** How a stylist reads the anchor before dressing it. */
+export interface AnchorRead {
+  colour: string;
+  family: string;
+  undertone: string;
+  formality: number;
+  season: string;
+  silhouette: string;
+  material: string;
+  statement: boolean;
+}
+
+const ANCHOR_READ = {
+  type: "object",
+  properties: {
+    colour: { type: "string" },
+    family: { type: "string" },
+    undertone: { type: "string" },
+    formality: { type: "integer" },
+    season: { type: "string" },
+    silhouette: { type: "string" },
+    material: { type: "string" },
+    statement: { type: "boolean" },
+  },
+  required: ["colour", "family", "undertone", "formality", "season", "silhouette", "material", "statement"],
 } as const;
 
 export interface PlannedLook {
   theme: string;
+  /** The look's colour story, e.g. "navy, white, tan accent". */
+  palette?: string;
   slots: BundleSlotIntent[];
 }
 
 export interface PlanResponse {
   reasoning: string;
+  anchor_read?: AnchorRead;
   looks: PlannedLook[];
 }
 
@@ -35,17 +69,32 @@ export const PLAN_SCHEMA = {
   type: "object",
   properties: {
     reasoning: { type: "string" },
+    anchor_read: ANCHOR_READ,
     looks: {
       type: "array",
       items: {
         type: "object",
-        properties: { theme: { type: "string" }, slots: { type: "array", items: SLOT_INTENT } },
-        required: ["theme", "slots"],
+        properties: { theme: { type: "string" }, palette: { type: "string" }, slots: { type: "array", items: SLOT_INTENT } },
+        required: ["theme", "palette", "slots"],
       },
     },
   },
-  required: ["reasoning", "looks"],
+  required: ["reasoning", "anchor_read", "looks"],
 } as const;
+
+/** The anchor read as one line for the stages after the plan. */
+export function renderAnchorRead(read: AnchorRead | null | undefined): string | null {
+  if (!read || !read.colour?.trim()) return null;
+  const parts = [
+    `colour: ${read.colour.trim()}${read.family?.trim() ? ` (${read.family.trim()}${read.undertone?.trim() ? `, ${read.undertone.trim()}` : ""})` : ""}`,
+    Number.isFinite(read.formality) ? `formality ${read.formality}` : null,
+    read.season?.trim() ? `season: ${read.season.trim()}` : null,
+    read.silhouette?.trim() ? `silhouette: ${read.silhouette.trim()}` : null,
+    read.material?.trim() ? `material: ${read.material.trim()}` : null,
+    read.statement ? "statement piece — keep everything else quiet" : "not a statement piece",
+  ];
+  return parts.filter(Boolean).join(" · ");
+}
 
 export interface ComposeResponse {
   /** `look` is the 1-based number of the planned look the pieces came from. */

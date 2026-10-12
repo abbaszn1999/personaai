@@ -51,6 +51,10 @@ export interface LookRecord extends BundleSuggestion {
   slots: LookSlot[];
   /** What the shopper had asked of the looks when this one was built, in their words. */
   brief?: string;
+  /** The look's colour story ("navy, white, tan accent") — a swap keeps to it. */
+  palette?: string;
+  /** How the stylist read the anchor when the look was built. */
+  anchorRead?: string;
 }
 
 export type AgentAttachment =

@@ -101,6 +101,8 @@ function parseLook(value: unknown): LookRecord | null {
   const raw = value as Partial<LookRecord>;
   if (typeof raw.id !== "string" || typeof raw.anchorId !== "string" || !Array.isArray(raw.productIds)) return null;
   const brief = parseBrief(raw.brief);
+  const palette = parseBrief(raw.palette);
+  const anchorRead = parseBrief(raw.anchorRead);
   return {
     id: raw.id,
     label: typeof raw.label === "string" ? raw.label : "Look",
@@ -113,6 +115,8 @@ function parseLook(value: unknown): LookRecord | null {
     department: typeof raw.department === "string" ? raw.department : "",
     slots: Array.isArray(raw.slots) ? raw.slots : [],
     ...(brief ? { brief } : {}),
+    ...(palette ? { palette } : {}),
+    ...(anchorRead ? { anchorRead } : {}),
   };
 }
 

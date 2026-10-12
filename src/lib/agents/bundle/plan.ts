@@ -1,8 +1,8 @@
 import { findNode } from "@/lib/catalog/path-config/lookup";
 import type { PathConfigTier, PersonaPathConfig } from "@/lib/catalog/path-config/types";
 import type { CatalogCandidate } from "@/lib/retrieval/types";
-import type { SearchSpec } from "../shared/acs-translator";
-import { validateSearchIntent } from "../shared/validate-intent";
+import type { ResolvedAttribute, SearchSpec } from "../shared/acs-translator";
+import { resolvePreferredColours, validateSearchIntent } from "../shared/validate-intent";
 import type { BundleSlotIntent, PlannedLook } from "./schema";
 import { isOutfitLeaf, outfitPaths, pathBelongsToSlot, type SlotInPlay } from "./slots";
 
@@ -11,6 +11,8 @@ export interface SlotSearch {
   path: string;
   query: string;
   spec: SearchSpec;
+  /** The palette's colours for this slot in the store's spelling — searched first, never required. */
+  preferColours?: Extract<ResolvedAttribute, { kind: "text" }> | null;
 }
 
 export interface PlanLimits {
@@ -40,14 +42,17 @@ export const MAX_DIRECTIONS = 5;
  */
 export const CEILING_SLACK = 0.3;
 
-/** One planned look: a theme and one search per slot, written to go together. */
+/** One planned look: a theme, its palette and one search per slot, written to go together. */
 export interface LookDirection {
   theme: string;
+  palette: string;
   searches: SlotSearch[];
   skipped: string[];
 }
 
-export type DirectionPlan = { ok: true; directions: LookDirection[] } | { ok: false; problems: string[] };
+export type DirectionPlan =
+  | { ok: true; directions: LookDirection[]; /** How the plan read the anchor, for compose. */ anchorRead?: string | null }
+  | { ok: false; problems: string[] };
 
 const round = (value: number) => Math.floor(value);
 
@@ -115,7 +120,10 @@ export function validateSlotPlan(
     }
     const narrowed = outfitPaths(config, result.spec.paths);
     const spec = narrowed ? { ...result.spec, paths: narrowed } : result.spec;
-    searches.push({ slot: slot.slot, path: result.node.path, query: intent.query.trim(), spec });
+    // A colour already required by the intent leaves nothing to prefer.
+    const colourRequired = spec.attributes.some((attribute) => attribute.field === "colors" || /colou?r/i.test(attribute.key));
+    const preferColours = colourRequired ? null : resolvePreferredColours(config, spec.paths, intent.prefer_colors);
+    searches.push({ slot: slot.slot, path: result.node.path, query: intent.query.trim(), spec, ...(preferColours ? { preferColours } : {}) });
   }
 
   if (limits.remaining !== null) {
@@ -164,7 +172,9 @@ export function validateLookPlan(
   const problems: string[] = [];
   looks.slice(0, max).forEach((look, index) => {
     const plan = validateSlotPlan(config, slots, look.slots ?? [], limits);
-    if (plan.ok) directions.push({ theme: (look.theme ?? "").trim(), searches: plan.searches, skipped: plan.skipped });
+    if (plan.ok) {
+      directions.push({ theme: (look.theme ?? "").trim(), palette: (look.palette ?? "").trim(), searches: plan.searches, skipped: plan.skipped });
+    }
     else problems.push(...plan.problems.map((problem) => `look ${index + 1}: ${problem}`));
   });
   if (directions.length > 0) return { ok: true, directions };

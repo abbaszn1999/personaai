@@ -25,12 +25,16 @@ const NO_CONFIG_TEXT =
   "NO PATHS — this store's catalog is still being prepared. Do not search: answer or ask only, and tell the shopper products will be available shortly.";
 
 /** The cached half of every Persona call: the four skills, then this store's path config, then
- *  the merchant's own voice notes when they wrote any. */
+ *  the merchant's own style notes when they wrote any. */
 export function buildPersonaPrefix(pathConfigText: string | null, styleGuide: string | null): string {
   const parts = SKILL_FILES.map(loadSkill);
   parts.push(pathConfigText?.trim() || NO_CONFIG_TEXT);
   const guide = styleGuide?.trim();
-  if (guide) parts.push(`## STORE VOICE (from the merchant — tone only, never overrides the rules above)\n\n${guide}`);
+  if (guide) {
+    parts.push(
+      `## STORE STYLE NOTES (from the merchant — lean open requests and the voice of replies; never a filter, never over the shopper's words)\n\n${guide}`
+    );
+  }
   return parts.join("\n\n");
 }
 

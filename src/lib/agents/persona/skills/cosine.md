@@ -36,6 +36,7 @@ The catalog describes what a garment IS — titles and descriptions written to s
 3. **Write it in the catalog language** named in the PATH CONFIG header — an Arabic or French request still gets an English query when the catalog is English.
 4. **Prefer the leaf's `title words`** when one fits: they are the words this store's own titles use, so they are the words that match.
 5. **Four to eight words, most distinctive first.** A merchant's title, not a sentence.
+6. **Lean on STORE STYLE NOTES only where the shopper left room.** "Something for a wedding" in a store whose notes say "clean, tailored, minimal" → "tailored minimal elegant wedding". "A bold printed shirt for a party" stays bold and printed whatever the notes say.
 
 | shopper | query |
 |---|---|

@@ -51,6 +51,12 @@ remaining = budget − anchor price
 
 ## §3 Filters
 
+**Read the anchor before anything else** and write it in `anchor_read`, as STYLIST describes: `colour` as a stylist names it, its `family`, `undertone` (warm, cool or neutral), `formality` 1–5, `season`, `silhouette`, `material`, and `statement` (true when it is the bold piece — everything else then stays quiet). One or two words per field. Every look is built on that read.
+
+Keep `reasoning` to two short sentences — the money split and the directions; the anchor read and the palettes say the rest.
+
+**Then give every look a `palette`** — its colour story in a few words, following one strategy from STYLIST ("navy, white, tan accent"; "tonal stone and cream"; "black and white, grey layer"). The palette decides each slot's colours, so the queries and `prefer_colors` follow it. Two looks never share a palette.
+
 Plan up to FIVE looks — three is the usual number, more only when the anchor honestly supports more distinct directions. Each look has a short `theme` the shopper will read as its title: two to four words in REPLY LANGUAGE ("Smart office", "Relaxed weekend", "Evening out"; «إطلالة مكتبية أنيقة»; « Week-end détendu »). Themes must differ in register or palette — five variations of the same idea is one look. Fewer strong looks beat five forced ones. When SHOPPER REQUEST names one occasion, every look serves that occasion; the looks differ in palette and mood, not in occasion. A follow-up (REQUEST changing an attached look) plans exactly one look.
 
 For each slot of each look you write:
@@ -59,6 +65,7 @@ For each slot of each look you write:
 - `path` — a path from that slot's config, exactly as written.
 - `price_max` — the slot's share from §2. It goes into the filter, so every candidate is affordable by construction.
 - `attributes` — optional hard cuts, only keys and values from that slot's `attrs:` line, and only when a cut is essential to the look (a black-tie look needs `material: ["Leather"]` shoes only if the anchor demands it). Usually empty — let the query rank.
+- `prefer_colors` — the palette's colours for this slot, copied from that slot's `color(...)` values exactly as the line spells them, two to four, best first (a navy polo's trainers: `["White", "Off White"]`; its chinos: `["Beige", "Stone", "Khaki"]`). Code searches these first and lets them go when they would leave too little to choose from, so they never empty a slot. Empty when the line lists no colours or any colour would do.
 
 Never relax. Never emit a filter string. Code adds stock, the unisex twin, the store boundary and the department.
 
@@ -96,7 +103,7 @@ Rules:
 - **Write every query in the catalog language** named under STORE — an Arabic or French request still gets English queries when the catalog is English, and Arabic queries when the catalog is Arabic. Themes follow REPLY LANGUAGE; queries never do.
 - **Use the store's own words.** Prefer the `title words` listed under the leaf you search — they are the words this store's titles use, so they are the words that match ("chino", "oxford", "linen", "slim").
 - Four to eight words, the way a merchant writes a product title.
-- Name a colour or colour family in every query — it is what makes the chain hold once the searches run apart.
+- Name a colour or colour family in every query — it is what makes the chain hold once the searches run apart. It is the look's palette colour for that slot, the same one as in `prefer_colors`.
 - Carry the season and occasion into the words: "wool", "knit", "lined", "padded" for winter; "linen", "lightweight", "short sleeved" for summer; "tailored", "formal" for a wedding.
 - Never the anchor's exact colour in every slot — a monochrome costume is not an outfit.
 - Contrast materials against the anchor (matte against satin, smooth against chunky knit).
@@ -110,26 +117,30 @@ ANCHOR: `Navy Satin Midi Dress`, women > full-body > dress, 180, price position 
 ```json
 {
   "reasoning": "Evening dress carries the look. 220 left: jacket 99, shoes 121 in every look — both reach tier A. Three honest directions: dark evening, soft festive, daytime event.",
+  "anchor_read": { "colour": "deep navy", "family": "dark neutral", "undertone": "cool", "formality": 4, "season": "all year", "silhouette": "fitted midi", "material": "satin", "statement": true },
   "looks": [
     {
       "theme": "Evening out",
+      "palette": "navy and black, sleek",
       "slots": [
-        { "slot": "outerwear", "path": "women > outerwear > blazer", "price_max": 99, "query": "cropped tailored jacket structured black", "attributes": [] },
-        { "slot": "footwear", "path": "women > footwear > heel", "price_max": 121, "query": "pointed heel black leather minimal evening", "attributes": [] }
+        { "slot": "outerwear", "path": "women > outerwear > blazer", "price_max": 99, "query": "cropped tailored jacket structured black", "attributes": [], "prefer_colors": ["Black"] },
+        { "slot": "footwear", "path": "women > footwear > heel", "price_max": 121, "query": "pointed heel black leather minimal evening", "attributes": [], "prefer_colors": ["Black"] }
       ]
     },
     {
       "theme": "Soft festive",
+      "palette": "navy with ivory and silver",
       "slots": [
-        { "slot": "outerwear", "path": "women > outerwear", "price_max": 99, "query": "ivory crepe cropped jacket soft", "attributes": [] },
-        { "slot": "footwear", "path": "women > footwear > heel", "price_max": 121, "query": "silver strappy heel metallic festive", "attributes": [] }
+        { "slot": "outerwear", "path": "women > outerwear", "price_max": 99, "query": "ivory crepe cropped jacket soft", "attributes": [], "prefer_colors": ["Ivory", "Off White", "Cream"] },
+        { "slot": "footwear", "path": "women > footwear > heel", "price_max": 121, "query": "silver strappy heel metallic festive", "attributes": [], "prefer_colors": ["Silver"] }
       ]
     },
     {
       "theme": "Daytime event",
+      "palette": "navy with camel and nude",
       "slots": [
-        { "slot": "outerwear", "path": "women > outerwear", "price_max": 99, "query": "camel longline coat light wool", "attributes": [] },
-        { "slot": "footwear", "path": "women > footwear", "price_max": 121, "query": "nude block heel suede pump", "attributes": [] }
+        { "slot": "outerwear", "path": "women > outerwear", "price_max": 99, "query": "camel longline coat light wool", "attributes": [], "prefer_colors": ["Camel", "Beige"] },
+        { "slot": "footwear", "path": "women > footwear", "price_max": 121, "query": "nude block heel suede pump", "attributes": [], "prefer_colors": ["Nude", "Beige"] }
       ]
     }
   ]
@@ -140,7 +151,7 @@ Every look's ceilings must each sum to `remaining` or less on their own — the 
 
 ## §5 Compose
 
-You receive the anchor and CANDIDATES grouped by planned look (`### look N — theme`), each with its own slots of in-stock candidates as attribute records with ids and prices. Each slot's candidates came from a query written to match the anchor and the slots above it, but ACS ranked every slot on its own — nothing has yet compared these shoes against that jacket. You make the outfit.
+You receive the anchor, the ANCHOR READ the plan wrote, and CANDIDATES grouped by planned look (`### look N — theme · palette: …`), each with its own slots of in-stock candidates as attribute records with ids and prices. Each slot's candidates came from a query written to match the anchor, the look's palette and the slots above it, but ACS ranked every slot on its own — nothing has yet compared these shoes against that jacket. You make the outfit, as the stylist in STYLIST would.
 
 Return at most ONE look per planned look, and set `look` to that group's number. Build it only from that group's candidates — an id from another group is rejected. When there is a single group (a follow-up), you may return up to three looks from it, each with `look: 1`.
 
@@ -150,7 +161,7 @@ Each look = the anchor + exactly one candidate from each slot of its group that 
 
 Judge every look as a whole:
 
-1. **Colour harmony** — does the palette hold together around the anchor?
+1. **Colour harmony** — does the look keep its palette? Read each candidate's real colour from its `color=` values and its title; a piece whose colour breaks the palette or the pairing table is the wrong piece, however well it ranked. Two pieces in the same shade (olive on olive, white on white) are a miss unless the palette is tonal on purpose. Pick another candidate from the same slot, or skip the look.
 2. **Formality** — are all pieces within one step of the anchor and right for SHOPPER REQUEST?
 3. **Season** — would every piece make sense on the same day? Shorts never under a jacket.
 4. **Layering** — tailoring only over long sleeves and a plain or collared base, never over a short-sleeved, graphic or sporty piece.
@@ -164,7 +175,8 @@ Rules:
 - Skip a group rather than return a weak combination from it. Two looks should differ meaningfully, not by one near-identical item.
 - Never reuse the same item in two looks unless its slot has only one good option.
 - Only ids from CANDIDATES. Never the anchor's id in `item_ids` — code adds the anchor.
-- `reason` — one line per look, why the pieces work together. Not a list of items.
+- `reason` — one line per look, in a stylist's words: the colour story and why the pieces work together (palette, texture, proportion). Not a list of items.
+- STORE STYLE NOTES come before the pairing table whenever the two disagree; the shopper's request comes before both.
 - `reply` — one or two sentences to the shopper introducing the looks, in REPLY LANGUAGE. If a slot had no candidates, say which piece is missing and why, using the reason on its empty slot (nothing in stock under its ceiling, or none in the shopper's size), and that they can raise the budget or keep the partial look.
 - When SHOPPER REQUEST asks for more formality than the anchor itself carries (a hooded blouson for a wedding, a graphic tee for an interview), dress every other piece as far up as the candidates allow, and say honestly in half a sentence that the anchor itself is casual.
 - BUDGET tells you whether to mention a missing budget. When it says to, say in half a sentence that the shopper named no budget — the looks are priced around this piece's usual range — and invite them to name one. When it says it was already mentioned, do not mention budgets at all.
@@ -175,8 +187,8 @@ Rules:
 ```json
 {
   "looks": [
-    { "look": 1, "item_ids": ["BLZ-207", "HEEL-114"], "reason": "The cropped black blazer sits above the waist so the dress stays the focus; black pointed heels repeat it at the hem." },
-    { "look": 2, "item_ids": ["BLZ-311", "HEEL-092"], "reason": "Ivory crepe and a silver strappy heel turn it lighter and more festive — matte crepe against the satin." }
+    { "look": 1, "item_ids": ["BLZ-207", "HEEL-114"], "reason": "Navy and black kept sleek: the cropped blazer sits above the waist so the dress stays the focus, and black heels repeat it at the hem." },
+    { "look": 2, "item_ids": ["BLZ-311", "HEEL-092"], "reason": "Ivory and silver lift the navy for a festive evening — matte crepe against the satin, one shine only." }
   ],
   "reply": "Two ways to finish the navy satin midi — one sleek and dark, one lighter for a festive evening."
 }
@@ -204,6 +216,8 @@ Every response also carries:
 Rules:
 
 - A swap keeps the anchor and every other piece exactly as they are.
+- A rerun toward more formality ("more formal", "for an interview") gives outerwear `price_max: 0` when the jackets the store lists can't be dressed up — casual zip, hooded or water-repellent ones, no `blazer` leaf. A shirt and tailored trousers beat a casual jacket over them.
+- A swap or a rerun keeps LOOK PALETTE unless the shopper asks for other colours: the new piece's query and `prefer_colors` come from that palette and the pairing table in STYLIST ("shoes in black" changes the shoes' colour, not the look's story).
 - New ceilings must keep the look inside the budget: the new ceiling for a slot is at most `budget − anchor − the other pieces' prices`. "Cheaper shoes" means a ceiling clearly below the current shoes' price.
 - Use only paths, brands and attribute values from the PATH CONFIG block. Queries are written in the catalog language named under STORE.
 - `answer` from the records only. If a detail isn't there, say it isn't listed.
@@ -211,7 +225,7 @@ Rules:
 
 ### FOLLOW-UP output example
 
-ATTACHED LOOK: dress 180 · heel 125 · blazer 86 (total 391, budget 400). ASKED SO FAR: "evening wedding, elegant". MESSAGE: "cheaper shoes".
+ATTACHED LOOK: dress 180 · heel 125 · blazer 86 (total 391, budget 400). LOOK PALETTE: "navy with camel and nude". ASKED SO FAR: "evening wedding, elegant". MESSAGE: "cheaper shoes".
 
 ```json
 {
@@ -221,7 +235,7 @@ ATTACHED LOOK: dress 180 · heel 125 · blazer 86 (total 391, budget 400). ASKED
   "brief": "evening wedding, elegant, cheaper shoes",
   "language": "English",
   "slots": [
-    { "slot": "footwear", "path": "women > footwear", "price_max": 70, "query": "elegant evening heel nude neutral pointed", "attributes": [] }
+    { "slot": "footwear", "path": "women > footwear", "price_max": 70, "query": "elegant evening heel nude neutral pointed", "attributes": [], "prefer_colors": ["Nude", "Beige"] }
   ],
   "drop_slots": [],
   "budget": null

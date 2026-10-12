@@ -8,10 +8,11 @@ import { STYLE_GUIDE_MAX_LENGTH } from "@/modules/store/types";
 import { cn } from "@/lib/utils/cn";
 
 /**
- * Soft styling guidance, read by the Persona agent's prompt and the Bundle agent's compose step
- * (see `src/lib/agents/persona/prompt.ts` and `src/lib/agents/bundle/prompt.ts`) — never enforced, only
- * used to lean the agent's choices. Absolute rules ("never show X", "always require Y") belong
- * wherever hard rules eventually live, not here.
+ * Soft styling guidance. The Bundle agent reads it in every styling step of "Complete the look"
+ * (plan, compose, follow-up — `src/lib/agents/bundle/prompt.ts`); Persona uses it to lean open
+ * requests and the voice of its replies (`src/lib/agents/persona/prompt.ts`). Never enforced and
+ * never a filter. Absolute rules ("never show X", "always require Y") belong wherever hard rules
+ * eventually live, not here.
  *
  * Renders only while a store connection exists (parent gates on `connection`), so it naturally
  * mounts fresh whenever the connection is (re)created — mirrors `CategorySelector`'s comment
@@ -50,9 +51,10 @@ export function StyleGuideEditor() {
           Styling Guidance
         </p>
         <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
-          Soft styling guidance for outfit building — e.g. &ldquo;lean minimalist, avoid loud
-          patterns.&rdquo; This leans the agent&apos;s choices; it never excludes anything.
-          Absolute rules belong elsewhere, not here.
+          Your store&apos;s styling taste — e.g. &ldquo;lean minimalist, avoid loud
+          patterns.&rdquo; The stylist follows it in every &ldquo;Complete the look&rdquo;, and
+          the shopping assistant leans open requests toward it. It never excludes anything and
+          never overrides what a shopper asks for. Absolute rules belong elsewhere, not here.
         </p>
       </div>
 
