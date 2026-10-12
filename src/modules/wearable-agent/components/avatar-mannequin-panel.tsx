@@ -92,6 +92,19 @@ const TOOLBAR_ACTIONS = [
  *  clear it. The glass cards themselves use `right-4 w-[240px]`. */
 const INFO_COLUMN_SPACE = 260;
 
+/** Space kept clear on the right for the info column (`right-5 w-[252px]` plus a gap). */
+const INFO_COLUMN_CLEARANCE = 280;
+
+/** Aspect ratio of every generated avatar and try-on (Gemini renders 3:4) — used until the
+ *  picture has loaded and reported its real size. */
+const DEFAULT_PHOTO_ASPECT = 3 / 4;
+
+/** Softens the photo's left and right edges into the blurred fill behind it. */
+const PHOTO_EDGE_MASK: React.CSSProperties = {
+  maskImage: "linear-gradient(to right, transparent 0, #000 5%, #000 95%, transparent 100%)",
+  WebkitMaskImage: "linear-gradient(to right, transparent 0, #000 5%, #000 95%, transparent 100%)",
+};
+
 /** Panel color that frames the studio photo (blends the photo edge + vignettes) — follows
  *  the active wearable theme so the frame matches the chat panel next to it. */
 const PANEL_BG_BY_THEME = { dark: "#0d0b14", light: "#f2f0f5" } as const;
@@ -379,6 +392,14 @@ export function AvatarMannequinPanel({
   // images are already complete baked photos, so they render as a single flat layer.
   const hasFixedBackdrop = Boolean(profile.backdropUrl) && imgSrc !== DEFAULT_MANNEQUIN_IMAGE;
 
+  // The picture's real aspect ratio, read once it loads. Plate + cut-out avatars are always 3:4.
+  const [imgAspect, setImgAspect] = React.useState(DEFAULT_PHOTO_ASPECT);
+  const photoAspect = hasFixedBackdrop ? DEFAULT_PHOTO_ASPECT : imgAspect;
+  function handleImageLoad(e: React.SyntheticEvent<HTMLImageElement>) {
+    const { naturalWidth, naturalHeight } = e.currentTarget;
+    if (naturalWidth > 0 && naturalHeight > 0) setImgAspect(naturalWidth / naturalHeight);
+  }
+
   const cartItemIds = React.useMemo(() => new Set(cartItems.map((p) => p.id)), [cartItems]);
   const pendingCartIds = React.useMemo(() => new Set(pendingCartItemIds), [pendingCartItemIds]);
 
@@ -556,62 +577,63 @@ export function AvatarMannequinPanel({
             onStopRecording={realtime.stopRecording}
           />
         </div>
-      ) : hasFixedBackdrop ? (
-        <div
-          className="absolute inset-y-0 left-0 h-full select-none"
-          style={{ aspectRatio: "3 / 4" }}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={studioBackdropUrl} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover select-none" />
+      ) : (
+        <>
+          {/* Fill: a blurred, enlarged copy of the picture itself covers the whole panel, so the
+              space beside the photo is the same colour as its own backdrop — no flat panel
+              colour and no fade band. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={imgSrc}
-            alt="Standing avatar in studio"
-            onError={handleImageError}
+            src={hasFixedBackdrop ? studioBackdropUrl : imgSrc}
+            alt=""
+            aria-hidden
             draggable={false}
-            className="absolute inset-0 h-full w-full object-cover select-none"
+            className="pointer-events-none absolute inset-0 h-full w-full scale-125 select-none object-cover blur-3xl"
           />
-        </div>
-      ) : (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={imgSrc}
-          alt="Standing avatar in studio"
-          onError={handleImageError}
-          draggable={false}
-          className="absolute inset-y-0 left-0 h-full w-auto select-none"
-        />
-      )}
 
-      {/* ── Layer 1: Right-side fade — blends the photo's own right edge into the panel bg ──
-          Sized to the photo (same aspect ratio as the image above) rather than the whole panel,
-          so only the last sliver of the picture fades. Measured against the panel it started
-          about half way across and washed out a third of the studio scene. ── */}
-      {viewMode === "photo" && (
-        <div
-          className="absolute inset-y-0 left-0 z-[2] h-full pointer-events-none"
-          style={{
-            aspectRatio: hasFixedBackdrop ? "3 / 4" : "2 / 3",
-            background: `linear-gradient(to right, transparent 86%, ${panelBg}80 93%, ${panelBg} 100%)`,
-          }}
-        />
-      )}
+          {/* Stage: the photo is centred in the space left of the info column, and falls back
+              to left-aligned (under the column) when that space is narrower than the photo. */}
+          <div
+            className="absolute inset-y-0 left-0 flex"
+            style={{ right: INFO_COLUMN_CLEARANCE, justifyContent: "safe center" }}
+          >
+            {/* The box takes the image's real aspect ratio, so the edge blend, the hotspots
+                and anything else drawn over the picture line up with it exactly. */}
+            <div className="relative h-full flex-none select-none" style={{ aspectRatio: photoAspect }}>
+              <div className="absolute inset-0" style={PHOTO_EDGE_MASK}>
+                {hasFixedBackdrop && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={studioBackdropUrl} alt="" draggable={false} className="absolute inset-0 h-full w-full select-none object-cover" />
+                )}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={imgSrc}
+                  alt="Standing avatar in studio"
+                  onError={handleImageError}
+                  onLoad={handleImageLoad}
+                  draggable={false}
+                  className="absolute inset-0 h-full w-full select-none object-cover"
+                />
+              </div>
 
-      {/* ── Hotspots — mapped to exact photo aspect ratio. pointer-events-none on the
-          wrapper so empty space lets clicks/drags reach the photo underneath (e.g. panning);
-          each hotspot dot opts back in with its own pointer-events-auto. ── */}
-      {viewMode === "photo" && !isGenerating && !isRegeneratingAvatar && (
-        <div className="absolute inset-y-0 left-0 z-[18] pointer-events-none" style={{ aspectRatio: "1024 / 1536" }}>
-          {activeItems.map((item) => (
-            <GarmentHotspot
-              key={item.product.id}
-              item={item}
-              inCart={cartItemIds.has(item.product.id)}
-              isPending={pendingCartIds.has(item.product.id)}
-              onAddToCart={onAddToCart}
-            />
-          ))}
-        </div>
+              {/* Hotspots — pointer-events-none on the wrapper so empty space lets clicks reach
+                  the photo underneath; each hotspot dot opts back in with pointer-events-auto. */}
+              {viewMode === "photo" && !isGenerating && !isRegeneratingAvatar && (
+                <div className="pointer-events-none absolute inset-0 z-[18]">
+                  {activeItems.map((item) => (
+                    <GarmentHotspot
+                      key={item.product.id}
+                      item={item}
+                      inCart={cartItemIds.has(item.product.id)}
+                      isPending={pendingCartIds.has(item.product.id)}
+                      onAddToCart={onAddToCart}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </>
       )}
 
       {/* ── Left toolbar ── */}
