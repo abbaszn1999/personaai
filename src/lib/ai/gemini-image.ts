@@ -1,7 +1,6 @@
 /**
  * Client for Gemini Nano Banana 2.1 (`gemini-nano-banana-2.1`) image editing through the
- * Interactions API. It dresses the shopper's avatar in try-on renders; avatars themselves are
- * still built by Pruna (see lib/ai/pruna.ts).
+ * Interactions API. It builds the shopper's avatars and dresses them in try-on renders.
  *
  * One request carries the prompt and every reference image inline, and the response carries
  * the finished image plus the token usage that Google bills for it. That usage is returned to
@@ -11,8 +10,6 @@ import { NANO_BANANA_1K_IMAGE_TOKENS, type GeminiImageTokenCounts } from "@/lib/
 import { getPlatformGeminiApiKey } from "./gemini";
 
 const INTERACTIONS_URL = "https://generativelanguage.googleapis.com/v1beta/interactions";
-export const DEFAULT_TRY_ON_MODEL = "gemini-nano-banana-2.1";
-
 /** Renders take 12-25 s, longer for 4+ garments or under load. Generous but bounded. */
 const REQUEST_TIMEOUT_MS = 90_000;
 const RETRY_DELAY_MS = 1_500;
@@ -27,8 +24,28 @@ export class GeminiImageError extends Error {
   }
 }
 
-export function tryOnModel(): string {
-  return process.env.GEMINI_TRYON_MODEL?.trim() || DEFAULT_TRY_ON_MODEL;
+export const DEFAULT_IMAGE_MODEL = "gemini-nano-banana-2.1";
+
+/** Matches the one model `geminiImageCostNanos` has a price list for. */
+const PRICED_IMAGE_MODEL = /nano-banana-2\.1/i;
+const warnedImageModels = new Set<string>();
+
+/**
+ * The model behind every image render, avatars and try-on alike, so the two can never drift
+ * apart. `GEMINI_IMAGE_MODEL` sets it; a leftover `GEMINI_TRYON_MODEL` is still honoured so an
+ * existing environment keeps working.
+ *
+ * Renders are billed with the Nano Banana 2.1 token rates whatever the model, so a model that
+ * isn't Nano Banana 2.1 is logged once: its real price needs adding to pricing.ts.
+ */
+export function imageModel(): string {
+  const model =
+    process.env.GEMINI_IMAGE_MODEL?.trim() || process.env.GEMINI_TRYON_MODEL?.trim() || DEFAULT_IMAGE_MODEL;
+  if (!PRICED_IMAGE_MODEL.test(model) && !warnedImageModels.has(model)) {
+    warnedImageModels.add(model);
+    console.error(`[gemini-image] no price list for image model "${model}"; billing at Nano Banana 2.1 rates`);
+  }
+  return model;
 }
 
 export interface GeminiImageInput {
@@ -182,7 +199,7 @@ export async function editGeminiImage(input: GeminiImageEditInput): Promise<Gemi
   }
 
   const body = {
-    model: tryOnModel(),
+    model: imageModel(),
     input: [
       { type: "text", text: input.prompt },
       ...input.images.map((image) => ({
@@ -198,7 +215,7 @@ export async function editGeminiImage(input: GeminiImageEditInput): Promise<Gemi
   try {
     apiKey = getPlatformGeminiApiKey();
   } catch {
-    throw new GeminiImageError("Try-on rendering is not configured (GEMINI_API_KEY).");
+    throw new GeminiImageError("Image rendering is not configured (GEMINI_API_KEY).");
   }
 
   const json = await postInteraction(body, apiKey);

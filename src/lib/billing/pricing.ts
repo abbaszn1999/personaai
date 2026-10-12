@@ -5,10 +5,9 @@
  *    API pricing page. See `geminiTokenRates`.
  *  - AI Commerce Search: $2.50 per 1,000 `servingConfigs.search` calls (Google Cloud, "AI Commerce
  *    Search pricing"), i.e. $0.0025 a search.
- *  - Pruna: `p-image-edit` $0.010 per output image (docs.api.pruna.ai). Avatars only.
  *  - Gemini Nano Banana 2.1 (`gemini-nano-banana-2.1`), Standard tier, per Google's Gemini API
  *    pricing page: $1.50 per 1M input tokens, $7.50 per 1M text and thinking output tokens,
- *    $30 per 1M image output tokens. Try-on renders only. See `geminiImageCostNanos`.
+ *    $30 per 1M image output tokens. Avatar and try-on renders. See `geminiImageCostNanos`.
  *  - Decart: realtime Lucy at 720p is $0.02 per second of active generation (docs.platform.decart.ai).
  *
  *  One session unit is priced exactly at one search, so a search always completes a unit and chat
@@ -136,20 +135,11 @@ export const GARMENT_PACK_CENTS = 100;
 /** One garment or avatar unit, in nano-dollars. $0.01, from the pack price. */
 export const GARMENT_UNIT_NANOS = (GARMENT_PACK_CENTS * 10_000_000) / GARMENT_PACK_UNITS;
 
-/** Real render cost, in nano-dollars. Both kinds of render are charged in $0.01 units via a
- *  per-account nano carry (see `consume_image_generation`), so no fractional cost is ever lost
- *  or over-collected.
- *
- *  - Avatar: Pruna `p-image-edit`, $0.010 per output image, so exactly one unit.
- *  - Try-on: Gemini Nano Banana 2.1, billed from the token usage the API returns for each
- *    render (`geminiImageCostNanos`). `estimateTryOnCostNanos` is only the pre-check guard. */
-export const AVATAR_IMAGE_NANOS = 10_000_000;
-
-/** Nano-dollar cost of generating `imageCount` avatar variations. */
-export function avatarCostNanos(imageCount: number): number {
-  const count = Number.isFinite(imageCount) ? Math.max(0, Math.floor(imageCount)) : 0;
-  return count * AVATAR_IMAGE_NANOS;
-}
+/** Real render cost, in nano-dollars. Both kinds of render, avatar and try-on, are Gemini Nano
+ *  Banana 2.1 calls billed from the token usage the API returns for each render
+ *  (`geminiImageCostNanos`), and charged in $0.01 units via a per-account nano carry (see
+ *  `consume_image_generation`), so no fractional cost is ever lost or over-collected.
+ *  `estimateTryOnCostNanos` and `estimateAvatarCostNanos` are only the pre-check guards. */
 
 /** Nano Banana 2.1 token prices, in nano-dollars per single token (price per 1M tokens x 1,000):
  *  $1.50 input, $7.50 text and thinking output, $30 image output. */
@@ -204,6 +194,26 @@ export function estimateTryOnCostNanos(garmentCount: number): number {
     textOutputTokens: 0,
     imageOutputTokens: NANO_BANANA_1K_IMAGE_TOKENS,
   });
+}
+
+/** Prompt text of an avatar request (the long identity/pose/outfit prompt), in input tokens. */
+export const NANO_BANANA_AVATAR_PROMPT_TOKENS = 800;
+
+/** Best-effort cost of one avatar render, for the pre-check guard and as the fallback charge when
+ *  a response carries no usage. Two images go in (the shopper's photo and the studio backdrop)
+ *  and one 1K image comes out. The real charge is `geminiImageCostNanos` of the returned usage. */
+export function estimateAvatarCostNanos(): number {
+  return geminiImageCostNanos({
+    inputTokens: 2 * NANO_BANANA_INPUT_IMAGE_TOKENS + NANO_BANANA_AVATAR_PROMPT_TOKENS,
+    thoughtTokens: NANO_BANANA_THINKING_ALLOWANCE_TOKENS,
+    textOutputTokens: 0,
+    imageOutputTokens: NANO_BANANA_1K_IMAGE_TOKENS,
+  });
+}
+
+/** Whole $0.01 units one avatar render is expected to settle at, rounded up. */
+export function estimateAvatarUnits(): number {
+  return Math.max(1, Math.ceil(estimateAvatarCostNanos() / GARMENT_UNIT_NANOS));
 }
 
 /** One billed live second, in nano-dollars. $1.20 per minute. */

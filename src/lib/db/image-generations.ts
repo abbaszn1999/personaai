@@ -10,8 +10,8 @@ export interface ImageUsageAttribution {
 }
 
 /**
- * Atomically folds one render's real cost (`costNanos`: a flat $0.01 for a Pruna avatar image,
- * the token-metered Gemini cost for a try-on) into the account's nano carry, settles whole
+ * Atomically folds one render's real cost (`costNanos`: the token-metered Gemini cost of
+ * the avatar or try-on render) into the account's nano carry, settles whole
  * $0.01 units — included allowance first, then purchased credits — and logs the
  * generation. Returns the remaining purchased credit balance, or null when the balance cannot
  * cover the charge (nothing is consumed in that case).

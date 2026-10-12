@@ -52,8 +52,8 @@ envVarGroups:
         sync: false
       - key: DECART_API_KEY
         sync: false
-      - key: PRUNA_API_KEY
-        sync: false
+      - key: GEMINI_IMAGE_MODEL
+        value: gemini-nano-banana-2.1
       - key: OPENAI_API_KEY
         sync: false
       - key: SIZING_RESEARCH_MODEL

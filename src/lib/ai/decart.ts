@@ -43,8 +43,17 @@ export async function createDecartClientToken(
     });
   } catch (error) {
     if (error instanceof DecartApiError) throw error;
-    const message = error instanceof Error ? error.message : "Unable to create a Decart client token.";
-    throw new DecartApiError(message);
+    // The SDK throws plain `{ code, message, data }` objects, not `Error`s, so an `instanceof Error`
+    // check alone would discard Decart's actual reason (e.g. "Failed to create token: 403 - ...").
+    // Logged server-side only: the route returns this error's message to the shopper's browser.
+    const detail =
+      error instanceof Error
+        ? error.message
+        : typeof error === "object" && error !== null && typeof (error as { message?: unknown }).message === "string"
+          ? (error as { message: string }).message
+          : String(error);
+    console.error("[decart] client token request failed:", detail);
+    throw new DecartApiError("Unable to create a Decart client token.");
   }
 }
 

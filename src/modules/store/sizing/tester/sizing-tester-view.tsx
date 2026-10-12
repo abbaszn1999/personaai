@@ -932,8 +932,8 @@ export function SizingTesterView() {
                               {chartOptions.map((option) => (
                                 <option key={option.chart.id} value={option.chart.id}>
                                   {option.chart.name} ({option.chart.fitType}) — {option.count} {option.count === 1 ? 'product' : 'products'}
-                              </option>
-                              ))}
+                            </option>
+                          ))}
                         </select>
                         <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                       </div>
@@ -953,27 +953,27 @@ export function SizingTesterView() {
                       <div className={`flex items-center gap-3 border rounded-xl px-4 py-2.5 shadow-2xs self-stretch md:self-auto ${toneClasses.box}`}>
                         <div className={`w-9 h-9 rounded-xl text-white flex items-center justify-center shadow-xs flex-shrink-0 ${toneClasses.icon}`}>
                               {bestRow ? <CheckCircle2 className="w-5 h-5 text-white" /> : <Info className="w-5 h-5 text-white" />}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
                             <span className={`text-xs font-extrabold ${toneClasses.title}`}>
                                   {bestRow
                                     ? 'Best Fit:'
                                     : detail.data.products.length === 0 && detail.data.categoryProducts === 0
                                       ? 'Nothing in this category'
                                       : 'No fitting size in stock'}
-                            </span>
+                        </span>
                             {bestRow && (
-                              <>
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-700 text-white text-xs font-black tracking-wide shadow-2xs">
+                          <>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-700 text-white text-xs font-black tracking-wide shadow-2xs">
                                   {formatSizeForMode(bestRow, sizingMode)}
-                                </span>
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-200/90 text-emerald-950 border border-emerald-300">
+                            </span>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-200/90 text-emerald-950 border border-emerald-300">
                                       {summary.counts[summary.bestIndex]} ACS items
-                                </span>
-                              </>
-                            )}
-                          </div>
+                            </span>
+                          </>
+                        )}
+                      </div>
                           <p className={`text-[11px] font-medium max-w-sm mt-0.5 ${toneClasses.text}`}>
                                 {bestRow
                                   ? `ACS returned ${visible.length} products here; ${visibleWithFit} have a fitting size in stock.`
@@ -986,9 +986,9 @@ export function SizingTesterView() {
                                     : chartProducts.length === 0
                                       ? 'None of the products ACS returned here were sized on this chart. Pick another chart or subcategory.'
                                       : `ACS returned ${chartProducts.length} products on this chart but none has a stocked size within tolerance.`}
-                          </p>
-                        </div>
-                      </div>
+                      </p>
+                    </div>
+                  </div>
                     );
                   })()}
                 </div>
@@ -1093,7 +1093,7 @@ export function SizingTesterView() {
                             ? 'bg-emerald-50/95 hover:bg-emerald-100/90 font-semibold ring-2 ring-emerald-500 ring-inset shadow-xs'
                             : chartOnly === 'inside'
                               ? 'bg-amber-50/70 hover:bg-amber-50 text-slate-800 ring-1 ring-amber-300 ring-inset'
-                              : 'hover:bg-slate-50/70 text-slate-700'
+                            : 'hover:bg-slate-50/70 text-slate-700'
                         }`}
                       >
                                   <td className={`px-4 py-3.5 whitespace-nowrap ${isBest ? 'font-black text-emerald-950 text-sm bg-emerald-100/60' : 'font-bold text-slate-900 bg-slate-50/40'}`}>
@@ -1292,10 +1292,10 @@ export function SizingTesterView() {
 
                       <div className="flex flex-col items-end shrink-0 gap-1.5">
                         {product.fitSizes.length > 0 ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
-                            <Check className="w-3 h-3 text-emerald-600" />
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
+                          <Check className="w-3 h-3 text-emerald-600" />
                             Fits: {product.fitSizes.join(', ')}
-                          </span>
+                        </span>
                         ) : (
                         <span
                           title="ACS matched it on the range of all its sizes together, but no single stocked size fits."
@@ -1303,7 +1303,7 @@ export function SizingTesterView() {
                         >
                             <Info className="w-3 h-3 text-amber-600" />
                             No stocked size fits
-                          </span>
+                        </span>
                         )}
                       <span className="text-[11px] text-slate-400 font-mono">in stock</span>
                       </div>

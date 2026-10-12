@@ -270,7 +270,13 @@ export function AvatarVariationPicker({
                     alt={slide.label}
                     fill
                     sizes="(max-width: 640px) 70vw, 380px"
-                    className={cn(slide.backdropUrl ? "object-cover object-top" : "object-contain object-center")}
+                    className={cn(
+                      // A generated avatar is a full photo with its own background, so it fills the
+                      // card; only a shopper's upload, which can be any shape, is letterboxed.
+                      slide.backdropUrl || slide.id !== "custom"
+                        ? "object-cover object-top"
+                        : "object-contain object-center",
+                    )}
                     unoptimized
                     draggable={false}
                   />

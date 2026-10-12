@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   ACS_SEARCH_NANOS,
-  AVATAR_IMAGE_NANOS,
   GEMINI_STANDARD_PRICING_STARTS_MS,
   GARMENT_UNIT_NANOS,
   LIVE_SECOND_NANOS,
   SESSION_UNIT_NANOS,
-  avatarCostNanos,
   geminiTokenCostNanos,
   geminiTokenRates,
+  estimateAvatarCostNanos,
+  estimateAvatarUnits,
   estimateTryOnCostNanos,
   geminiImageCostNanos,
 } from "./pricing";
@@ -58,12 +58,8 @@ describe("other vendor prices", () => {
     expect(SESSION_UNIT_NANOS).toBe(ACS_SEARCH_NANOS);
   });
 
-  it("prices an avatar at Pruna's $0.010 and a garment unit at $0.01", () => {
-    expect(AVATAR_IMAGE_NANOS).toBe(0.01 * NANOS_PER_DOLLAR);
-    expect(avatarCostNanos(3)).toBe(0.03 * NANOS_PER_DOLLAR);
+  it("prices a garment unit at $0.01", () => {
     expect(GARMENT_UNIT_NANOS).toBe(0.01 * NANOS_PER_DOLLAR);
-    // One avatar image is exactly one unit.
-    expect(AVATAR_IMAGE_NANOS).toBe(GARMENT_UNIT_NANOS);
   });
 
   it("prices live try-on at Decart's $0.02 per second ($1.20 a minute)", () => {
@@ -106,37 +102,20 @@ describe("Gemini Nano Banana 2.1 try-on cost", () => {
   });
 });
 
-describe("Gemini Nano Banana 2.1 try-on cost", () => {
-  it("prices the measured 5-image render from its token log at about $0.0523", () => {
-    // AI Studio log of a real run: 5,673 input, 1,062 thinking, 1,423 output
-    // (1,120 image tokens + 303 text tokens).
-    const cost = geminiImageCostNanos({
-      inputTokens: 5_673,
-      thoughtTokens: 1_062,
-      textOutputTokens: 303,
-      imageOutputTokens: 1_120,
-    });
-    expect(cost).toBe(5_673 * 1_500 + (1_062 + 303) * 7_500 + 1_120 * 30_000);
-    expect(cost).toBe(52_347_000);
+describe("Gemini Nano Banana 2.1 avatar cost", () => {
+  it("estimates an avatar as two images in, thinking, and one 1K image out", () => {
+    // The shopper's photo and the studio backdrop, plus the ~800-token prompt.
+    expect(estimateAvatarCostNanos()).toBe((2 * 1_120 + 800) * 1_500 + 1_400 * 7_500 + 1_120 * 30_000);
   });
 
-  it("bills thinking and text tokens at the text rate and image tokens at the image rate", () => {
-    const base = { inputTokens: 0, thoughtTokens: 0, textOutputTokens: 0, imageOutputTokens: 0 };
-    expect(geminiImageCostNanos({ ...base, thoughtTokens: 1_000 })).toBe(7_500_000);
-    expect(geminiImageCostNanos({ ...base, textOutputTokens: 1_000 })).toBe(7_500_000);
-    expect(geminiImageCostNanos({ ...base, imageOutputTokens: 1_000 })).toBe(30_000_000);
-    expect(geminiImageCostNanos({ ...base, inputTokens: 1_000 })).toBe(1_500_000);
+  it("is about five cents and settles at five $0.01 units", () => {
+    expect(estimateAvatarCostNanos()).toBeGreaterThan(0.04 * NANOS_PER_DOLLAR);
+    expect(estimateAvatarCostNanos()).toBeLessThan(0.06 * NANOS_PER_DOLLAR);
+    expect(estimateAvatarUnits()).toBe(5);
   });
 
-  it("estimates a render before it runs, from the garment count", () => {
-    expect(estimateTryOnCostNanos(0)).toBe(0);
-    // Person plus one garment: 2 images in, 1,400 thinking tokens, one 1K image out.
-    expect(estimateTryOnCostNanos(1)).toBe(2 * 1_120 * 1_500 + 1_400 * 7_500 + 1_120 * 30_000);
-    expect(estimateTryOnCostNanos(4)).toBeGreaterThan(estimateTryOnCostNanos(1));
-  });
-
-  it("estimates in the same range as the measured renders ($0.047 to $0.052)", () => {
-    expect(estimateTryOnCostNanos(1)).toBeGreaterThan(0.04 * NANOS_PER_DOLLAR);
-    expect(estimateTryOnCostNanos(4)).toBeLessThan(0.06 * NANOS_PER_DOLLAR);
+  it("is billed from real usage the same way as a try-on", () => {
+    const usage = { inputTokens: 3_000, thoughtTokens: 900, textOutputTokens: 0, imageOutputTokens: 1_120 };
+    expect(geminiImageCostNanos(usage)).toBe(3_000 * 1_500 + 900 * 7_500 + 1_120 * 30_000);
   });
 });

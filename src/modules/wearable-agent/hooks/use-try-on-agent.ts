@@ -12,7 +12,7 @@ import { parseTypedBudget } from "../utils/typed-budget";
 import { EMPTY_RETRIEVAL_STATE, normalizeRetrievalState, type RetrievalState } from "../utils/retrieval-state";
 import { MAX_PERSISTED_MESSAGES, MAX_SENT_MESSAGES, takeLastMessages } from "../utils/chat-history";
 import { browserLocale, widgetStrings } from "../widget-strings";
-import { AVATAR_GENERATION_STAGES } from "../constants";
+import { AVATAR_GENERATION_STAGES, AVATAR_STYLE_LABELS } from "../constants";
 import { isKidsAudience, KIDS_AGE_RANGE } from "../audiences";
 import { INITIAL_WEARABLE_MESSAGE, SCAN_STAGE_DURATION_MS, SCAN_STAGES } from "../mocks/responses";
 import {
@@ -32,7 +32,7 @@ import { addItemToShopifyCart } from "@/lib/shopify/ajax-cart-client";
 
 // Mirrors DEFAULT_AVATAR_VARIATION_COUNT in src/lib/try-on/image-generation.ts — kept as a local
 // literal rather than importing that module, since this hook ships in the client widget bundle
-// and image-generation.ts pulls in server-only deps (sharp, the Pruna client) that must never be
+// and image-generation.ts pulls in server-only deps (sharp, the Gemini client) that must never be
 // bundled for the browser.
 const EXPECTED_AVATAR_VARIATION_COUNT = 3;
 const GENERIC_AVATAR_ERROR = "We couldn't generate your avatar. Please try again.";
@@ -1114,15 +1114,15 @@ export function useTryOnAgent(
 
     // There's no real progress signal until a variation actually streams back (see
     // streamAvatarVariations below), so this whole bar is necessarily a guess. But a guess that
-    // freezes dead solid at a fixed percentage the moment Pruna takes longer than expected reads
+    // freezes dead solid at a fixed percentage the moment Gemini takes longer than expected reads
     // as broken, not "still working" — so instead of stopping at a hard cap, it creeps
     // asymptotically toward 95% for as long as the real request takes, calibrated (via
     // `PROGRESS_TAU_MS`) so it lands right around each stage's threshold at roughly the time
-    // Pruna's own "Try-Sync" fast path normally takes, then keeps crawling — slower and slower,
-    // never fully stopping — if the real call runs long. It only ever jumps to 100% for real,
+    // the three parallel Nano Banana renders normally take (about 12-25 s), then keeps crawling —
+    // slower and slower, never fully stopping — if the real call runs long. It only ever jumps to 100% for real,
     // the instant the first variation actually lands.
     const PROGRESS_CAP = 95;
-    const PROGRESS_TAU_MS = 1900;
+    const PROGRESS_TAU_MS = 9000;
     const startedAt = Date.now();
 
     const stopTimer = () => {
@@ -1152,7 +1152,7 @@ export function useTryOnAgent(
     let receivedAny = false;
     const collected: AvatarVariation[] = [];
 
-    // All 3 Pruna calls already fire in parallel (see generateAvatarVariationsStream).
+    // All 3 Gemini calls already fire in parallel (see generateAvatarVariationsStream).
     // Keep the loading screen up until the whole batch settles, then reveal every
     // style together. Only the cutout the shopper confirms is persisted.
     void streamAvatarVariations(state.profile, embed, (variation) => {
@@ -1181,8 +1181,12 @@ export function useTryOnAgent(
 
       // Variations finish in whatever order the model returns them. The carousel should always
       // start on the same first slide and move through the styles in the same order, so put
-      // them back in backdrop (= style) order before they are shown.
-      const ordered = [...collected].sort((a, b) => (a.backdropUrl ?? "").localeCompare(b.backdropUrl ?? ""));
+      // them back in style order (the order of AVATAR_STYLE_LABELS) before they are shown.
+      const styleOrder = (label: string) => {
+        const index = (AVATAR_STYLE_LABELS as readonly string[]).indexOf(label);
+        return index === -1 ? AVATAR_STYLE_LABELS.length : index;
+      };
+      const ordered = [...collected].sort((a, b) => styleOrder(a.label) - styleOrder(b.label));
 
       setState((s) => ({
         ...s,
@@ -1455,7 +1459,7 @@ export function useTryOnAgent(
     };
     const recSizes = recommendSizesForProducts(profileContext, items);
 
-    // This reads chart rows while Pruna renders the image. A chart-service failure must never
+    // This reads chart rows while Gemini renders the image. A chart-service failure must never
     // discard a render the shopper paid and waited for; that version simply shows no analysis.
     const fitPromise: Promise<LookFitAnalysis | null> = fetch(
       embed ? `${embed.apiBase}/persona/fit-analysis` : "/api/agents/persona/fit-analysis",

@@ -16,6 +16,9 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/agents/wearable": ["./src/lib/agents/**/skills/*.md"],
     "/api/embed/wearable": ["./src/lib/agents/**/skills/*.md"],
+    // Avatar generation sends these backdrops to Gemini as a reference image (try-on/avatar-backgrounds.ts).
+    "/api/agents/persona/avatar": ["./src/lib/try-on/backgrounds/*.jpg"],
+    "/api/embed/persona/avatar": ["./src/lib/try-on/backgrounds/*.jpg"],
   },
   async redirects() {
     return [{ source: "/try-on", destination: "/analytics", permanent: false }];

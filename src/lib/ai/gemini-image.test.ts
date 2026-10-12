@@ -1,8 +1,43 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { geminiImageCostNanos } from "@/lib/billing/pricing";
-import { GeminiImageError, parseInteractionResponse, readInteractionUsage } from "./gemini-image";
+import { GeminiImageError, imageModel, parseInteractionResponse, readInteractionUsage } from "./gemini-image";
 
 const PNG_BASE64 = Buffer.from("png-bytes").toString("base64");
+
+describe("imageModel", () => {
+  beforeEach(() => {
+    vi.stubEnv("GEMINI_IMAGE_MODEL", "");
+    vi.stubEnv("GEMINI_TRYON_MODEL", "");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it("defaults to Nano Banana 2.1 when nothing is set", () => {
+    expect(imageModel()).toBe("gemini-nano-banana-2.1");
+  });
+
+  it("reads the one GEMINI_IMAGE_MODEL for every render, avatar or try-on", () => {
+    vi.stubEnv("GEMINI_IMAGE_MODEL", " gemini-nano-banana-2.1 ");
+    expect(imageModel()).toBe("gemini-nano-banana-2.1");
+  });
+
+  it("still honours a leftover GEMINI_TRYON_MODEL, but GEMINI_IMAGE_MODEL wins", () => {
+    vi.stubEnv("GEMINI_TRYON_MODEL", "gemini-nano-banana-2.1-legacy");
+    expect(imageModel()).toBe("gemini-nano-banana-2.1-legacy");
+    vi.stubEnv("GEMINI_IMAGE_MODEL", "gemini-nano-banana-2.1");
+    expect(imageModel()).toBe("gemini-nano-banana-2.1");
+  });
+
+  it("warns once about a model it has no price list for, and still returns it", () => {
+    const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubEnv("GEMINI_IMAGE_MODEL", "some-other-image-model");
+    expect(imageModel()).toBe("some-other-image-model");
+    expect(imageModel()).toBe("some-other-image-model");
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe("readInteractionUsage", () => {
   it("splits output into image and text using the modality breakdown", () => {

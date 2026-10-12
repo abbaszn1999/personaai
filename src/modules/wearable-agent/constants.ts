@@ -9,7 +9,7 @@ export const AVATAR_GENERATION_STAGES = [
 /** The avatar styles being generated, in order. Server-side `AVATAR_STYLES` in
  *  `lib/try-on/image-generation.ts` builds its labels from this list, so the loading screen and
  *  the picker can never name a style the generator doesn't produce. */
-export const AVATAR_STYLE_LABELS = ["Casual", "Sport", "Classic Suit"] as const;
+export const AVATAR_STYLE_LABELS = ["Casual", "Shorts & T-shirt", "Pants & T-shirt"] as const;
 
 /** Default standing mannequin — used only as an image-error fallback when a real avatar URL fails.
  *  `let`, not `const`: `setWearableAssetOrigin` below rewrites it in place for widget.js, and every
