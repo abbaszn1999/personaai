@@ -22,8 +22,10 @@ import {
 } from "./plan";
 import {
   composePrefix,
+  anchorPrefix,
   followUpPrefix,
   planPrefix,
+  renderAnchorTurn,
   renderComposeTurn,
   renderFollowUpTurn,
   renderPlanTurn,
@@ -392,30 +394,42 @@ function* emitLooks(output: BuildOutput): Generator<AgentEvent> {
   yield { type: "bundle", bundles: output.looks, products: toProducts(output.products) };
 }
 
+type AnchorSetup = { ok: true; department: string; slots: SlotInPlay[] } | { ok: false; message: string };
+
+/** Whether looks can be built around this piece at all, and with which slots. */
+function setUpAnchor(ctx: AgentContext, anchor: CatalogCandidate): AnchorSetup {
+  if (!anchor.inStock) return { ok: false, message: "That item isn't available anymore, so I can't build a look around it." };
+  const anchorLeaf = personaPathOf(anchor)?.split(" > ")[2] ?? null;
+  if (!isOutfitLeaf(anchorLeaf)) {
+    log(ctx, { anchor: anchor.externalId, skipped: anchorLeaf });
+    return {
+      ok: false,
+      message: "This piece isn't one I build full outfits around — try Complete the look on a top, bottom, dress or pair of shoes.",
+    };
+  }
+  const department = departmentOf(anchor) ?? ctx.session.department;
+  const slots = department ? slotsInPlay(ctx.pathConfig!.config, department, categoryOf(anchor)) : [];
+  if (!department || slots.length === 0) {
+    log(ctx, { anchor: anchor.externalId, slots: 0 });
+    return { ok: false, message: "This store doesn't have pieces to pair with this one right now, so I can't build a full look around it." };
+  }
+  return { ok: true, department, slots };
+}
+
 /**
- * "Complete the look" on a card: that item becomes the anchor. The first press only asks for the
- * budget; the looks are built once, on the shopper's answer.
+ * "Complete the look" on a card: that item is attached as the anchor. The first press only asks
+ * for the budget; the looks are built once, on the shopper's answer. When the piece can't anchor
+ * a look the attachment is dropped — there is nothing for the mode to work on.
  */
 async function* completeTheLook(ctx: AgentContext, productId: string, askBudget: boolean): AsyncGenerator<AgentEvent> {
   const anchor = ctx.products.get(productId);
-  if (!anchor || !anchor.inStock) {
-    yield* textEvents("That item isn't available anymore, so I can't build a look around it.");
+  const setup = anchor ? setUpAnchor(ctx, anchor) : null;
+  if (!anchor || !setup || !setup.ok) {
+    yield { type: "attachment", attachment: null };
+    yield* textEvents(setup && !setup.ok ? setup.message : "That item isn't available anymore, so I can't build a look around it.");
     return;
   }
-  const anchorLeaf = personaPathOf(anchor)?.split(" > ")[2] ?? null;
-  if (!isOutfitLeaf(anchorLeaf)) {
-    log(ctx, { trigger: "complete_look", anchor: productId, skipped: anchorLeaf });
-    yield* textEvents("This piece isn't one I build full outfits around — try Complete the look on a top, bottom, dress or pair of shoes.");
-    return;
-  }
-  const department = departmentOf(anchor) ?? ctx.session.department;
-  const category = categoryOf(anchor);
-  const slots = department ? slotsInPlay(ctx.pathConfig!.config, department, category) : [];
-  if (!department || slots.length === 0) {
-    log(ctx, { trigger: "complete_look", anchor: productId, slots: 0 });
-    yield* textEvents("This store doesn't have pieces to pair with this one right now, so I can't build a full look around it.");
-    return;
-  }
+  const { department, slots } = setup;
 
   if (askBudget) {
     const anchorPath = personaPathOf(anchor);
@@ -428,7 +442,7 @@ async function* completeTheLook(ctx: AgentContext, productId: string, askBudget:
     const names = slots.map((slot) => slot.slot);
     const pieces = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0];
     yield* textEvents(
-      `What's your budget for the whole outfit — this piece plus ${pieces}? Pick one below, or No limit and I'll keep the pieces near this one's price.`
+      `What's your budget for the whole outfit — this piece plus ${pieces}? Pick one below, type an amount, or No limit and I'll keep the pieces near this one's price.`
     );
     yield { type: "budget_request", anchorId: productId, budget: ctx.session.budget, suggestions };
     return;
@@ -437,6 +451,75 @@ async function* completeTheLook(ctx: AgentContext, productId: string, askBudget:
   yield { type: "status", stage: "composing" };
   const output = await buildLooks(ctx, { anchor, department, budget: ctx.session.budget, slots, kept: [] });
   log(ctx, { trigger: "complete_look", anchor: productId, looks: output.looks.length });
+  yield* textEvents(output.reply);
+  yield* emitLooks(output);
+}
+
+const STAY_REPLY = "That's outside this look — press × above the message box to search for other things.";
+
+/**
+ * A typed message while the product is attached as the anchor of a look: a budget, a style or an
+ * occasion builds a fresh set of looks around it; a question is answered. Anything about other
+ * products gets a pointer to ×, because only the shopper ends the mode.
+ */
+async function* anchorTurn(ctx: AgentContext, productId: string): AsyncGenerator<AgentEvent> {
+  const anchor = ctx.products.get(productId);
+  if (!anchor) {
+    yield { type: "attachment", attachment: null };
+    yield* textEvents("That item isn't available anymore. ");
+    yield* runPersona({ ...ctx, attachment: null });
+    return;
+  }
+  const setup = setUpAnchor(ctx, anchor);
+  if (!setup.ok) {
+    yield { type: "attachment", attachment: null };
+    yield* textEvents(setup.message);
+    return;
+  }
+
+  const { value } = await callStructured<FollowUpResponse>({
+    apiKey: ctx.geminiApiKey,
+    model: agentModel(),
+    prefix: anchorPrefix(),
+    cacheAs: "bundle-anchor",
+    userText: renderAnchorTurn({
+      ctx,
+      message: ctx.message,
+      anchor,
+      budget: ctx.session.budget,
+      slotsText: renderSlotsInPlay(ctx.pathConfig!.config, setup.slots),
+    }),
+    schema: FOLLOW_UP_SCHEMA,
+    thinking: "off",
+    meter: ctx.meter,
+    label: "bundle anchor",
+  });
+  log(ctx, { anchor_turn: value.intent, anchor: productId });
+
+  if (value.intent === "detach") {
+    yield* textEvents(value.reply?.trim() || STAY_REPLY);
+    return;
+  }
+  if (value.intent === "answer") {
+    yield* textEvents(value.reply?.trim() || 'Tell me a budget or a style — "under 300", "more casual" — and I\'ll build the looks.');
+    return;
+  }
+
+  // 0 is how the model says "no limit"; null means the shopper named no amount.
+  const named = typeof value.budget === "number" && Number.isFinite(value.budget) ? value.budget : null;
+  const budget = named === null ? ctx.session.budget : named > 0 ? Math.round(named) : null;
+  if (budget !== ctx.session.budget) yield { type: "budget", budget };
+
+  yield { type: "status", stage: "composing" };
+  const output = await buildLooks(ctx, {
+    anchor,
+    department: setup.department,
+    budget,
+    slots: setup.slots,
+    kept: [],
+    request: ctx.message,
+  });
+  log(ctx, { anchor_turn: "built", anchor: productId, looks: output.looks.length });
   yield* textEvents(output.reply);
   yield* emitLooks(output);
 }
@@ -470,8 +553,7 @@ async function* followUp(ctx: AgentContext, look: LookRecord): AsyncGenerator<Ag
   log(ctx, { follow_up: value.intent, look: look.id });
 
   if (value.intent === "detach") {
-    yield { type: "attachment", attachment: null };
-    yield* runPersona({ ...ctx, attachment: null });
+    yield* textEvents(value.reply?.trim() || STAY_REPLY);
     return;
   }
   if (value.intent === "answer") {
@@ -541,7 +623,8 @@ async function* followUp(ctx: AgentContext, look: LookRecord): AsyncGenerator<Ag
   yield { type: "attachment", attachment: { kind: "look", look: changed.looks[0] } };
 }
 
-/** The outfit agent. Runs only on a click — "Complete the look" — or while a look is attached. */
+/** The outfit agent. Runs on a "Complete the look" click, and on every typed message while that
+ *  product (or one of its looks) stays attached. */
 export async function* runBundle(ctx: AgentContext): AsyncGenerator<AgentEvent> {
   yield { type: "agent", agent: "bundle" };
   yield { type: "status", stage: "thinking" };
@@ -557,6 +640,10 @@ export async function* runBundle(ctx: AgentContext): AsyncGenerator<AgentEvent> 
   }
   if (ctx.attachment?.kind === "look") {
     yield* followUp(ctx, ctx.attachment.look);
+    return;
+  }
+  if (ctx.attachment?.kind === "anchor") {
+    yield* anchorTurn(ctx, ctx.attachment.productId);
     return;
   }
   yield* runPersona(ctx);

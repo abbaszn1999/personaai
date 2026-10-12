@@ -23,6 +23,10 @@ export function followUpPrefix(): string {
   return [loadSkill(GENERAL), pickSections(loadSkill(BUNDLE), ["6"])].join("\n\n");
 }
 
+export function anchorPrefix(): string {
+  return [loadSkill(GENERAL), pickSections(loadSkill(BUNDLE), ["7"])].join("\n\n");
+}
+
 export type BudgetLine =
   | { kind: "budget"; budget: number; committed: number }
   | { kind: "fallback"; tier: string | null; ceilings: Map<string, number | null> };
@@ -118,6 +122,24 @@ export function renderComposeTurn(input: ComposeTurnInput): string {
       .join("\n\n")}`
   );
   return blocks.join("\n\n");
+}
+
+export interface AnchorTurnInput {
+  ctx: AgentContext;
+  message: string;
+  anchor: CatalogCandidate;
+  budget: number | null;
+  slotsText: string;
+}
+
+export function renderAnchorTurn(input: AnchorTurnInput): string {
+  return [
+    `## ANCHOR\n${renderProductRecord(input.anchor, { descriptionChars: 300, includeSizes: false })}`,
+    `## BUDGET\n${input.budget ?? "none"}`,
+    `## PATH CONFIG\n${input.slotsText || "no other slots in stock"}`,
+    `## CONVERSATION\n${renderHistory(input.ctx.history, FOLLOW_UP_TURNS)}`,
+    `## MESSAGE\n${input.message}`,
+  ].join("\n\n");
 }
 
 export interface FollowUpTurnInput {

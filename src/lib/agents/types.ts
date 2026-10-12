@@ -53,7 +53,11 @@ export interface LookRecord extends BundleSuggestion {
 }
 
 export type AgentAttachment =
+  /** "Ask about this item" — the Attribute agent answers every typed message. */
   | { kind: "item"; productId: string }
+  /** "Complete the look" — the product the looks are built around; the Bundle agent answers. */
+  | { kind: "anchor"; productId: string }
+  /** "Ask about this bundle" — the Bundle agent answers about this look. */
   | { kind: "look"; look: LookRecord };
 
 export interface AgentTrigger {
@@ -89,10 +93,12 @@ export type AgentEvent =
   | { type: "products"; products: Product[] }
   | { type: "product_recommendations"; productIds: string[]; note?: string }
   | { type: "bundle"; bundles: LookRecord[]; products: Product[] }
-  /** Server-side attachment change: a follow-up updated the attached look, or a handoff
-   *  detached the item or look. */
+  /** Server-side attachment change: a follow-up updated the attached look, or the attached
+   *  product no longer exists in the store. Only the shopper's × ends a mode otherwise. */
   | { type: "attachment"; attachment: AgentAttachment | null }
   | { type: "quick_options"; options: string[] }
+  /** The budget the shopper just named while a look's anchor is attached; the widget keeps it for later turns. */
+  | { type: "budget"; budget: number | null }
   /** After "Complete the look": offer to rebuild the looks around the same anchor for a budget. */
   | ({ type: "budget_request" } & ChatBudgetPrompt)
   | { type: "retrieval_state"; shownProductIds: string[]; lastSearch: LastSearch | null }

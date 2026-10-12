@@ -3,10 +3,11 @@ import type { AgentEvent, AgentName, AgentTrigger } from "./types";
 
 /**
  * Reads a turn's own event stream and names what produced it. Derived from the events rather
- * than reported by each agent, so a handoff (Attribute → Persona, Bundle → Persona) is credited
- * to the agent that actually showed the products.
+ * than reported by each agent, so a turn is credited to the agent that actually showed the
+ * products. Looks built around an attached anchor are "complete_look" whether they came from the
+ * button press or from something the shopper typed afterwards.
  */
-export function createAttributionCollector(trigger: AgentTrigger | null) {
+export function createAttributionCollector(trigger: AgentTrigger | null, anchored = false) {
   let agent: AgentName | null = null;
   let searchAction: "filter" | "cosine" | null = null;
   let path: string | null = null;
@@ -40,7 +41,7 @@ export function createAttributionCollector(trigger: AgentTrigger | null) {
       if (!agent) return null;
       const action =
         agent === "bundle"
-          ? trigger
+          ? trigger || anchored
             ? "complete_look"
             : "look_follow_up"
           : showedProducts && searchAction

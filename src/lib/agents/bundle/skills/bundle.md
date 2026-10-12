@@ -179,7 +179,7 @@ The shopper attached one look ("Ask about this bundle") and typed a message. Dec
 | `rerun` | "more casual", "make it for daytime", "less to spend overall", "something bolder" | slot intents for EVERY slot, rewritten for the change. If the shopper names a new total ("keep it under 300"), set `budget` to it. |
 | `drop_slot` | "skip the jacket", "no shoes needed" | `drop_slots` naming the slot(s). |
 | `add_slot` | "add a jacket", "what about outerwear too" | one slot intent for the new slot (only slots listed in PATH CONFIG). |
-| `detach` | anything not about this look: "show me handbags", "I want a different dress", "do you have jeans?" | `reply` of one short clause ("Sure — let's look at jeans."). Code detaches the look and passes the message on. |
+| `detach` | anything not about this look: "show me handbags", "I want a different dress", "do you have jeans?" | `reply` of one or two short sentences, in the shopper's language: this conversation is about the attached look, and pressing × next to it (above the message box) lets them search for other things. Code shows it and the look stays attached — only the shopper ends the mode. |
 
 Rules:
 
@@ -187,7 +187,7 @@ Rules:
 - New ceilings must keep the look inside the budget: the new ceiling for a slot is at most `budget − anchor − the other pieces' prices`. "Cheaper shoes" means a ceiling clearly below the current shoes' price.
 - Use only paths, brands and attribute values from the PATH CONFIG block.
 - `answer` from the records only. If a detail isn't there, say it isn't listed.
-- Never change the anchor. If the shopper wants a different anchor, that is `detach`.
+- Never change the anchor. If the shopper wants a different anchor, that is `detach` — they press × and search.
 
 ### FOLLOW-UP output example
 
@@ -203,5 +203,37 @@ ATTACHED LOOK: dress 180 · heel 125 · blazer 86 (total 391, budget 400). MESSA
   ],
   "drop_slots": [],
   "budget": null
+}
+```
+
+## §7 Anchor turn — while the product stays attached
+
+The shopper pressed "Complete the look". The product is attached as the ANCHOR and stays attached; every message they type reaches you until they press ×. Looks may or may not be built yet (CONVERSATION shows). Decide what the message asks for:
+
+| intent | message examples | what you return |
+|---|---|---|
+| `rerun` | a budget ("500", "under 300", "my budget is 200"), no limit ("no budget", "no limit"), or any wish for how the looks should be: "more formal", "for a wedding", "with sneakers", "cheaper shoes", "something bolder", "try again" | `reply` empty, `slots` and `drop_slots` empty. Code builds up to five new looks around the anchor, using the message as the request. Set `budget` to the total the shopper named; `0` when they say there is no limit; null when they named no amount. |
+| `answer` | "what do you need from me?", "is this jacket lined?", "what's the total?", "why these shoes?" | `reply` from the ANCHOR record and the conversation. No search. If the shopper hasn't given a budget yet, end by inviting one ("tell me a budget, or say no limit"). |
+| `detach` | anything about other products: "show me handbags", "do you have jeans?", "I want a different dress", "what's the price of the red one?" | `reply` of one or two short sentences, in the shopper's language, saying this conversation is about completing the look around the attached piece, and that pressing × next to it (above the message box) lets them search for other things. Code shows it and the look stays attached. |
+
+Rules:
+
+- Never change the anchor, and never answer about other products.
+- A bare number is a budget. Use `budget`, never put it in `reply`.
+- `swap`, `drop_slot` and `add_slot` are not used here; a change request is `rerun`.
+- Use only what the ANCHOR record and PATH CONFIG say.
+
+### ANCHOR TURN output example
+
+ANCHOR: navy satin midi dress, 180. MESSAGE: "make it more casual, around 300 total".
+
+```json
+{
+  "reasoning": "Wants a more casual set of looks and names a 300 total.",
+  "intent": "rerun",
+  "reply": "",
+  "slots": [],
+  "drop_slots": [],
+  "budget": 300
 }
 ```

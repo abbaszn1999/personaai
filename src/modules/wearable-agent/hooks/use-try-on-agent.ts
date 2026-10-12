@@ -79,9 +79,13 @@ export interface ShopperProfileBridge {
 export const MAX_TRYON_PROFILES = 3;
 const DEFAULT_PROFILE_ID = "default";
 
-/** What the shopper attached with "Ask about this item" or "Ask about this bundle". While set,
- *  every typed turn is about it; the × on the attachment bar clears it. */
-export type ChatAttachment = { kind: "item"; product: Product } | { kind: "look"; look: LookRecord };
+/** What the shopper attached with "Ask about this item" (`item`), "Complete the look" (`anchor`,
+ *  the product the looks are built around) or "Ask about this bundle" (`look`). While set, every
+ *  typed turn goes to that mode's agent; only the × on the attachment bar clears it. */
+export type ChatAttachment =
+  | { kind: "item"; product: Product }
+  | { kind: "anchor"; product: Product }
+  | { kind: "look"; look: LookRecord };
 
 /** Per-profile slice of persisted state — everything that's genuinely "whose this is":
  *  measurements/avatar, the try-on renders made for them, and their own conversation with the
@@ -151,16 +155,18 @@ function normalizeAttachment(raw: unknown): ChatAttachment | null {
   if (value.kind === "item" && value.product && typeof value.product.id === "string") {
     return { kind: "item", product: value.product };
   }
+  if (value.kind === "anchor" && value.product && typeof value.product.id === "string") {
+    return { kind: "anchor", product: value.product };
+  }
   if (value.kind === "look" && value.look && isLookRecord(value.look)) return { kind: "look", look: value.look };
   return null;
 }
 
-/** The attachment as the server reads it: an item by id, a look whole. */
+/** The attachment as the server reads it: an item or anchor by id, a look whole. */
 export function wireAttachment(attachment: ChatAttachment | null) {
   if (!attachment) return null;
-  return attachment.kind === "item"
-    ? { kind: "item" as const, productId: attachment.product.id }
-    : { kind: "look" as const, look: attachment.look };
+  if (attachment.kind === "look") return { kind: "look" as const, look: attachment.look };
+  return { kind: attachment.kind, productId: attachment.product.id };
 }
 
 function normalizeBudget(raw: unknown): number | null {
@@ -1736,7 +1742,7 @@ export function useTryOnAgent(
           },
           budget: budgetRef.current,
           retrievalState: retrievalStateRef.current,
-          attachment: trigger ? null : wireAttachment(attachmentRef.current),
+          attachment: wireAttachment(attachmentRef.current),
           ...(trigger ? { trigger } : {}),
         }),
         signal: controller.signal,
@@ -1817,11 +1823,16 @@ export function useTryOnAgent(
               });
               break;
             }
+            case "budget": {
+              budgetRef.current = event.budget;
+              update((s) => ({ ...s, budget: event.budget }));
+              break;
+            }
             case "attachment": {
               const next: ChatAttachment | null =
                 event.attachment?.kind === "look" ? { kind: "look", look: event.attachment.look } : null;
-              // The server only ever detaches or refreshes an attached look; an item attachment
-              // it drops is simply cleared.
+              // The server only ever detaches (the attached product is gone or can't anchor a
+              // look) or refreshes an attached look; it never starts any other attachment.
               if (event.attachment === null || next) {
                 attachmentRef.current = next;
                 update((s) => ({ ...s, attachment: next }));
@@ -1929,12 +1940,14 @@ export function useTryOnAgent(
     await streamChatTurn(failedTurn.history, failedTurn.trigger);
   }
 
-  /** "Complete the look" on a card: that item becomes the anchor of a new outfit. The first turn
-   *  only asks for the budget; the looks are built once the shopper answers. Any attachment is
-   *  cleared — the looks that come back are the new subject. */
+  /** "Complete the look" on a card: that item is attached as the anchor of a new outfit, replacing
+   *  whatever was attached, and stays attached — every typed message after it goes to the outfit
+   *  agent until the shopper presses ×. The first turn only asks for the budget; the looks are
+   *  built once the shopper answers. */
   async function completeLook(product: Product) {
-    attachmentRef.current = null;
-    setState((s) => ({ ...s, attachment: null }));
+    const next: ChatAttachment = { kind: "anchor", product };
+    attachmentRef.current = next;
+    setState((s) => ({ ...s, attachment: next }));
     await streamChatTurn(appendUserMessage(`Complete the look with ${product.name}`), {
       type: "complete_look",
       productId: product.id,
@@ -2225,8 +2238,10 @@ export function useTryOnAgent(
     budgetRef.current = budget;
     setState((s) => ({ ...s, budget }));
     if (!anchor) return;
-    attachmentRef.current = null;
-    setState((s) => ({ ...s, attachment: null }));
+    // The product stays attached as the anchor: what the shopper types next refines these looks.
+    const attached: ChatAttachment = { kind: "anchor", product: anchor };
+    attachmentRef.current = attached;
+    setState((s) => ({ ...s, attachment: attached }));
     const label = typed ?? (budget === null ? "No budget limit" : `My budget is ${formatBudget(budget, anchor.currency)}`);
     await streamChatTurn(appendUserMessage(label), { type: "complete_look", productId: anchorId });
   }

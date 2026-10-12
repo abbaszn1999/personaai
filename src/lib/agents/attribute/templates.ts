@@ -47,23 +47,7 @@ function sizeRange(sizes: string[]): string {
   return sizes.length > 4 ? `${sizes[0]} through ${sizes[sizes.length - 1]}` : list(sizes);
 }
 
-const HANDOFF = /\b(similar|something like|anything like|other (options|ones|styles)|show me|what else|alternatives?|instead|find (it|me|one|something)|look for)\b/i;
-const AFFIRMATIVE = /^(yes|yeah|yep|yup|sure|please|ok|okay|go ahead|do it|sounds good)\b/i;
-
-/** "something similar", "show me trousers" — the shopper wants other products. */
-export function isHandoffRequest(message: string): boolean {
-  return HANDOFF.test(message);
-}
-
-/**
- * "yes please" right after this agent offered to look for an alternative. Returns the search the
- * offer described ("something similar in navy"), so it can be handed forward verbatim.
- */
-export function acceptedOffer(message: string, lastAssistant: string | null): string | null {
-  if (!lastAssistant || !AFFIRMATIVE.test(message.trim())) return null;
-  const offer = lastAssistant.match(/want me to (?:look for|find) (.+?)\?/i);
-  return offer ? offer[1].trim() : null;
-}
+const SEARCH_ELSEWHERE = "Press × above the message box if you'd like to search for something else.";
 
 /** Structured questions answered straight from the record — no model call. */
 export function answerFromTemplate(message: string, group: VariantGroup): TemplateAnswer | null {
@@ -89,11 +73,11 @@ export function answerFromTemplate(message: string, group: VariantGroup): Templa
     if (isColour) {
       const colours = unique(groupColours(group).map((entry) => entry.colour));
       const has = colours.length ? `This one comes in ${list(colours)} only.` : "No other colours are listed for this one.";
-      return { reply: `${has} Want me to look for something similar in ${wanted}?`, quickOptions: [`Find it in ${wanted}`] };
+      return { reply: `${has} ${SEARCH_ELSEWHERE}` };
     }
     if (SIZE_TOKEN.test(wanted)) {
       const has = sizes.length ? `${wanted.toUpperCase()} isn't listed — sizes run ${sizeRange(sizes)}.` : `${wanted.toUpperCase()} isn't listed for this one.`;
-      return { reply: `${has} Want me to find a similar piece in ${wanted.toUpperCase()}?`, quickOptions: [`Find it in ${wanted.toUpperCase()}`] };
+      return { reply: `${has} ${SEARCH_ELSEWHERE}` };
     }
   }
 

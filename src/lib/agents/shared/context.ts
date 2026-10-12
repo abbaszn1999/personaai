@@ -113,6 +113,9 @@ export function parseAttachment(value: unknown): AgentAttachment | null {
   if (raw.kind === "item" && typeof raw.productId === "string" && raw.productId) {
     return { kind: "item", productId: raw.productId };
   }
+  if (raw.kind === "anchor" && typeof raw.productId === "string" && raw.productId) {
+    return { kind: "anchor", productId: raw.productId };
+  }
   if (raw.kind === "look") {
     const look = parseLook(raw.look);
     return look ? { kind: "look", look } : null;
@@ -194,7 +197,7 @@ export async function buildAgentContext(input: BuildAgentContextInput): Promise<
   const shownProductIds = stringIds(input.retrievalState?.shownProductIds).slice(0, SHOWN_LIMIT);
 
   const referencedIds = new Set(shownProductIds);
-  if (attachment?.kind === "item") referencedIds.add(attachment.productId);
+  if (attachment?.kind === "item" || attachment?.kind === "anchor") referencedIds.add(attachment.productId);
   if (attachment?.kind === "look") {
     referencedIds.add(attachment.look.anchorId);
     attachment.look.productIds.forEach((id) => referencedIds.add(id));

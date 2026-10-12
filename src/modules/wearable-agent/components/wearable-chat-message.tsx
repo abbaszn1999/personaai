@@ -622,13 +622,17 @@ interface AttachedItemBarProps {
   onClear: () => void;
   /** The mobile sheet is dark-on-dark; the desktop panel is the themed card surface. */
   tone?: "light" | "dark";
+  /** What the attachment means; the default is "Ask about this item". */
+  mode?: "ask" | "complete";
 }
 
 /**
- * Names the product attached with "Ask about this item", directly above the composer. While it
- * shows, every message is answered about this product; the × hands the chat back.
+ * Names the product attached with "Ask about this item" or "Complete the look", directly above
+ * the composer. While it shows, every message goes to that mode's agent; the × hands the chat
+ * back to the shopping assistant.
  */
-export function AttachedItemBar({ product, onClear, tone = "light" }: AttachedItemBarProps) {
+export function AttachedItemBar({ product, onClear, tone = "light", mode = "ask" }: AttachedItemBarProps) {
+  const Icon = mode === "complete" ? Layers : MessageSquare;
   return (
     <div
       className={cn(
@@ -636,8 +640,8 @@ export function AttachedItemBar({ product, onClear, tone = "light" }: AttachedIt
         tone === "dark" ? "text-white/70" : "text-[var(--color-text-secondary)]"
       )}
     >
-      <MessageSquare className="h-3 w-3 shrink-0 text-[var(--color-brand)]" />
-      <span className="shrink-0">Asking about:</span>
+      <Icon className="h-3 w-3 shrink-0 text-[var(--color-brand)]" />
+      <span className="shrink-0">{mode === "complete" ? "Completing the look with:" : "Asking about:"}</span>
       <span
         className={cn(
           "truncate font-semibold",
@@ -649,7 +653,8 @@ export function AttachedItemBar({ product, onClear, tone = "light" }: AttachedIt
       <button
         type="button"
         onClick={onClear}
-        aria-label="Detach this item"
+        aria-label={mode === "complete" ? "Stop completing this look" : "Detach this item"}
+        title="Back to searching the store"
         className={cn(
           "ml-auto h-5 w-5 shrink-0 rounded-full flex items-center justify-center transition-colors",
           tone === "dark"

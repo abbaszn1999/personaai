@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { candidate } from "../__fixtures__/catalog";
 import { resolveReferencedItem } from "../shared/referenced-item";
-import { acceptedOffer, answerFromTemplate, isHandoffRequest, type VariantGroup } from "./templates";
+import { answerFromTemplate, type VariantGroup } from "./templates";
 
 const item = candidate({
   externalId: "tee-white",
@@ -24,16 +24,17 @@ describe("answerFromTemplate", () => {
     expect(answerFromTemplate("do you have it in navy?", group)?.reply).toMatch(/also comes in Navy \(currently out of stock/);
   });
 
-  it("says no to a missing colour and offers a search", () => {
+  it("says no to a missing colour and points to × instead of offering a search", () => {
     const answer = answerFromTemplate("in red?", group);
     expect(answer?.reply).toMatch(/White and Navy only/);
-    expect(answer?.quickOptions).toEqual(["Find it in red"]);
+    expect(answer?.reply).toMatch(/Press ×/);
+    expect(answer?.quickOptions).toBeUndefined();
   });
 
   it("answers sizes, including a missing size", () => {
     expect(answerFromTemplate("does it come in m?", group)?.reply).toBe("Yes — M is listed for this one.");
     expect(answerFromTemplate("what sizes are available?", group)?.reply).toBe("It's listed in S, M, L and XL.");
-    expect(answerFromTemplate("in xxl?", group)?.quickOptions).toEqual(["Find it in XXL"]);
+    expect(answerFromTemplate("in xxl?", group)?.reply).toMatch(/XXL isn't listed.*Press ×/);
   });
 
   it("answers material, price and stock", () => {
@@ -46,21 +47,6 @@ describe("answerFromTemplate", () => {
   it("leaves fit and styling questions to the model", () => {
     expect(answerFromTemplate("would this work for a wedding?", group)).toBeNull();
     expect(answerFromTemplate("what size should I get?", group)).toBeNull();
-  });
-});
-
-describe("handoff", () => {
-  it("detects requests for other products", () => {
-    expect(isHandoffRequest("show me something similar")).toBe(true);
-    expect(isHandoffRequest("is it soft?")).toBe(false);
-  });
-
-  it("turns a yes into the offered search", () => {
-    expect(acceptedOffer("yes please", "This one comes in White only. Want me to look for something similar in red?")).toBe(
-      "something similar in red"
-    );
-    expect(acceptedOffer("no thanks", "Want me to look for something similar in red?")).toBeNull();
-    expect(acceptedOffer("yes", null)).toBeNull();
   });
 });
 

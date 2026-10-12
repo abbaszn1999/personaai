@@ -107,14 +107,17 @@ async function main() {
   if (process.env.SMOKE_ONLY !== "bundle") {
     await turn("attribute", "what colours does it come in?", { attachment: { kind: "item", productId: anchor } });
     await turn("attribute open", "is it breathable enough for summer?", { attachment: { kind: "item", productId: anchor } });
-    await turn("attribute handoff", "show me something similar but in black", { attachment: { kind: "item", productId: anchor } });
+    await turn("attribute other topic", "show me something similar but in black", { attachment: { kind: "item", productId: anchor } });
     if (process.env.SMOKE_ONLY === "attribute") return;
   }
   await turn("bundle ask budget", "Complete the look", { trigger: { type: "complete_look", productId: anchor, askBudget: true }, budget });
   const complete = await turn("bundle", budget ? `My budget is ${budget}` : "No budget limit", {
     trigger: { type: "complete_look", productId: anchor },
+    attachment: { kind: "anchor", productId: anchor },
     budget,
   });
+  await turn("bundle anchor typed", "something more casual", { attachment: { kind: "anchor", productId: anchor }, budget });
+  await turn("bundle anchor other topic", "show me some handbags", { attachment: { kind: "anchor", productId: anchor }, budget });
   const look = complete.looks[0];
   if (look) await turn("bundle follow-up", "cheaper shoes please", { attachment: { kind: "look", look }, budget });
 }

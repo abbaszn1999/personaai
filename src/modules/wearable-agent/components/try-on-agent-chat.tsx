@@ -397,6 +397,9 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
         {agent.attachment?.kind === "item" && (
           <AttachedItemBar product={agent.attachment.product} onClear={agent.detach} />
         )}
+        {agent.attachment?.kind === "anchor" && (
+          <AttachedItemBar product={agent.attachment.product} onClear={agent.detach} mode="complete" />
+        )}
         {agent.attachment?.kind === "look" && (
           <AttachedLookBar bundle={agent.attachment.look} knownProducts={agent.knownProducts} onClear={agent.detach} />
         )}
@@ -728,6 +731,9 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
             <div className="shrink-0 space-y-1.5 px-3 pb-1.5">
               {agent.attachment?.kind === "item" && (
                 <AttachedItemBar product={agent.attachment.product} onClear={agent.detach} tone={theme} />
+              )}
+              {agent.attachment?.kind === "anchor" && (
+                <AttachedItemBar product={agent.attachment.product} onClear={agent.detach} tone={theme} mode="complete" />
               )}
               {agent.attachment?.kind === "look" && (
                 <AttachedLookBar
