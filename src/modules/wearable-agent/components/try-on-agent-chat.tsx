@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils/cn";
 import type { PreviewViewportMode } from "./preview-viewport-toggle";
 import { useWearableTheme, type WearableTheme } from "../theme-context";
 import { useWearableBranding } from "../branding-context";
+import { composerPlaceholder, useWidgetLocale, widgetStrings } from "../widget-strings";
 import type { EmbedRuntimeConfig } from "../hooks/use-try-on-agent";
 import type { TryOnProfile } from "../types";
 
@@ -286,6 +287,7 @@ function ChatProfileSwitcher({ agent }: { agent: UseTryOnAgentReturn }) {
 function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, embed }: StyleChatPanelProps) {
   const handleAddToCart = onAddToCart ?? agent.addToCart;
   const branding = useWearableBranding();
+  const widgetLocale = useWidgetLocale();
   const messagesRef = React.useRef<HTMLDivElement>(null);
   const cartItemIds = agent.cartItems.map((p) => p.id);
   // Quick replies are just a cold-start nudge — once the shopper has sent a real message,
@@ -367,7 +369,6 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
               onRenderBundle={agent.wearBundle}
               onAddBundleToCart={agent.addBundleToCart}
               onAskAboutLook={agent.attachLook}
-              onChooseBudget={agent.chooseLookBudget}
             />
           );
         })}
@@ -401,7 +402,7 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
           <input
             dir="auto"
             className="flex-1 h-10 px-4 text-sm bg-[var(--color-surface-base)] border border-[var(--color-border)] rounded-[var(--radius-xl)] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-brand)] transition-colors"
-            placeholder={branding.inputPlaceholder}
+            placeholder={composerPlaceholder(widgetStrings(widgetLocale), agent.attachment?.kind, branding.inputPlaceholder)}
             value={agent.input}
             onChange={(e) => agent.setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && agent.sendMessage()}
@@ -443,6 +444,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
   const handleBulkAddToCart = onBulkAddToCart ?? agent.addToCart;
   const theme = useWearableTheme();
   const branding = useWearableBranding();
+  const widgetLocale = useWidgetLocale();
   const panelBg = CHAT_PANEL_BG_BY_THEME[theme];
   const styles = MOBILE_SURFACE[theme];
   // Destructured rather than read as `sheet.*` during render: the hook's return mixes refs with
@@ -691,7 +693,6 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
                     onRenderBundle={agent.wearBundle}
                     onAddBundleToCart={agent.addBundleToCart}
                     onAskAboutLook={agent.attachLook}
-                    onChooseBudget={agent.chooseLookBudget}
                   />
                 );
               })}
@@ -743,7 +744,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
                     NO_IOS_ZOOM_TEXT,
                     styles.input
                   )}
-                  placeholder={branding.inputPlaceholder}
+                  placeholder={composerPlaceholder(widgetStrings(widgetLocale), agent.attachment?.kind, branding.inputPlaceholder)}
                   value={agent.input}
                   onChange={(e) => agent.setInput(e.target.value)}
                   onFocus={() => setSnap("full")}

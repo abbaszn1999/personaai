@@ -154,6 +154,7 @@ Rules:
 - Only ids from CANDIDATES. Never the anchor's id in `item_ids` — code adds the anchor.
 - `reason` — one line per look, why the pieces work together. Not a list of items.
 - `reply` — one or two sentences to the shopper introducing the looks. If a slot had no candidates, say which piece is missing and why, using the reason on its empty slot (nothing in stock under its ceiling, or none in the shopper's size), and that they can raise the budget or keep the partial look.
+- When BUDGET says `none`, the shopper named no budget. Say so in the reply in half a sentence — the looks are priced around this piece's usual range — and invite them to name a budget if they want the looks cheaper or pricier. Write it in the language of REQUEST.
 - When REQUEST is a change to an attached look ("cheaper shoes"), the reply says what changed and the new total. If every candidate under the new ceiling shifts the look — flip-flops where there were lace-ups, a much more casual piece — say so plainly ("The only cheaper shoes in stock are flip-flops, so this takes the look more casual — total 100.") rather than presenting them as a like-for-like swap.
 
 ### COMPOSE output example
@@ -208,11 +209,11 @@ ATTACHED LOOK: dress 180 · heel 125 · blazer 86 (total 391, budget 400). MESSA
 
 ## §7 Anchor turn — while the product stays attached
 
-The shopper pressed "Complete the look". The product is attached as the ANCHOR and stays attached; every message they type reaches you until they press ×. Looks may or may not be built yet (CONVERSATION shows). Decide what the message asks for:
+The shopper pressed "Complete the look", which only attached the product as the ANCHOR — nothing ran until now, so their first message is the first thing you hear. The anchor stays attached; every message they send reaches you until they press ×. Looks may or may not be built yet (CONVERSATION shows). Decide what the message asks for:
 
 | intent | message examples | what you return |
 |---|---|---|
-| `rerun` | a budget ("500", "under 300", "my budget is 200"), no limit ("no budget", "no limit"), or any wish for how the looks should be: "more formal", "for a wedding", "with sneakers", "cheaper shoes", "something bolder", "try again" | `reply` empty, `slots` and `drop_slots` empty. Code builds up to five new looks around the anchor, using the message as the request. Set `budget` to the total the shopper named; `0` when they say there is no limit; null when they named no amount. |
+| `rerun` | "go", "yes", "build it", "show me", a budget ("500", "under 300", "my budget is 200"), no limit ("no budget", "no limit"), an occasion or any wish for how the looks should be: "more formal", "for a wedding", "with sneakers", "cheaper shoes", "something bolder", "try again". When looks haven't been built yet, anything that is not a question and not about other products is a `rerun` — build first, refine after | `reply` empty, `slots` and `drop_slots` empty. Code builds up to five new looks around the anchor, using the message as the request. Set `budget` to the total the shopper named; `0` when they say there is no limit; null when they named no amount. |
 | `answer` | "what do you need from me?", "is this jacket lined?", "what's the total?", "why these shoes?" | `reply` from the ANCHOR record and the conversation. No search. If the shopper hasn't given a budget yet, end by inviting one ("tell me a budget, or say no limit"). |
 | `detach` | anything about other products: "show me handbags", "do you have jeans?", "I want a different dress", "what's the price of the red one?" | `reply` of one or two short sentences, in the shopper's language, saying this conversation is about completing the look around the attached piece, and that pressing × next to it (above the message box) lets them search for other things. Code shows it and the look stays attached. |
 

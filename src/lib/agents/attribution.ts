@@ -1,13 +1,13 @@
 import type { TurnAttribution } from "@/modules/commerce/types";
-import type { AgentEvent, AgentName, AgentTrigger } from "./types";
+import type { AgentEvent, AgentName } from "./types";
 
 /**
  * Reads a turn's own event stream and names what produced it. Derived from the events rather
  * than reported by each agent, so a turn is credited to the agent that actually showed the
- * products. Looks built around an attached anchor are "complete_look" whether they came from the
- * button press or from something the shopper typed afterwards.
+ * products. Looks built around an attached anchor ("Complete the look") are "complete_look";
+ * a turn on an attached look is a "look_follow_up".
  */
-export function createAttributionCollector(trigger: AgentTrigger | null, anchored = false) {
+export function createAttributionCollector(anchored = false) {
   let agent: AgentName | null = null;
   let searchAction: "filter" | "cosine" | null = null;
   let path: string | null = null;
@@ -41,7 +41,7 @@ export function createAttributionCollector(trigger: AgentTrigger | null, anchore
       if (!agent) return null;
       const action =
         agent === "bundle"
-          ? trigger || anchored
+          ? anchored
             ? "complete_look"
             : "look_follow_up"
           : showedProducts && searchAction

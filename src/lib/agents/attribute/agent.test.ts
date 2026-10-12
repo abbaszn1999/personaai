@@ -41,7 +41,6 @@ function context(message: string, overrides: Partial<AgentContext> = {}): AgentC
     shownProductIds: [],
     lastSearch: null,
     attachment: { kind: "item", productId: item.externalId },
-    trigger: null,
     referencedItemId: null,
     styleGuide: null,
     ...overrides,

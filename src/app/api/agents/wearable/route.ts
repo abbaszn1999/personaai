@@ -25,7 +25,6 @@ interface AgentChatRequestBody {
   /** What the shopper attached: `{ kind: "item", productId }` or `{ kind: "look", look }`. */
   attachment?: unknown;
   /** A click that starts a turn on its own: `{ type: "complete_look", productId }`. */
-  trigger?: unknown;
   /** A product this message is about, when the client knows it (e.g. a tapped card). */
   referencedItemId?: unknown;
 }
@@ -77,7 +76,6 @@ export async function POST(req: NextRequest) {
     budget: body.budget,
     retrievalState: body.retrievalState,
     attachment: body.attachment,
-    trigger: body.trigger,
     referencedItemId: body.referencedItemId,
     signal: req.signal,
   });

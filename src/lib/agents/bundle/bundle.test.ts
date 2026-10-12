@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildPathConfig } from "@/lib/catalog/path-config/build";
 import { findNode } from "@/lib/catalog/path-config/lookup";
 import { CONFIG, acsProduct, candidate } from "../__fixtures__/catalog";
-import { budgetSuggestions, distinctLooks, lookTotal, naiveLook, verifyLook, type LookRules, type SlotCandidates } from "./compose";
+import { distinctLooks, lookTotal, naiveLook, verifyLook, type LookRules, type SlotCandidates } from "./compose";
 import { fallbackSlotPlan, validateLookPlan, validateSlotPlan, type PlanLimits } from "./plan";
 import { renderComposeTurn, renderPlanTurn } from "./prompt";
 import {
@@ -210,21 +210,6 @@ describe("validateLookPlan", () => {
     const plan = validateLookPlan(CONFIG, slots, [look("Over", 90)], limits);
     expect(plan.ok === false && plan.problems[0]).toMatch(/^look 1: /);
     expect(validateLookPlan(CONFIG, slots, [], limits)).toEqual({ ok: false, problems: ["no look planned"] });
-  });
-});
-
-describe("budgetSuggestions", () => {
-  it("spans from just above the cheapest full outfit to past a typical one, in round steps", () => {
-    const slots = [
-      { floor: 40, typical: 70 },
-      { floor: 80, typical: 100 },
-    ];
-    expect(budgetSuggestions(25, slots)).toEqual([170, 180, 200, 300]);
-    expect(budgetSuggestions(25, [])).toEqual([]);
-  });
-
-  it("never suggests a budget the anchor alone uses up, nor the same amount twice", () => {
-    expect(budgetSuggestions(95, [{ floor: null, typical: null }])).toEqual([120, 150]);
   });
 });
 

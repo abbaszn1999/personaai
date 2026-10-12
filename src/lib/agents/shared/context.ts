@@ -11,7 +11,7 @@ import type { SessionMeter } from "@/lib/billing/session-meter";
 import type { ChatMessage } from "@/modules/commerce/types";
 import type { CatalogCandidate } from "@/lib/retrieval/types";
 import { PATH_CONFIG_VERSION, type StoredPathConfig } from "@/lib/catalog/path-config/types";
-import type { AgentAttachment, AgentContext, AgentTrigger, LastSearch, LookRecord } from "../types";
+import type { AgentAttachment, AgentContext, LastSearch, LookRecord } from "../types";
 import { bodyMeasurements, fittingSizes, isChildShopper, parseShopperMeasurements } from "./fit";
 import { toConversationTurns } from "./history";
 
@@ -54,7 +54,6 @@ export interface BuildAgentContextInput {
   budget?: unknown;
   retrievalState?: AgentRequestState | null;
   attachment?: unknown;
-  trigger?: unknown;
   referencedItemId?: unknown;
   /** The request's own signal: aborts model calls and searches when the shopper leaves. */
   signal?: AbortSignal;
@@ -123,15 +122,6 @@ export function parseAttachment(value: unknown): AgentAttachment | null {
   return null;
 }
 
-export function parseTrigger(value: unknown): AgentTrigger | null {
-  if (!value || typeof value !== "object") return null;
-  const raw = value as { type?: unknown; productId?: unknown; askBudget?: unknown };
-  if (raw.type !== "complete_look" || typeof raw.productId !== "string" || !raw.productId) return null;
-  return raw.askBudget === true
-    ? { type: "complete_look", productId: raw.productId, askBudget: true }
-    : { type: "complete_look", productId: raw.productId };
-}
-
 /**
  * Every turn reads the store's connection and path config; with many shoppers on one store those
  * are the same two rows asked for many times a second. A few seconds of staleness is invisible: a
@@ -193,7 +183,6 @@ export async function buildAgentContext(input: BuildAgentContextInput): Promise<
   const history = last?.role === "user" ? turns.slice(0, -1) : turns;
 
   const attachment = parseAttachment(input.attachment);
-  const trigger = parseTrigger(input.trigger);
   const shownProductIds = stringIds(input.retrievalState?.shownProductIds).slice(0, SHOWN_LIMIT);
 
   const referencedIds = new Set(shownProductIds);
@@ -202,7 +191,6 @@ export async function buildAgentContext(input: BuildAgentContextInput): Promise<
     referencedIds.add(attachment.look.anchorId);
     attachment.look.productIds.forEach((id) => referencedIds.add(id));
   }
-  if (trigger) referencedIds.add(trigger.productId);
   const referencedItemId =
     typeof input.referencedItemId === "string" && input.referencedItemId ? input.referencedItemId : null;
   if (referencedItemId) referencedIds.add(referencedItemId);
@@ -251,7 +239,6 @@ export async function buildAgentContext(input: BuildAgentContextInput): Promise<
     shownProductIds: shownProductIds.filter((id) => candidates.some((candidate) => candidate.externalId === id)),
     lastSearch: parseLastSearch(input.retrievalState?.lastSearch),
     attachment,
-    trigger,
     referencedItemId: referencedItemId && candidates.some((candidate) => candidate.externalId === referencedItemId) ? referencedItemId : null,
     styleGuide: connection?.styleGuide ?? null,
     ...(input.signal ? { signal: input.signal } : {}),

@@ -8,7 +8,6 @@ import { formatBudget } from "@/modules/commerce/constants";
 import { isLookRecord, type AgentEvent, type LookRecord } from "@/lib/agents/types";
 import { attributionForProduct } from "../utils/cart-attribution";
 import { resolveGarmentSlot } from "../utils/fit-metrics";
-import { parseTypedBudget } from "../utils/typed-budget";
 import { EMPTY_RETRIEVAL_STATE, normalizeRetrievalState, type RetrievalState } from "../utils/retrieval-state";
 import { MAX_PERSISTED_MESSAGES, MAX_SENT_MESSAGES, takeLastMessages } from "../utils/chat-history";
 import { browserLocale, widgetStrings } from "../widget-strings";
@@ -407,12 +406,9 @@ export interface GeneratedTryOn {
 /** `thinking` covers the opening stretch before any tool has run, which is short. */
 export type TypingStage = "thinking" | "searching" | "composing";
 
-type ChatTrigger = { type: "complete_look"; productId: string; askBudget?: boolean };
-
 /** What Retry resends, plus the bubbles of the failed attempt it replaces. */
 interface FailedChatTurn {
   history: ChatMessage[];
-  trigger?: ChatTrigger;
   messageIds: string[];
 }
 
@@ -1625,9 +1621,8 @@ export function useTryOnAgent(
   }
 
   /** Sends one turn to the agents and streams the response, applying each SSE event to local
-   *  state as it arrives. `trigger` is set only for the "Complete the look" click. Starting a
-   *  turn cancels the one before it. */
-  async function streamChatTurn(history: ChatMessage[], trigger?: ChatTrigger) {
+   *  state as it arrives. Starting a turn cancels the one before it. */
+  async function streamChatTurn(history: ChatMessage[]) {
     abortChatTurn();
     const controller = new AbortController();
     chatAbortRef.current = controller;
@@ -1673,7 +1668,6 @@ export function useTryOnAgent(
       failed = true;
       failedTurnRef.current = {
         history,
-        trigger,
         messageIds: assistantMessageId && assistantMessageId !== bubbleId ? [assistantMessageId, bubbleId] : [bubbleId],
       };
       update((s) => ({ ...s, retryMessageId: bubbleId }));
@@ -1743,7 +1737,6 @@ export function useTryOnAgent(
           budget: budgetRef.current,
           retrievalState: retrievalStateRef.current,
           attachment: wireAttachment(attachmentRef.current),
-          ...(trigger ? { trigger } : {}),
         }),
         signal: controller.signal,
       });
@@ -1815,12 +1808,6 @@ export function useTryOnAgent(
             case "quick_options": {
               if (assistantMessageId) patchAssistantMessage({ quickOptions: event.options });
               else pendingQuickOptions = event.options;
-              break;
-            }
-            case "budget_request": {
-              patchAssistantMessage({
-                budgetPrompt: { anchorId: event.anchorId, budget: event.budget, suggestions: event.suggestions },
-              });
               break;
             }
             case "budget": {
@@ -1920,12 +1907,6 @@ export function useTryOnAgent(
     const content = (text ?? state.input).trim();
     if (!content) return;
     setState((s) => ({ ...s, input: "" }));
-    const last = state.messages[state.messages.length - 1];
-    const typedBudget = last?.role === "assistant" && last.budgetPrompt ? parseTypedBudget(content) : undefined;
-    if (last?.budgetPrompt && typedBudget !== undefined) {
-      await chooseLookBudget(last.budgetPrompt.anchorId, typedBudget, content);
-      return;
-    }
     await streamChatTurn(appendUserMessage(content));
   }
 
@@ -1937,22 +1918,18 @@ export function useTryOnAgent(
     failedTurnRef.current = null;
     const failedIds = new Set(failedTurn.messageIds);
     setState((s) => ({ ...s, messages: s.messages.filter((m) => !failedIds.has(m.id)), retryMessageId: null }));
-    await streamChatTurn(failedTurn.history, failedTurn.trigger);
+    await streamChatTurn(failedTurn.history);
   }
 
-  /** "Complete the look" on a card: that item is attached as the anchor of a new outfit, replacing
-   *  whatever was attached, and stays attached — every typed message after it goes to the outfit
-   *  agent until the shopper presses ×. The first turn only asks for the budget; the looks are
-   *  built once the shopper answers. */
-  async function completeLook(product: Product) {
+  /** "Complete the look" on a card: only attaches — that item becomes the anchor of a new outfit,
+   *  replacing whatever was attached, and nothing is sent until the shopper does. Every message
+   *  after it goes to the outfit agent until the shopper presses ×. A fresh anchor starts with no
+   *  budget, so a limit from an earlier outfit never carries over silently. */
+  function completeLook(product: Product) {
     const next: ChatAttachment = { kind: "anchor", product };
     attachmentRef.current = next;
-    setState((s) => ({ ...s, attachment: next }));
-    await streamChatTurn(appendUserMessage(`Complete the look with ${product.name}`), {
-      type: "complete_look",
-      productId: product.id,
-      askBudget: true,
-    });
+    budgetRef.current = null;
+    setState((s) => ({ ...s, attachment: next, budget: null }));
   }
 
   /** Adds or replaces one garment slot in the working outfit, then immediately renders the
@@ -2230,22 +2207,6 @@ export function useTryOnAgent(
     setState((s) => ({ ...s, attachment: null }));
   }
 
-  /** The answer to the budget question (a card tap, or an amount typed in chat): saves the budget
-   *  (null for no limit) and builds the looks around the anchor with it. */
-  async function chooseLookBudget(anchorId: string, value: number | null, typed?: string) {
-    const budget = typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.round(value) : null;
-    const anchor = knownProductsRef.current[anchorId];
-    budgetRef.current = budget;
-    setState((s) => ({ ...s, budget }));
-    if (!anchor) return;
-    // The product stays attached as the anchor: what the shopper types next refines these looks.
-    const attached: ChatAttachment = { kind: "anchor", product: anchor };
-    attachmentRef.current = attached;
-    setState((s) => ({ ...s, attachment: attached }));
-    const label = typed ?? (budget === null ? "No budget limit" : `My budget is ${formatBudget(budget, anchor.currency)}`);
-    await streamChatTurn(appendUserMessage(label), { type: "complete_look", productId: anchorId });
-  }
-
   const profileComplete = isProfileComplete(state.profile);
   const measurementsComplete = isMeasurementsComplete(state.profile);
   const currentTryOn = state.tryOnImages[state.currentImageIndex] ?? null;
@@ -2282,7 +2243,6 @@ export function useTryOnAgent(
     attachItem,
     attachLook,
     detach,
-    chooseLookBudget,
     profileComplete,
     measurementsComplete,
     // Up to MAX_TRYON_PROFILES per shopper account at this store.

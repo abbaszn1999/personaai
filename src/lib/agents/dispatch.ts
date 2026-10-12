@@ -6,9 +6,9 @@ import { runPersona } from "./persona/agent";
 import type { AgentContext, AgentEvent } from "./types";
 
 function selectAgent(ctx: AgentContext): AsyncGenerator<AgentEvent> | null {
-  if (ctx.trigger || ctx.attachment?.kind === "look" || ctx.attachment?.kind === "anchor") return runBundle(ctx);
-  if (ctx.attachment?.kind === "item") return runAttribute(ctx, ctx.attachment.productId);
   if (!ctx.message) return null;
+  if (ctx.attachment?.kind === "look" || ctx.attachment?.kind === "anchor") return runBundle(ctx);
+  if (ctx.attachment?.kind === "item") return runAttribute(ctx, ctx.attachment.productId);
   return runPersona(ctx);
 }
 
@@ -17,14 +17,15 @@ function selectAgent(ctx: AgentContext): AsyncGenerator<AgentEvent> | null {
  * call, never inferred from their wording. Each button attaches something to the composer, and
  * the attachment decides who answers every typed message until the shopper presses ×:
  *
- *   "Complete the look" clicked → Bundle (the product stays attached as the anchor)
- *   an anchor attached          → Bundle
- *   a look attached             → Bundle
- *   an item attached            → Attribute
- *   nothing attached            → Persona
+ *   an anchor attached ("Complete the look") → Bundle
+ *   a look attached ("Ask about this bundle") → Bundle
+ *   an item attached ("Ask about this item")  → Attribute
+ *   nothing attached                          → Persona
+ *
+ * Nothing runs until the shopper sends a message: the buttons only attach.
  */
 export async function* dispatchTurn(ctx: AgentContext): AsyncGenerator<AgentEvent> {
-  const attribution = createAttributionCollector(ctx.trigger, ctx.attachment?.kind === "anchor");
+  const attribution = createAttributionCollector(ctx.attachment?.kind === "anchor");
   try {
     const agent = selectAgent(ctx);
     if (!agent) {

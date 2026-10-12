@@ -16,12 +16,11 @@ import {
   Sparkles,
   Star,
   User,
-  Wallet,
   X,
 } from "lucide-react";
-import type { ChatBudgetPrompt, ChatMessage as ChatMessageType } from "@/modules/commerce/types";
+import type { ChatMessage as ChatMessageType } from "@/modules/commerce/types";
 import type { BundleSuggestion, Product } from "@/modules/commerce/types";
-import { CURRENCY_SYMBOLS, formatBudget, formatPrice } from "@/modules/commerce/constants";
+import { formatPrice } from "@/modules/commerce/constants";
 import type { ChatAttachment, TypingStage } from "../hooks/use-try-on-agent";
 import { useWearableBranding } from "../branding-context";
 import { useWidgetLocale, widgetStrings } from "../widget-strings";
@@ -57,8 +56,6 @@ interface WearableChatMessageProps {
   onRenderBundle?: (productIds: string[]) => void;
   onAddBundleToCart?: (productIds: string[]) => void;
   onAskAboutLook?: (bundle: BundleSuggestion) => void;
-  /** From the budget card: build the looks around this anchor for a budget (null = no limit). */
-  onChooseBudget?: (anchorId: string, budget: number | null) => void;
 }
 
 function formatTime(iso: string, locale: string | undefined): string {
@@ -92,7 +89,6 @@ export function WearableChatMessage({
   onRenderBundle,
   onAddBundleToCart,
   onAskAboutLook,
-  onChooseBudget,
 }: WearableChatMessageProps) {
   const renderCard = (product: Product) => (
     <InlineSuggestionCard
@@ -217,15 +213,6 @@ export function WearableChatMessage({
             onAddBundleToCart={onAddBundleToCart}
             onAskAboutLook={onAskAboutLook}
             attachedLookId={attachedLookId}
-          />
-        )}
-
-        {message.budgetPrompt && isLast && onChooseBudget && (
-          <BudgetPromptCard
-            prompt={message.budgetPrompt}
-            currency={knownProducts[message.budgetPrompt.anchorId]?.currency ?? "USD"}
-            isBusy={isBusy}
-            onChoose={(budget) => onChooseBudget(message.budgetPrompt!.anchorId, budget)}
           />
         )}
 
@@ -525,97 +512,6 @@ export function InlineSuggestionCard({
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-interface BudgetPromptCardProps {
-  prompt: ChatBudgetPrompt;
-  currency: string;
-  isBusy: boolean;
-  onChoose: (budget: number | null) => void;
-}
-
-/**
- * The budget question that "Complete the look" asks before building anything. One tap on an
- * amount, No limit, or a typed amount builds the looks once. Rendered only on the latest message,
- * so it disappears as soon as the shopper answers.
- */
-function BudgetPromptCard({ prompt, currency, isBusy, onChoose }: BudgetPromptCardProps) {
-  const [draft, setDraft] = React.useState("");
-  const symbol = CURRENCY_SYMBOLS[currency] ?? currency;
-  const typed = Number(draft.replace(/[^\d.]/g, ""));
-  const canSubmit = draft.trim() !== "" && Number.isFinite(typed) && typed > 0 && !isBusy;
-
-  return (
-    <div className="w-full mt-1 rounded-[var(--radius-lg)] border border-[var(--color-brand)]/40 bg-[var(--color-brand-light)]/40 p-3 space-y-2.5">
-      <div className="flex items-start gap-2">
-        <div className="h-7 w-7 rounded-full bg-[var(--color-brand)]/15 flex items-center justify-center shrink-0">
-          <Wallet className="h-3.5 w-3.5 text-[var(--color-brand)]" />
-        </div>
-        <div className="min-w-0">
-          <p className="text-xs font-semibold text-[var(--color-text-primary)]">Budget for the whole outfit</p>
-          <p className="text-[11px] text-[var(--color-text-muted)]">
-            Up to five looks, every one inside it.
-            {prompt.budget !== null && <> Last time: {formatBudget(prompt.budget, currency)}.</>}
-          </p>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-1.5">
-        {prompt.suggestions.map((amount) => (
-          <button
-            key={amount}
-            type="button"
-            disabled={isBusy}
-            onClick={() => onChoose(amount)}
-            className={cn(
-              "text-xs font-semibold rounded-full border px-3 py-1.5 transition-all disabled:opacity-50",
-              amount === prompt.budget
-                ? "border-[var(--color-brand)] bg-[var(--color-brand)] text-white"
-                : "border-[var(--color-border)] bg-[var(--color-surface-card)] text-[var(--color-text-primary)] hover:border-[var(--color-brand)] hover:text-[var(--color-brand)]"
-            )}
-          >
-            {formatBudget(amount, currency)}
-          </button>
-        ))}
-        <button
-          type="button"
-          disabled={isBusy}
-          onClick={() => onChoose(null)}
-          className="text-xs rounded-full border border-[var(--color-border)] bg-[var(--color-surface-card)] px-3 py-1.5 text-[var(--color-text-secondary)] hover:border-[var(--color-brand)] hover:text-[var(--color-brand)] transition-all disabled:opacity-50"
-        >
-          No limit
-        </button>
-      </div>
-
-      <form
-        className="flex items-center gap-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (canSubmit) onChoose(typed);
-        }}
-      >
-        <label className="flex flex-1 min-w-0 items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-card)] px-3 py-1.5 focus-within:border-[var(--color-brand)] transition-colors">
-          <span className="text-xs text-[var(--color-text-muted)]">{symbol}</span>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="Other amount"
-            aria-label="Budget for the whole look"
-            className="min-w-0 flex-1 bg-transparent text-xs font-semibold text-[var(--color-text-primary)] placeholder:font-normal placeholder:text-[var(--color-text-muted)] outline-none"
-          />
-        </label>
-        <button
-          type="submit"
-          disabled={!canSubmit}
-          className="shrink-0 text-xs font-semibold rounded-full bg-[var(--color-brand)] px-3.5 py-1.5 text-white hover:opacity-90 transition-opacity disabled:opacity-40"
-        >
-          Build looks
-        </button>
-      </form>
     </div>
   );
 }

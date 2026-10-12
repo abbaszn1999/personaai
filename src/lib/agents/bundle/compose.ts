@@ -89,28 +89,6 @@ export function distinctLooks<T extends ComposedLook>(looks: T[]): T[] {
   });
 }
 
-function roundBudget(value: number): number {
-  const step = value < 100 ? 5 : value < 500 ? 10 : 50;
-  return Math.ceil(value / step) * step;
-}
-
-/**
- * One-tap totals for the budget card, asked before any look is built: from just above the
- * cheapest complete outfit (anchor + every slot's cheapest piece) up past a typical one (anchor +
- * each slot at the anchor's own price tier).
- */
-export function budgetSuggestions(anchorPrice: number, slots: Array<{ floor: number | null; typical: number | null }>): number[] {
-  if (slots.length === 0) return [];
-  const cheapest = anchorPrice + slots.reduce((sum, slot) => sum + (slot.floor ?? 0), 0);
-  const typical = anchorPrice + slots.reduce((sum, slot) => sum + Math.max(slot.typical ?? 0, slot.floor ?? 0), 0);
-  const suggestions: number[] = [];
-  for (const raw of [cheapest * 1.2, (cheapest + typical) / 2, typical, typical * 1.5]) {
-    const amount = roundBudget(raw);
-    if (amount > anchorPrice && !suggestions.includes(amount)) suggestions.push(amount);
-  }
-  return suggestions.sort((a, b) => a - b).slice(0, 4);
-}
-
 /**
  * The top-ranked candidate of each slot, cheapest-first when the budget would otherwise break —
  * used only when the compose call produced nothing that verifies.

@@ -34,7 +34,7 @@ function message(role: ChatMessage["role"], content: string): ChatMessage {
   return { id: `${role}-${messages.length}`, role, content, timestamp: new Date().toISOString() };
 }
 
-async function turn(label: string, text: string, extra: { attachment?: unknown; trigger?: unknown; budget?: number } = {}) {
+async function turn(label: string, text: string, extra: { attachment?: unknown; budget?: number } = {}) {
   console.log(`\n=== ${label}: "${text}"`);
   messages.push(message("user", text));
   const started = Date.now();
@@ -49,7 +49,6 @@ async function turn(label: string, text: string, extra: { attachment?: unknown; 
     budget: extra.budget ?? null,
     retrievalState,
     attachment: extra.attachment,
-    trigger: extra.trigger,
   });
 
   let reply = "";
@@ -110,9 +109,8 @@ async function main() {
     await turn("attribute other topic", "show me something similar but in black", { attachment: { kind: "item", productId: anchor } });
     if (process.env.SMOKE_ONLY === "attribute") return;
   }
-  await turn("bundle ask budget", "Complete the look", { trigger: { type: "complete_look", productId: anchor, askBudget: true }, budget });
-  const complete = await turn("bundle", budget ? `My budget is ${budget}` : "No budget limit", {
-    trigger: { type: "complete_look", productId: anchor },
+  // "Complete the look" only attaches the product; the first message builds the looks.
+  const complete = await turn("bundle first message", budget ? `My budget is ${budget}` : "go", {
     attachment: { kind: "anchor", productId: anchor },
     budget,
   });

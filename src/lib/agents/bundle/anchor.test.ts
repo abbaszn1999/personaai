@@ -63,7 +63,6 @@ function context(overrides: Partial<AgentContext> = {}): AgentContext {
     shownProductIds: [],
     lastSearch: null,
     attachment: { kind: "anchor", productId: anchor.externalId },
-    trigger: null,
     referencedItemId: null,
     styleGuide: null,
     ...overrides,
@@ -133,6 +132,23 @@ describe("the Bundle agent with an anchor attached", () => {
     expect(bundle).toMatchObject({ type: "bundle", bundles: [expect.objectContaining({ anchorId: "w-tee-1", budget: 300 })] });
     expect(events.some((event) => event.type === "attachment")).toBe(false);
     expect(deps.runPersona).not.toHaveBeenCalled();
+  });
+
+  it("builds the looks from the very first message, even a bare 'go' with no budget", async () => {
+    deps.callStructured
+      .mockResolvedValueOnce(reply({ intent: "rerun", budget: null }))
+      .mockRejectedValue(new Error("model unavailable"));
+    deps.searchCatalog.mockImplementation(async (_ctx: unknown, spec: { paths?: string[] }) => ({
+      candidates: JSON.stringify(spec).includes("footwear") ? [sneakers] : [trousers],
+    }));
+
+    const events = await run(context({ message: "go", history: [] }));
+
+    expect(events.some((event) => event.type === "budget")).toBe(false);
+    expect(events.find((event) => event.type === "bundle")).toMatchObject({
+      bundles: [expect.objectContaining({ anchorId: "w-tee-1", budget: null })],
+    });
+    expect(events.some((event) => event.type === "attachment")).toBe(false);
   });
 
   it("reads 0 as no limit and does not repeat an unchanged budget", async () => {

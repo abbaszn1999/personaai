@@ -9,7 +9,7 @@ import { formatMoney, textEvents } from "../shared/stream";
 import { agentModel, callStructured } from "../shared/structured-call";
 import { runPersona } from "../persona/agent";
 import type { AgentContext, AgentEvent, LookRecord, LookSlot } from "../types";
-import { budgetSuggestions, distinctLooks, lookTotal, naiveLook, verifyLook, type ComposedLook, type SlotCandidates } from "./compose";
+import { distinctLooks, lookTotal, naiveLook, verifyLook, type ComposedLook, type SlotCandidates } from "./compose";
 import {
   MAX_DIRECTIONS,
   fallbackSlotPlan,
@@ -416,51 +416,15 @@ function setUpAnchor(ctx: AgentContext, anchor: CatalogCandidate): AnchorSetup {
   return { ok: true, department, slots };
 }
 
-/**
- * "Complete the look" on a card: that item is attached as the anchor. The first press only asks
- * for the budget; the looks are built once, on the shopper's answer. When the piece can't anchor
- * a look the attachment is dropped — there is nothing for the mode to work on.
- */
-async function* completeTheLook(ctx: AgentContext, productId: string, askBudget: boolean): AsyncGenerator<AgentEvent> {
-  const anchor = ctx.products.get(productId);
-  const setup = anchor ? setUpAnchor(ctx, anchor) : null;
-  if (!anchor || !setup || !setup.ok) {
-    yield { type: "attachment", attachment: null };
-    yield* textEvents(setup && !setup.ok ? setup.message : "That item isn't available anymore, so I can't build a look around it.");
-    return;
-  }
-  const { department, slots } = setup;
-
-  if (askBudget) {
-    const anchorPath = personaPathOf(anchor);
-    const ceilings = fallbackCeilings(anchorPath ? findNode(ctx.pathConfig!.config, anchorPath) : null, anchor.price, slots);
-    const suggestions = budgetSuggestions(
-      anchor.price ?? 0,
-      slots.map((slot) => ({ floor: slot.floor, typical: ceilings.get(slot.slot) ?? null }))
-    );
-    log(ctx, { trigger: "complete_look", anchor: productId, ask_budget: suggestions.join("/") });
-    const names = slots.map((slot) => slot.slot);
-    const pieces = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0];
-    yield* textEvents(
-      `What's your budget for the whole outfit — this piece plus ${pieces}? Pick one below, type an amount, or No limit and I'll keep the pieces near this one's price.`
-    );
-    yield { type: "budget_request", anchorId: productId, budget: ctx.session.budget, suggestions };
-    return;
-  }
-
-  yield { type: "status", stage: "composing" };
-  const output = await buildLooks(ctx, { anchor, department, budget: ctx.session.budget, slots, kept: [] });
-  log(ctx, { trigger: "complete_look", anchor: productId, looks: output.looks.length });
-  yield* textEvents(output.reply);
-  yield* emitLooks(output);
-}
-
 const STAY_REPLY = "That's outside this look — press × above the message box to search for other things.";
 
 /**
- * A typed message while the product is attached as the anchor of a look: a budget, a style or an
- * occasion builds a fresh set of looks around it; a question is answered. Anything about other
- * products gets a pointer to ×, because only the shopper ends the mode.
+ * A message while the product is attached as the anchor of a look ("Complete the look" only
+ * attaches — nothing runs until the shopper sends something). Whatever they send builds a set of
+ * looks around it: a budget, a style, an occasion, or just "go". With no budget named the looks
+ * stay near the piece's own price range, and the reply says so. A question about the piece is
+ * answered; anything about other products gets a pointer to ×, because only the shopper ends the
+ * mode.
  */
 async function* anchorTurn(ctx: AgentContext, productId: string): AsyncGenerator<AgentEvent> {
   const anchor = ctx.products.get(productId);
@@ -501,7 +465,7 @@ async function* anchorTurn(ctx: AgentContext, productId: string): AsyncGenerator
     return;
   }
   if (value.intent === "answer") {
-    yield* textEvents(value.reply?.trim() || 'Tell me a budget or a style — "under 300", "more casual" — and I\'ll build the looks.');
+    yield* textEvents(value.reply?.trim() || 'Tell me the occasion, a style or a budget — "under 300", "more casual" — or just say go, and I\'ll build the looks.');
     return;
   }
 
@@ -623,8 +587,8 @@ async function* followUp(ctx: AgentContext, look: LookRecord): AsyncGenerator<Ag
   yield { type: "attachment", attachment: { kind: "look", look: changed.looks[0] } };
 }
 
-/** The outfit agent. Runs on a "Complete the look" click, and on every typed message while that
- *  product (or one of its looks) stays attached. */
+/** The outfit agent. Runs on every message the shopper sends while a product is attached as the
+ *  anchor of a look ("Complete the look") or one of its looks is ("Ask about this bundle"). */
 export async function* runBundle(ctx: AgentContext): AsyncGenerator<AgentEvent> {
   yield { type: "agent", agent: "bundle" };
   yield { type: "status", stage: "thinking" };
@@ -634,10 +598,6 @@ export async function* runBundle(ctx: AgentContext): AsyncGenerator<AgentEvent> 
     return;
   }
 
-  if (ctx.trigger) {
-    yield* completeTheLook(ctx, ctx.trigger.productId, ctx.trigger.askBudget === true);
-    return;
-  }
   if (ctx.attachment?.kind === "look") {
     yield* followUp(ctx, ctx.attachment.look);
     return;
