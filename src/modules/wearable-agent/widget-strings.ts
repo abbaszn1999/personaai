@@ -13,6 +13,10 @@ export interface WidgetStrings {
   scanResultCount: (count: number) => string;
   chatError: string;
   retry: string;
+  /** The composer's hint while something is attached: what the shopper can type next. */
+  placeholderAskItem: string;
+  placeholderCompleteLook: string;
+  placeholderAskLook: string;
 }
 
 export type WidgetLanguage = "en" | "ar" | "fr";
@@ -28,6 +32,9 @@ const WIDGET_STRINGS: Record<WidgetLanguage, WidgetStrings> = {
     scanResultCount: (count) => `Prepared ${count} bundle item${count === 1 ? "" : "s"}…`,
     chatError: "Sorry, something went wrong on my end. Please try that again.",
     retry: "Retry",
+    placeholderAskItem: "Ask anything about this item…",
+    placeholderCompleteLook: "Tell me the occasion, style or budget — or just say go…",
+    placeholderAskLook: "Ask about this look, or change it…",
   },
   ar: {
     searching: "جارٍ التحقق من الكتالوج…",
@@ -42,6 +49,9 @@ const WIDGET_STRINGS: Record<WidgetLanguage, WidgetStrings> = {
     scanResultCount: (count) => `عدد القطع الجاهزة: ${count}…`,
     chatError: "عذرًا، حدث خطأ من جهتي. يُرجى المحاولة مرة أخرى.",
     retry: "إعادة المحاولة",
+    placeholderAskItem: "اسأل أي شيء عن هذه القطعة…",
+    placeholderCompleteLook: "أخبرني بالمناسبة أو الأسلوب أو الميزانية — أو اكتب «ابدأ»…",
+    placeholderAskLook: "اسأل عن هذه الإطلالة أو اطلب تعديلها…",
   },
   fr: {
     searching: "Vérification du catalogue…",
@@ -56,6 +66,9 @@ const WIDGET_STRINGS: Record<WidgetLanguage, WidgetStrings> = {
     scanResultCount: (count) => `${count} article${count > 1 ? "s" : ""} préparé${count > 1 ? "s" : ""}…`,
     chatError: "Désolé, un problème est survenu de mon côté. Veuillez réessayer.",
     retry: "Réessayer",
+    placeholderAskItem: "Posez une question sur cet article…",
+    placeholderCompleteLook: "Dites-moi l'occasion, le style ou le budget — ou écrivez « go »…",
+    placeholderAskLook: "Posez une question sur ce look, ou modifiez-le…",
   },
 };
 
@@ -66,6 +79,18 @@ export function resolveWidgetLanguage(locale: string | null | undefined): Widget
 
 export function widgetStrings(locale: string | null | undefined): WidgetStrings {
   return WIDGET_STRINGS[resolveWidgetLanguage(locale)];
+}
+
+/** The composer's placeholder: a hint for what is attached, otherwise the store's own. */
+export function composerPlaceholder(
+  strings: WidgetStrings,
+  attachmentKind: "item" | "anchor" | "look" | null | undefined,
+  fallback: string
+): string {
+  if (attachmentKind === "item") return strings.placeholderAskItem;
+  if (attachmentKind === "anchor") return strings.placeholderCompleteLook;
+  if (attachmentKind === "look") return strings.placeholderAskLook;
+  return fallback;
 }
 
 /** `navigator.language`, or undefined (the runtime's default locale) where there is none. */

@@ -2,7 +2,30 @@ import { describe, expect, it } from "vitest";
 import { buildPathConfig } from "@/lib/catalog/path-config/build";
 import { CONFIG, CONNECTION_ID, acsProduct } from "../__fixtures__/catalog";
 import { describeSpec, toAcsFilter } from "./acs-translator";
-import { parseNumericValue, suggestPaths, validateSearchIntent } from "./validate-intent";
+import { parseNumericValue, resolvePreferredColours, suggestPaths, validateSearchIntent } from "./validate-intent";
+
+describe("resolvePreferredColours", () => {
+  it("keeps the colours the paths stock, in their stored spelling, and drops the rest silently", () => {
+    const preferred = resolvePreferredColours(CONFIG, ["women > bottom > trouser", "unisex > bottom > trouser"], ["navy", "olive", "Purple"]);
+    expect(preferred).toMatchObject({ field: "colors", kind: "text" });
+    expect(preferred?.values.sort()).toEqual(["Navy", "Olive"]);
+  });
+
+  it("sends every stored spelling of one colour", () => {
+    const config = buildPathConfig([
+      acsProduct("a", "men > bottom > trouser", 30, { colorInfo: { colors: ["L.GREY"] } }),
+      acsProduct("b", "men > bottom > trouser", 35, { colorInfo: { colors: ["Light Grey"] } }),
+    ]);
+    expect(resolvePreferredColours(config, ["men > bottom > trouser"], ["light grey"])?.values.sort()).toEqual(["L.GREY", "Light Grey"]);
+  });
+
+  it("prefers nothing when nothing matches, nothing was named, or the paths record no colour", () => {
+    expect(resolvePreferredColours(CONFIG, ["women > bottom > trouser"], ["Purple"])).toBeNull();
+    expect(resolvePreferredColours(CONFIG, ["women > bottom > trouser"], [])).toBeNull();
+    expect(resolvePreferredColours(CONFIG, ["women > bottom > trouser"], undefined)).toBeNull();
+    expect(resolvePreferredColours(CONFIG, ["women > footwear > sneaker"], ["White"])).toBeNull();
+  });
+});
 
 describe("validateSearchIntent", () => {
   it("accepts a stocked path and adds the unisex counterpart", () => {

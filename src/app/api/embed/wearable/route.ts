@@ -37,7 +37,6 @@ interface EmbedAgentRequestBody {
   budget?: number | null;
   retrievalState?: AgentRequestState;
   attachment?: unknown;
-  trigger?: unknown;
   referencedItemId?: unknown;
   /** The shopper's saved profile this turn is for. When it resolves, its stored audience and
    *  measurements are used instead of the ones the browser sent. */
@@ -129,7 +128,6 @@ export async function POST(req: NextRequest) {
     budget: body.budget,
     retrievalState: body.retrievalState,
     attachment: body.attachment,
-    trigger: body.trigger,
     referencedItemId: body.referencedItemId,
     signal: req.signal,
   });

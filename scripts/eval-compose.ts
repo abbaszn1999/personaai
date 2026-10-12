@@ -85,7 +85,7 @@ async function runLook(anchor: CatalogCandidate): Promise<{ ctx: AgentContext; l
     geminiApiKey: getPlatformGeminiApiKey(),
     messages: [{ id: "u", role: "user", content: "Complete the look", timestamp: new Date().toISOString() }],
     budget: BUDGET,
-    trigger: { type: "complete_look", productId: anchor.externalId },
+    attachment: { kind: "anchor", productId: anchor.externalId },
   });
   let looks: LookRecord[] = [];
   for await (const event of dispatchTurn(ctx)) {

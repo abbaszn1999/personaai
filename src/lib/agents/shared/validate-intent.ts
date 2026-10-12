@@ -3,6 +3,7 @@ import {
   comparableValue,
   findNode,
   floorPrice,
+  isColourAttribute,
   normalizePath,
   unisexCounterpart,
 } from "@/lib/catalog/path-config/lookup";
@@ -134,6 +135,27 @@ function resolveAttributes(
     }
   }
   return resolved;
+}
+
+/**
+ * Colours a search prefers rather than requires: the colour attribute on these paths, every
+ * stored spelling of each value named, and anything the paths do not stock dropped without a
+ * word — a preference never fails a plan. Null when no colour is left, or the paths record none.
+ */
+export function resolvePreferredColours(
+  config: PersonaPathConfig,
+  paths: readonly string[],
+  values: readonly string[] | null | undefined
+): Extract<ResolvedAttribute, { kind: "text" }> | null {
+  const wanted = (values ?? []).map((value) => value.trim()).filter(Boolean);
+  if (wanted.length === 0) return null;
+  const nodes = paths.map((path) => findNode(config, path)).filter((node): node is PathConfigNode => node !== null);
+  const colour = nodes.flatMap((node) => node.attributes).find((attribute) => attribute.kind === "text" && isColourAttribute(attribute));
+  if (!colour) return null;
+  const resolved = resolveAttributes(nodes, [{ key: colour.key, values: wanted }], []).find(
+    (attribute): attribute is Extract<ResolvedAttribute, { kind: "text" }> => attribute.kind === "text"
+  );
+  return resolved && resolved.values.length > 0 ? resolved : null;
 }
 
 /** The brand without a trailing audience word: "Moustache Men" is "Moustache". */

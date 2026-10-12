@@ -143,3 +143,18 @@ export function fallbackCeilings(anchorNode: PathConfigNode | null, anchorPrice:
     })
   );
 }
+
+/**
+ * A premium anchor — the top third of its own path's prices — keeps company from the middle of
+ * each slot's range up, so a cashmere coat is not paired with the cheapest tee. A preference, not
+ * a rule: the search lets it go when it would leave too little to choose from.
+ */
+export function premiumFloors(anchorTier: PathConfigTier | null, slots: SlotInPlay[]): Map<string, number> {
+  const floors = new Map<string, number>();
+  if (anchorTier?.label !== "C") return floors;
+  for (const slot of slots) {
+    const middle = slot.node.tiers.find((tier) => tier.label === "B");
+    if (middle) floors.set(slot.slot, middle.min);
+  }
+  return floors;
+}

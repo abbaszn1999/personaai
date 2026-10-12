@@ -15,7 +15,7 @@ import { parseAttribution } from "./attribution";
 import { dispatchTurn } from "./dispatch";
 
 function context(overrides: Partial<AgentContext>): AgentContext {
-  return { message: "hi", attachment: null, trigger: null, ...overrides } as AgentContext;
+  return { message: "hi", attachment: null, ...overrides } as AgentContext;
 }
 
 async function collect(ctx: AgentContext): Promise<AgentEvent[]> {
@@ -36,8 +36,8 @@ describe("dispatchTurn", () => {
     }
   });
 
-  it("routes by what was clicked, never by wording", async () => {
-    await collect(context({ trigger: { type: "complete_look", productId: "a" } }));
+  it("routes by what is attached, never by wording", async () => {
+    await collect(context({ attachment: { kind: "anchor", productId: "a" } }));
     await collect(context({ attachment: { kind: "look", look } }));
     expect(agents.runBundle).toHaveBeenCalledTimes(2);
 
@@ -49,10 +49,48 @@ describe("dispatchTurn", () => {
     expect(agents.runBundle).toHaveBeenCalledTimes(2);
   });
 
-  it("a trigger wins over an attached item", async () => {
-    await collect(context({ trigger: { type: "complete_look", productId: "a" }, attachment: { kind: "item", productId: "b" } }));
-    expect(agents.runBundle).toHaveBeenCalledTimes(1);
+  it("an attached anchor keeps every typed message with the Bundle agent until × is pressed", async () => {
+    const anchor = { kind: "anchor" as const, productId: "a" };
+    await collect(context({ attachment: anchor, message: "500" }));
+    await collect(context({ attachment: anchor, message: "show me handbags" }));
+    await collect(context({ attachment: anchor, message: "go" }));
+    expect(agents.runBundle).toHaveBeenCalledTimes(3);
+    expect(agents.runPersona).not.toHaveBeenCalled();
     expect(agents.runAttribute).not.toHaveBeenCalled();
+
+    // × clears the attachment, and the next message belongs to Persona again.
+    await collect(context({ attachment: null, message: "show me handbags" }));
+    expect(agents.runPersona).toHaveBeenCalledTimes(1);
+    expect(agents.runBundle).toHaveBeenCalledTimes(3);
+  });
+
+  it("an attached item keeps every typed message with the Attribute agent, whatever the wording", async () => {
+    for (const message of ["show me something similar", "complete the look", "yes"]) {
+      await collect(context({ attachment: { kind: "item", productId: "a" }, message }));
+    }
+    expect(agents.runAttribute).toHaveBeenCalledTimes(3);
+    expect(agents.runPersona).not.toHaveBeenCalled();
+  });
+
+  it("credits looks built around an anchor to complete_look", async () => {
+    agents.runBundle.mockImplementation(async function* () {
+      yield { type: "agent", agent: "bundle" } as AgentEvent;
+      yield { type: "bundle", bundles: [look], products: [] } as AgentEvent;
+    });
+    const typed = await collect(context({ attachment: { kind: "anchor", productId: "a" }, message: "more casual" }));
+    expect(typed.at(-2)).toMatchObject({ attribution: { agent: "bundle", action: "complete_look" } });
+    const followUp = await collect(context({ attachment: { kind: "look", look }, message: "cheaper shoes" }));
+    expect(followUp.at(-2)).toMatchObject({ attribution: { agent: "bundle", action: "look_follow_up" } });
+  });
+
+  it("never runs an agent without a message — attaching alone starts nothing", async () => {
+    for (const attachment of [{ kind: "anchor" as const, productId: "a" }, { kind: "item" as const, productId: "a" }, { kind: "look" as const, look }]) {
+      const events = await collect(context({ attachment, message: "" }));
+      expect(events).toEqual([{ type: "error", message: "Type a message to get started." }, { type: "done" }]);
+    }
+    expect(agents.runBundle).not.toHaveBeenCalled();
+    expect(agents.runAttribute).not.toHaveBeenCalled();
+    expect(agents.runPersona).not.toHaveBeenCalled();
   });
 
   it("asks for a message when there is nothing to act on", async () => {
@@ -82,7 +120,7 @@ describe("dispatchTurn", () => {
       yield { type: "agent", agent: "bundle" } as AgentEvent;
       yield { type: "bundle", bundles: [look], products: [] } as AgentEvent;
     });
-    const bundle = await collect(context({ trigger: { type: "complete_look", productId: "a" } }));
+    const bundle = await collect(context({ attachment: { kind: "anchor", productId: "a" } }));
     expect(bundle.at(-2)).toMatchObject({ attribution: { agent: "bundle", action: "complete_look", lookIds: ["look-1"] } });
   });
 

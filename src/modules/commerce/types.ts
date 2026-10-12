@@ -128,15 +128,6 @@ export interface BundleSuggestion {
   slots?: BundleSuggestionSlot[];
 }
 
-/** The budget card under a "Complete the look" reply: rebuilds the looks around the same anchor
- *  for the amount the shopper picks. */
-export interface ChatBudgetPrompt {
-  anchorId: string;
-  /** The budget the looks were built for, or null when none was set. */
-  budget: number | null;
-  suggestions: number[];
-}
-
 /** What produced an assistant turn — carried onto add-to-cart events so a cart add can be
  *  traced to the agent, action, search and look that surfaced the product. */
 export interface TurnAttribution {
@@ -166,7 +157,5 @@ export interface ChatMessage {
   quickOptions?: string[];
   /** Complete outfit bundles suggested alongside this message. */
   bundles?: BundleSuggestion[];
-  /** Shown only while this is the latest message — the shopper's next message dismisses it. */
-  budgetPrompt?: ChatBudgetPrompt;
   attribution?: TurnAttribution;
 }

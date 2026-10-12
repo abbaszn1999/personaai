@@ -8,27 +8,28 @@ import { cleanQuickOptions, formatMoney, textEvents } from "../shared/stream";
 import { attributeModel, callStructured } from "../shared/structured-call";
 import { runPersona } from "../persona/agent";
 import type { AgentContext, AgentEvent } from "../types";
-import { acceptedOffer, answerFromTemplate, isHandoffRequest, type VariantGroup } from "./templates";
+import { answerFromTemplate, type VariantGroup } from "./templates";
 
 const HISTORY_TURNS = 3;
 
 interface AttributeResponse {
-  action: "answer" | "handoff";
+  action: "answer" | "other_topic";
   reply: string;
-  handoff_message: string;
   quick_options: string[];
 }
 
 const ATTRIBUTE_SCHEMA = {
   type: "object",
   properties: {
-    action: { type: "string", enum: ["answer", "handoff"] },
+    action: { type: "string", enum: ["answer", "other_topic"] },
     reply: { type: "string" },
-    handoff_message: { type: "string" },
     quick_options: STRING_ARRAY,
   },
-  required: ["action", "reply", "handoff_message", "quick_options"],
+  required: ["action", "reply", "quick_options"],
 } as const;
+
+/** Shown when the model gives no wording for "ask about other products with ×". */
+const STAY_REPLY = "I can only answer about this product while it's attached — press × above the message box to search for other things.";
 
 function log(ctx: AgentContext, fields: Record<string, string | number | boolean | null>): void {
   const parts = Object.entries(fields).map(([key, value]) => `${key}=${value}`);
@@ -63,23 +64,10 @@ function renderGroup(group: VariantGroup): string {
     .join("\n");
 }
 
-function lastAssistant(ctx: AgentContext): string | null {
-  for (let index = ctx.history.length - 1; index >= 0; index--) {
-    if (ctx.history[index].role === "assistant") return ctx.history[index].content;
-  }
-  return null;
-}
-
-async function* handOff(ctx: AgentContext, item: CatalogCandidate, message: string, reply?: string): AsyncGenerator<AgentEvent> {
-  yield { type: "attachment", attachment: null };
-  if (reply) yield* textEvents(`${reply.trim()} `);
-  yield* runPersona({ ...ctx, attachment: null }, { message, referenced: item });
-}
-
 /**
  * Questions about one attached product. Structured questions are answered from the record in
- * code; only open ones reach the model. Anything about other products detaches the item and
- * hands the same message to Persona — the shopper never retypes.
+ * code; only open ones reach the model. Anything about other products is answered with a pointer
+ * to × — the product stays attached until the shopper detaches it themselves.
  */
 export async function* runAttribute(ctx: AgentContext, productId: string): AsyncGenerator<AgentEvent> {
   yield { type: "agent", agent: "attribute" };
@@ -88,18 +76,6 @@ export async function* runAttribute(ctx: AgentContext, productId: string): Async
     yield { type: "attachment", attachment: null };
     yield* textEvents("That item isn't available anymore. ");
     yield* runPersona({ ...ctx, attachment: null });
-    return;
-  }
-
-  const offer = acceptedOffer(ctx.message, lastAssistant(ctx));
-  if (offer) {
-    log(ctx, { route: "accepted_offer" });
-    yield* handOff(ctx, item, offer);
-    return;
-  }
-  if (isHandoffRequest(ctx.message)) {
-    log(ctx, { route: "handoff_pattern" });
-    yield* handOff(ctx, item, ctx.message);
     return;
   }
 
@@ -133,8 +109,8 @@ export async function* runAttribute(ctx: AgentContext, productId: string): Async
   });
   log(ctx, { route: "model", action: value.action });
 
-  if (value.action === "handoff") {
-    yield* handOff(ctx, item, value.handoff_message?.trim() || ctx.message, value.reply);
+  if (value.action === "other_topic") {
+    yield* textEvents(value.reply?.trim() || STAY_REPLY);
     return;
   }
   yield* textEvents(value.reply?.trim() || "That detail isn't listed for this product — the product page may have more.");

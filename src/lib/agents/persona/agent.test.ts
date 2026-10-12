@@ -68,7 +68,6 @@ function context(overrides: Partial<AgentContext> = {}): AgentContext {
     shownProductIds: [],
     lastSearch: null,
     attachment: null,
-    trigger: null,
     referencedItemId: null,
     styleGuide: null,
     ...overrides,

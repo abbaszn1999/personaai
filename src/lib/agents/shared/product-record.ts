@@ -11,6 +11,14 @@ export function departmentOf(candidate: Pick<CatalogCandidate, "categoryPaths">)
   return personaPathOf(candidate)?.split(" > ")[0] ?? null;
 }
 
+/** Every Persona department a product is listed under — a merchant may map one product to both
+ *  women's and men's. */
+export function departmentsOf(candidate: Pick<CatalogCandidate, "categoryPaths">): string[] {
+  return [
+    ...new Set(candidate.categoryPaths.filter((segments) => segments[0] === "persona" && segments.length > 1).map((segments) => segments[1])),
+  ];
+}
+
 /** Persona category id — `top`, `bottom`, `full-body`, `outerwear`, `footwear`. */
 export function categoryOf(candidate: Pick<CatalogCandidate, "categoryPaths">): string | null {
   return personaPathOf(candidate)?.split(" > ")[1] ?? null;

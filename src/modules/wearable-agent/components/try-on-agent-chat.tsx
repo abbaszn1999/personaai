@@ -5,8 +5,7 @@ import { ArrowUp, ChevronDown, ChevronUp, GripVertical, MessageCircle } from "lu
 import type { UseTryOnAgentReturn } from "../hooks/use-try-on-agent";
 import type { ChatMessage, Product } from "@/modules/commerce/types";
 import {
-  AttachedItemBar,
-  AttachedLookBar,
+  ComposerAttachment,
   WearableChatMessage,
   WearableScanningIndicator,
   WearableTypingIndicator,
@@ -23,6 +22,7 @@ import { cn } from "@/lib/utils/cn";
 import type { PreviewViewportMode } from "./preview-viewport-toggle";
 import { useWearableTheme, type WearableTheme } from "../theme-context";
 import { useWearableBranding } from "../branding-context";
+import { composerPlaceholder, useWidgetLocale, widgetStrings } from "../widget-strings";
 import type { EmbedRuntimeConfig } from "../hooks/use-try-on-agent";
 import type { TryOnProfile } from "../types";
 
@@ -287,6 +287,7 @@ function ChatProfileSwitcher({ agent }: { agent: UseTryOnAgentReturn }) {
 function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, embed }: StyleChatPanelProps) {
   const handleAddToCart = onAddToCart ?? agent.addToCart;
   const branding = useWearableBranding();
+  const widgetLocale = useWidgetLocale();
   const messagesRef = React.useRef<HTMLDivElement>(null);
   const cartItemIds = agent.cartItems.map((p) => p.id);
   // Quick replies are just a cold-start nudge — once the shopper has sent a real message,
@@ -368,7 +369,6 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
               onRenderBundle={agent.wearBundle}
               onAddBundleToCart={agent.addBundleToCart}
               onAskAboutLook={agent.attachLook}
-              onChooseBudget={agent.chooseLookBudget}
             />
           );
         })}
@@ -393,37 +393,33 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
         </div>
       )}
 
-      <div className={cn("shrink-0 space-y-2", compact ? "px-3 pb-2" : "px-5 pb-2")}>
-        {agent.attachment?.kind === "item" && (
-          <AttachedItemBar product={agent.attachment.product} onClear={agent.detach} />
+      {/* Input — what the shopper attached sits inside the composer, above the text field */}
+      <div className={cn("border-t border-[var(--color-border)] flex flex-col gap-2.5 shrink-0", compact ? "px-3 py-3" : "px-5 py-4")}>
+        {agent.attachment && (
+          <ComposerAttachment attachment={agent.attachment} knownProducts={agent.knownProducts} onClear={agent.detach} />
         )}
-        {agent.attachment?.kind === "look" && (
-          <AttachedLookBar bundle={agent.attachment.look} knownProducts={agent.knownProducts} onClear={agent.detach} />
-        )}
-      </div>
-
-      {/* Input */}
-      <div className={cn("border-t border-[var(--color-border)] flex gap-2 shrink-0", compact ? "px-3 py-3" : "px-5 py-4")}>
-        <input
-          dir="auto"
-          className="flex-1 h-10 px-4 text-sm bg-[var(--color-surface-base)] border border-[var(--color-border)] rounded-[var(--radius-xl)] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-brand)] transition-colors"
-          placeholder={branding.inputPlaceholder}
-          value={agent.input}
-          onChange={(e) => agent.setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && agent.sendMessage()}
-          disabled={sendDisabled}
-        />
-        <button
-          type="button"
-          onClick={() => agent.sendMessage()}
-          disabled={!agent.input.trim() || sendDisabled}
-          className={cn(
-            "h-10 w-10 rounded-full gradient-brand text-[var(--color-brand-contrast)] flex items-center justify-center shrink-0 transition-all",
-            "disabled:opacity-40 disabled:cursor-not-allowed hover:shadow-[var(--shadow-glow)]"
-          )}
-        >
-          <ArrowUp className="h-4 w-4" />
-        </button>
+        <div className="flex gap-2">
+          <input
+            dir="auto"
+            className="flex-1 h-10 px-4 text-sm bg-[var(--color-surface-base)] border border-[var(--color-border)] rounded-[var(--radius-xl)] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-brand)] transition-colors"
+            placeholder={composerPlaceholder(widgetStrings(widgetLocale), agent.attachment?.kind, branding.inputPlaceholder)}
+            value={agent.input}
+            onChange={(e) => agent.setInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && agent.sendMessage()}
+            disabled={sendDisabled}
+          />
+          <button
+            type="button"
+            onClick={() => agent.sendMessage()}
+            disabled={!agent.input.trim() || sendDisabled}
+            className={cn(
+              "h-10 w-10 rounded-full gradient-brand text-[var(--color-brand-contrast)] flex items-center justify-center shrink-0 transition-all",
+              "disabled:opacity-40 disabled:cursor-not-allowed hover:shadow-[var(--shadow-glow)]"
+            )}
+          >
+            <ArrowUp className="h-4 w-4" />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -448,6 +444,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
   const handleBulkAddToCart = onBulkAddToCart ?? agent.addToCart;
   const theme = useWearableTheme();
   const branding = useWearableBranding();
+  const widgetLocale = useWidgetLocale();
   const panelBg = CHAT_PANEL_BG_BY_THEME[theme];
   const styles = MOBILE_SURFACE[theme];
   // Destructured rather than read as `sheet.*` during render: the hook's return mixes refs with
@@ -696,7 +693,6 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
                     onRenderBundle={agent.wearBundle}
                     onAddBundleToCart={agent.addBundleToCart}
                     onAskAboutLook={agent.attachLook}
-                    onChooseBudget={agent.chooseLookBudget}
                   />
                 );
               })}
@@ -725,52 +721,49 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
               </div>
             )}
 
-            <div className="shrink-0 space-y-1.5 px-3 pb-1.5">
-              {agent.attachment?.kind === "item" && (
-                <AttachedItemBar product={agent.attachment.product} onClear={agent.detach} tone={theme} />
-              )}
-              {agent.attachment?.kind === "look" && (
-                <AttachedLookBar
-                  bundle={agent.attachment.look}
+            {/* Input — lifted above the on-screen keyboard, and padded clear of the home
+                indicator when there is no keyboard. What the shopper attached sits inside it,
+                above the text field. */}
+            <div
+              className={cn("flex flex-col gap-2.5 shrink-0 border-t px-3 pt-3", styles.inputRow, !keyboardInset && SAFE_BOTTOM)}
+              style={keyboardInset ? { paddingBottom: keyboardInset + 12 } : undefined}
+            >
+              {agent.attachment && (
+                <ComposerAttachment
+                  attachment={agent.attachment}
                   knownProducts={agent.knownProducts}
                   onClear={agent.detach}
                   tone={theme}
                 />
               )}
-            </div>
-
-            {/* Input — lifted above the on-screen keyboard, and padded clear of the home
-                indicator when there is no keyboard. */}
-            <div
-              className={cn("flex gap-2 shrink-0 border-t px-3 pt-3", styles.inputRow, !keyboardInset && SAFE_BOTTOM)}
-              style={keyboardInset ? { paddingBottom: keyboardInset + 12 } : undefined}
-            >
-              <input
-                dir="auto"
-                className={cn(
-                  "flex-1 h-11 min-w-0 rounded-full border px-4 transition-colors focus:outline-none",
-                  NO_IOS_ZOOM_TEXT,
-                  styles.input
-                )}
-                placeholder={branding.inputPlaceholder}
-                value={agent.input}
-                onChange={(e) => agent.setInput(e.target.value)}
-                onFocus={() => setSnap("full")}
-                onKeyDown={(e) => e.key === "Enter" && agent.sendMessage()}
-                disabled={sendDisabled}
-              />
-              <button
-                type="button"
-                aria-label="Send message"
-                onClick={() => agent.sendMessage()}
-                disabled={!agent.input.trim() || sendDisabled}
-                className={cn(
-                  "h-11 w-11 rounded-full gradient-brand text-[var(--color-brand-contrast)] flex items-center justify-center shrink-0 transition-all",
-                  "disabled:opacity-40 disabled:cursor-not-allowed"
-                )}
-              >
-                <ArrowUp className="h-4 w-4" />
-              </button>
+              <div className="flex gap-2">
+                <input
+                  dir="auto"
+                  className={cn(
+                    "flex-1 h-11 min-w-0 rounded-full border px-4 transition-colors focus:outline-none",
+                    NO_IOS_ZOOM_TEXT,
+                    styles.input
+                  )}
+                  placeholder={composerPlaceholder(widgetStrings(widgetLocale), agent.attachment?.kind, branding.inputPlaceholder)}
+                  value={agent.input}
+                  onChange={(e) => agent.setInput(e.target.value)}
+                  onFocus={() => setSnap("full")}
+                  onKeyDown={(e) => e.key === "Enter" && agent.sendMessage()}
+                  disabled={sendDisabled}
+                />
+                <button
+                  type="button"
+                  aria-label="Send message"
+                  onClick={() => agent.sendMessage()}
+                  disabled={!agent.input.trim() || sendDisabled}
+                  className={cn(
+                    "h-11 w-11 rounded-full gradient-brand text-[var(--color-brand-contrast)] flex items-center justify-center shrink-0 transition-all",
+                    "disabled:opacity-40 disabled:cursor-not-allowed"
+                  )}
+                >
+                  <ArrowUp className="h-4 w-4" />
+                </button>
+              </div>
             </div>
           </div>
         )}

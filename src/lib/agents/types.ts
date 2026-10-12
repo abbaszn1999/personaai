@@ -1,7 +1,6 @@
 import type {
   BundleSuggestion,
   BundleSuggestionSlot,
-  ChatBudgetPrompt,
   Product,
   TurnAttribution,
 } from "@/modules/commerce/types";
@@ -50,25 +49,32 @@ export interface LookRecord extends BundleSuggestion {
   budget: number | null;
   department: string;
   slots: LookSlot[];
+  /** What the shopper had asked of the looks when this one was built, in their words. */
+  brief?: string;
+  /** The look's colour story ("navy, white, tan accent") — a swap keeps to it. */
+  palette?: string;
+  /** How the stylist read the anchor when the look was built. */
+  anchorRead?: string;
 }
 
 export type AgentAttachment =
+  /** "Ask about this item" — the Attribute agent answers every typed message. */
   | { kind: "item"; productId: string }
+  /** "Complete the look" — the product the looks are built around; the Bundle agent answers.
+   *  `brief` (everything the shopper has asked of the looks so far) and `shownIds` (pieces
+   *  already shown around it) are Bundle's memory of this anchor: the server writes them in an
+   *  `attachment` event and the widget sends them back with every turn. */
+  | { kind: "anchor"; productId: string; brief?: string; shownIds?: string[] }
+  /** "Ask about this bundle" — the Bundle agent answers about this look. */
   | { kind: "look"; look: LookRecord };
-
-export interface AgentTrigger {
-  type: "complete_look";
-  productId: string;
-  /** The first press: check the piece and ask for the budget; the looks are built on the answer. */
-  askBudget?: boolean;
-}
 
 export interface ShopperSession {
   /** The profile's audience as the shopper chose it (`woman`, `man`, `kids-girl`, …). */
   audience: string | null;
   /** Persona department inferred from the shopper's profile audience; null when unknown. */
   department: string | null;
-  /** The optional budget field for a full look. Never parsed from chat text. */
+  /** The optional budget for a full look: the widget's field, kept from the budget the shopper
+   *  last named while a look's anchor was attached (null on a fresh "Complete the look"). */
   budget: number | null;
   /** Onboarding measurements. When present, every search returns only products whose chart
    *  confirms an in-stock size fits them. */
@@ -89,12 +95,13 @@ export type AgentEvent =
   | { type: "products"; products: Product[] }
   | { type: "product_recommendations"; productIds: string[]; note?: string }
   | { type: "bundle"; bundles: LookRecord[]; products: Product[] }
-  /** Server-side attachment change: a follow-up updated the attached look, or a handoff
-   *  detached the item or look. */
+  /** Server-side attachment change: a follow-up updated the attached look, Bundle updated its
+   *  memory of the attached anchor, or the attached product no longer exists in the store. Only
+   *  the shopper's × ends a mode otherwise. */
   | { type: "attachment"; attachment: AgentAttachment | null }
   | { type: "quick_options"; options: string[] }
-  /** After "Complete the look": offer to rebuild the looks around the same anchor for a budget. */
-  | ({ type: "budget_request" } & ChatBudgetPrompt)
+  /** The budget the shopper just named while a look's anchor is attached; the widget keeps it for later turns. */
+  | { type: "budget"; budget: number | null }
   | { type: "retrieval_state"; shownProductIds: string[]; lastSearch: LastSearch | null }
   /** Sent once, just before `done`: what produced this turn, for conversion logging. */
   | { type: "attribution"; attribution: TurnAttribution }
@@ -123,7 +130,6 @@ export interface AgentContext {
   shownProductIds: string[];
   lastSearch: LastSearch | null;
   attachment: AgentAttachment | null;
-  trigger: AgentTrigger | null;
   /** A product the client says this message is about (e.g. a tapped card). When it resolves,
    *  it wins over resolving the reference from the message text. */
   referencedItemId: string | null;
