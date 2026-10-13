@@ -308,6 +308,7 @@ function TryOnExperience({
 
               {agent.onboardingPhase === "avatar-selection" && (
                 <AvatarVariationPicker
+                  profile={agent.profile}
                   variations={agent.avatarVariations}
                   selectedId={agent.selectedAvatarId}
                   customAvatarUrl={agent.customAvatarUrl}

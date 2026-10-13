@@ -5,7 +5,7 @@ describe("buildTryOnPrompt", () => {
   it("names a single garment by leaf and category, with the person as image 1", () => {
     expect(buildTryOnPrompt([{ slot: "top", leaf: "polo-shirt" }])).toBe(
       "Edit image 1: replace only the person's top with the polo shirt (top) from image 2. " +
-        "Keep the person's face, body, pose and the background unchanged. " +
+        "Change nothing else: same face, same body size and shape, same pose, same background. " +
         "Ignore everything else worn in the other images."
     );
   });

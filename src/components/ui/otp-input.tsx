@@ -33,6 +33,16 @@ export function OtpInput({
   const inputsRef = React.useRef<Array<HTMLInputElement | null>>([]);
   const digits = Array.from({ length: OTP_LENGTH }, (_, i) => value[i] ?? "");
 
+  // The latest code, updated the moment a digit is accepted rather than on the next render.
+  // `focusAt` moves focus to the next box inside the same event, before React has re-rendered,
+  // so the focus guard below would otherwise read the previous code, decide the next box is
+  // "too far ahead" and throw focus back to the first box - every digit after the first was
+  // lost and the cursor never advanced.
+  const latestValue = React.useRef(value);
+  React.useLayoutEffect(() => {
+    latestValue.current = value;
+  }, [value]);
+
   const focusAt = (index: number) => {
     const el = inputsRef.current[Math.max(0, Math.min(OTP_LENGTH - 1, index))];
     el?.focus();
@@ -41,17 +51,28 @@ export function OtpInput({
 
   const commit = (next: string) => {
     const cleaned = next.replace(/\D/g, "").slice(0, OTP_LENGTH);
-    const wasComplete = value.length === OTP_LENGTH;
+    const previous = latestValue.current;
+    latestValue.current = cleaned;
     onChange(cleaned);
-    if (cleaned.length === OTP_LENGTH && !wasComplete) onComplete?.(cleaned);
+    // Fires for every newly completed code, including a corrected last digit after a wrong one.
+    if (cleaned.length === OTP_LENGTH && cleaned !== previous) onComplete?.(cleaned);
     return cleaned;
   };
 
+  // Boxes are disabled while a code is being checked, which drops focus. Hand it back when the
+  // check finishes so a shopper can correct the last digit straight away.
+  const wasDisabled = React.useRef(disabled);
+  React.useEffect(() => {
+    if (wasDisabled.current && !disabled) focusAt(Math.min(latestValue.current.length, OTP_LENGTH - 1));
+    wasDisabled.current = disabled;
+  }, [disabled]);
+
   const handleChange = (index: number, raw: string) => {
     const incoming = raw.replace(/\D/g, "");
+    const current = latestValue.current;
 
     if (!incoming) {
-      commit(value.slice(0, index) + value.slice(index + 1));
+      commit(current.slice(0, index) + current.slice(index + 1));
       return;
     }
 
@@ -66,22 +87,23 @@ export function OtpInput({
     if (incoming.length > 1) {
       const typedOver = Boolean(digits[index]) && incoming.startsWith(digits[index]);
       const insert = typedOver ? incoming.slice(digits[index].length) : incoming;
-      commit(value.slice(0, index) + insert);
+      commit(current.slice(0, index) + insert);
       focusAt(Math.min(index + insert.length, OTP_LENGTH - 1));
       return;
     }
 
-    commit(value.slice(0, index) + incoming + value.slice(index + 1));
+    commit(current.slice(0, index) + incoming + current.slice(index + 1));
     focusAt(Math.min(index + 1, OTP_LENGTH - 1));
   };
 
   const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Backspace") {
       e.preventDefault();
+      const current = latestValue.current;
       if (digits[index]) {
-        commit(value.slice(0, index) + value.slice(index + 1));
+        commit(current.slice(0, index) + current.slice(index + 1));
       } else if (index > 0) {
-        commit(value.slice(0, index - 1));
+        commit(current.slice(0, index - 1));
         focusAt(index - 1);
       }
       return;
@@ -103,7 +125,7 @@ export function OtpInput({
     }
     if (e.key === "End") {
       e.preventDefault();
-      focusAt(Math.max(value.length - 1, 0));
+      focusAt(Math.max(latestValue.current.length - 1, 0));
     }
   };
 
@@ -111,7 +133,7 @@ export function OtpInput({
     e.preventDefault();
     const pasted = e.clipboardData.getData("text").replace(/\D/g, "");
     if (!pasted) return;
-    const cleaned = commit(value.slice(0, index) + pasted);
+    const cleaned = commit(latestValue.current.slice(0, index) + pasted);
     focusAt(Math.min(cleaned.length, OTP_LENGTH - 1));
   };
 
@@ -146,7 +168,7 @@ export function OtpInput({
           onKeyDown={(e) => handleKeyDown(index, e)}
           onPaste={(e) => handlePaste(index, e)}
           onFocus={(e) => {
-            const firstEmpty = Math.min(value.length, OTP_LENGTH - 1);
+            const firstEmpty = Math.min(latestValue.current.length, OTP_LENGTH - 1);
             if (index > firstEmpty) {
               focusAt(firstEmpty);
               return;

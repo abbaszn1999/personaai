@@ -4,11 +4,14 @@ import * as React from "react";
 import Image from "next/image";
 import { AlertCircle, ArrowRight, Check, ChevronLeft, ChevronRight, Upload, UserRound } from "lucide-react";
 import { studioPlateUrl } from "@/modules/wearable-agent/constants";
-import type { AvatarVariation } from "@/modules/wearable-agent/types";
+import type { AvatarVariation, TryOnProfile } from "@/modules/wearable-agent/types";
+import { MeasurementOverlay } from "./measurement-overlay";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils/cn";
 
 interface AvatarVariationPickerProps {
+  /** The shopper's stats — drawn on each generated avatar as height, chest, waist and shoe marks. */
+  profile: TryOnProfile;
   variations: AvatarVariation[];
   selectedId: string | null;
   customAvatarUrl: string | null;
@@ -45,6 +48,7 @@ function prefersReducedMotion(): boolean {
  * step to forget.
  */
 export function AvatarVariationPicker({
+  profile,
   variations,
   selectedId,
   customAvatarUrl,
@@ -280,15 +284,34 @@ export function AvatarVariationPicker({
                     unoptimized
                     draggable={false}
                   />
-                  <div className="absolute inset-x-0 bottom-0 z-[1] bg-gradient-to-t from-black/80 via-black/30 to-transparent px-4 pt-12 pb-3.5 text-left">
-                    <span className="text-sm font-semibold text-white drop-shadow-sm">{slide.label}</span>
-                  </div>
+                  {/* Same marks as on the stage, over the same crop (the picture fills the card,
+                      anchored to the top). An upload can be any photo, so it gets none. */}
+                  {slide.id !== "custom" && (
+                    <MeasurementOverlay
+                      profile={profile}
+                      imageUrl={slide.imageUrl}
+                      fit="cover"
+                      position={{ x: 0.5, y: 0 }}
+                    />
+                  )}
                   {isSelected && (
                     <div className="absolute right-3 top-3 z-[1] flex h-7 w-7 items-center justify-center rounded-full gradient-violet shadow-md">
                       <Check className="h-4 w-4 text-white" />
                     </div>
                   )}
                 </button>
+                {/* The name sits under the picture, not on it: the measurement marks use the
+                    whole picture, down to the feet. */}
+                <p
+                  className={cn(
+                    "mt-2 truncate text-center transition-all duration-300",
+                    isActive
+                      ? "text-sm font-semibold text-[var(--color-text-primary)]"
+                      : "text-xs font-medium text-[var(--color-text-muted)] opacity-60",
+                  )}
+                >
+                  {slide.label}
+                </p>
               </div>
             );
           })}

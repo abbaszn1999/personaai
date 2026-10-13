@@ -176,7 +176,7 @@ export function GarmentHotspot({ item, inCart, isPending = false, onAddToCart }:
                 ? light
                   ? "bg-black/[0.05] text-[#17121d]/60 cursor-default"
                   : "bg-white/10 text-white/60 cursor-default"
-                : "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-[var(--color-brand-contrast)] hover:brightness-110 active:scale-[0.97]"
+                : "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-white hover:brightness-110 active:scale-[0.97]"
             )}
           >
             {isPending ? (

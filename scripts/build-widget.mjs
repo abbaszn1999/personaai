@@ -87,10 +87,28 @@ async function buildCss() {
   // anywhere in the document — but `:root` only ever matches the *document's* root element,
   // never anything inside a Shadow DOM tree. `:host` is the shadow-tree equivalent, so every
   // themed CSS variable needs to be declared there too for the widget's Shadow DOM mount.
-  const shadowSafeCss = result.css.replace(/:root(?![\w-])/g, ":host, :root");
+  const shadowSafeCss = result.css.replace(/:root(?![\w-])/g, ":host, :root") + registeredPropertyDefaults(result.css);
 
   await writeFile(path.join(widgetSrcDir, "widget.css"), shadowSafeCss, "utf8");
   return shadowSafeCss.length;
+}
+
+/** Tailwind v4 gives its internal variables (`--tw-border-style`, `--tw-shadow`, `--tw-translate-x`
+ *  ...) their starting values with `@property` rules. Browsers ignore `@property` inside a Shadow
+ *  DOM stylesheet, so in the widget those variables start out undefined and every utility that
+ *  reads one is dropped: `border` computed to no border at all (the OTP boxes, inputs and cards
+ *  were invisible on a store page), and `translate` / `scale` utilities that only set one axis
+ *  did nothing. Declaring the same starting values as plain custom properties on every element
+ *  restores exactly what `@property` would have done (`inherits: false` is what a per-element
+ *  declaration gives). It sits in the lowest layer, so any utility still overrides it. */
+function registeredPropertyDefaults(css) {
+  const declarations = [];
+  for (const match of css.matchAll(/@property\s+(--[\w-]+)\s*\{([^}]*)\}/g)) {
+    const initial = /initial-value:\s*([^;]+);?/.exec(match[2]);
+    if (initial) declarations.push(`  ${match[1]}: ${initial[1].trim()};`);
+  }
+  if (declarations.length === 0) return "";
+  return `\n@layer properties {\n*, ::before, ::after, ::backdrop {\n${declarations.join("\n")}\n}\n}\n`;
 }
 
 /** Shared by both output bundles so they can't drift on target/minification. */
