@@ -271,7 +271,7 @@ function TryOnExperience({
     <>
           {embed && !agent.profileSubmitted && (
             <ProfileSwitcher
-              className="absolute left-3 top-3"
+              className="absolute left-6 top-4"
               profiles={agent.profiles}
               activeProfileId={agent.activeProfileId}
               maxProfiles={agent.maxProfiles}

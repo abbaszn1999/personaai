@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils/cn";
 import type { TryOnProfile } from "@/modules/wearable-agent/types";
 import { isKidsAudience, KIDS_AGE_RANGE } from "@/modules/wearable-agent/audiences";
 import {
@@ -50,7 +51,17 @@ export function MeasurementsStep({ profile, onChange }: MeasurementsStepProps) {
           Used to build a body-accurate avatar and size recommendations.
         </p>
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      {/* Phones get three columns so the five adult fields fit in two rows (height, weight, shoe
+          size, then chest, waist) instead of three; the wider card keeps two columns. Kids have
+          four fields, which are already two rows of two. */}
+      <div
+        className={cn(
+          "grid gap-x-2.5 gap-y-3 @md:gap-x-3",
+          kids
+            ? "grid-cols-2"
+            : "grid-cols-3 @md:grid-cols-2 [&_label]:text-[13px] @md:[&_label]:text-sm [&_input]:px-2.5 @md:[&_input]:px-3"
+        )}
+      >
         <Input
           inputSize="touch"
           label="Height (cm)"
@@ -89,26 +100,30 @@ export function MeasurementsStep({ profile, onChange }: MeasurementsStepProps) {
           />
         ) : (
           <>
-            <Input
-              inputSize="touch"
-              label="Chest (cm)"
-              type="number"
-              inputMode="numeric"
-              placeholder="e.g. 90"
-              value={profile.chestCm ?? ""}
-              onChange={(e) => editBodyField("chestCm", e.target.value)}
-            />
-            <Input
-              inputSize="touch"
-              label="Waist (cm)"
-              type="number"
-              inputMode="numeric"
-              placeholder="e.g. 70"
-              value={profile.waistCm ?? ""}
-              onChange={(e) => editBodyField("waistCm", e.target.value)}
-            />
+            <div className="order-2 @md:order-none">
+              <Input
+                inputSize="touch"
+                label="Chest (cm)"
+                type="number"
+                inputMode="numeric"
+                placeholder="e.g. 90"
+                value={profile.chestCm ?? ""}
+                onChange={(e) => editBodyField("chestCm", e.target.value)}
+              />
+            </div>
+            <div className="order-2 @md:order-none">
+              <Input
+                inputSize="touch"
+                label="Waist (cm)"
+                type="number"
+                inputMode="numeric"
+                placeholder="e.g. 70"
+                value={profile.waistCm ?? ""}
+                onChange={(e) => editBodyField("waistCm", e.target.value)}
+              />
+            </div>
             {(autoFilled.chestCm || autoFilled.waistCm) && (
-              <p className="col-span-2 -mt-1 text-xs text-[var(--color-text-muted)]">
+              <p className="order-3 col-span-3 -mt-1 text-xs text-[var(--color-text-muted)] @md:order-none @md:col-span-2">
                 Estimated from your height and weight — change{" "}
                 {autoFilled.chestCm && autoFilled.waistCm ? "them" : "it"} if you know your exact{" "}
                 {autoFilled.chestCm && autoFilled.waistCm ? "measurements" : autoFilled.chestCm ? "chest" : "waist"}.
@@ -116,15 +131,17 @@ export function MeasurementsStep({ profile, onChange }: MeasurementsStepProps) {
             )}
           </>
         )}
-        <Input
-          inputSize="touch"
-          label="Shoe Size (EU)"
-          type="number"
-          inputMode="numeric"
-          placeholder={kids ? "e.g. 32" : "e.g. 42"}
-          value={profile.shoeSizeEu ?? ""}
-          onChange={(e) => onChange({ shoeSizeEu: Number(e.target.value) || null })}
-        />
+        <div className="order-1 @md:order-none">
+          <Input
+            inputSize="touch"
+            label="Shoe (EU)"
+            type="number"
+            inputMode="numeric"
+            placeholder={kids ? "e.g. 32" : "e.g. 42"}
+            value={profile.shoeSizeEu ?? ""}
+            onChange={(e) => onChange({ shoeSizeEu: Number(e.target.value) || null })}
+          />
+        </div>
       </div>
     </div>
   );

@@ -1209,8 +1209,10 @@ function MobileAvatarStrip({
 
       {(liveTryOnEnabled || canShowMeasurements) && (
       <div
-        className="absolute left-3 z-[16] flex -translate-y-1/2 flex-col items-center gap-1 rounded-full border border-white/[0.12] bg-black/50 p-1 shadow-[0_8px_28px_rgba(0,0,0,0.5)] backdrop-blur-2xl"
-        style={{ top: `calc((100% - ${SHEET_H}) / 2)` }}
+        className="absolute right-3 z-[16] flex flex-col items-center gap-1 rounded-full border border-white/[0.12] bg-black/50 p-1 shadow-[0_8px_28px_rgba(0,0,0,0.5)] backdrop-blur-2xl"
+        // Top right. With a fit badge the Details button already holds the top row's right end,
+        // so the rail drops just below it instead of covering it.
+        style={{ top: viewMode === "photo" && fit && fit.score !== null ? 68 : 12 }}
       >
         {canShowMeasurements && (
           <button

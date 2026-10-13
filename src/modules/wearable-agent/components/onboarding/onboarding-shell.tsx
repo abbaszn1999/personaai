@@ -53,7 +53,7 @@ export function OnboardingShell({ step, onBack, footer, children, reserveTopSpac
       ref={rootRef}
       className={cn(
         "flex flex-col gap-6 px-6 pb-8",
-        reserveTopSpace ? "pt-16" : "pt-8"
+        reserveTopSpace ? "pt-[76px]" : "pt-8"
       )}
     >
       {stepIndex > 0 && (
