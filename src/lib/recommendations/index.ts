@@ -9,5 +9,5 @@ export {
 export { scoreProduct } from "./score-product";
 export { rankProducts, selectTopK, rankAndSelectTopK } from "./rank-products";
 export { selectBundleItems, buildBundleSuggestion } from "./select-bundle";
-export { mergeGarmentIntoOutfit } from "./merge-outfit";
+export { mergeGarmentIntoOutfit, outfitExtendsLook } from "./merge-outfit";
 export type { RankingContext, ScoredProduct, ScoreBreakdown } from "./types";

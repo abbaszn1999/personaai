@@ -43,6 +43,16 @@ const nextConfig: NextConfig = {
         source: "/widget-live.js",
         headers: [{ key: "Cache-Control", value: widgetCacheControl }],
       },
+      {
+        // The photo step reads a demo face's bytes with fetch() from the merchant's own page, which
+        // a browser only allows when the file is served with a CORS header. The faces never change
+        // under the same URL, so they can be cached for a long time.
+        source: "/avatars/demo-faces/:file",
+        headers: [
+          { key: "Access-Control-Allow-Origin", value: "*" },
+          { key: "Cache-Control", value: "public, max-age=604800, stale-while-revalidate=86400" },
+        ],
+      },
     ];
   },
 };

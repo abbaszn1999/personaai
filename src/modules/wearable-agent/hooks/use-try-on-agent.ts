@@ -17,6 +17,7 @@ import {
   recommendSizesForProducts,
   buildFitNote,
   mergeGarmentIntoOutfit,
+  outfitExtendsLook,
 } from "@/lib/recommendations";
 import {
   embedRequestHeaders,
@@ -1587,13 +1588,22 @@ export function useTryOnAgent(
       },
     };
 
-    setState((s) => ({
-      ...s,
-      isGenerating: false,
-      tryOnImages: [...s.tryOnImages, snapshot],
-      currentImageIndex: s.tryOnImages.length,
-      messages: [...s.messages, imageMsg],
-    }));
+    setState((s) => {
+      // Version 1 is the plain avatar and is never replaced; looks are versions 2, 3, ….
+      // Adding a new category to the latest look (a bottom onto a top) completes that version in
+      // place. Swapping a garment already worn (a new top over the top) starts the next version.
+      const latest = s.tryOnImages[s.tryOnImages.length - 1];
+      const completesLatest = Boolean(latest) && outfitExtendsLook(latest.outfitProducts, items);
+      const tryOnImages = completesLatest ? [...s.tryOnImages.slice(0, -1), snapshot] : [...s.tryOnImages, snapshot];
+      return {
+        ...s,
+        isGenerating: false,
+        tryOnImages,
+        // Index 0 is the plain avatar, so look N sits at index N.
+        currentImageIndex: tryOnImages.length,
+        messages: [...s.messages, imageMsg],
+      };
+    });
     // Do not hold the completed image screen open for a catalog read. The card appears on this
     // exact version when its analysis lands; a null/failure stays honestly hidden.
     void fitPromise.then((fit) => {
@@ -2206,14 +2216,15 @@ export function useTryOnAgent(
   function nextImage() {
     setState((s) => ({
       ...s,
-      currentImageIndex: Math.min(s.tryOnImages.length - 1, s.currentImageIndex + 1),
+      currentImageIndex: Math.min(s.tryOnImages.length, s.currentImageIndex + 1),
     }));
   }
 
+  /** `index` is the version: 0 is the plain avatar, 1 the first look, and so on. */
   function selectImage(index: number) {
     setState((s) => ({
       ...s,
-      currentImageIndex: Math.max(0, Math.min(s.tryOnImages.length - 1, index)),
+      currentImageIndex: Math.max(0, Math.min(s.tryOnImages.length, index)),
     }));
   }
 
@@ -2253,7 +2264,8 @@ export function useTryOnAgent(
 
   const profileComplete = isProfileComplete(state.profile);
   const measurementsComplete = isMeasurementsComplete(state.profile);
-  const currentTryOn = state.tryOnImages[state.currentImageIndex] ?? null;
+  // `currentImageIndex` is the version on show: 0 is the plain avatar (no look), N is look N.
+  const currentTryOn = state.currentImageIndex > 0 ? (state.tryOnImages[state.currentImageIndex - 1] ?? null) : null;
 
   return {
     ...state,

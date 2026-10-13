@@ -113,17 +113,16 @@ export function MeasurementOverlay({ profile, imageUrl, fit = "contain", positio
       const x2 = px(mark.right);
       const y = py(mark.y);
       const w = pillWidth(mark.label);
-      const fitsRight = x2 + 8 + w <= box.w - 4;
+      // Always on the right, as on the wide stage. On a narrow card there may be less than a
+      // full label's room past the line, so the label slides in over the line's end rather than
+      // jumping to the other side of the body.
+      const labelX = Math.max(x2 - 10, Math.min(x2 + 8, box.w - 4 - w));
       return (
         <g key={mark.label}>
           <line x1={x1} x2={x2} y1={y} y2={y} stroke={LINE} strokeWidth={1.5} strokeDasharray="5 4" />
           <line x1={x1} x2={x1} y1={y - TICK} y2={y + TICK} stroke={LINE} strokeWidth={1.5} />
           <line x1={x2} x2={x2} y1={y - TICK} y2={y + TICK} stroke={LINE} strokeWidth={1.5} />
-          {fitsRight ? (
-            <Pill x={x2 + 8} y={y} label={mark.label} anchor="start" />
-          ) : (
-            <Pill x={x1 - 8} y={y} label={mark.label} anchor="end" />
-          )}
+          <Pill x={labelX} y={y} label={mark.label} anchor="start" />
         </g>
       );
     };

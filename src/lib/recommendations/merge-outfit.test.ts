@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Product } from "@/modules/commerce/types";
-import { mergeGarmentIntoOutfit } from "./merge-outfit";
+import { mergeGarmentIntoOutfit, outfitExtendsLook } from "./merge-outfit";
 
 function makeProduct(id: string, name: string): Product {
   return {
@@ -73,5 +73,27 @@ describe("mergeGarmentIntoOutfit", () => {
     const result = mergeGarmentIntoOutfit(current, [shirt]);
 
     expect(result).toBe(current);
+  });
+});
+
+describe("outfitExtendsLook", () => {
+  it("is true when a new category is added on top of the look", () => {
+    expect(outfitExtendsLook([shirt], mergeGarmentIntoOutfit([shirt], [pants]))).toBe(true);
+    expect(outfitExtendsLook([shirt, pants], mergeGarmentIntoOutfit([shirt, pants], [shoes]))).toBe(true);
+  });
+
+  it("is false when a garment replaces one already worn", () => {
+    const newShirt = makeProduct("shirt-2", "Linen Shirt");
+    expect(outfitExtendsLook([shirt, pants], mergeGarmentIntoOutfit([shirt, pants], [newShirt]))).toBe(false);
+  });
+
+  it("is false for an identical outfit or when there is no look yet", () => {
+    expect(outfitExtendsLook([shirt], [shirt])).toBe(false);
+    expect(outfitExtendsLook([], [shirt])).toBe(false);
+  });
+
+  it("is false when a dress takes the place of the top and bottom", () => {
+    const dress = makeProduct("dress-1", "Summer Dress");
+    expect(outfitExtendsLook([shirt, pants], mergeGarmentIntoOutfit([shirt, pants], [dress]))).toBe(false);
   });
 });

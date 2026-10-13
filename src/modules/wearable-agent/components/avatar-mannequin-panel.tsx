@@ -407,7 +407,7 @@ export function AvatarMannequinPanel({
   const [justAddedAll, setJustAddedAll] = React.useState(false);
   const [viewMode, setViewMode] = React.useState<"photo" | "live">("photo");
   const realtime = useRealtimeTryOn({ embed, workspaceId });
-  const [showMeasurements, setShowMeasurements] = React.useState(true);
+  const [showMeasurements, setShowMeasurements] = React.useState(false);
 
   const fullscreenCloseRef = React.useRef<HTMLButtonElement>(null);
   React.useEffect(() => {
@@ -434,12 +434,14 @@ export function AvatarMannequinPanel({
 
   const fit = currentTryOn?.fit ?? null;
   const defaultSize = recommendSize(profile);
-  const total = tryOnImages.length;
+  // Version 1 is always the plain avatar; each generated look is the next version after it.
+  const total = tryOnImages.length + 1;
   const hasPrev = currentImageIndex > 0;
   const hasNext = currentImageIndex < total - 1;
-  const hasGeneratedLooks = total > 0;
+  const hasGeneratedLooks = tryOnImages.length > 0;
 
-  const displayImage = currentTryOn?.imageUrl || profile.avatarUrl || DEFAULT_MANNEQUIN_IMAGE;
+  const baseImage = profile.avatarUrl || DEFAULT_MANNEQUIN_IMAGE;
+  const displayImage = currentTryOn?.imageUrl || baseImage;
   const [imgSrc, setImgSrc] = React.useState(displayImage);
 
   React.useEffect(() => {
@@ -474,8 +476,11 @@ export function AvatarMannequinPanel({
 
   /** Garments on the avatar — only real try-on results or the live outfit being built. */
   const activeItems: ActiveLookItem[] = React.useMemo(() => {
-    const source: Product[] =
-      currentTryOn && currentTryOn.outfitProducts.length > 0
+    // The plain avatar (version 1) wears nothing, so it has no garments to list or sell.
+    const onPlainAvatar = hasGeneratedLooks && !currentTryOn;
+    const source: Product[] = onPlainAvatar
+      ? []
+      : currentTryOn && currentTryOn.outfitProducts.length > 0
         ? currentTryOn.outfitProducts
         : outfitItems;
 
@@ -494,7 +499,7 @@ export function AvatarMannequinPanel({
         position: getHotspotPosition(product, staggerIndex),
       };
     });
-  }, [currentTryOn, outfitItems, defaultSize, profile.shoeSizeEu, profile.audience]);
+  }, [currentTryOn, hasGeneratedLooks, outfitItems, defaultSize, profile.shoeSizeEu, profile.audience]);
   const liveProducts = React.useMemo(() => {
     const byId = new Map<string, Product>();
     for (const version of tryOnImages) {
@@ -525,16 +530,18 @@ export function AvatarMannequinPanel({
   }, [liveTryOnEnabled, viewMode, stopRealtime]);
 
   const lookLabel = hasGeneratedLooks
-    ? `Style ${currentImageIndex + 1} of ${total}`
+    ? `Version ${currentImageIndex + 1} of ${total}`
     : outfitItems.length > 0
       ? "Your Outfit"
       : "Your Avatar";
 
   const outfitSwatches = hasGeneratedLooks
-    ? tryOnImages.map((tryOn, i) => ({
-        id: tryOn.id,
+    ? [
+        { id: "base-avatar", thumb: baseImage },
         // A version swatch represents the generated look, not one garment's catalog photo.
-        thumb: tryOn.imageUrl,
+        ...tryOnImages.map((tryOn) => ({ id: tryOn.id, thumb: tryOn.imageUrl })),
+      ].map((version, i) => ({
+        ...version,
         active: i === currentImageIndex,
         onClick: () => onSelectImage(i),
       }))
@@ -885,7 +892,7 @@ export function AvatarMannequinPanel({
       )}
 
       {/* Preview navigation */}
-      {viewMode === "photo" && total > 1 && !isGenerating && (
+      {viewMode === "photo" && hasGeneratedLooks && !isGenerating && (
         <>
           {hasPrev && (
             <button type="button" onClick={onPrev}
@@ -1075,7 +1082,7 @@ function MobileAvatarStrip({
   const styles = MOBILE_SURFACE[theme];
   const [panel, setPanel] = React.useState<MobilePanel>(null);
   const [editDraft, setEditDraft] = React.useState<TryOnProfile>(profile);
-  const [showMeasurements, setShowMeasurements] = React.useState(true);
+  const [showMeasurements, setShowMeasurements] = React.useState(false);
   const canShowMeasurements =
     viewMode === "photo" && !isGenerating && !isRegeneratingAvatar && imgSrc !== DEFAULT_MANNEQUIN_IMAGE;
 
@@ -1251,14 +1258,15 @@ function MobileAvatarStrip({
       >
         {/* Style swatches */}
         <div className="flex items-center gap-2 overflow-x-auto flex-1 scrollbar-none overscroll-x-contain [-webkit-overflow-scrolling:touch]">
-          {(hasGeneratedLooks ? tryOnImages : activeItems.map((i) => i.product)).map((item, idx) => {
+          {(hasGeneratedLooks
+            ? [{ imageUrl: profile.avatarUrl || DEFAULT_MANNEQUIN_IMAGE }, ...tryOnImages]
+            : activeItems.map((i) => i.product)
+          ).map((item, idx) => {
             const isGenerated = hasGeneratedLooks;
-            const imgUrl = isGenerated
-              ? (item as GeneratedTryOn).imageUrl
-              : (item as Product).imageUrl;
+            const imgUrl = item.imageUrl;
             return (
               <button key={idx} type="button"
-                aria-label={isGenerated ? `Look ${idx + 1}` : undefined}
+                aria-label={isGenerated ? `Version ${idx + 1}` : undefined}
                 onClick={() => isGenerated ? onSelectImage(idx) : undefined}
                 className={cn(
                   "h-11 w-11 shrink-0 rounded-[var(--radius-md)] overflow-hidden border-2 transition-all",
