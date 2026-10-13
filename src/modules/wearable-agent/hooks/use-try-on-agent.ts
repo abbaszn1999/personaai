@@ -70,6 +70,8 @@ export interface ShopperProfileBridge {
     profile: TryOnProfile;
     profileSubmitted: boolean;
   } | null>;
+  /** Resolves true once the profile no longer exists on the account. */
+  deleteProfile: (id: string) => Promise<boolean>;
 }
 
 /** Up to this many separate profiles (e.g. a parent shopping for themselves + up to 2 kids)
@@ -1016,7 +1018,12 @@ export function useTryOnAgent(
       const currentLabel = profilesMetaRef.current.find((p) => p.id === currentId)?.label ?? "Me";
       await flushShopperProfile(currentId, { label: currentLabel, profile: profileRef.current });
 
-      const nextLabel = `Profile ${profilesMetaRef.current.length + 1}`;
+      // The first "Profile N" not already taken, so a profile added after a delete never
+      // repeats a name that is still in the list.
+      const takenLabels = new Set(profilesMetaRef.current.map((p) => p.label));
+      let labelNumber = profilesMetaRef.current.length + 1;
+      while (takenLabels.has(`Profile ${labelNumber}`)) labelNumber += 1;
+      const nextLabel = `Profile ${labelNumber}`;
       const created = shopperRef.current
         ? await shopperRef.current.createProfile({ label: nextLabel, sortOrder: profilesMetaRef.current.length })
         : null;
@@ -1036,16 +1043,33 @@ export function useTryOnAgent(
     })();
   }
 
+  /** Deletes a profile for good. On a signed-in shopper account it is removed on the server first
+   *  and stays put if that fails, so what the shopper sees is never ahead of what is saved. At
+   *  least one profile always remains. Deleting the active profile switches to the next one. */
   function removeProfile(id: string) {
-    if (profilesMeta.length <= 1) return;
-    const remaining = profilesMeta.filter((m) => m.id !== id);
-    delete inactiveProfilesRef.current![id];
-    setProfilesMeta(remaining);
-    if (id === activeProfileId) {
-      const next = remaining[0];
-      const target = inactiveProfilesRef.current![next.id] ?? blankProfileSlotData();
-      activateProfileData(next.id, target);
-    }
+    if (profilesMetaRef.current.length <= 1) return;
+    if (!profilesMetaRef.current.some((m) => m.id === id)) return;
+    void (async () => {
+      const bridge = shopperRef.current;
+      if (bridge && !unsavedIdsRef.current.has(id)) {
+        if (id === activeProfileIdRef.current && persistTimerRef.current) {
+          clearTimeout(persistTimerRef.current);
+          persistTimerRef.current = null;
+        }
+        const deleted = await bridge.deleteProfile(id);
+        if (!deleted) return;
+      }
+      unsavedIdsRef.current.delete(id);
+
+      const remaining = profilesMetaRef.current.filter((m) => m.id !== id);
+      if (remaining.length === 0) return;
+      delete inactiveProfilesRef.current![id];
+      setProfilesMeta(remaining);
+      if (id === activeProfileIdRef.current) {
+        const next = remaining[0];
+        activateProfileData(next.id, inactiveProfilesRef.current![next.id] ?? blankProfileSlotData());
+      }
+    })();
   }
 
   function renameProfile(id: string, label: string) {

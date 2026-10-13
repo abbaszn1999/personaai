@@ -279,6 +279,7 @@ function ChatProfileSwitcher({ agent }: { agent: UseTryOnAgentReturn }) {
       onSwitch={agent.switchProfile}
       onAdd={agent.addProfile}
       onRename={agent.renameProfile}
+      onDelete={agent.removeProfile}
       onSignOut={shopper?.signOut}
     />
   );

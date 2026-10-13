@@ -12,6 +12,7 @@ import {
 } from "@/lib/embed/client/embed-storage";
 import {
   createShopperProfileRemote,
+  deleteShopperProfileRemote,
   fetchShopperMe,
   logoutShopper,
   requestShopperCode,
@@ -34,6 +35,7 @@ export interface ShopperRuntime {
   signOut: () => Promise<void>;
   createProfile: (draft: ShopperProfileDraft) => Promise<ShopperProfilePublic | null>;
   updateProfile: (id: string, draft: ShopperProfileDraft) => Promise<ShopperProfilePublic | null>;
+  deleteProfile: (id: string) => Promise<boolean>;
 }
 
 export function useShopperAuth(embed: EmbedRuntimeConfig): ShopperRuntime {
@@ -158,5 +160,18 @@ export function useShopperAuth(embed: EmbedRuntimeConfig): ShopperRuntime {
     [embed.apiBase, embed.embedToken]
   );
 
-  return { status, account, profiles, error, requestCode, verifyCode, signOut, createProfile, updateProfile };
+  const deleteProfile = React.useCallback(
+    async (id: string) => {
+      const token = tokenRef.current;
+      if (!token) return false;
+      const result = await deleteShopperProfileRemote(embed.apiBase, embed.embedToken, token, id);
+      // A profile the server no longer has is as good as deleted.
+      if (!result.ok && result.status !== 404) return false;
+      setProfiles((current) => current.filter((profile) => profile.id !== id));
+      return true;
+    },
+    [embed.apiBase, embed.embedToken]
+  );
+
+  return { status, account, profiles, error, requestCode, verifyCode, signOut, createProfile, updateProfile, deleteProfile };
 }

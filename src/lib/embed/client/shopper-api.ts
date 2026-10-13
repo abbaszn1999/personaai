@@ -120,3 +120,17 @@ export async function updateShopperProfileRemote(
     body: JSON.stringify({ embedToken, ...draft }),
   });
 }
+
+export async function deleteShopperProfileRemote(
+  apiBase: string,
+  embedToken: string,
+  token: string,
+  profileId: string
+) {
+  return shopperFetch(apiBase, `/shopper/profiles/${encodeURIComponent(profileId)}`, {
+    method: "DELETE",
+    embedToken,
+    token,
+    body: JSON.stringify({ embedToken }),
+  });
+}

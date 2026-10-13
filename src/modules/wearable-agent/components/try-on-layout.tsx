@@ -165,6 +165,7 @@ function EmbeddedTryOn({
           profiles: shopper.profiles,
           createProfile: shopper.createProfile,
           updateProfile: shopper.updateProfile,
+          deleteProfile: shopper.deleteProfile,
         }}
         onFillViewportChange={onFillViewportChange}
       />
@@ -277,6 +278,7 @@ function TryOnExperience({
               onSwitch={agent.switchProfile}
               onAdd={agent.addProfile}
               onRename={agent.renameProfile}
+              onDelete={agent.removeProfile}
               onSignOut={shopperSession?.signOut}
             />
           )}
