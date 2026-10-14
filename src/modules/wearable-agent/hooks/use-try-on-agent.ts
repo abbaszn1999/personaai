@@ -728,6 +728,10 @@ export function useTryOnAgent(
         : `dash-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
   const outfitRef = React.useRef<Product[]>(state.outfitItems);
+  /** The looks and the version on show, kept current for actions that run from a stale closure
+   *  (a chat card, a streamed event) but must act on the version the shopper is looking at. */
+  const tryOnImagesRef = React.useRef<GeneratedTryOn[]>(state.tryOnImages);
+  const versionIndexRef = React.useRef<number>(state.currentImageIndex);
   const profileRef = React.useRef<TryOnProfile>(state.profile);
   const knownProductsRef = React.useRef<Record<string, Product>>(state.knownProducts);
   const messagesRef = React.useRef<ChatMessage[]>(state.messages);
@@ -742,12 +746,14 @@ export function useTryOnAgent(
   const cartSyncQueueRef = React.useRef<Promise<void>>(Promise.resolve());
   React.useEffect(() => {
     outfitRef.current = state.outfitItems;
+    tryOnImagesRef.current = state.tryOnImages;
+    versionIndexRef.current = state.currentImageIndex;
     profileRef.current = state.profile;
     knownProductsRef.current = state.knownProducts;
     messagesRef.current = state.messages;
     attachmentRef.current = state.attachment;
     budgetRef.current = state.budget;
-  }, [state.outfitItems, state.profile, state.knownProducts, state.messages, state.attachment, state.budget]);
+  }, [state.outfitItems, state.tryOnImages, state.currentImageIndex, state.profile, state.knownProducts, state.messages, state.attachment, state.budget]);
 
   React.useEffect(() => {
     customAvatarUrlRef.current = state.customAvatarUrl;
@@ -1456,9 +1462,18 @@ export function useTryOnAgent(
     void flushShopperProfile(activeProfileIdRef.current, { label, profile: nextProfile });
   }
 
-  async function generateTryOn(productsOverride?: Product[]) {
+  /** The look the shopper is on - null on version 1 (the plain avatar), which is never built on. */
+  function selectedLook(): GeneratedTryOn | null {
+    const index = versionIndexRef.current;
+    return index > 0 ? (tryOnImagesRef.current[index - 1] ?? null) : null;
+  }
+
+  /** `targetLookId` is the version this render builds on: a new category completes that version
+   *  in place, anything else becomes a new version at the end. Defaults to the version on show. */
+  async function generateTryOn(productsOverride?: Product[], targetLookId?: string | null) {
     const items = productsOverride ?? outfitRef.current;
     if (items.length === 0) return;
+    const targetId = targetLookId !== undefined ? targetLookId : (selectedLook()?.id ?? null);
 
     setState((s) => ({ ...s, isGenerating: true }));
 
@@ -1590,17 +1605,20 @@ export function useTryOnAgent(
 
     setState((s) => {
       // Version 1 is the plain avatar and is never replaced; looks are versions 2, 3, ….
-      // Adding a new category to the latest look (a bottom onto a top) completes that version in
-      // place. Swapping a garment already worn (a new top over the top) starts the next version.
-      const latest = s.tryOnImages[s.tryOnImages.length - 1];
-      const completesLatest = Boolean(latest) && outfitExtendsLook(latest.outfitProducts, items);
-      const tryOnImages = completesLatest ? [...s.tryOnImages.slice(0, -1), snapshot] : [...s.tryOnImages, snapshot];
+      // Adding a new category to the version the shopper built on (a bottom onto a top) completes
+      // that version in place. Swapping a garment already worn, or building on version 1, adds a
+      // new version at the end.
+      const targetIndex = targetId ? s.tryOnImages.findIndex((look) => look.id === targetId) : -1;
+      const completesTarget = targetIndex >= 0 && outfitExtendsLook(s.tryOnImages[targetIndex].outfitProducts, items);
+      const tryOnImages = completesTarget
+        ? s.tryOnImages.map((look, i) => (i === targetIndex ? snapshot : look))
+        : [...s.tryOnImages, snapshot];
       return {
         ...s,
         isGenerating: false,
         tryOnImages,
         // Index 0 is the plain avatar, so look N sits at index N.
-        currentImageIndex: tryOnImages.length,
+        currentImageIndex: completesTarget ? targetIndex + 1 : tryOnImages.length,
         messages: [...s.messages, imageMsg],
       };
     });
@@ -1989,14 +2007,15 @@ export function useTryOnAgent(
   /** Adds or replaces one garment slot in the working outfit, then immediately renders the
    *  resolved look — e.g. new shoes replace old shoes while keeping shirt/pants/jacket. */
   async function wearItem(product: Product) {
-    const current = outfitRef.current;
+    // Builds on the version on show, not the newest one. Once there are looks, version 1 starts
+    // from nothing and a look starts from what it already wears.
+    const selected = selectedLook();
+    const current = tryOnImagesRef.current.length > 0 ? (selected?.outfitProducts ?? []) : outfitRef.current;
     const nextOutfit = mergeGarmentIntoOutfit(current, [product]);
 
-    if (nextOutfit !== current) {
-      outfitRef.current = nextOutfit;
-      setState((s) => ({ ...s, outfitItems: nextOutfit }));
-    }
-    await generateTryOn(nextOutfit);
+    outfitRef.current = nextOutfit;
+    setState((s) => ({ ...s, outfitItems: nextOutfit }));
+    await generateTryOn(nextOutfit, selected?.id ?? null);
   }
 
   /** Swaps the entire working outfit for a curated bundle and renders it as one look. */
@@ -2006,7 +2025,7 @@ export function useTryOnAgent(
       .filter((p): p is Product => !!p);
     if (products.length === 0) return;
     setState((s) => ({ ...s, outfitItems: products }));
-    await generateTryOn(products);
+    await generateTryOn(products, selectedLook()?.id ?? null);
   }
 
   /** Fires the real store cart mutation for widget.js only (see EmbedRuntimeConfig).
