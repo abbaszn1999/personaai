@@ -15,7 +15,7 @@ import { ProfileSwitcher } from "./profile-switcher";
 import { useEmbedShopperSession } from "../hooks/embed-shopper-session";
 import { useBottomSheet } from "../hooks/use-bottom-sheet";
 import { MAX_RENDERED_MESSAGES, takeLastMessages } from "../utils/chat-history";
-import { MOBILE_SURFACE, NO_IOS_ZOOM_TEXT, SAFE_BOTTOM, SHEET_H } from "../mobile-surface";
+import { MOBILE_SURFACE, NO_IOS_ZOOM_TEXT, SAFE_BOTTOM, SHEET_H, SHEET_SETTLE_MS, SHEET_TRANSITION } from "../mobile-surface";
 import { AgentOrb } from "@/components/ui/agent-orb";
 import { useVariantPicker } from "@/components/ui/variant-picker-popover";
 import { cn } from "@/lib/utils/cn";
@@ -357,6 +357,7 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
               isGenerating={agent.isGenerating}
               onWearItem={agent.wearItem}
               onAddToCart={handleAddToCart}
+              onRemoveFromCart={agent.removeFromCart}
               knownProducts={agent.knownProducts}
               attachedItemId={agent.attachment?.kind === "item" ? agent.attachment.product.id : null}
               attachedLookId={agent.attachment?.kind === "look" ? agent.attachment.look.id : null}
@@ -368,6 +369,7 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
               onQuickOption={(label) => agent.sendMessage(label)}
               onRenderBundle={agent.wearBundle}
               onAddBundleToCart={agent.addBundleToCart}
+              onRemoveBundleFromCart={agent.removeBundleFromCart}
               onAskAboutLook={agent.attachLook}
             />
           );
@@ -454,14 +456,33 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
     headerRef: sheetHeaderRef,
     snap: sheetSnap,
     setSnap,
+    raiseTo,
     toggle: toggleSheet,
     isDragging: sheetDragging,
     consumedDrag,
     keyboardInset,
     expanded: sheetExpanded,
     handleProps: sheetHandleProps,
-  } = useBottomSheet();
+  } = useBottomSheet(72, "half");
   const messagesRef = React.useRef<HTMLDivElement>(null);
+  const handleRemoveFromCart = agent.removeFromCart;
+  // Wearing something is about watching the avatar change, so the sheet gets out of the way the
+  // moment Wear is pressed — for an item and for a whole bundle. The shopper can still pull it
+  // back up while the render runs; nothing closes it again until the next Wear.
+  const wearItemAndClose = React.useCallback(
+    (product: Product) => {
+      setSnap("peek");
+      agent.wearItem(product);
+    },
+    [agent, setSnap]
+  );
+  const wearBundleAndClose = React.useCallback(
+    (productIds: string[]) => {
+      setSnap("peek");
+      agent.wearBundle(productIds);
+    },
+    [agent, setSnap]
+  );
   const cartItemIds = agent.cartItems.map((p) => p.id);
   // Quick replies are just a cold-start nudge — once the shopper has sent a real message,
   // showing them again below every subsequent turn is clutter, not a shortcut.
@@ -478,21 +499,75 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
   // looks while the sheet is visibly resizing under the shopper's finger.
   const showSheetChrome = sheetExpanded || sheetDragging;
 
+  // The sheet opens itself at "half" (see `useBottomSheet(72, "half")`) so the welcome message is
+  // on screen without a tap. After that it only ever grows, and only while it is open: a
+  // shopper's own message or a reply that carries cards raises it to "tall" so the answer is
+  // seen whole. A closed sheet stays closed — re-opening it on every message would yank it up
+  // over the avatar, and would undo the collapse that wearing something does on purpose.
+  const lastGrowthSignature = React.useRef<string | null>(null);
   React.useEffect(() => {
-    const el = messagesRef.current;
-    if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  }, [agent.messages, agent.isTyping, agent.isScanning, sheetSnap]);
+    const last = agent.messages[agent.messages.length - 1];
+    if (!last) return;
+    const cards = (last.productRecommendations?.length ?? 0) + (last.bundles?.length ?? 0);
+    const signature = `${last.id}:${cards}`;
+    const previous = lastGrowthSignature.current;
+    lastGrowthSignature.current = signature;
+    // The first pass only records where the conversation already is (the welcome message, or a
+    // restored history) so loading the widget never reshapes the sheet.
+    if (previous === null || previous === signature) return;
+    if (last.role === "user" || cards > 0) raiseTo("tall");
+    // Wear folds the sheet away to show the scan; if the render then fails, the explanation and
+    // its Retry button are in the chat, so the sheet comes back for them.
+    else if (last.id.startsWith("msg-tryon-error-")) setSnap("half");
+  }, [agent.messages, raiseTo, setSnap]);
 
-  // Open the sheet once, for the agent's first reply. Re-opening it on every later message
-  // (what this used to do) yanks the sheet up over the avatar while the shopper is still
-  // looking at a garment, and makes collapsing it impossible.
-  const hasAutoOpened = React.useRef(false);
+  // Scrolls the message list to the newest answer. A reply taller than the visible list is
+  // aligned by its top, so the start of the answer and its first card are never cut off; any
+  // other reply (and anything while the agent is still working) scrolls to the very end.
+  const scrollMessages = React.useCallback((mode: "latest" | "end", behavior: ScrollBehavior) => {
+    const list = messagesRef.current;
+    if (!list) return;
+    if (mode === "latest") {
+      const nodes = list.querySelectorAll<HTMLElement>("[data-message-id]");
+      const last = nodes[nodes.length - 1];
+      if (last && last.dataset.messageRole === "assistant" && last.offsetHeight > list.clientHeight - 24) {
+        const delta = last.getBoundingClientRect().top - list.getBoundingClientRect().top;
+        list.scrollTo({ top: Math.max(0, list.scrollTop + delta - 8), behavior });
+        return;
+      }
+    }
+    list.scrollTo({ top: list.scrollHeight, behavior });
+  }, []);
+
+  // Runs once now and again when the sheet's height transition has finished: the first scroll is
+  // measured against a height that is still moving, the second against the one it settled on.
   React.useEffect(() => {
-    if (hasAutoOpened.current || agent.messages.length <= 1) return;
-    hasAutoOpened.current = true;
-    setSnap("half");
-  }, [agent.messages.length, setSnap]);
+    const mode = agent.isTyping || agent.isScanning ? "end" : "latest";
+    const frame = window.requestAnimationFrame(() => scrollMessages(mode, "smooth"));
+    const settled = window.setTimeout(() => scrollMessages(mode, "smooth"), SHEET_SETTLE_MS);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(settled);
+    };
+  }, [agent.messages, agent.isTyping, agent.isScanning, sheetSnap, scrollMessages]);
+
+  // "Ask about this" and "Complete the look" put a card above the composer, which shortens the
+  // list under the shopper's thumb. Keep the end of the conversation in view instead of leaving
+  // the card they tapped hidden behind it.
+  const attachmentKey = agent.attachment
+    ? agent.attachment.kind === "look"
+      ? `look:${agent.attachment.look.id}`
+      : `${agent.attachment.kind}:${agent.attachment.product.id}`
+    : null;
+  React.useEffect(() => {
+    if (!attachmentKey) return;
+    const frame = window.requestAnimationFrame(() => scrollMessages("end", "smooth"));
+    const settled = window.setTimeout(() => scrollMessages("end", "smooth"), SHEET_SETTLE_MS);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(settled);
+    };
+  }, [attachmentKey, scrollMessages]);
 
   // While the sheet is collapsed, replies are announced on the handle instead of stealing
   // the screen, so there is still a reason to look down without forcing it open.
@@ -556,10 +631,9 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
       {/* ── Layer 1: Bottom sheet chat ── */}
       <div
         className={cn(
-          "absolute inset-x-0 bottom-0 z-[30] flex flex-col backdrop-blur-2xl",
-          showSheetChrome ? cn("rounded-t-[var(--radius-2xl)] border-t", styles.sheet) : "border-t border-transparent bg-transparent",
-          !sheetDragging &&
-            "transition-[height,background-color,border-color] duration-300 ease-out motion-reduce:transition-none"
+          "absolute inset-x-0 bottom-0 z-[30] flex flex-col rounded-t-[var(--radius-2xl)] border-t",
+          showSheetChrome ? cn("backdrop-blur-2xl", styles.sheet) : "border-transparent bg-transparent",
+          !sheetDragging && SHEET_TRANSITION
         )}
         style={{ height: SHEET_H }}
       >
@@ -653,9 +727,18 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
           )}
         </div>
 
-        {/* ── Messages + quick replies + input (only visible when expanded) ── */}
-        {sheetExpanded && (
-          <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+        {/* ── Messages + quick replies + input. Always mounted, so opening and closing is the
+             sheet's height gliding over content that is already laid out and merely fades,
+             instead of a message list popping into existence at the end of the animation.
+             While collapsed it is clipped to nothing, hidden, and out of the tab order. ── */}
+          <div
+            aria-hidden={!sheetExpanded}
+            inert={!sheetExpanded}
+            className={cn(
+              "flex flex-col flex-1 min-h-0 overflow-hidden transition-opacity duration-300 ease-out motion-reduce:transition-none",
+              sheetExpanded ? "opacity-100" : "pointer-events-none opacity-0"
+            )}
+          >
             {/* Messages */}
             <div
               ref={messagesRef}
@@ -669,31 +752,35 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
                   .map((id) => agent.knownProducts[id])
                   .filter((p): p is NonNullable<typeof p> => !!p);
                 return (
-                  <WearableChatMessage
-                    key={msg.id}
-                    message={msg}
-                    isLast={idx === messageList.visible.length - 1}
-                    userPhotoUrl={profilePhotoUrl(agent.profile)}
-                    inlineProducts={msgProducts.length > 0 ? msgProducts : undefined}
-                    outfitItemIds={outfitItemIds}
-                    cartItemIds={cartItemIds}
-                    pendingCartItemIds={agent.pendingCartItemIds}
-                    isGenerating={agent.isGenerating}
-                    onWearItem={agent.wearItem}
-                    onAddToCart={handleAddToCart}
-                    knownProducts={agent.knownProducts}
-                    attachedItemId={agent.attachment?.kind === "item" ? agent.attachment.product.id : null}
-                    attachedLookId={agent.attachment?.kind === "look" ? agent.attachment.look.id : null}
-                    isBusy={chatBusy}
-                    sendDisabled={sendDisabled}
-                    onRetry={msg.id === agent.retryMessageId ? agent.retryLastTurn : undefined}
-                    onAskAboutItem={agent.attachItem}
-                    onCompleteLook={agent.completeLook}
-                    onQuickOption={(label) => agent.sendMessage(label)}
-                    onRenderBundle={agent.wearBundle}
-                    onAddBundleToCart={agent.addBundleToCart}
-                    onAskAboutLook={agent.attachLook}
-                  />
+                  <div key={msg.id} data-message-id={msg.id} data-message-role={msg.role}>
+                    <WearableChatMessage
+                      message={msg}
+                      paged
+                      isLast={idx === messageList.visible.length - 1}
+                      userPhotoUrl={profilePhotoUrl(agent.profile)}
+                      inlineProducts={msgProducts.length > 0 ? msgProducts : undefined}
+                      outfitItemIds={outfitItemIds}
+                      cartItemIds={cartItemIds}
+                      pendingCartItemIds={agent.pendingCartItemIds}
+                      isGenerating={agent.isGenerating}
+                      onWearItem={wearItemAndClose}
+                      onAddToCart={handleAddToCart}
+                      onRemoveFromCart={handleRemoveFromCart}
+                      knownProducts={agent.knownProducts}
+                      attachedItemId={agent.attachment?.kind === "item" ? agent.attachment.product.id : null}
+                      attachedLookId={agent.attachment?.kind === "look" ? agent.attachment.look.id : null}
+                      isBusy={chatBusy}
+                      sendDisabled={sendDisabled}
+                      onRetry={msg.id === agent.retryMessageId ? agent.retryLastTurn : undefined}
+                      onAskAboutItem={agent.attachItem}
+                      onCompleteLook={agent.completeLook}
+                      onQuickOption={(label) => agent.sendMessage(label)}
+                      onRenderBundle={wearBundleAndClose}
+                      onAddBundleToCart={agent.addBundleToCart}
+                      onRemoveBundleFromCart={agent.removeBundleFromCart}
+                      onAskAboutLook={agent.attachLook}
+                    />
+                  </div>
                 );
               })}
               {agent.isTyping && <WearableTypingIndicator stage={agent.typingStage} />}
@@ -766,7 +853,6 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
               </div>
             </div>
           </div>
-        )}
       </div>
     </div>
   );

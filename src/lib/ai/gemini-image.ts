@@ -8,27 +8,48 @@
  * the caller so each render is charged at its real cost (`geminiImageCostNanos`).
  */
 import { NANO_BANANA_1K_IMAGE_TOKENS, type GeminiImageTokenCounts } from "@/lib/billing/pricing";
+import { isRetryableTryOnError, type TryOnErrorCode } from "@/lib/try-on/errors";
 import { getPlatformGeminiApiKey } from "./gemini";
 
 const INTERACTIONS_URL = "https://generativelanguage.googleapis.com/v1beta/interactions";
 export const DEFAULT_TRY_ON_MODEL = "gemini-nano-banana-2.1";
 
-/** Renders take 12-25 s, longer for 4+ garments or under load. Generous but bounded. */
-const REQUEST_TIMEOUT_MS = 90_000;
+/**
+ * Renders take 12-30 s, longer for 4+ garments or under load. Two attempts share one budget that
+ * is kept inside the route's 120 s `maxDuration` together with fetching the pictures: the old
+ * "90 s, twice" could promise 180 s the platform would never wait for, so a slow second attempt
+ * ended as a dropped connection instead of an answer.
+ */
+export const ATTEMPT_TIMEOUTS_MS = [55_000, 45_000] as const;
+export const TOTAL_BUDGET_MS = 100_000;
+/** A second attempt with less than this left would only time out; give up with the real error. */
+const MIN_RETRY_MS = 12_000;
 const RETRY_DELAY_MS = 1_500;
 
 export class GeminiImageError extends Error {
   constructor(
     message: string,
-    public status?: number
+    public status?: number,
+    public code: TryOnErrorCode = "provider_busy"
   ) {
     super(message);
     this.name = "GeminiImageError";
+  }
+
+  /** Whether asking the model again can help. */
+  get retryable(): boolean {
+    return isRetryableTryOnError(this.code);
   }
 }
 
 export function tryOnModel(): string {
   return process.env.GEMINI_TRYON_MODEL?.trim() || DEFAULT_TRY_ON_MODEL;
+}
+
+/** An optional second model for the retry, so a model that is down does not fail both attempts. */
+export function tryOnFallbackModel(): string | null {
+  const fallback = process.env.GEMINI_TRYON_FALLBACK_MODEL?.trim();
+  return fallback && fallback !== tryOnModel() ? fallback : null;
 }
 
 export interface GeminiImageInput {
@@ -127,7 +148,7 @@ export function parseInteractionResponse(json: unknown): GeminiImageResult {
   const image = findImage(root?.output_image) ?? findImage(json);
   if (!image) {
     const status = typeof root?.status === "string" ? ` (status: ${root.status})` : "";
-    throw new GeminiImageError(`Gemini returned no image${status}. Please try again.`);
+    throw new GeminiImageError(`Gemini returned no image${status}. Please try again.`, undefined, "no_image");
   }
   return {
     image: Buffer.from(image.data, "base64"),
@@ -136,37 +157,71 @@ export function parseInteractionResponse(json: unknown): GeminiImageResult {
   };
 }
 
-function isRetryable(status: number): boolean {
-  return status === 429 || status >= 500;
+function codeForStatus(status: number): TryOnErrorCode {
+  return status === 429 || status >= 500 ? "provider_busy" : "rejected";
 }
 
-async function postInteraction(body: unknown, apiKey: string): Promise<unknown> {
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Sends one render request and returns the picture, retrying whatever can plausibly succeed the
+ * second time: overload (429/5xx), a timeout, a dropped connection, a 200 with no picture, or an
+ * unreadable body. A refusal (other 4xx) is final. The retry may use a different model
+ * (`GEMINI_TRYON_FALLBACK_MODEL`) so one model being down does not fail both attempts.
+ */
+export async function requestImage(
+  buildBody: (model: string) => unknown,
+  apiKey: string
+): Promise<GeminiImageResult> {
+  const startedAt = Date.now();
+  const fallback = tryOnFallbackModel();
   let lastError: GeminiImageError | null = null;
 
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  for (let attempt = 0; attempt < ATTEMPT_TIMEOUTS_MS.length; attempt++) {
+    const remaining = TOTAL_BUDGET_MS - (Date.now() - startedAt);
+    if (attempt > 0 && remaining < MIN_RETRY_MS) break;
+    const timeoutMs = Math.min(ATTEMPT_TIMEOUTS_MS[attempt], remaining);
+    const model = attempt > 0 && fallback ? fallback : tryOnModel();
+
     try {
       const res = await fetch(INTERACTIONS_URL, {
         method: "POST",
         headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        body: JSON.stringify(buildBody(model)),
+        signal: AbortSignal.timeout(timeoutMs),
       });
       const text = await res.text();
-      if (res.ok) return JSON.parse(text);
+
+      if (res.ok) {
+        let json: unknown;
+        try {
+          json = JSON.parse(text);
+        } catch {
+          throw new GeminiImageError("Gemini returned an unreadable response. Please try again.", res.status, "no_image");
+        }
+        return parseInteractionResponse(json);
+      }
 
       lastError = new GeminiImageError(
         `Gemini image request failed (${res.status}): ${text.slice(0, 300)}`,
-        res.status
+        res.status,
+        codeForStatus(res.status)
       );
-      if (!isRetryable(res.status)) break;
     } catch (err) {
-      if (err instanceof GeminiImageError) throw err;
-      const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
-      lastError = new GeminiImageError(
-        timedOut ? "Gemini took too long to render the image. Please try again." : "Couldn't reach Gemini. Please try again."
-      );
+      if (err instanceof GeminiImageError) {
+        lastError = err;
+      } else {
+        const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+        lastError = timedOut
+          ? new GeminiImageError("Gemini took too long to render the image. Please try again.", undefined, "timeout")
+          : new GeminiImageError("Couldn't reach Gemini. Please try again.", undefined, "unreachable");
+      }
     }
-    if (attempt === 1) await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+
+    if (!lastError.retryable) throw lastError;
+    if (attempt < ATTEMPT_TIMEOUTS_MS.length - 1) await wait(RETRY_DELAY_MS);
   }
 
   throw lastError ?? new GeminiImageError("Gemini image request failed.");
@@ -178,29 +233,27 @@ async function postInteraction(body: unknown, apiKey: string): Promise<unknown> 
  */
 export async function editGeminiImage(input: GeminiImageEditInput): Promise<GeminiImageResult> {
   if (input.images.length === 0) {
-    throw new GeminiImageError("Gemini image editing requires at least one image.");
+    throw new GeminiImageError("Gemini image editing requires at least one image.", undefined, "invalid_request");
   }
 
-  const body = {
-    model: tryOnModel(),
-    input: [
-      { type: "text", text: input.prompt },
-      ...input.images.map((image) => ({
-        type: "image",
-        mime_type: image.mimeType,
-        data: image.data.toString("base64"),
-      })),
-    ],
+  // Encoded once: a retry re-sends the same pictures, and base64 of ten garments is not free.
+  const imageParts = input.images.map((image) => ({
+    type: "image",
+    mime_type: image.mimeType,
+    data: image.data.toString("base64"),
+  }));
+  const buildBody = (model: string) => ({
+    model,
+    input: [{ type: "text", text: input.prompt }, ...imageParts],
     response_format: { type: "image", aspect_ratio: input.aspectRatio ?? "3:4", image_size: "1K" },
-  };
+  });
 
   let apiKey: string;
   try {
     apiKey = getPlatformGeminiApiKey();
   } catch {
-    throw new GeminiImageError("Try-on rendering is not configured (GEMINI_API_KEY).");
+    throw new GeminiImageError("Try-on rendering is not configured (GEMINI_API_KEY).", undefined, "not_configured");
   }
 
-  const json = await postInteraction(body, apiKey);
-  return parseInteractionResponse(json);
+  return requestImage(buildBody, apiKey);
 }

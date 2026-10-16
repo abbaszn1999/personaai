@@ -10,6 +10,8 @@ import { resolveGarmentSlot } from "../utils/fit-metrics";
 import { EMPTY_RETRIEVAL_STATE, normalizeRetrievalState, type RetrievalState } from "../utils/retrieval-state";
 import { MAX_PERSISTED_MESSAGES, MAX_SENT_MESSAGES, takeLastMessages } from "../utils/chat-history";
 import { browserLocale, widgetStrings } from "../widget-strings";
+import { compactAvatarForUpload } from "../utils/avatar-upload";
+import { newTryOnRequestId, requestTryOnImage, TryOnRequestError } from "../utils/try-on-request";
 import { AVATAR_GENERATION_STAGES } from "../constants";
 import { isKidsAudience, KIDS_AGE_RANGE } from "../audiences";
 import { INITIAL_WEARABLE_MESSAGE, SCAN_STAGE_DURATION_MS, SCAN_STAGES } from "../mocks/responses";
@@ -25,8 +27,8 @@ import {
   saveEmbedState,
 } from "@/lib/embed/client/embed-storage";
 import type { ShopperProfileDraft } from "@/lib/embed/client/shopper-api";
-import { addItemToWooCommerceCart } from "@/lib/woocommerce/store-api-client";
-import { addItemToShopifyCart } from "@/lib/shopify/ajax-cart-client";
+import { addItemToWooCommerceCart, removeItemFromWooCommerceCart } from "@/lib/woocommerce/store-api-client";
+import { addItemToShopifyCart, removeItemFromShopifyCart } from "@/lib/shopify/ajax-cart-client";
 
 // Mirrors DEFAULT_AVATAR_VARIATION_COUNT in src/lib/try-on/image-generation.ts — kept as a local
 // literal rather than importing that module, since this hook ships in the client widget bundle
@@ -34,8 +36,6 @@ import { addItemToShopifyCart } from "@/lib/shopify/ajax-cart-client";
 // bundled for the browser.
 const EXPECTED_AVATAR_VARIATION_COUNT = 3;
 const GENERIC_AVATAR_ERROR = "We couldn't generate your avatar. Please try again.";
-const GENERIC_TRYON_ERROR = "Sorry, I couldn't generate your try-on preview. Please try again.";
-
 /** Passed only when this hook is powering the public `/embed/[token]` page or widget.js —
  *  swaps every `/api/agents/*` call for its public `/api/embed/*` counterpart and includes the
  *  embed token (plus a per-shopper session id) on every request. */
@@ -274,11 +274,6 @@ export function normalizePersistedState(raw: unknown): PersistedEmbedState | nul
   }
 
   return null;
-}
-
-interface TryOnApiResponse {
-  imageUrl?: string;
-  error?: string;
 }
 
 /** Resolves a possibly-relative image URL to an absolute one the server can fetch;
@@ -707,6 +702,11 @@ export function useTryOnAgent(
   /** Bumped whenever a turn is superseded; a turn whose generation is stale drops its events. */
   const chatGenerationRef = React.useRef(0);
   const failedTurnRef = React.useRef<FailedChatTurn | null>(null);
+  /** True from the tap on Wear until the render is shown or has failed: a second tap while a
+   *  render is running would start (and bill) another one for the same look. */
+  const tryOnInFlightRef = React.useRef(false);
+  /** The failed render a Retry button repeats: its bubble and the outfit that was being rendered. */
+  const failedTryOnRef = React.useRef<{ messageId: string; items: Product[] } | null>(null);
   const customAvatarUrlRef = React.useRef<string | null>(null);
   const selectedAvatarIdRef = React.useRef<string | null>(null);
   /** Stable per-shopper id for embedded sessions — lets the server key its ephemeral avatar
@@ -737,6 +737,10 @@ export function useTryOnAgent(
   // products within one click) so they never hit the store's cart endpoint concurrently — see
   // syncProductsToRealCart for why that matters.
   const cartSyncQueueRef = React.useRef<Promise<void>>(Promise.resolve());
+  /** What each product was added to the store's cart as (the Shopify variant or Woo item id the
+   *  add resolved to), so taking it out again removes exactly that line and not a guess. Empty
+   *  after a reload; removal then resolves the same id again from the product. */
+  const cartTargetsRef = React.useRef(new Map<string, { platform: string; id: number }>());
   React.useEffect(() => {
     outfitRef.current = state.outfitItems;
     profileRef.current = state.profile;
@@ -1430,26 +1434,41 @@ export function useTryOnAgent(
   async function generateTryOn(productsOverride?: Product[]) {
     const items = productsOverride ?? outfitRef.current;
     if (items.length === 0) return;
+    // One render at a time: a second tap on Wear (or a Retry racing the first attempt) would
+    // start and bill another render for the same look.
+    if (tryOnInFlightRef.current) return;
+    tryOnInFlightRef.current = true;
+    failedTryOnRef.current = null;
+    try {
+      await runTryOn(items);
+    } finally {
+      tryOnInFlightRef.current = false;
+    }
+  }
 
+  /** Puts a failed render into the chat as an assistant bubble, with Retry when asking again can help. */
+  function reportTryOnFailure(items: Product[], message: string, retryable: boolean) {
+    const messageId = `msg-tryon-error-${Date.now()}`;
+    failedTryOnRef.current = retryable ? { messageId, items } : null;
+    setState((s) => ({
+      ...s,
+      isGenerating: false,
+      retryMessageId: retryable ? messageId : s.retryMessageId,
+      messages: [
+        ...s.messages,
+        { id: messageId, role: "assistant", content: message, timestamp: new Date().toISOString() },
+      ],
+    }));
+  }
+
+  async function runTryOn(items: Product[]) {
     setState((s) => ({ ...s, isGenerating: true }));
 
     const profile = profileRef.current;
     const avatarImageUrl = profile.avatarUrl;
 
     if (!avatarImageUrl) {
-      setState((s) => ({
-        ...s,
-        isGenerating: false,
-        messages: [
-          ...s.messages,
-          {
-            id: `msg-tryon-error-${Date.now()}`,
-            role: "assistant",
-            content: GENERIC_TRYON_ERROR,
-            timestamp: new Date().toISOString(),
-          },
-        ],
-      }));
+      reportTryOnFailure(items, widgetStrings(browserLocale()).tryOnGeneric, false);
       return;
     }
 
@@ -1497,39 +1516,40 @@ export function useTryOnAgent(
 
     let imageUrl: string;
     try {
-      const res = await fetch(embed ? `${embed.apiBase}/persona/try-on` : "/api/agents/persona/try-on", {
-        method: "POST",
-        headers: embed ? embedRequestHeaders(embed.embedToken) : { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...(embed ? { embedToken: embed.embedToken } : {}),
-          avatarImageUrl: toAbsoluteImageUrl(avatarImageUrl),
-          garments: items.map((p) => ({
-            imageUrl: toAbsoluteImageUrl(p.imageUrl),
-            slot: resolveGarmentSlot(p),
-            ...(p.garmentLeaf ? { leaf: p.garmentLeaf } : {}),
-          })),
-          ...(embed ? { sessionId: embedSessionIdRef.current } : {}),
-        }),
+      // Built once: every automatic retry sends the very same body, request id included, so the
+      // server recognises it and never renders (or bills) the same tap twice.
+      const requestBody = JSON.stringify({
+        ...(embed ? { embedToken: embed.embedToken } : {}),
+        requestId: newTryOnRequestId(),
+        avatarImageUrl: await compactAvatarForUpload(toAbsoluteImageUrl(avatarImageUrl)),
+        garments: items.map((p) => ({
+          imageUrl: toAbsoluteImageUrl(p.imageUrl),
+          slot: resolveGarmentSlot(p),
+          ...(p.garmentLeaf ? { leaf: p.garmentLeaf } : {}),
+        })),
+        ...(embed ? { sessionId: embedSessionIdRef.current } : {}),
       });
-      const data: TryOnApiResponse = await res.json().catch(() => ({}));
-      if (!res.ok || !data.imageUrl) {
-        throw new Error(data.error || GENERIC_TRYON_ERROR);
-      }
-      imageUrl = data.imageUrl;
+      imageUrl = await requestTryOnImage((signal) =>
+        fetch(embed ? `${embed.apiBase}/persona/try-on` : "/api/agents/persona/try-on", {
+          method: "POST",
+          headers: embed ? embedRequestHeaders(embed.embedToken) : { "Content-Type": "application/json" },
+          body: requestBody,
+          signal,
+        })
+      );
     } catch (err) {
-      setState((s) => ({
-        ...s,
-        isGenerating: false,
-        messages: [
-          ...s.messages,
-          {
-            id: `msg-tryon-error-${Date.now()}`,
-            role: "assistant",
-            content: err instanceof Error ? err.message : GENERIC_TRYON_ERROR,
-            timestamp: new Date().toISOString(),
-          },
-        ],
-      }));
+      const failure = err instanceof TryOnRequestError ? err : new TryOnRequestError("generic", true);
+      console.warn("[try-on] render failed:", failure.kind);
+      const strings = widgetStrings(browserLocale());
+      const message = {
+        network: strings.tryOnNetwork,
+        timeout: strings.tryOnTimeout,
+        busy: strings.tryOnBusy,
+        garment: strings.tryOnGarment,
+        unavailable: strings.tryOnUnavailable,
+        generic: strings.tryOnGeneric,
+      }[failure.kind];
+      reportTryOnFailure(items, message, failure.retryable);
       return;
     }
 
@@ -1643,6 +1663,7 @@ export function useTryOnAgent(
     const strings = widgetStrings(browserLocale());
 
     failedTurnRef.current = null;
+    failedTryOnRef.current = null;
     setState((s) => ({ ...s, isTyping: true, isReplying: true, typingStage: "thinking", retryMessageId: null }));
 
     let assistantMessageId: string | null = null;
@@ -1929,6 +1950,18 @@ export function useTryOnAgent(
   /** Resends the failed turn as it was. The shopper's own message is already in the chat, so
    *  only the failed reply's bubbles are swapped for the new attempt. */
   async function retryLastTurn() {
+    const failedTryOn = failedTryOnRef.current;
+    if (failedTryOn) {
+      // The Retry on a failed render repeats the render, not a chat turn.
+      failedTryOnRef.current = null;
+      setState((s) => ({
+        ...s,
+        messages: s.messages.filter((m) => m.id !== failedTryOn.messageId),
+        retryMessageId: null,
+      }));
+      await generateTryOn(failedTryOn.items);
+      return;
+    }
     const failedTurn = failedTurnRef.current;
     if (!failedTurn || chatAbortRef.current) return;
     failedTurnRef.current = null;
@@ -2034,6 +2067,7 @@ export function useTryOnAgent(
                 : await addItemToWooCommerceCart(origin, data.id, 1);
             if (!result.ok) throw new Error(result.error || "Couldn't add this to your cart.");
             success = true;
+            cartTargetsRef.current.set(product.id, { platform: data.platform ?? "", id: data.id });
             // Mark "Added" right now, synchronously, before the next item in this batch even
             // starts — not upfront for the whole batch (see addToCart/addBundleToCart). If a
             // same-tick page reload fires from here on out (e.g. the next item's own
@@ -2152,6 +2186,101 @@ export function useTryOnAgent(
     syncProductsToRealCart(toAdd);
   }
 
+  /** Takes products back out of the store's real cart, one at a time through the same queue as
+   *  adds, so an add and a remove pressed close together never reach the store concurrently.
+   *  A product leaves the widget's own cart only once the store has actually removed it; if the
+   *  store refuses, it stays in the cart (the button still says Added) and the shopper is told. */
+  function removeProductsFromRealCart(products: Product[]) {
+    if (!embed?.enableRealCart || products.length === 0) return;
+    const origin = window.location.origin;
+
+    cartSyncQueueRef.current = cartSyncQueueRef.current.catch(() => {}).then(async () => {
+      for (const product of products) {
+        setState((s) => ({ ...s, pendingCartItemIds: [...s.pendingCartItemIds, product.id] }));
+        try {
+          let target = cartTargetsRef.current.get(product.id);
+          if (!target) {
+            // Added before a reload: resolve the same store id the add would have used.
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 15_000);
+            try {
+              const res = await fetch(`${embed.apiBase}/cart-item`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  embedToken: embed.embedToken,
+                  productId: product.id,
+                  ...(product.fitSizes?.length ? { sizes: product.fitSizes } : {}),
+                  ...(product.preferredColors?.length ? { colors: product.preferredColors } : {}),
+                }),
+                signal: controller.signal,
+              });
+              const data: { id?: number; platform?: string; error?: string } = await res.json().catch(() => ({}));
+              if (!res.ok || typeof data.id !== "number") {
+                throw new Error(data.error || "Couldn't remove this from your cart.");
+              }
+              target = { platform: data.platform ?? "", id: data.id };
+            } finally {
+              clearTimeout(timeout);
+            }
+          }
+
+          const result =
+            target.platform === "shopify"
+              ? await removeItemFromShopifyCart(origin, target.id)
+              : await removeItemFromWooCommerceCart(origin, target.id);
+          if (!result.ok) throw new Error(result.error || "Couldn't remove this from your cart.");
+
+          cartTargetsRef.current.delete(product.id);
+          let remaining: Product[] = [];
+          setState((s) => {
+            remaining = s.cartItems.filter((p) => p.id !== product.id);
+            return { ...s, cartItems: remaining };
+          });
+          persistCartItemsNow(remaining);
+        } catch (err) {
+          console.error(`[use-try-on-agent] real cart removal failed for "${product.name}"`, err);
+          const message =
+            err instanceof Error && err.name === "AbortError"
+              ? "The store took too long to respond — please try again."
+              : err instanceof Error
+                ? err.message
+                : "Couldn't remove this from your cart.";
+          setState((s) => ({ ...s, cartSyncError: message }));
+          setTimeout(() => setState((s) => (s.cartSyncError === message ? { ...s, cartSyncError: null } : s)), 8000);
+        } finally {
+          setState((s) => ({ ...s, pendingCartItemIds: s.pendingCartItemIds.filter((id) => id !== product.id) }));
+        }
+      }
+    });
+  }
+
+  /** The second press on a product that is already in the cart. */
+  function removeFromCart(product: Product) {
+    if (!state.cartItems.some((p) => p.id === product.id)) return;
+    if (embed?.enableRealCart) {
+      removeProductsFromRealCart([product]);
+      return;
+    }
+    const next = state.cartItems.filter((p) => p.id !== product.id);
+    setState((s) => ({ ...s, cartItems: next }));
+    persistCartItemsNow(next);
+  }
+
+  /** The second press on a bundle whose pieces are all in the cart. */
+  function removeBundleFromCart(productIds: string[]) {
+    const ids = new Set(productIds);
+    const toRemove = state.cartItems.filter((p) => ids.has(p.id));
+    if (toRemove.length === 0) return;
+    if (embed?.enableRealCart) {
+      removeProductsFromRealCart(toRemove);
+      return;
+    }
+    const next = state.cartItems.filter((p) => !ids.has(p.id));
+    setState((s) => ({ ...s, cartItems: next }));
+    persistCartItemsNow(next);
+  }
+
   function addToOutfit(product: Product) {
     setState((s) => {
       const nextOutfit = mergeGarmentIntoOutfit(s.outfitItems, [product]);
@@ -2251,6 +2380,8 @@ export function useTryOnAgent(
     wearItem,
     wearBundle,
     addBundleToCart,
+    removeFromCart,
+    removeBundleFromCart,
     prevImage,
     nextImage,
     selectImage,

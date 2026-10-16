@@ -2,22 +2,41 @@
 
 import * as React from "react";
 
-export type SheetSnap = "peek" | "half" | "full";
+export type SheetSnap = "peek" | "half" | "tall" | "full";
 
 /** `peek` is measured from the header row instead of a fraction, so the collapsed sheet is
- *  exactly as tall as its own content on any device rather than a magic 72px. */
-const SNAP_FRACTION: Record<Exclude<SheetSnap, "peek">, number> = { half: 0.56, full: 0.92 };
+ *  exactly as tall as its own content on any device rather than a magic 72px.
+ *
+ *  `tall` is where the sheet grows to when there is something to look at (a product or bundle
+ *  card): high enough for a whole card and the reply above it, low enough that the avatar is
+ *  still visible. `full` is reserved for typing, where the keyboard needs the room. */
+export const SNAP_FRACTION: Record<Exclude<SheetSnap, "peek">, number> = { half: 0.56, tall: 0.82, full: 0.92 };
 
-const ORDERED_SNAPS: readonly SheetSnap[] = ["peek", "half", "full"];
+export const ORDERED_SNAPS: readonly SheetSnap[] = ["peek", "half", "tall", "full"];
 
 /** Below this, a viewport shrink is the browser's own collapsing toolbar, not a keyboard. */
 const KEYBOARD_MIN_INSET = 120;
 
 /** A pointer that moved less than this is a tap on the header, not a drag of the sheet. */
-const DRAG_SLOP = 5;
+export const DRAG_SLOP = 5;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+/** The snap a sheet should be at to show `target`, never lower than where it already is and
+ *  never opened from collapsed: a shopper who closed the sheet to look at the avatar keeps it
+ *  closed, whatever arrives. */
+export function raiseSnap(current: SheetSnap, target: SheetSnap): SheetSnap {
+  if (current === "peek") return current;
+  return ORDERED_SNAPS.indexOf(current) >= ORDERED_SNAPS.indexOf(target) ? current : target;
+}
+
+/** The snap a drag released at `released` px settles on. */
+export function nearestSnap(released: number, heightFor: (snap: SheetSnap) => number): SheetSnap {
+  return ORDERED_SNAPS.reduce((best, candidate) =>
+    Math.abs(heightFor(candidate) - released) < Math.abs(heightFor(best) - released) ? candidate : best
+  );
 }
 
 /**
@@ -30,12 +49,17 @@ function clamp(value: number, min: number, max: number): number {
  * is what stops controls from being stranded under an expanded sheet, and writing a custom
  * property lets a drag repaint at pointer rate without re-rendering the message list on every
  * frame.
+ *
+ * A press is not a drag until the pointer has moved past `DRAG_SLOP`. Starting the drag (and
+ * the pointer capture and re-render that come with it) on pointer down used to swap the
+ * collapsed launcher out from under the finger, so the tap that was meant to open the chat
+ * never reached its button and only a swipe could open it.
  */
-export function useBottomSheet(peekFallback = 72) {
+export function useBottomSheet(peekFallback = 72, initialSnap: SheetSnap = "peek") {
   const rootRef = React.useRef<HTMLDivElement>(null);
   const headerRef = React.useRef<HTMLDivElement>(null);
 
-  const [snap, setSnap] = React.useState<SheetSnap>("peek");
+  const [snap, setSnap] = React.useState<SheetSnap>(initialSnap);
   const [containerHeight, setContainerHeight] = React.useState(0);
   const [peekHeight, setPeekHeight] = React.useState(peekFallback);
   const [isDragging, setIsDragging] = React.useState(false);
@@ -103,45 +127,53 @@ export function useBottomSheet(peekFallback = 72) {
   }, [snap, heightFor, isDragging, publish]);
 
   // ── Drag ─────────────────────────────────────────────────────────────────
-  const drag = React.useRef({ startY: 0, startHeight: 0, moved: false });
+  const drag = React.useRef({ startY: 0, startHeight: 0, moved: false, active: false });
 
   const onPointerDown = React.useCallback(
     (e: React.PointerEvent<HTMLElement>) => {
-      drag.current = { startY: e.clientY, startHeight: heightFor(snap), moved: false };
-      setIsDragging(true);
-      e.currentTarget.setPointerCapture(e.pointerId);
+      // Mouse: primary button only. Touch and pen always report button 0.
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      drag.current = { startY: e.clientY, startHeight: heightFor(snap), moved: false, active: true };
     },
     [heightFor, snap]
   );
 
   const onPointerMove = React.useCallback(
     (e: React.PointerEvent<HTMLElement>) => {
-      if (!isDragging) return;
-      const delta = drag.current.startY - e.clientY;
-      if (Math.abs(delta) > DRAG_SLOP) drag.current.moved = true;
-      publish(clamp(drag.current.startHeight + delta, peekHeight, heightFor("full")));
+      const state = drag.current;
+      if (!state.active) return;
+      const delta = state.startY - e.clientY;
+      if (!state.moved) {
+        if (Math.abs(delta) <= DRAG_SLOP) return;
+        state.moved = true;
+        setIsDragging(true);
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+          // The pointer is already gone; the release below still settles the sheet.
+        }
+      }
+      publish(clamp(state.startHeight + delta, peekHeight, heightFor("full")));
     },
-    [isDragging, publish, peekHeight, heightFor]
+    [publish, peekHeight, heightFor]
   );
 
   const onPointerUp = React.useCallback(
     (e: React.PointerEvent<HTMLElement>) => {
-      if (!isDragging) return;
+      const state = drag.current;
+      if (!state.active) return;
+      state.active = false;
+      // A press that never moved is a tap: the button under it handles it through `onClick`.
+      if (!state.moved) return;
       setIsDragging(false);
-      const released = clamp(
-        drag.current.startHeight + (drag.current.startY - e.clientY),
-        peekHeight,
-        heightFor("full")
-      );
-      const nearest = ORDERED_SNAPS.reduce((best, candidate) =>
-        Math.abs(heightFor(candidate) - released) < Math.abs(heightFor(best) - released) ? candidate : best
-      );
+      const released = clamp(state.startHeight + (state.startY - e.clientY), peekHeight, heightFor("full"));
+      const nearest = nearestSnap(released, heightFor);
       setSnap(nearest);
       // `setSnap` is a no-op when the sheet snapped back to where it started, and the sync
       // effect would then never run to undo the in-progress drag height.
       publish(heightFor(nearest));
     },
-    [isDragging, peekHeight, heightFor, publish]
+    [peekHeight, heightFor, publish]
   );
 
   /** True when the gesture that just ended was a real drag, so the header's tap-to-toggle
@@ -152,11 +184,17 @@ export function useBottomSheet(peekFallback = 72) {
     setSnap((current) => (current === "peek" ? "half" : "peek"));
   }, []);
 
+  /** Grows the sheet to show new content, but only when it is already open. */
+  const raiseTo = React.useCallback((target: SheetSnap) => {
+    setSnap((current) => raiseSnap(current, target));
+  }, []);
+
   return {
     rootRef,
     headerRef,
     snap,
     setSnap,
+    raiseTo,
     toggle,
     isDragging,
     consumedDrag,

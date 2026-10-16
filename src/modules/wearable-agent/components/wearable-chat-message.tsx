@@ -25,6 +25,7 @@ import type { ChatAttachment, TypingStage } from "../hooks/use-try-on-agent";
 import { useWearableBranding } from "../branding-context";
 import { useWidgetLocale, widgetStrings } from "../widget-strings";
 import { cn } from "@/lib/utils/cn";
+import { PagedCarousel } from "./paged-carousel";
 
 interface WearableChatMessageProps {
   message: ChatMessageType;
@@ -48,13 +49,18 @@ interface WearableChatMessageProps {
   sendDisabled?: boolean;
   /** Set only on the bubble of a failed reply. */
   onRetry?: () => void;
+  /** Mobile: suggestions span the whole chat width and swipe one full card at a time. */
+  paged?: boolean;
   onWearItem?: (product: Product) => void;
   onAddToCart?: (product: Product) => void;
+  /** A second press on an item that is already in the cart takes it back out. */
+  onRemoveFromCart?: (product: Product) => void;
   onAskAboutItem?: (product: Product) => void;
   onCompleteLook?: (product: Product) => void;
   onQuickOption?: (label: string) => void;
   onRenderBundle?: (productIds: string[]) => void;
   onAddBundleToCart?: (productIds: string[]) => void;
+  onRemoveBundleFromCart?: (productIds: string[]) => void;
   onAskAboutLook?: (bundle: BundleSuggestion) => void;
 }
 
@@ -81,19 +87,24 @@ export function WearableChatMessage({
   isBusy = false,
   sendDisabled = false,
   onRetry,
+  paged = false,
   onWearItem,
   onAddToCart,
+  onRemoveFromCart,
   onAskAboutItem,
   onCompleteLook,
   onQuickOption,
   onRenderBundle,
   onAddBundleToCart,
+  onRemoveBundleFromCart,
   onAskAboutLook,
 }: WearableChatMessageProps) {
   const renderCard = (product: Product) => (
     <InlineSuggestionCard
       key={product.id}
       product={product}
+      paged={paged}
+      onRemoveFromCart={onRemoveFromCart ? () => onRemoveFromCart(product) : undefined}
       isWorn={outfitItemIds.includes(product.id)}
       inCart={cartItemIds.includes(product.id)}
       isPending={pendingCartItemIds.includes(product.id)}
@@ -115,8 +126,45 @@ export function WearableChatMessage({
   const [failedUserPhotoUrl, setFailedUserPhotoUrl] = React.useState<string | null>(null);
   const showUserPhoto = Boolean(userPhotoUrl && userPhotoUrl !== failedUserPhotoUrl);
 
+  const hasProducts = Boolean(inlineProducts && inlineProducts.length > 0);
+  const hasBundles = Boolean(message.bundles && message.bundles.length > 0);
+
+  // The product and bundle suggestions. On the desktop panel they sit in the reply's own column;
+  // on mobile (`paged`) they leave it and span the chat's full width, one whole card at a time —
+  // the column beside the avatar is far too narrow to show a card in full.
+  const suggestions = (
+    <>
+      {hasProducts && inlineProducts && (
+        <div className={cn("space-y-1.5 w-full", paged ? "mt-2" : "mt-1")}>
+          {message.retrievalNote && (
+            <p className="text-[10px] text-[var(--color-text-muted)] px-0.5">{message.retrievalNote}</p>
+          )}
+          <InlineProductScroller paged={paged}>{inlineProducts.map(renderCard)}</InlineProductScroller>
+        </div>
+      )}
+
+      {hasBundles && message.bundles && (
+        <BundleCarousel
+          bundles={message.bundles}
+          paged={paged}
+          cartItemIds={cartItemIds}
+          pendingCartItemIds={pendingCartItemIds}
+          isGenerating={isGenerating}
+          isBusy={isBusy}
+          knownProducts={knownProducts}
+          onRenderBundle={onRenderBundle}
+          onAddBundleToCart={onAddBundleToCart}
+          onRemoveBundleFromCart={onRemoveBundleFromCart}
+          onAskAboutLook={onAskAboutLook}
+          attachedLookId={attachedLookId}
+        />
+      )}
+    </>
+  );
+
   return (
-    <div className={cn("flex items-start gap-2.5 animate-fade-in", isUser ? "flex-row-reverse" : "flex-row")}>
+    <div className="animate-fade-in">
+    <div className={cn("flex items-start gap-2.5", isUser ? "flex-row-reverse" : "flex-row")}>
       {!isUser ? (
         branding.logoUrl ? (
           <img
@@ -192,29 +240,7 @@ export function WearableChatMessage({
           </div>
         )}
 
-        {inlineProducts && inlineProducts.length > 0 && (
-          <div className="space-y-1.5 w-full mt-1">
-            {message.retrievalNote && (
-              <p className="text-[10px] text-[var(--color-text-muted)] px-0.5">{message.retrievalNote}</p>
-            )}
-            <InlineProductScroller>{inlineProducts.map(renderCard)}</InlineProductScroller>
-          </div>
-        )}
-
-        {message.bundles && message.bundles.length > 0 && (
-          <BundleCarousel
-            bundles={message.bundles}
-            cartItemIds={cartItemIds}
-            pendingCartItemIds={pendingCartItemIds}
-            isGenerating={isGenerating}
-            isBusy={isBusy}
-            knownProducts={knownProducts}
-            onRenderBundle={onRenderBundle}
-            onAddBundleToCart={onAddBundleToCart}
-            onAskAboutLook={onAskAboutLook}
-            attachedLookId={attachedLookId}
-          />
-        )}
+        {!paged && suggestions}
 
         {message.tryOnImage && (
           <TryOnResultCard
@@ -225,11 +251,26 @@ export function WearableChatMessage({
         )}
       </div>
     </div>
+    {paged && suggestions}
+    </div>
   );
 }
 
+/** Horizontally scrollable product row with arrow controls on the edges. On mobile (`paged`) it
+ *  is a carousel that shows one whole card at a time instead. */
+function InlineProductScroller({ children, paged = false }: { children: React.ReactNode; paged?: boolean }) {
+  if (paged) {
+    return (
+      <PagedCarousel label="products" arrowTop="26%">
+        {React.Children.toArray(children)}
+      </PagedCarousel>
+    );
+  }
+  return <FreeProductScroller>{children}</FreeProductScroller>;
+}
+
 /** Horizontally scrollable product row with arrow controls on the edges. */
-function InlineProductScroller({ children }: { children: React.ReactNode }) {
+function FreeProductScroller({ children }: { children: React.ReactNode }) {
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = React.useState(false);
   const [canScrollRight, setCanScrollRight] = React.useState(false);
@@ -306,8 +347,12 @@ interface InlineSuggestionCardProps {
   /** True when this product is attached above the composer. */
   isAttached?: boolean;
   isBusy?: boolean;
+  /** Mobile: the card fills the carousel page instead of being a fixed-width tile. */
+  paged?: boolean;
   onWear: () => void;
   onAddToCart: () => void;
+  /** Pressing the cart button again while the product is in the cart takes it back out. */
+  onRemoveFromCart?: () => void;
   onAsk?: () => void;
   onCompleteLook?: () => void;
 }
@@ -359,19 +404,28 @@ export function InlineSuggestionCard({
   isGenerating,
   isAttached = false,
   isBusy = false,
+  paged = false,
   onWear,
   onAddToCart,
+  onRemoveFromCart,
   onAsk,
   onCompleteLook,
 }: InlineSuggestionCardProps) {
   // Disable while anything is rendering (avoid overlapping requests) or once it's already on the avatar.
   const wearDisabled = !product.inStock || isGenerating || isWorn;
   const wearBusy = isGenerating && isWorn;
+  // In the cart, the same button takes the product back out — unless nothing can remove it.
+  const cartRemovable = inCart && Boolean(onRemoveFromCart);
+  const cartDisabled = isPending || (!inCart && !product.inStock) || (inCart && !cartRemovable);
+  const label = paged ? "text-[11px]" : "text-[10px]";
+  // The narrow desktop tile has no spare width, so its secondary buttons carry less padding.
+  const secondaryPad = paged ? "px-2.5" : "px-1.5";
 
   return (
     <div
       className={cn(
-        "shrink-0 w-48 rounded-[var(--radius-xl)] border bg-[var(--color-surface-card)] overflow-hidden transition-all duration-200",
+        "rounded-[var(--radius-xl)] border bg-[var(--color-surface-card)] overflow-hidden transition-all duration-200",
+        paged ? "w-full" : "shrink-0 w-48",
         isAttached
           ? "border-[var(--color-brand)] ring-2 ring-[var(--color-brand)]/40"
           : isWorn
@@ -379,7 +433,7 @@ export function InlineSuggestionCard({
             : "border-[var(--color-border)] hover:border-[var(--color-brand)]/50"
       )}
     >
-      <div className="relative h-36 bg-white">
+      <div className={cn("relative bg-white", paged ? "h-48" : "h-36")}>
         <ProductPreviewImage product={product} className="object-contain" />
         {isWorn && (
           <div className="absolute inset-0 bg-[var(--color-brand)]/10 flex items-center justify-center">
@@ -427,13 +481,18 @@ export function InlineSuggestionCard({
         <div className="flex items-center gap-1.5">
           <button
             type="button"
-            onClick={onAddToCart}
-            disabled={inCart || isPending || !product.inStock}
-            title="Add to cart"
+            onClick={inCart ? onRemoveFromCart : onAddToCart}
+            disabled={cartDisabled}
+            aria-pressed={inCart}
+            title={inCart ? (cartRemovable ? "In your cart — tap to remove" : "In your cart") : "Add to cart"}
             className={cn(
-              "flex-1 flex items-center justify-center gap-1 text-[10px] font-semibold px-2 py-1.5 rounded-full transition-all",
+              "group flex-1 flex items-center justify-center gap-1 whitespace-nowrap font-semibold px-2 py-1.5 rounded-full transition-all",
+              label,
               inCart
-                ? "bg-[var(--color-brand-light)] text-[var(--color-brand)] cursor-default"
+                ? cn(
+                    "bg-[var(--color-brand-light)] text-[var(--color-brand)]",
+                    cartRemovable ? "hover:bg-[var(--color-error,#ef4444)]/10 hover:text-[var(--color-error,#ef4444)]" : "cursor-default"
+                  )
                 : product.inStock
                   ? "border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-brand)] hover:text-[var(--color-brand)]"
                   : "bg-[var(--color-surface-base)] text-[var(--color-text-muted)] cursor-not-allowed"
@@ -441,11 +500,13 @@ export function InlineSuggestionCard({
           >
             {isPending ? (
               <>
-                <Loader2 className="h-2.5 w-2.5 animate-spin" /> Adding…
+                <Loader2 className="h-2.5 w-2.5 animate-spin" /> {inCart ? "Removing…" : "Adding…"}
               </>
             ) : inCart ? (
               <>
-                <CheckCircle2 className="h-2.5 w-2.5" /> Added
+                <CheckCircle2 className="h-2.5 w-2.5" />
+                <span className={cn(cartRemovable && "group-hover:hidden")}>Added</span>
+                {cartRemovable && <span className="hidden group-hover:inline">Remove</span>}
               </>
             ) : (
               <>
@@ -459,7 +520,8 @@ export function InlineSuggestionCard({
             disabled={wearDisabled}
             title={isWorn ? "On your avatar" : "Wear it — render on avatar"}
             className={cn(
-              "flex-1 flex items-center justify-center gap-1 text-[10px] font-semibold px-2 py-1.5 rounded-full transition-all",
+              "flex-1 flex items-center justify-center gap-1 whitespace-nowrap font-semibold px-2 py-1.5 rounded-full transition-all",
+              label,
               isWorn
                 ? "bg-[var(--color-brand-light)] text-[var(--color-brand)] cursor-default"
                 : "gradient-brand text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -489,7 +551,9 @@ export function InlineSuggestionCard({
                 disabled={isAttached || isBusy}
                 title={isAttached ? "Attached — type your question below" : "Ask about this item"}
                 className={cn(
-                  "flex-1 flex items-center justify-center gap-1 text-[10px] font-semibold px-1.5 py-1.5 rounded-full transition-all",
+                  "shrink-0 flex items-center justify-center gap-1 whitespace-nowrap font-semibold py-1.5 rounded-full transition-all",
+                  secondaryPad,
+                  label,
                   isAttached
                     ? "bg-[var(--color-brand-light)] text-[var(--color-brand)] cursor-default"
                     : "text-[var(--color-text-muted)] hover:text-[var(--color-brand)] hover:bg-[var(--color-brand-light)] disabled:opacity-40"
@@ -504,7 +568,12 @@ export function InlineSuggestionCard({
                 onClick={onCompleteLook}
                 disabled={isBusy || !product.inStock}
                 title="Build a full outfit around this item"
-                className="flex-[1.6] flex items-center justify-center gap-1 text-[10px] font-semibold px-1.5 py-1.5 rounded-full text-[var(--color-text-muted)] hover:text-[var(--color-brand)] hover:bg-[var(--color-brand-light)] disabled:opacity-40 transition-all"
+                className={cn(
+                  // One line, always: it takes the room Ask leaves over and never wraps.
+                  "min-w-0 flex-1 flex items-center justify-center gap-1 whitespace-nowrap font-semibold py-1.5 rounded-full text-[var(--color-text-muted)] hover:text-[var(--color-brand)] hover:bg-[var(--color-brand-light)] disabled:opacity-40 transition-all",
+                  secondaryPad,
+                  label
+                )}
               >
                 <Layers className="h-2.5 w-2.5" /> Complete the look
               </button>
@@ -635,14 +704,17 @@ interface BundleCarouselProps {
   knownProducts: Record<string, Product>;
   onRenderBundle?: (productIds: string[]) => void;
   onAddBundleToCart?: (productIds: string[]) => void;
+  onRemoveBundleFromCart?: (productIds: string[]) => void;
   onAskAboutLook?: (bundle: BundleSuggestion) => void;
   /** Which look is attached, so the row shows which one the bar above the composer means. */
   attachedLookId?: string | null;
+  /** Mobile: one whole bundle per swipe, with arrows and dots, instead of a free-scrolling row. */
+  paged?: boolean;
 }
 
-/** Shows every stylist option side by side. The row scrolls horizontally when five cards exceed
- *  the chat width, which keeps every option visible and directly comparable without hiding four
- *  of them behind Previous/Next arrows. */
+/** Shows the stylist's options. On the desktop panel they sit side by side in a free-scrolling
+ *  row; on mobile (`paged`) each look is a full page of its own, so swiping always lands on a
+ *  whole bundle in the middle of the chat. */
 function BundleCarousel({
   bundles,
   cartItemIds,
@@ -652,26 +724,51 @@ function BundleCarousel({
   knownProducts,
   onRenderBundle,
   onAddBundleToCart,
+  onRemoveBundleFromCart,
   onAskAboutLook,
   attachedLookId,
+  paged = false,
 }: BundleCarouselProps) {
+  // A look whose pieces are all unknown renders nothing, and must not leave a blank page behind.
+  const shown = bundles.filter((bundle) => bundle.productIds.some((id) => knownProducts[id]));
+  const card = (bundle: BundleSuggestion, index: number) => (
+    <BundleSuggestionCard
+      bundle={bundle}
+      index={index}
+      cartItemIds={cartItemIds}
+      pendingCartItemIds={pendingCartItemIds}
+      isGenerating={isGenerating}
+      knownProducts={knownProducts}
+      isAttached={bundle.id === attachedLookId}
+      isBusy={isBusy}
+      onRender={() => onRenderBundle?.(bundle.productIds)}
+      onAddAllToCart={() => onAddBundleToCart?.(bundle.productIds)}
+      onRemoveAllFromCart={onRemoveBundleFromCart ? () => onRemoveBundleFromCart(bundle.productIds) : undefined}
+      onAsk={onAskAboutLook && bundle.slots ? () => onAskAboutLook(bundle) : undefined}
+    />
+  );
+
+  if (shown.length === 0) return null;
+
+  if (paged) {
+    return (
+      <div className="mt-2 w-full">
+        <PagedCarousel label="looks" arrowTop="24%">
+          {shown.map((bundle, index) => (
+            <div key={bundle.id} className="h-full">
+              {card(bundle, index)}
+            </div>
+          ))}
+        </PagedCarousel>
+      </div>
+    );
+  }
+
   return (
     <div className="flex w-full gap-3 mt-1 overflow-x-auto pb-2 snap-x snap-mandatory [scrollbar-width:thin]">
-      {bundles.map((bundle, index) => (
+      {shown.map((bundle, index) => (
         <div key={bundle.id} className="shrink-0 w-[min(320px,82vw)] snap-start">
-          <BundleSuggestionCard
-            bundle={bundle}
-            index={index}
-            cartItemIds={cartItemIds}
-            pendingCartItemIds={pendingCartItemIds}
-            isGenerating={isGenerating}
-            knownProducts={knownProducts}
-            isAttached={bundle.id === attachedLookId}
-            isBusy={isBusy}
-            onRender={() => onRenderBundle?.(bundle.productIds)}
-            onAddAllToCart={() => onAddBundleToCart?.(bundle.productIds)}
-            onAsk={onAskAboutLook && bundle.slots ? () => onAskAboutLook(bundle) : undefined}
-          />
+          {card(bundle, index)}
         </div>
       ))}
     </div>
@@ -689,6 +786,8 @@ interface BundleSuggestionCardProps {
   isBusy?: boolean;
   onRender: () => void;
   onAddAllToCart: () => void;
+  /** Pressing the button again once every piece is in the cart takes the whole look back out. */
+  onRemoveAllFromCart?: () => void;
   onAsk?: () => void;
 }
 
@@ -703,6 +802,7 @@ function BundleSuggestionCard({
   isBusy = false,
   onRender,
   onAddAllToCart,
+  onRemoveAllFromCart,
   onAsk,
 }: BundleSuggestionCardProps) {
   const products = bundle.productIds
@@ -767,22 +867,29 @@ function BundleSuggestionCard({
         <div className="flex items-center gap-1.5 pt-0.5">
           <button
             type="button"
-            onClick={onAddAllToCart}
-            disabled={allInCart || anyPending}
+            onClick={allInCart ? onRemoveAllFromCart : onAddAllToCart}
+            disabled={anyPending || (allInCart && !onRemoveAllFromCart)}
+            aria-pressed={allInCart}
+            title={allInCart ? (onRemoveAllFromCart ? "In your cart — tap to remove" : "In your cart") : "Add the whole look to your cart"}
             className={cn(
-              "flex-1 flex items-center justify-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-full transition-all",
+              "group flex-1 flex items-center justify-center gap-1 whitespace-nowrap text-[11px] font-semibold px-2.5 py-1.5 rounded-full transition-all",
               allInCart
-                ? "bg-[var(--color-brand-light)] text-[var(--color-brand)] cursor-default"
+                ? cn(
+                    "bg-[var(--color-brand-light)] text-[var(--color-brand)]",
+                    onRemoveAllFromCart ? "hover:bg-[var(--color-error,#ef4444)]/10 hover:text-[var(--color-error,#ef4444)]" : "cursor-default"
+                  )
                 : "border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-brand)] hover:text-[var(--color-brand)]"
             )}
           >
             {anyPending ? (
               <>
-                <Loader2 className="h-3 w-3 animate-spin" /> Adding…
+                <Loader2 className="h-3 w-3 animate-spin" /> {allInCart ? "Removing…" : "Adding…"}
               </>
             ) : allInCart ? (
               <>
-                <CheckCircle2 className="h-3 w-3" /> Added
+                <CheckCircle2 className="h-3 w-3" />
+                <span className={cn(onRemoveAllFromCart && "group-hover:hidden")}>Added</span>
+                {onRemoveAllFromCart && <span className="hidden group-hover:inline">Remove All</span>}
               </>
             ) : (
               <>
@@ -794,7 +901,7 @@ function BundleSuggestionCard({
             type="button"
             onClick={onRender}
             disabled={isGenerating}
-            className="flex-1 flex items-center justify-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-full gradient-brand text-[var(--color-brand-contrast)] hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            className="flex-1 flex items-center justify-center gap-1 whitespace-nowrap text-[11px] font-semibold px-2.5 py-1.5 rounded-full gradient-brand text-[var(--color-brand-contrast)] hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
           >
             {isGenerating ? (
               <>

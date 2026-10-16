@@ -82,7 +82,7 @@ services:
     region: frankfurt
     plan: standard
     buildCommand: corepack enable; pnpm install --frozen-lockfile; pnpm run build
-    startCommand: pnpm run start
+    startCommand: node node_modules/next/dist/bin/next start
     healthCheckPath: /api/health
     autoDeployTrigger: "off"
     scaling:
@@ -108,7 +108,7 @@ services:
     region: frankfurt
     plan: standard
     buildCommand: corepack enable; pnpm install --frozen-lockfile; pnpm run build
-    startCommand: pnpm run start
+    startCommand: node node_modules/next/dist/bin/next start
     autoDeployTrigger: "off"
     envVars:
       - fromGroup: persona-secrets

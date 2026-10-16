@@ -76,3 +76,13 @@ export const NO_IOS_ZOOM_TEXT = "text-[16px]";
  *  avatar positions itself against this instead of the frame's own bottom edge, so nothing
  *  ends up stranded underneath the sheet once it is dragged open. */
 export const SHEET_H = "var(--sheet-h, 0px)";
+
+/** How long the sheet's height takes to settle on a new snap, in ms. Anything measured against
+ *  the sheet (the message list's scroll position) is read again once this has passed. */
+export const SHEET_TRANSITION_MS = 380;
+export const SHEET_SETTLE_MS = SHEET_TRANSITION_MS + 40;
+
+/** A long ease-out: fast off the mark, then a soft landing, so opening and closing read as one
+ *  continuous glide instead of a jump. */
+export const SHEET_TRANSITION =
+  "transition-[height,background-color,border-color,border-radius] duration-[380ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none";
