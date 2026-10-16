@@ -17,8 +17,24 @@ const INTERACTIONS_URL = "https://generativelanguage.googleapis.com/v1beta/inter
  * "90 s, twice" could promise 180 s the platform would never wait for, so a slow second attempt
  * ended as a dropped connection instead of an answer.
  */
-export const ATTEMPT_TIMEOUTS_MS = [55_000, 45_000] as const;
-export const TOTAL_BUDGET_MS = 100_000;
+export interface GeminiRequestLimits {
+  /** One cap per attempt, in order; the number of entries is the number of attempts. */
+  attemptTimeoutsMs: readonly number[];
+  /** All attempts together. */
+  totalBudgetMs: number;
+}
+
+/** Wearing: the shopper is waiting on a request that returns only at the end, so it stays tight. */
+export const WEAR_LIMITS: GeminiRequestLimits = { attemptTimeoutsMs: [55_000, 45_000], totalBudgetMs: 100_000 };
+
+/**
+ * Avatar creation. Its route streams progress to the browser and allows 300 s, so a slow render
+ * can safely be given longer than a wear; real renders take 25-30 s, so this is about 3x headroom.
+ */
+export const AVATAR_LIMITS: GeminiRequestLimits = { attemptTimeoutsMs: [80_000, 70_000], totalBudgetMs: 150_000 };
+
+export const ATTEMPT_TIMEOUTS_MS = WEAR_LIMITS.attemptTimeoutsMs;
+export const TOTAL_BUDGET_MS = WEAR_LIMITS.totalBudgetMs;
 /** A second attempt with less than this left would only time out; give up with the real error. */
 const MIN_RETRY_MS = 12_000;
 const RETRY_DELAY_MS = 1_500;
@@ -80,6 +96,8 @@ export interface GeminiImageEditInput {
   images: GeminiImageInput[];
   /** Defaults to 3:4, the avatar framing. */
   aspectRatio?: string;
+  /** Time allowed per attempt and in total. Defaults to the tighter wearing limits. */
+  limits?: GeminiRequestLimits;
 }
 
 export interface GeminiImageResult {
@@ -190,16 +208,17 @@ function wait(ms: number): Promise<void> {
  */
 export async function requestImage(
   buildBody: (model: string) => unknown,
-  apiKey: string
+  apiKey: string,
+  limits: GeminiRequestLimits = WEAR_LIMITS
 ): Promise<GeminiImageResult> {
   const startedAt = Date.now();
   const fallback = imageFallbackModel();
   let lastError: GeminiImageError | null = null;
 
-  for (let attempt = 0; attempt < ATTEMPT_TIMEOUTS_MS.length; attempt++) {
-    const remaining = TOTAL_BUDGET_MS - (Date.now() - startedAt);
+  for (let attempt = 0; attempt < limits.attemptTimeoutsMs.length; attempt++) {
+    const remaining = limits.totalBudgetMs - (Date.now() - startedAt);
     if (attempt > 0 && remaining < MIN_RETRY_MS) break;
-    const timeoutMs = Math.min(ATTEMPT_TIMEOUTS_MS[attempt], remaining);
+    const timeoutMs = Math.min(limits.attemptTimeoutsMs[attempt], remaining);
     const model = attempt > 0 && fallback ? fallback : imageModel();
 
     try {
@@ -238,7 +257,7 @@ export async function requestImage(
     }
 
     if (!lastError.retryable) throw lastError;
-    if (attempt < ATTEMPT_TIMEOUTS_MS.length - 1) await wait(RETRY_DELAY_MS);
+    if (attempt < limits.attemptTimeoutsMs.length - 1) await wait(RETRY_DELAY_MS);
   }
 
   throw lastError ?? new GeminiImageError("Gemini image request failed.");
@@ -272,5 +291,5 @@ export async function editGeminiImage(input: GeminiImageEditInput): Promise<Gemi
     throw new GeminiImageError("Image rendering is not configured (GEMINI_API_KEY).", undefined, "not_configured");
   }
 
-  return requestImage(buildBody, apiKey);
+  return requestImage(buildBody, apiKey, input.limits);
 }

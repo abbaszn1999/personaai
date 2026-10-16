@@ -1,5 +1,5 @@
 import sharp from "sharp";
-import { editGeminiImage, GeminiImageError } from "@/lib/ai/gemini-image";
+import { AVATAR_LIMITS, editGeminiImage, GeminiImageError } from "@/lib/ai/gemini-image";
 import { flattenOntoChromaKey, stripBackgroundToTransparent } from "@/lib/ai/background-removal";
 import { estimateAvatarCostNanos, estimateTryOnCostNanos, geminiImageCostNanos } from "@/lib/billing/pricing";
 import { PersonaAgentError } from "@/lib/try-on/errors";
@@ -199,6 +199,7 @@ export async function* generateAvatarVariationsStream(
               { data: loadAvatarBackground(background), mimeType: "image/jpeg" },
             ],
             aspectRatio: AVATAR_ASPECT_RATIO,
+            limits: AVATAR_LIMITS,
           });
           // The real cost comes from the token counts Google returned for this exact call. Only a
           // response that omitted them falls back to the estimate, so an avatar is never free.

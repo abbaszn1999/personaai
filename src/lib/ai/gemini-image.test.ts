@@ -6,6 +6,8 @@ import {
   parseInteractionResponse,
   readInteractionUsage,
   requestImage,
+  AVATAR_LIMITS,
+  WEAR_LIMITS,
 } from "./gemini-image";
 const PNG_BASE64 = Buffer.from("png-bytes").toString("base64");
 
@@ -124,7 +126,7 @@ describe("parseInteractionResponse", () => {
   it("falls back to the first image block inside the steps", () => {
     const result = parseInteractionResponse({
       steps: [
-        { type: "thought", summary: "Ã¢â‚¬Â¦" },
+        { type: "thought", summary: "ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦" },
         { type: "model_output", content: [{ type: "text", text: "Here you go" }, { type: "image", data: PNG_BASE64 }] },
       ],
     });
@@ -220,5 +222,21 @@ describe("requestImage", () => {
     await requestImage((model) => ({ model }), "key");
     const models = fetchMock.mock.calls.map(([, init]) => JSON.parse((init as RequestInit).body as string).model);
     expect(models).toEqual(["primary-model", "fallback-model"]);
+  });
+});
+
+describe("request limits", () => {
+  it("gives avatar creation more room than wearing, within its route's 300 s", () => {
+    expect(AVATAR_LIMITS.attemptTimeoutsMs[0]).toBeGreaterThan(WEAR_LIMITS.attemptTimeoutsMs[0]);
+    expect(AVATAR_LIMITS.totalBudgetMs).toBeGreaterThan(WEAR_LIMITS.totalBudgetMs);
+    expect(AVATAR_LIMITS.totalBudgetMs).toBeLessThan(300_000);
+  });
+
+  it("makes a single attempt when only one is allowed", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify({}), { status: 500 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await requestImage((model) => ({ model }), "key", { attemptTimeoutsMs: [5_000], totalBudgetMs: 5_000 }).catch(() => {});
+    vi.unstubAllGlobals();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
