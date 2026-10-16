@@ -18,10 +18,9 @@ interface OnboardingShellProps {
    *  (e.g. picking an audience card) so there's no dead space below them. */
   footer?: React.ReactNode;
   /** True for real embeds, where the ProfileSwitcher pill floats absolutely over this shell's
-   *  top-left corner. Every step after the first already clears it — the back button + progress
-   *  row sits right where the pill is. The very first step has no such row, so its heading
-   *  would otherwise start directly under the pill on a narrow, edge-to-edge mobile embed;
-   *  this adds just enough extra top clearance there. */
+   *  top-left corner. Every step keeps its own strip of space above its content for the pill:
+   *  the back button + progress row on the later steps sits in the same corner, so without the
+   *  strip the pill lands right on top of the back button. */
   reserveTopSpace?: boolean;
   children: React.ReactNode;
 }
@@ -54,7 +53,7 @@ export function OnboardingShell({ step, onBack, footer, children, reserveTopSpac
       ref={rootRef}
       className={cn(
         "flex flex-col gap-6 px-6 pb-8",
-        stepIndex === 0 && reserveTopSpace ? "pt-14" : "pt-8"
+        reserveTopSpace ? "pt-[76px]" : "pt-8"
       )}
     >
       {stepIndex > 0 && (

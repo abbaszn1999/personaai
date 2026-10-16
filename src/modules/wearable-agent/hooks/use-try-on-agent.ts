@@ -12,13 +12,14 @@ import { MAX_PERSISTED_MESSAGES, MAX_SENT_MESSAGES, takeLastMessages } from "../
 import { browserLocale, widgetStrings } from "../widget-strings";
 import { compactAvatarForUpload } from "../utils/avatar-upload";
 import { newTryOnRequestId, requestTryOnImage, TryOnRequestError } from "../utils/try-on-request";
-import { AVATAR_GENERATION_STAGES } from "../constants";
+import { AVATAR_GENERATION_STAGES, AVATAR_STYLE_LABELS } from "../constants";
 import { isKidsAudience, KIDS_AGE_RANGE } from "../audiences";
 import { INITIAL_WEARABLE_MESSAGE, SCAN_STAGE_DURATION_MS, SCAN_STAGES } from "../mocks/responses";
 import {
   recommendSizesForProducts,
   buildFitNote,
   mergeGarmentIntoOutfit,
+  outfitExtendsLook,
 } from "@/lib/recommendations";
 import {
   embedRequestHeaders,
@@ -32,7 +33,7 @@ import { addItemToShopifyCart, removeItemFromShopifyCart } from "@/lib/shopify/a
 
 // Mirrors DEFAULT_AVATAR_VARIATION_COUNT in src/lib/try-on/image-generation.ts — kept as a local
 // literal rather than importing that module, since this hook ships in the client widget bundle
-// and image-generation.ts pulls in server-only deps (sharp, the Pruna client) that must never be
+// and image-generation.ts pulls in server-only deps (sharp, the Gemini client) that must never be
 // bundled for the browser.
 const EXPECTED_AVATAR_VARIATION_COUNT = 3;
 const GENERIC_AVATAR_ERROR = "We couldn't generate your avatar. Please try again.";
@@ -70,6 +71,8 @@ export interface ShopperProfileBridge {
     profile: TryOnProfile;
     profileSubmitted: boolean;
   } | null>;
+  /** Resolves true once the profile no longer exists on the account. */
+  deleteProfile: (id: string) => Promise<boolean>;
 }
 
 /** Up to this many separate profiles (e.g. a parent shopping for themselves + up to 2 kids)
@@ -706,7 +709,7 @@ export function useTryOnAgent(
    *  render is running would start (and bill) another one for the same look. */
   const tryOnInFlightRef = React.useRef(false);
   /** The failed render a Retry button repeats: its bubble and the outfit that was being rendered. */
-  const failedTryOnRef = React.useRef<{ messageId: string; items: Product[] } | null>(null);
+  const failedTryOnRef = React.useRef<{ messageId: string; items: Product[]; targetId: string | null } | null>(null);
   const customAvatarUrlRef = React.useRef<string | null>(null);
   const selectedAvatarIdRef = React.useRef<string | null>(null);
   /** Stable per-shopper id for embedded sessions — lets the server key its ephemeral avatar
@@ -725,6 +728,10 @@ export function useTryOnAgent(
         : `dash-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
   const outfitRef = React.useRef<Product[]>(state.outfitItems);
+  /** The looks and the version on show, kept current for actions that run from a stale closure
+   *  (a chat card, a streamed event) but must act on the version the shopper is looking at. */
+  const tryOnImagesRef = React.useRef<GeneratedTryOn[]>(state.tryOnImages);
+  const versionIndexRef = React.useRef<number>(state.currentImageIndex);
   const profileRef = React.useRef<TryOnProfile>(state.profile);
   const knownProductsRef = React.useRef<Record<string, Product>>(state.knownProducts);
   const messagesRef = React.useRef<ChatMessage[]>(state.messages);
@@ -743,12 +750,14 @@ export function useTryOnAgent(
   const cartTargetsRef = React.useRef(new Map<string, { platform: string; id: number }>());
   React.useEffect(() => {
     outfitRef.current = state.outfitItems;
+    tryOnImagesRef.current = state.tryOnImages;
+    versionIndexRef.current = state.currentImageIndex;
     profileRef.current = state.profile;
     knownProductsRef.current = state.knownProducts;
     messagesRef.current = state.messages;
     attachmentRef.current = state.attachment;
     budgetRef.current = state.budget;
-  }, [state.outfitItems, state.profile, state.knownProducts, state.messages, state.attachment, state.budget]);
+  }, [state.outfitItems, state.tryOnImages, state.currentImageIndex, state.profile, state.knownProducts, state.messages, state.attachment, state.budget]);
 
   React.useEffect(() => {
     customAvatarUrlRef.current = state.customAvatarUrl;
@@ -1020,7 +1029,12 @@ export function useTryOnAgent(
       const currentLabel = profilesMetaRef.current.find((p) => p.id === currentId)?.label ?? "Me";
       await flushShopperProfile(currentId, { label: currentLabel, profile: profileRef.current });
 
-      const nextLabel = `Profile ${profilesMetaRef.current.length + 1}`;
+      // The first "Profile N" not already taken, so a profile added after a delete never
+      // repeats a name that is still in the list.
+      const takenLabels = new Set(profilesMetaRef.current.map((p) => p.label));
+      let labelNumber = profilesMetaRef.current.length + 1;
+      while (takenLabels.has(`Profile ${labelNumber}`)) labelNumber += 1;
+      const nextLabel = `Profile ${labelNumber}`;
       const created = shopperRef.current
         ? await shopperRef.current.createProfile({ label: nextLabel, sortOrder: profilesMetaRef.current.length })
         : null;
@@ -1040,16 +1054,33 @@ export function useTryOnAgent(
     })();
   }
 
+  /** Deletes a profile for good. On a signed-in shopper account it is removed on the server first
+   *  and stays put if that fails, so what the shopper sees is never ahead of what is saved. At
+   *  least one profile always remains. Deleting the active profile switches to the next one. */
   function removeProfile(id: string) {
-    if (profilesMeta.length <= 1) return;
-    const remaining = profilesMeta.filter((m) => m.id !== id);
-    delete inactiveProfilesRef.current![id];
-    setProfilesMeta(remaining);
-    if (id === activeProfileId) {
-      const next = remaining[0];
-      const target = inactiveProfilesRef.current![next.id] ?? blankProfileSlotData();
-      activateProfileData(next.id, target);
-    }
+    if (profilesMetaRef.current.length <= 1) return;
+    if (!profilesMetaRef.current.some((m) => m.id === id)) return;
+    void (async () => {
+      const bridge = shopperRef.current;
+      if (bridge && !unsavedIdsRef.current.has(id)) {
+        if (id === activeProfileIdRef.current && persistTimerRef.current) {
+          clearTimeout(persistTimerRef.current);
+          persistTimerRef.current = null;
+        }
+        const deleted = await bridge.deleteProfile(id);
+        if (!deleted) return;
+      }
+      unsavedIdsRef.current.delete(id);
+
+      const remaining = profilesMetaRef.current.filter((m) => m.id !== id);
+      if (remaining.length === 0) return;
+      delete inactiveProfilesRef.current![id];
+      setProfilesMeta(remaining);
+      if (id === activeProfileIdRef.current) {
+        const next = remaining[0];
+        activateProfileData(next.id, inactiveProfilesRef.current![next.id] ?? blankProfileSlotData());
+      }
+    })();
   }
 
   function renameProfile(id: string, label: string) {
@@ -1129,15 +1160,15 @@ export function useTryOnAgent(
 
     // There's no real progress signal until a variation actually streams back (see
     // streamAvatarVariations below), so this whole bar is necessarily a guess. But a guess that
-    // freezes dead solid at a fixed percentage the moment Pruna takes longer than expected reads
+    // freezes dead solid at a fixed percentage the moment Gemini takes longer than expected reads
     // as broken, not "still working" — so instead of stopping at a hard cap, it creeps
     // asymptotically toward 95% for as long as the real request takes, calibrated (via
     // `PROGRESS_TAU_MS`) so it lands right around each stage's threshold at roughly the time
-    // Pruna's own "Try-Sync" fast path normally takes, then keeps crawling — slower and slower,
-    // never fully stopping — if the real call runs long. It only ever jumps to 100% for real,
+    // the three parallel Nano Banana renders normally take (about 12-25 s), then keeps crawling —
+    // slower and slower, never fully stopping — if the real call runs long. It only ever jumps to 100% for real,
     // the instant the first variation actually lands.
     const PROGRESS_CAP = 95;
-    const PROGRESS_TAU_MS = 1900;
+    const PROGRESS_TAU_MS = 9000;
     const startedAt = Date.now();
 
     const stopTimer = () => {
@@ -1167,7 +1198,7 @@ export function useTryOnAgent(
     let receivedAny = false;
     const collected: AvatarVariation[] = [];
 
-    // All 3 Pruna calls already fire in parallel (see generateAvatarVariationsStream).
+    // All 3 Gemini calls already fire in parallel (see generateAvatarVariationsStream).
     // Keep the loading screen up until the whole batch settles, then reveal every
     // style together. Only the cutout the shopper confirms is persisted.
     void streamAvatarVariations(state.profile, embed, (variation) => {
@@ -1196,8 +1227,12 @@ export function useTryOnAgent(
 
       // Variations finish in whatever order the model returns them. The carousel should always
       // start on the same first slide and move through the styles in the same order, so put
-      // them back in backdrop (= style) order before they are shown.
-      const ordered = [...collected].sort((a, b) => (a.backdropUrl ?? "").localeCompare(b.backdropUrl ?? ""));
+      // them back in style order (the order of AVATAR_STYLE_LABELS) before they are shown.
+      const styleOrder = (label: string) => {
+        const index = (AVATAR_STYLE_LABELS as readonly string[]).indexOf(label);
+        return index === -1 ? AVATAR_STYLE_LABELS.length : index;
+      };
+      const ordered = [...collected].sort((a, b) => styleOrder(a.label) - styleOrder(b.label));
 
       setState((s) => ({
         ...s,
@@ -1431,25 +1466,34 @@ export function useTryOnAgent(
     void flushShopperProfile(activeProfileIdRef.current, { label, profile: nextProfile });
   }
 
-  async function generateTryOn(productsOverride?: Product[]) {
+  /** The look the shopper is on - null on version 1 (the plain avatar), which is never built on. */
+  function selectedLook(): GeneratedTryOn | null {
+    const index = versionIndexRef.current;
+    return index > 0 ? (tryOnImagesRef.current[index - 1] ?? null) : null;
+  }
+
+  /** `targetLookId` is the version this render builds on: a new category completes that version
+   *  in place, anything else becomes a new version at the end. Defaults to the version on show. */
+  async function generateTryOn(productsOverride?: Product[], targetLookId?: string | null) {
     const items = productsOverride ?? outfitRef.current;
     if (items.length === 0) return;
+    const targetId = targetLookId !== undefined ? targetLookId : (selectedLook()?.id ?? null);
     // One render at a time: a second tap on Wear (or a Retry racing the first attempt) would
     // start and bill another render for the same look.
     if (tryOnInFlightRef.current) return;
     tryOnInFlightRef.current = true;
     failedTryOnRef.current = null;
     try {
-      await runTryOn(items);
+      await runTryOn(items, targetId);
     } finally {
       tryOnInFlightRef.current = false;
     }
   }
 
   /** Puts a failed render into the chat as an assistant bubble, with Retry when asking again can help. */
-  function reportTryOnFailure(items: Product[], message: string, retryable: boolean) {
+  function reportTryOnFailure(items: Product[], targetId: string | null, message: string, retryable: boolean) {
     const messageId = `msg-tryon-error-${Date.now()}`;
-    failedTryOnRef.current = retryable ? { messageId, items } : null;
+    failedTryOnRef.current = retryable ? { messageId, items, targetId } : null;
     setState((s) => ({
       ...s,
       isGenerating: false,
@@ -1461,14 +1505,14 @@ export function useTryOnAgent(
     }));
   }
 
-  async function runTryOn(items: Product[]) {
+  async function runTryOn(items: Product[], targetId: string | null) {
     setState((s) => ({ ...s, isGenerating: true }));
 
     const profile = profileRef.current;
     const avatarImageUrl = profile.avatarUrl;
 
     if (!avatarImageUrl) {
-      reportTryOnFailure(items, widgetStrings(browserLocale()).tryOnGeneric, false);
+      reportTryOnFailure(items, targetId, widgetStrings(browserLocale()).tryOnGeneric, false);
       return;
     }
 
@@ -1485,7 +1529,7 @@ export function useTryOnAgent(
     };
     const recSizes = recommendSizesForProducts(profileContext, items);
 
-    // This reads chart rows while Pruna renders the image. A chart-service failure must never
+    // This reads chart rows while Gemini renders the image. A chart-service failure must never
     // discard a render the shopper paid and waited for; that version simply shows no analysis.
     const fitPromise: Promise<LookFitAnalysis | null> = fetch(
       embed ? `${embed.apiBase}/persona/fit-analysis` : "/api/agents/persona/fit-analysis",
@@ -1549,7 +1593,7 @@ export function useTryOnAgent(
         unavailable: strings.tryOnUnavailable,
         generic: strings.tryOnGeneric,
       }[failure.kind];
-      reportTryOnFailure(items, message, failure.retryable);
+      reportTryOnFailure(items, targetId, message, failure.retryable);
       return;
     }
 
@@ -1579,13 +1623,25 @@ export function useTryOnAgent(
       },
     };
 
-    setState((s) => ({
-      ...s,
-      isGenerating: false,
-      tryOnImages: [...s.tryOnImages, snapshot],
-      currentImageIndex: s.tryOnImages.length,
-      messages: [...s.messages, imageMsg],
-    }));
+    setState((s) => {
+      // Version 1 is the plain avatar and is never replaced; looks are versions 2, 3, ….
+      // Adding a new category to the version the shopper built on (a bottom onto a top) completes
+      // that version in place. Swapping a garment already worn, or building on version 1, adds a
+      // new version at the end.
+      const targetIndex = targetId ? s.tryOnImages.findIndex((look) => look.id === targetId) : -1;
+      const completesTarget = targetIndex >= 0 && outfitExtendsLook(s.tryOnImages[targetIndex].outfitProducts, items);
+      const tryOnImages = completesTarget
+        ? s.tryOnImages.map((look, i) => (i === targetIndex ? snapshot : look))
+        : [...s.tryOnImages, snapshot];
+      return {
+        ...s,
+        isGenerating: false,
+        tryOnImages,
+        // Index 0 is the plain avatar, so look N sits at index N.
+        currentImageIndex: completesTarget ? targetIndex + 1 : tryOnImages.length,
+        messages: [...s.messages, imageMsg],
+      };
+    });
     // Do not hold the completed image screen open for a catalog read. The card appears on this
     // exact version when its analysis lands; a null/failure stays honestly hidden.
     void fitPromise.then((fit) => {
@@ -1959,7 +2015,7 @@ export function useTryOnAgent(
         messages: s.messages.filter((m) => m.id !== failedTryOn.messageId),
         retryMessageId: null,
       }));
-      await generateTryOn(failedTryOn.items);
+      await generateTryOn(failedTryOn.items, failedTryOn.targetId);
       return;
     }
     const failedTurn = failedTurnRef.current;
@@ -1984,14 +2040,15 @@ export function useTryOnAgent(
   /** Adds or replaces one garment slot in the working outfit, then immediately renders the
    *  resolved look — e.g. new shoes replace old shoes while keeping shirt/pants/jacket. */
   async function wearItem(product: Product) {
-    const current = outfitRef.current;
+    // Builds on the version on show, not the newest one. Once there are looks, version 1 starts
+    // from nothing and a look starts from what it already wears.
+    const selected = selectedLook();
+    const current = tryOnImagesRef.current.length > 0 ? (selected?.outfitProducts ?? []) : outfitRef.current;
     const nextOutfit = mergeGarmentIntoOutfit(current, [product]);
 
-    if (nextOutfit !== current) {
-      outfitRef.current = nextOutfit;
-      setState((s) => ({ ...s, outfitItems: nextOutfit }));
-    }
-    await generateTryOn(nextOutfit);
+    outfitRef.current = nextOutfit;
+    setState((s) => ({ ...s, outfitItems: nextOutfit }));
+    await generateTryOn(nextOutfit, selected?.id ?? null);
   }
 
   /** Swaps the entire working outfit for a curated bundle and renders it as one look. */
@@ -2001,7 +2058,7 @@ export function useTryOnAgent(
       .filter((p): p is Product => !!p);
     if (products.length === 0) return;
     setState((s) => ({ ...s, outfitItems: products }));
-    await generateTryOn(products);
+    await generateTryOn(products, selectedLook()?.id ?? null);
   }
 
   /** Fires the real store cart mutation for widget.js only (see EmbedRuntimeConfig).
@@ -2307,14 +2364,15 @@ export function useTryOnAgent(
   function nextImage() {
     setState((s) => ({
       ...s,
-      currentImageIndex: Math.min(s.tryOnImages.length - 1, s.currentImageIndex + 1),
+      currentImageIndex: Math.min(s.tryOnImages.length, s.currentImageIndex + 1),
     }));
   }
 
+  /** `index` is the version: 0 is the plain avatar, 1 the first look, and so on. */
   function selectImage(index: number) {
     setState((s) => ({
       ...s,
-      currentImageIndex: Math.max(0, Math.min(s.tryOnImages.length - 1, index)),
+      currentImageIndex: Math.max(0, Math.min(s.tryOnImages.length, index)),
     }));
   }
 
@@ -2354,7 +2412,8 @@ export function useTryOnAgent(
 
   const profileComplete = isProfileComplete(state.profile);
   const measurementsComplete = isMeasurementsComplete(state.profile);
-  const currentTryOn = state.tryOnImages[state.currentImageIndex] ?? null;
+  // `currentImageIndex` is the version on show: 0 is the plain avatar (no look), N is look N.
+  const currentTryOn = state.currentImageIndex > 0 ? (state.tryOnImages[state.currentImageIndex - 1] ?? null) : null;
 
   return {
     ...state,

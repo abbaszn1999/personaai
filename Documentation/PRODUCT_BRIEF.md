@@ -12,7 +12,7 @@
 
 | Problem (merchant / shopper) | How Persona addresses it | Evidence |
 |---|---|---|
-| Shoppers can't judge how clothes look on *them* → low conversion | Avatar built from the shopper's own photo, garments rendered on it | `src/lib/agents/persona-agent.ts`, `src/lib/ai/pruna.ts` |
+| Shoppers can't judge how clothes look on *them* → low conversion | Avatar built from the shopper's own photo, garments rendered on it | `src/lib/agents/persona-agent.ts`, `src/lib/ai/gemini-image.ts` |
 | Wrong size → returns | Size recommendation from measurements; merchant-side size-chart pipeline | `src/modules/wearable-agent/utils/fit-metrics.ts`, `src/lib/sizing/**` |
 | Generic chatbots invent products/prices | Stylist is grounded in a catalog search; hard rules enforce constraints | `src/lib/agents/wearable/persona/skills/guardrails.md`, `hard-rules.ts` |
 | Try-on tools live in an iframe, can't touch the cart | Same-page Shadow DOM widget + native cart APIs | `widget/src/main.tsx`, `src/lib/shopify/ajax-cart-client.ts` |
@@ -23,7 +23,7 @@
 
 - **Dashboard + API**: Next.js app (`src/app/**`), Supabase (Postgres, service-role access), Stripe billing, iron-session cookies.
 - **Widget**: separate esbuild bundle (`scripts/build-widget.mjs`) → `public/widget.js` + `widget.css`. React inside a Shadow DOM host. Live-camera engine is a second on-demand bundle (`widget-live.js`).
-- **AI providers**: Pruna (`p-image-edit` avatars, `p-image-try-on` garments), Gemini (router, budget allocator, stylist vision, brand discovery, size-chart research, category auto-match), Decart (`lucy-vton-latest`, realtime camera try-on).
+- **AI providers**: Gemini (Nano Banana 2.1 avatars and try-on garment renders, router, budget allocator, stylist vision, brand discovery, size-chart research, category auto-match), Decart (`lucy-vton-latest`, realtime camera try-on).
 - **Search**: "ACS" catalog index (attribute-limited, 30 attributes) with filter + semantic (cosine) retrieval.
 
 ## 4. The shopper experience
@@ -43,7 +43,7 @@
 - Client strips the raw photo before anything reaches `localStorage`.
 - Server holds the photo **in memory only** for up to **2 hours** (avoids re-uploading every chat turn), and the image provider deletes uploads after **30 minutes**.
 - Body measurements are **not shown to the merchant**.
-- Evidence: `use-try-on-agent.ts`, `avatar-cache.ts`, `src/lib/ai/pruna.ts`, `shopper-sign-in.tsx`.
+- Evidence: `use-try-on-agent.ts`, `avatar-cache.ts`, `src/lib/ai/gemini-image.ts`, `shopper-sign-in.tsx`.
 
 ## 5. The stylist agent
 

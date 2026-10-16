@@ -1,7 +1,6 @@
 /**
  * Client for Gemini Nano Banana 2.1 (`gemini-nano-banana-2.1`) image editing through the
- * Interactions API. It dresses the shopper's avatar in try-on renders; avatars themselves are
- * still built by Pruna (see lib/ai/pruna.ts).
+ * Interactions API. It builds the shopper's avatars and dresses them in try-on renders.
  *
  * One request carries the prompt and every reference image inline, and the response carries
  * the finished image plus the token usage that Google bills for it. That usage is returned to
@@ -12,8 +11,6 @@ import { isRetryableTryOnError, type TryOnErrorCode } from "@/lib/try-on/errors"
 import { getPlatformGeminiApiKey } from "./gemini";
 
 const INTERACTIONS_URL = "https://generativelanguage.googleapis.com/v1beta/interactions";
-export const DEFAULT_TRY_ON_MODEL = "gemini-nano-banana-2.1";
-
 /**
  * Renders take 12-30 s, longer for 4+ garments or under load. Two attempts share one budget that
  * is kept inside the route's 120 s `maxDuration` together with fetching the pictures: the old
@@ -42,14 +39,34 @@ export class GeminiImageError extends Error {
   }
 }
 
-export function tryOnModel(): string {
-  return process.env.GEMINI_TRYON_MODEL?.trim() || DEFAULT_TRY_ON_MODEL;
+export const DEFAULT_IMAGE_MODEL = "gemini-nano-banana-2.1";
+
+/** Matches the one model `geminiImageCostNanos` has a price list for. */
+const PRICED_IMAGE_MODEL = /nano-banana-2\.1/i;
+const warnedImageModels = new Set<string>();
+
+/**
+ * The model behind every image render, avatars and try-on alike, so the two can never drift
+ * apart. `GEMINI_IMAGE_MODEL` sets it; a leftover `GEMINI_TRYON_MODEL` is still honoured so an
+ * existing environment keeps working.
+ *
+ * Renders are billed with the Nano Banana 2.1 token rates whatever the model, so a model that
+ * isn't Nano Banana 2.1 is logged once: its real price needs adding to pricing.ts.
+ */
+export function imageModel(): string {
+  const model =
+    process.env.GEMINI_IMAGE_MODEL?.trim() || process.env.GEMINI_TRYON_MODEL?.trim() || DEFAULT_IMAGE_MODEL;
+  if (!PRICED_IMAGE_MODEL.test(model) && !warnedImageModels.has(model)) {
+    warnedImageModels.add(model);
+    console.error(`[gemini-image] no price list for image model "${model}"; billing at Nano Banana 2.1 rates`);
+  }
+  return model;
 }
 
 /** An optional second model for the retry, so a model that is down does not fail both attempts. */
-export function tryOnFallbackModel(): string | null {
-  const fallback = process.env.GEMINI_TRYON_FALLBACK_MODEL?.trim();
-  return fallback && fallback !== tryOnModel() ? fallback : null;
+export function imageFallbackModel(): string | null {
+  const fallback = process.env.GEMINI_IMAGE_FALLBACK_MODEL?.trim() || process.env.GEMINI_TRYON_FALLBACK_MODEL?.trim();
+  return fallback && fallback !== imageModel() ? fallback : null;
 }
 
 export interface GeminiImageInput {
@@ -176,14 +193,14 @@ export async function requestImage(
   apiKey: string
 ): Promise<GeminiImageResult> {
   const startedAt = Date.now();
-  const fallback = tryOnFallbackModel();
+  const fallback = imageFallbackModel();
   let lastError: GeminiImageError | null = null;
 
   for (let attempt = 0; attempt < ATTEMPT_TIMEOUTS_MS.length; attempt++) {
     const remaining = TOTAL_BUDGET_MS - (Date.now() - startedAt);
     if (attempt > 0 && remaining < MIN_RETRY_MS) break;
     const timeoutMs = Math.min(ATTEMPT_TIMEOUTS_MS[attempt], remaining);
-    const model = attempt > 0 && fallback ? fallback : tryOnModel();
+    const model = attempt > 0 && fallback ? fallback : imageModel();
 
     try {
       const res = await fetch(INTERACTIONS_URL, {
@@ -252,7 +269,7 @@ export async function editGeminiImage(input: GeminiImageEditInput): Promise<Gemi
   try {
     apiKey = getPlatformGeminiApiKey();
   } catch {
-    throw new GeminiImageError("Try-on rendering is not configured (GEMINI_API_KEY).", undefined, "not_configured");
+    throw new GeminiImageError("Image rendering is not configured (GEMINI_API_KEY).", undefined, "not_configured");
   }
 
   return requestImage(buildBody, apiKey);

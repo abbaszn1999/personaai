@@ -63,11 +63,9 @@ APP_URL=https://your-app.onrender.com   # → update once Render assigns your UR
 # Secrets encryption (stored store credentials — the name is historical)
 OPENAI_KEY_ENCRYPTION_SECRET=...   # same as local — a different value makes saved store credentials unreadable
 
-# Avatar + try-on rendering (Pruna)
-PRUNA_API_KEY=...               # same as local — required for avatars and try-on renders
-
-# AI agents (Persona, Bundle, Attribute; sizing and catalog mapping)
-GEMINI_API_KEY=...              # same as local
+# AI agents (Persona, Bundle, Attribute; sizing and catalog mapping) and avatar + try-on rendering
+GEMINI_API_KEY=...              # same as local — also renders avatars and try-ons
+GEMINI_IMAGE_MODEL=gemini-nano-banana-2.1   # optional — the one image model for avatars and try-on, defaults to this
 GEMINI_CHAT_MODEL=...           # optional — Persona and Bundle model, defaults to gemini-3.6-flash
 GEMINI_ATTRIBUTE_MODEL=...      # optional — Attribute model, defaults to GEMINI_CHAT_MODEL
 DECART_API_KEY=...              # same as local — live try-on

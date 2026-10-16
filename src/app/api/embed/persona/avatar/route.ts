@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { getUserById } from "@/lib/db/users";
 import { consumeImageGeneration } from "@/lib/db/image-generations";
 import { canGenerateImage, getAccountBillingContext } from "@/lib/billing/account";
-import { AVATAR_IMAGE_NANOS } from "@/lib/billing/pricing";
+import { estimateAvatarCostNanos, estimateAvatarUnits } from "@/lib/billing/pricing";
 import { parseAvatarBodyMeasurements } from "@/lib/try-on/avatar-body";
 import {
   generateAvatarVariationsStream,
@@ -41,7 +41,8 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "Merchant account not found" }, { status: 404, headers: EMBED_CORS_HEADERS });
   }
   const billing = await getAccountBillingContext(workspace.ownerId);
-  if (!billing || !canGenerateImage(billing)) {
+  // Only a gate: what is charged afterwards is each render's real cost, not this estimate.
+  if (!billing || !canGenerateImage(billing, estimateAvatarCostNanos())) {
     return Response.json(
       { error: "This store has exhausted its monthly image allowance and purchased credits" },
       { status: 402, headers: EMBED_CORS_HEADERS }
@@ -62,7 +63,12 @@ export async function POST(req: NextRequest) {
   }
 
   const includedRemaining = Math.max(billing.tier.monthlyGarmentUnits - billing.imagesUsedThisCycle, 0);
-  const availableGenerations = includedRemaining + billing.user.credits;
+  // An avatar settles at several units, so count how many whole avatars the balance covers. The gate
+  // above already passed, so at least one is always allowed.
+  const availableGenerations = Math.max(
+    1,
+    Math.floor((includedRemaining + billing.user.credits) / estimateAvatarUnits())
+  );
   const requestedCount = Math.min(
     typeof count === "number" && count > 0 ? count : DEFAULT_AVATAR_VARIATION_COUNT,
     DEFAULT_AVATAR_VARIATION_COUNT,
@@ -121,7 +127,7 @@ export async function POST(req: NextRequest) {
               "avatar",
               billing.cycleStartIso,
               billing.tier.monthlyGarmentUnits,
-              AVATAR_IMAGE_NANOS,
+              event.costNanos,
               { sessionId: sessionId || null, source: "store" }
             );
             if (consumed !== null) {

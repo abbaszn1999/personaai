@@ -188,7 +188,7 @@ export function buildTryOnPrompt(garments: TryOnPromptGarment[]): string {
 
   return [
     `Edit image 1: replace only the person's ${joinList(replaced)} with ${joinList(named)}.`,
-    "Keep the person's face, body, pose and the magenta background unchanged.",
+    "Change nothing else: same face, same body size and shape, same pose, same background.",
     "Ignore everything else worn in the other images.",
   ].join(" ");
 }

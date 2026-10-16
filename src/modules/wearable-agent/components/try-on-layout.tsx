@@ -165,6 +165,7 @@ function EmbeddedTryOn({
           profiles: shopper.profiles,
           createProfile: shopper.createProfile,
           updateProfile: shopper.updateProfile,
+          deleteProfile: shopper.deleteProfile,
         }}
         onFillViewportChange={onFillViewportChange}
       />
@@ -249,7 +250,7 @@ function TryOnExperience({
               size="lg"
               onClick={agent.startAvatarGeneration}
               disabled={!agent.profileComplete}
-              className={cn(agent.profileComplete ? "gradient-violet text-[var(--color-brand-contrast)] border-0" : "")}
+              className={cn(agent.profileComplete ? "gradient-violet text-white border-0" : "")}
             >
               Create my avatar
               <ArrowRight className="h-4 w-4" />
@@ -270,13 +271,14 @@ function TryOnExperience({
     <>
           {embed && !agent.profileSubmitted && (
             <ProfileSwitcher
-              className="absolute left-3 top-3"
+              className="absolute left-6 top-4"
               profiles={agent.profiles}
               activeProfileId={agent.activeProfileId}
               maxProfiles={agent.maxProfiles}
               onSwitch={agent.switchProfile}
               onAdd={agent.addProfile}
               onRename={agent.renameProfile}
+              onDelete={agent.removeProfile}
               onSignOut={shopperSession?.signOut}
             />
           )}
@@ -308,6 +310,7 @@ function TryOnExperience({
 
               {agent.onboardingPhase === "avatar-selection" && (
                 <AvatarVariationPicker
+                  profile={agent.profile}
                   variations={agent.avatarVariations}
                   selectedId={agent.selectedAvatarId}
                   customAvatarUrl={agent.customAvatarUrl}

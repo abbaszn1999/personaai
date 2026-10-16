@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { consumeImageGeneration } from "@/lib/db/image-generations";
 import { canGenerateImage, getAccountBillingContext } from "@/lib/billing/account";
-import { AVATAR_IMAGE_NANOS } from "@/lib/billing/pricing";
+import { estimateAvatarCostNanos, estimateAvatarUnits } from "@/lib/billing/pricing";
 import { parseAvatarBodyMeasurements } from "@/lib/try-on/avatar-body";
 import { generateAvatarVariationsStream, DEFAULT_AVATAR_VARIATION_COUNT } from "@/lib/try-on/image-generation";
 
@@ -23,7 +23,8 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
   const billing = await getAccountBillingContext(user.id);
-  if (!billing || !canGenerateImage(billing)) {
+  // Only a gate: what is charged afterwards is each render's real cost, not this estimate.
+  if (!billing || !canGenerateImage(billing, estimateAvatarCostNanos())) {
     return Response.json({ error: "Your monthly image allowance and purchased credits are exhausted" }, { status: 402 });
   }
 
@@ -44,7 +45,12 @@ export async function POST(req: NextRequest) {
   // Only request as many variations as the account can actually pay for. Callers may ask
   // for fewer (e.g. a single-image regenerate) but never more than the default batch size.
   const includedRemaining = Math.max(billing.tier.monthlyGarmentUnits - billing.imagesUsedThisCycle, 0);
-  const availableGenerations = includedRemaining + billing.user.credits;
+  // An avatar settles at several units, so count how many whole avatars the balance covers. The gate
+  // above already passed, so at least one is always allowed.
+  const availableGenerations = Math.max(
+    1,
+    Math.floor((includedRemaining + billing.user.credits) / estimateAvatarUnits())
+  );
   const requestedCount = Math.min(
     typeof count === "number" && count > 0 ? count : DEFAULT_AVATAR_VARIATION_COUNT,
     DEFAULT_AVATAR_VARIATION_COUNT,
@@ -102,7 +108,7 @@ export async function POST(req: NextRequest) {
               "avatar",
               billing.cycleStartIso,
               billing.tier.monthlyGarmentUnits,
-              AVATAR_IMAGE_NANOS,
+              event.costNanos,
               { sessionId: user.id, source: "preview" }
             );
             if (consumed !== null) {

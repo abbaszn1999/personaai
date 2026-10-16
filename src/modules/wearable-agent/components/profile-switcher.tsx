@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, Pencil, Plus, User } from "lucide-react";
+import { Check, Pencil, Plus, Trash2, User } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { useClickOutside } from "@/lib/hooks/use-click-outside";
 import { useWearableTheme } from "../theme-context";
@@ -70,6 +70,8 @@ interface ProfileSwitcherProps {
   onSwitch: (id: string) => void;
   onAdd: () => void;
   onRename: (id: string, label: string) => void;
+  /** Deletes a profile. Offered only while more than one profile exists, and only after a confirm. */
+  onDelete?: (id: string) => void;
   onSignOut?: () => void;
   /** Positioning only — the popover itself is always `absolute` under the pill so it never
    *  stretches a chat header. Pass `absolute right-3 top-3` for the onboarding overlay. */
@@ -77,8 +79,8 @@ interface ProfileSwitcherProps {
 }
 
 /** Pill + popover for switching between up to `maxProfiles` profiles on a signed-in shopper
- *  account (e.g. a parent shopping for themselves and their kids). Profiles can only ever be
- *  created, switched between, and renamed here — never deleted. */
+ *  account (e.g. a parent shopping for themselves and their kids). Profiles can be created,
+ *  switched between, renamed and deleted here (the last remaining one cannot be deleted). */
 export function ProfileSwitcher({
   profiles,
   activeProfileId,
@@ -86,12 +88,14 @@ export function ProfileSwitcher({
   onSwitch,
   onAdd,
   onRename,
+  onDelete,
   onSignOut,
   className,
 }: ProfileSwitcherProps) {
   const [open, setOpen] = React.useState(false);
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [draftLabel, setDraftLabel] = React.useState("");
+  const [confirmingDeleteId, setConfirmingDeleteId] = React.useState<string | null>(null);
   const rootRef = React.useRef<HTMLDivElement>(null);
   const panelRef = React.useRef<HTMLDivElement>(null);
   const [panelOffsetX, setPanelOffsetX] = React.useState(0);
@@ -102,6 +106,7 @@ export function ProfileSwitcher({
     React.useCallback(() => {
       setOpen(false);
       setEditingId(null);
+      setConfirmingDeleteId(null);
     }, []),
     open
   );
@@ -144,7 +149,10 @@ export function ProfileSwitcher({
     >
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          setOpen((v) => !v);
+          setConfirmingDeleteId(null);
+        }}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={`Switch profile — currently ${active?.label || "Profile"}`}
@@ -170,7 +178,37 @@ export function ProfileSwitcher({
             Profiles ({profiles.length}/{maxProfiles})
           </p>
           <div className="space-y-1">
-            {profiles.map((p) => (
+            {profiles.map((p) =>
+              confirmingDeleteId === p.id ? (
+                <div key={p.id} className={cn("rounded-xl px-3 py-2.5", styles.row)}>
+                  <p className={cn("text-[13px] leading-snug", styles.rowText)}>
+                    Delete <span className="font-semibold">{p.label}</span>? Its measurements and avatar will be removed.
+                  </p>
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingDeleteId(null)}
+                      className={cn(
+                        "min-h-10 flex-1 rounded-lg border px-2 text-[12px] font-medium transition-colors",
+                        styles.addButton
+                      )}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConfirmingDeleteId(null);
+                        setOpen(false);
+                        onDelete?.(p.id);
+                      }}
+                      className="min-h-10 flex-1 rounded-lg bg-[var(--color-error)] px-2 text-[12px] font-semibold text-white transition-opacity hover:opacity-90"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ) : (
               <div
                 key={p.id}
                 className={cn(
@@ -224,8 +262,25 @@ export function ProfileSwitcher({
                     <Pencil className="h-3.5 w-3.5" />
                   </button>
                 )}
+
+                {editingId !== p.id && onDelete && profiles.length > 1 && (
+                  <button
+                    type="button"
+                    title="Delete"
+                    aria-label={`Delete ${p.label}`}
+                    onClick={() => setConfirmingDeleteId(p.id)}
+                    className={cn(
+                      "h-10 w-10 shrink-0 rounded-full flex items-center justify-center transition-colors",
+                      styles.iconButton,
+                      "hover:text-[var(--color-error)]!"
+                    )}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
-            ))}
+              )
+            )}
           </div>
 
           {profiles.length < maxProfiles && (

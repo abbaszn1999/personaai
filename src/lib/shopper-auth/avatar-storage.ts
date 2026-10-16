@@ -51,3 +51,11 @@ export async function persistShopperAvatar(
   // Cache-bust so a regenerated avatar isn't stuck behind the previous object's CDN cache.
   return `${data.publicUrl}?v=${Date.now()}`;
 }
+
+/** Removes a deleted profile's stored avatar. Best effort: the profile row is already gone, so a
+ *  storage hiccup only leaves an orphaned file behind and must not fail the delete. */
+export async function deleteShopperAvatar(accountId: string, profileId: string): Promise<void> {
+  const paths = ["png", "webp", "jpg"].map((ext) => `${accountId}/${profileId}.${ext}`);
+  const { error } = await db.storage.from(BUCKET).remove(paths);
+  if (error) console.error("[shopper-auth deleteShopperAvatar]", error);
+}

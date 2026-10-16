@@ -1,6 +1,6 @@
 import { db } from "@/lib/supabase/server";
 import type { TryOnAudience, TryOnProfile } from "@/modules/wearable-agent/types";
-import { persistShopperAvatar } from "@/lib/shopper-auth/avatar-storage";
+import { deleteShopperAvatar, persistShopperAvatar } from "@/lib/shopper-auth/avatar-storage";
 
 export const MAX_SHOPPER_PROFILES = 3;
 
@@ -228,6 +228,32 @@ export async function updateShopperProfile(
     return null;
   }
   return rowToProfile(data);
+}
+
+export type DeleteShopperProfileResult = "deleted" | "not-found" | "last-profile";
+
+/** Removes one of a shopper's profiles and its stored avatar. An account always keeps at least
+ *  one profile, so the last remaining one is refused. */
+export async function deleteShopperProfile(
+  shopperAccountId: string,
+  profileId: string
+): Promise<DeleteShopperProfileResult> {
+  const existing = await getShopperProfile(shopperAccountId, profileId);
+  if (!existing) return "not-found";
+  if ((await countShopperProfiles(shopperAccountId)) <= 1) return "last-profile";
+
+  const { error } = await db
+    .from("shopper_profiles")
+    .delete()
+    .eq("id", profileId)
+    .eq("shopper_account_id", shopperAccountId);
+  if (error) {
+    console.error("[db/shopper-profiles deleteShopperProfile]", error);
+    throw error;
+  }
+
+  await deleteShopperAvatar(shopperAccountId, profileId);
+  return "deleted";
 }
 
 export function parseShopperProfileDraft(body: unknown): ShopperProfileDraft | { error: string } {

@@ -13,7 +13,7 @@
 | Trial $450 / 30 days; Main $1,500/mo + 3 % GMV | `src/modules/billing/constants.ts`, `src/lib/attribution/constants.ts` |
 | 50k/100k session units, 50/100 live min, 12.5k/25k garment units | same |
 | Top-ups $2.50 / $0.80 / $1.20 and pack ranges | `src/lib/billing/pricing.ts` |
-| Avatar = 1.25 units, try-on 1.875 + 1 per extra | `pricing.ts` (Pruna nano-dollar costs) |
+| Avatar and try-on are billed at their real Nano Banana token cost, settled in $0.01 units | `pricing.ts` (Nano Banana token rates) |
 | Rollover capped at 2× include; $0.50 minimum invoice | `ROLLOVER_CAP_MULTIPLIER`, `GMV_MIN_COMMISSION_CENTS` |
 | Up to 11 garments per render, 3 profiles, 90-second live | `MAX_TRY_ON_GARMENTS`, `MAX_TRYON_PROFILES`, `REALTIME_TRYON_SESSION_CAP_SECONDS` |
 | Shadow DOM, no iframe; live engine is a separate bundle | `widget/src/main.tsx`, `decart-runtime-shim.ts` |

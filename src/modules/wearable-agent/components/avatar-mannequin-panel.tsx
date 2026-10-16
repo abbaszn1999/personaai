@@ -12,6 +12,7 @@ import {
   Loader2,
   Maximize2,
   Pencil,
+  Ruler,
   ShoppingBag,
   X,
 } from "lucide-react";
@@ -36,6 +37,7 @@ import { isKidsAudience } from "../audiences";
 import { EditModelStatsModal } from "./edit-model-stats-modal";
 import { AvatarWearScanOverlay } from "./avatar-wear-scan-overlay";
 import { GarmentHotspot, type ActiveLookItem } from "./garment-hotspot";
+import { MeasurementOverlay } from "./measurement-overlay";
 import { SizeGuideModal } from "./size-guide-modal";
 import { cn } from "@/lib/utils/cn";
 import { useWearableTheme } from "../theme-context";
@@ -92,6 +94,57 @@ const TOOLBAR_ACTIONS = [
  *  clear it. The glass cards themselves use `right-4 w-[240px]`. */
 const INFO_COLUMN_SPACE = 260;
 
+/** Space kept clear on the right for the info column (`right-5 w-[252px]` plus a gap). */
+const INFO_COLUMN_CLEARANCE = 280;
+
+/** Aspect ratio of every generated avatar and try-on (Gemini renders 3:4) — used until the
+ *  picture has loaded and reported its real size. */
+const DEFAULT_PHOTO_ASPECT = 3 / 4;
+
+/** Softens the photo's left and right edges into the blurred fill behind it. */
+/** Share of the photo's width, at each edge, that is stretched sideways to fill the stage. */
+const EDGE_STRIP = 0.04;
+/** How far inside the photo's edge the stretch starts (share of the photo's width). */
+const EDGE_INSET = 0.005;
+/** How far that strip is stretched — enough to reach across the widest stage (100vw). */
+const EDGE_STRETCH = 140;
+
+/**
+ * Fills the stage beside the photo by stretching the photo's own outermost columns sideways
+ * (mirrored, so the edge column itself stays put). Every row continues exactly the colour it
+ * ends on — floor shadow and lighting included — so there is no seam and no flat panel colour,
+ * at any panel width. Lives inside the photo's box and is clipped by the panel.
+ */
+function EdgeExtension({ src, side }: { src: string; side: "left" | "right" }) {
+  const right = side === "right";
+  return (
+    <div
+      aria-hidden
+      className={cn("pointer-events-none absolute top-0 h-full overflow-hidden", right ? "left-full" : "right-full")}
+      style={{ width: "100vw" }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt=""
+        draggable={false}
+        className={cn("absolute top-0 h-full w-auto max-w-none select-none", right ? "left-0" : "right-0")}
+        style={{
+          // Mirrored about a line a hair inside the photo's edge, and the strip of columns
+          // there spreads outward to cover the stage. Not exactly on the edge: a browser fades
+          // the outermost half pixel of an image into transparency, and stretched this far
+          // that fade would show as a white gap beside the photo.
+          transformOrigin: right ? `${(1 - EDGE_INSET) * 100}% 50%` : `${EDGE_INSET * 100}% 50%`,
+          transform: `translateX(${right ? "-" : ""}${(1 - EDGE_INSET) * 100}%) scaleX(-${EDGE_STRETCH})`,
+          // Only the strip beside the edge is visible once stretched; the rest is clipped off.
+          clipPath: right
+            ? `inset(0 0 0 ${(1 - EDGE_STRIP) * 100}%)`
+            : `inset(0 ${(1 - EDGE_STRIP) * 100}% 0 0)`,
+        }}
+      />
+    </div>
+  );
+}
 /** Panel color that frames the studio photo (blends the photo edge + vignettes) — follows
  *  the active wearable theme so the frame matches the chat panel next to it. */
 const PANEL_BG_BY_THEME = { dark: "#0d0b14", light: "#f2f0f5" } as const;
@@ -196,35 +249,53 @@ function aggregateFitMetrics(fit: LookFitAnalysis): Array<{ label: string; value
   }));
 }
 
-function FitAnalysisContent({ fit, mobile = false }: { fit: LookFitAnalysis; mobile?: boolean }) {
+/**
+ * The Fit Analysis card body. With `fit === null` (nothing tried on yet) it draws the same
+ * layout as a real analysis — ring, measurement bars, product list — at zero, so the card
+ * doesn't change shape when the first try-on arrives.
+ */
+function FitAnalysisContent({
+  fit,
+  mobile = false,
+  kids = false,
+}: {
+  fit: LookFitAnalysis | null;
+  mobile?: boolean;
+  kids?: boolean;
+}) {
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
-  const metrics = aggregateFitMetrics(fit);
+  const metrics = fit
+    ? aggregateFitMetrics(fit)
+    : (kids ? ["Height"] : ["Chest", "Waist"]).map((label) => ({ label, value: 0 }));
+  const score = fit?.score ?? 0;
 
   return (
     <>
       <div className={cn("flex flex-col items-center gap-1", mobile ? "mb-4" : "mb-4")}>
         <p className="text-[10px] text-[var(--ic-faint)] font-medium">Overall look fit</p>
-        {fit.score !== null ? (
+        {fit === null || fit.score !== null ? (
           <>
             <div className="relative h-[88px] w-[88px] my-1">
               <svg className="h-[88px] w-[88px] -rotate-90" viewBox="0 0 88 88" aria-hidden>
                 <circle cx="44" cy="44" r="36" fill="none" stroke="var(--ic-line)" strokeWidth="6" />
-                <circle
-                  cx="44"
-                  cy="44"
-                  r="36"
-                  fill="none"
-                  stroke="var(--color-brand)"
-                  strokeWidth="6"
-                  strokeLinecap="round"
-                  strokeDasharray={`${(fit.score / 100) * 226} 226`}
-                />
+                {score > 0 && (
+                  <circle
+                    cx="44"
+                    cy="44"
+                    r="36"
+                    fill="none"
+                    stroke="var(--color-brand)"
+                    strokeWidth="6"
+                    strokeLinecap="round"
+                    strokeDasharray={`${(score / 100) * 226} 226`}
+                  />
+                )}
               </svg>
               <div className="absolute inset-0 flex items-center justify-center">
-                <span className="text-[22px] font-bold text-[var(--ic-fg)]">{fit.score}%</span>
+                <span className="text-[22px] font-bold text-[var(--ic-fg)]">{score}%</span>
               </div>
             </div>
-            <p className="text-[12px] font-semibold text-[var(--ic-strong)]">{fit.label}</p>
+            <p className="text-[12px] font-semibold text-[var(--ic-strong)]">{fit ? fit.label : "No fit yet"}</p>
           </>
         ) : (
           <p className="py-3 text-center text-[12px] text-[var(--ic-muted)]">
@@ -250,7 +321,13 @@ function FitAnalysisContent({ fit, mobile = false }: { fit: LookFitAnalysis; mob
       )}
 
       <div className="space-y-1.5">
-        {fit.items.map((item) => {
+        {fit === null && (
+          <div className="rounded-lg border border-[var(--ic-line)] px-2.5 py-2">
+            <span className="block text-[11px] font-semibold text-[var(--ic-muted)]">No products yet</span>
+            <span className="text-[10px] text-[var(--ic-faint)]">Try on an item to see its fit</span>
+          </div>
+        )}
+        {fit?.items.map((item) => {
           const expanded = expandedId === item.productId;
           return (
             <div key={item.productId} className="overflow-hidden rounded-lg border border-[var(--ic-line)]">
@@ -330,6 +407,7 @@ export function AvatarMannequinPanel({
   const [justAddedAll, setJustAddedAll] = React.useState(false);
   const [viewMode, setViewMode] = React.useState<"photo" | "live">("photo");
   const realtime = useRealtimeTryOn({ embed, workspaceId });
+  const [showMeasurements, setShowMeasurements] = React.useState(false);
 
   const fullscreenCloseRef = React.useRef<HTMLButtonElement>(null);
   React.useEffect(() => {
@@ -356,12 +434,14 @@ export function AvatarMannequinPanel({
 
   const fit = currentTryOn?.fit ?? null;
   const defaultSize = recommendSize(profile);
-  const total = tryOnImages.length;
+  // Version 1 is always the plain avatar; each generated look is the next version after it.
+  const total = tryOnImages.length + 1;
   const hasPrev = currentImageIndex > 0;
   const hasNext = currentImageIndex < total - 1;
-  const hasGeneratedLooks = total > 0;
+  const hasGeneratedLooks = tryOnImages.length > 0;
 
-  const displayImage = currentTryOn?.imageUrl || profile.avatarUrl || DEFAULT_MANNEQUIN_IMAGE;
+  const baseImage = profile.avatarUrl || DEFAULT_MANNEQUIN_IMAGE;
+  const displayImage = currentTryOn?.imageUrl || baseImage;
   const [imgSrc, setImgSrc] = React.useState(displayImage);
 
   React.useEffect(() => {
@@ -379,13 +459,28 @@ export function AvatarMannequinPanel({
   // images are already complete baked photos, so they render as a single flat layer.
   const hasFixedBackdrop = Boolean(profile.backdropUrl) && imgSrc !== DEFAULT_MANNEQUIN_IMAGE;
 
+  // Measurement marks need a real person picture — not the placeholder mannequin, and not
+  // while a render is in flight.
+  const canShowMeasurements =
+    viewMode === "photo" && !isGenerating && !isRegeneratingAvatar && imgSrc !== DEFAULT_MANNEQUIN_IMAGE;
+  // The picture's real aspect ratio, read once it loads. Plate + cut-out avatars are always 3:4.
+  const [imgAspect, setImgAspect] = React.useState(DEFAULT_PHOTO_ASPECT);
+  const photoAspect = hasFixedBackdrop ? DEFAULT_PHOTO_ASPECT : imgAspect;
+  function handleImageLoad(e: React.SyntheticEvent<HTMLImageElement>) {
+    const { naturalWidth, naturalHeight } = e.currentTarget;
+    if (naturalWidth > 0 && naturalHeight > 0) setImgAspect(naturalWidth / naturalHeight);
+  }
+
   const cartItemIds = React.useMemo(() => new Set(cartItems.map((p) => p.id)), [cartItems]);
   const pendingCartIds = React.useMemo(() => new Set(pendingCartItemIds), [pendingCartItemIds]);
 
   /** Garments on the avatar — only real try-on results or the live outfit being built. */
   const activeItems: ActiveLookItem[] = React.useMemo(() => {
-    const source: Product[] =
-      currentTryOn && currentTryOn.outfitProducts.length > 0
+    // The plain avatar (version 1) wears nothing, so it has no garments to list or sell.
+    const onPlainAvatar = hasGeneratedLooks && !currentTryOn;
+    const source: Product[] = onPlainAvatar
+      ? []
+      : currentTryOn && currentTryOn.outfitProducts.length > 0
         ? currentTryOn.outfitProducts
         : outfitItems;
 
@@ -404,7 +499,7 @@ export function AvatarMannequinPanel({
         position: getHotspotPosition(product, staggerIndex),
       };
     });
-  }, [currentTryOn, outfitItems, defaultSize, profile.shoeSizeEu, profile.audience]);
+  }, [currentTryOn, hasGeneratedLooks, outfitItems, defaultSize, profile.shoeSizeEu, profile.audience]);
   const liveProducts = React.useMemo(() => {
     const byId = new Map<string, Product>();
     for (const version of tryOnImages) {
@@ -435,16 +530,18 @@ export function AvatarMannequinPanel({
   }, [liveTryOnEnabled, viewMode, stopRealtime]);
 
   const lookLabel = hasGeneratedLooks
-    ? `Style ${currentImageIndex + 1} of ${total}`
+    ? `Version ${currentImageIndex + 1} of ${total}`
     : outfitItems.length > 0
       ? "Your Outfit"
       : "Your Avatar";
 
   const outfitSwatches = hasGeneratedLooks
-    ? tryOnImages.map((tryOn, i) => ({
-        id: tryOn.id,
+    ? [
+        { id: "base-avatar", thumb: baseImage },
         // A version swatch represents the generated look, not one garment's catalog photo.
-        thumb: tryOn.imageUrl,
+        ...tryOnImages.map((tryOn) => ({ id: tryOn.id, thumb: tryOn.imageUrl })),
+      ].map((version, i) => ({
+        ...version,
         active: i === currentImageIndex,
         onClick: () => onSelectImage(i),
       }))
@@ -556,62 +653,58 @@ export function AvatarMannequinPanel({
             onStopRecording={realtime.stopRecording}
           />
         </div>
-      ) : hasFixedBackdrop ? (
-        <div
-          className="absolute inset-y-0 left-0 h-full select-none"
-          style={{ aspectRatio: "3 / 4" }}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={studioBackdropUrl} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover select-none" />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={imgSrc}
-            alt="Standing avatar in studio"
-            onError={handleImageError}
-            draggable={false}
-            className="absolute inset-0 h-full w-full object-cover select-none"
-          />
-        </div>
       ) : (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={imgSrc}
-          alt="Standing avatar in studio"
-          onError={handleImageError}
-          draggable={false}
-          className="absolute inset-y-0 left-0 h-full w-auto select-none"
-        />
-      )}
+        <>
+          {/* Stage: the photo is centred in the space left of the info column, and falls back
+              to left-aligned (under the column) when that space is narrower than the photo.
+              The space beside it continues the photo's own edge colour (see EdgeExtension). */}
+          <div
+            className="absolute inset-y-0 left-0 flex"
+            style={{ right: INFO_COLUMN_CLEARANCE, justifyContent: "safe center" }}
+          >
+            {/* The box takes the image's real aspect ratio, so the edge fill, the hotspots
+                and anything else drawn over the picture line up with it exactly. */}
+            <div className="relative h-full flex-none select-none" style={{ aspectRatio: photoAspect }}>
+              <EdgeExtension src={hasFixedBackdrop ? studioBackdropUrl : imgSrc} side="left" />
+              <EdgeExtension src={hasFixedBackdrop ? studioBackdropUrl : imgSrc} side="right" />
+              <div className="absolute inset-0">
+                {hasFixedBackdrop && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={studioBackdropUrl} alt="" draggable={false} className="absolute inset-0 h-full w-full select-none object-cover" />
+                )}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={imgSrc}
+                  alt="Standing avatar in studio"
+                  onError={handleImageError}
+                  onLoad={handleImageLoad}
+                  draggable={false}
+                  className="absolute inset-0 h-full w-full select-none object-cover"
+                />
+              </div>
 
-      {/* ── Layer 1: Right-side fade — blends the photo's own right edge into the panel bg ──
-          Sized to the photo (same aspect ratio as the image above) rather than the whole panel,
-          so only the last sliver of the picture fades. Measured against the panel it started
-          about half way across and washed out a third of the studio scene. ── */}
-      {viewMode === "photo" && (
-        <div
-          className="absolute inset-y-0 left-0 z-[2] h-full pointer-events-none"
-          style={{
-            aspectRatio: hasFixedBackdrop ? "3 / 4" : "2 / 3",
-            background: `linear-gradient(to right, transparent 86%, ${panelBg}80 93%, ${panelBg} 100%)`,
-          }}
-        />
-      )}
+              {canShowMeasurements && showMeasurements && (
+                <MeasurementOverlay profile={profile} imageUrl={imgSrc} fit="cover" />
+              )}
 
-      {/* ── Hotspots — mapped to exact photo aspect ratio. pointer-events-none on the
-          wrapper so empty space lets clicks/drags reach the photo underneath (e.g. panning);
-          each hotspot dot opts back in with its own pointer-events-auto. ── */}
-      {viewMode === "photo" && !isGenerating && !isRegeneratingAvatar && (
-        <div className="absolute inset-y-0 left-0 z-[18] pointer-events-none" style={{ aspectRatio: "1024 / 1536" }}>
-          {activeItems.map((item) => (
-            <GarmentHotspot
-              key={item.product.id}
-              item={item}
-              inCart={cartItemIds.has(item.product.id)}
-              isPending={pendingCartIds.has(item.product.id)}
-              onAddToCart={onAddToCart}
-            />
-          ))}
-        </div>
+              {/* Hotspots — pointer-events-none on the wrapper so empty space lets clicks reach
+                  the photo underneath; each hotspot dot opts back in with pointer-events-auto. */}
+              {viewMode === "photo" && !isGenerating && !isRegeneratingAvatar && (
+                <div className="pointer-events-none absolute inset-0 z-[18]">
+                  {activeItems.map((item) => (
+                    <GarmentHotspot
+                      key={item.product.id}
+                      item={item}
+                      inCart={cartItemIds.has(item.product.id)}
+                      isPending={pendingCartIds.has(item.product.id)}
+                      onAddToCart={onAddToCart}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </>
       )}
 
       {/* ── Left toolbar ── */}
@@ -634,6 +727,21 @@ export function AvatarMannequinPanel({
                 </button>
               ))}
               {liveTryOnEnabled && <div className={cn("h-px w-5", tone.divider)} />}
+              {canShowMeasurements && (
+                <button
+                  type="button"
+                  title={showMeasurements ? "Hide measurements" : "Show measurements"}
+                  aria-label={showMeasurements ? "Hide measurements" : "Show measurements"}
+                  aria-pressed={showMeasurements}
+                  onClick={() => setShowMeasurements((on) => !on)}
+                  className={cn(
+                    "relative h-9 w-9 rounded-[var(--radius-md)] flex items-center justify-center transition-all active:scale-90",
+                    showMeasurements ? tone.railActive : tone.railIdle
+                  )}
+                >
+                  <Ruler className="h-[17px] w-[17px]" strokeWidth={1.6} />
+                </button>
+              )}
             </>
           )}
 
@@ -669,13 +777,12 @@ export function AvatarMannequinPanel({
         </aside>
       ) : <div className="absolute top-5 right-5 z-[20] max-h-[calc(100%_-_40px)] w-[252px] flex flex-col gap-3 overflow-y-auto sidebar-scroll">
 
-        {/* No placeholder score: a card exists only for a generated version with chart data. */}
-        {fit && (
-          <InfoCard className="p-4">
-            <p className="text-[13px] font-semibold text-[var(--ic-fg)] mb-3">Fit Analysis</p>
-            <FitAnalysisContent fit={fit} />
-          </InfoCard>
-        )}
+        {/* Always shown, in the same layout: at zero with "No products yet" until a version
+            with chart data is generated. */}
+        <InfoCard className="p-4">
+          <p className="text-[13px] font-semibold text-[var(--ic-fg)] mb-3">Fit Analysis</p>
+          <FitAnalysisContent fit={fit} kids={isKidsAudience(profile.audience)} />
+        </InfoCard>
 
         {/* Model Stats + Size Recommendation card */}
         <InfoCard className="p-4">
@@ -785,7 +892,7 @@ export function AvatarMannequinPanel({
       )}
 
       {/* Preview navigation */}
-      {viewMode === "photo" && total > 1 && !isGenerating && (
+      {viewMode === "photo" && hasGeneratedLooks && !isGenerating && (
         <>
           {hasPrev && (
             <button type="button" onClick={onPrev}
@@ -861,15 +968,26 @@ export function AvatarMannequinPanel({
               <img src={studioBackdropUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={imgSrc} alt="Standing avatar in studio — fullscreen" className="absolute inset-0 h-full w-full object-cover" />
+              {canShowMeasurements && showMeasurements && (
+                <MeasurementOverlay profile={profile} imageUrl={imgSrc} fit="cover" />
+              )}
             </div>
           ) : (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={imgSrc}
-              alt="Standing avatar in studio — fullscreen"
-              className="max-h-full max-w-full object-contain rounded-[var(--radius-2xl)] shadow-[0_24px_80px_rgba(0,0,0,0.35)]"
+            <div
+              className="relative max-h-full max-w-[90vw] overflow-hidden rounded-[var(--radius-2xl)] shadow-[0_24px_80px_rgba(0,0,0,0.35)]"
+              style={{ height: "85vh", aspectRatio: photoAspect }}
               onClick={(e) => e.stopPropagation()}
-            />
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={imgSrc}
+                alt="Standing avatar in studio — fullscreen"
+                className="absolute inset-0 h-full w-full object-contain"
+              />
+              {canShowMeasurements && showMeasurements && (
+                <MeasurementOverlay profile={profile} imageUrl={imgSrc} fit="contain" />
+              )}
+            </div>
           )}
           <button
             ref={fullscreenCloseRef}
@@ -964,6 +1082,9 @@ function MobileAvatarStrip({
   const styles = MOBILE_SURFACE[theme];
   const [panel, setPanel] = React.useState<MobilePanel>(null);
   const [editDraft, setEditDraft] = React.useState<TryOnProfile>(profile);
+  const [showMeasurements, setShowMeasurements] = React.useState(false);
+  const canShowMeasurements =
+    viewMode === "photo" && !isGenerating && !isRegeneratingAvatar && imgSrc !== DEFAULT_MANNEQUIN_IMAGE;
 
   /** Every path that opens a full-cover panel goes through here so the chat sheet is always
    *  collapsed out of the way first. */
@@ -1046,6 +1167,11 @@ function MobileAvatarStrip({
       )}
 
       {/* ── Hotspot pins — absolute inset-0 matches the cover-filled image exactly ── */}
+      {/* Measurement marks — same cover fit and object-position as the photo above. */}
+      {canShowMeasurements && showMeasurements && (
+        <MeasurementOverlay profile={profile} imageUrl={imgSrc} fit="cover" position={{ x: 0.5, y: 0.15 }} />
+      )}
+
       {viewMode === "photo" && !isGenerating && !isRegeneratingAvatar && (
         <div className="absolute inset-0 z-[18] pointer-events-none">
           {activeItems.map((item) => (
@@ -1088,20 +1214,39 @@ function MobileAvatarStrip({
         </button>
       </div>}
 
-      {liveTryOnEnabled && (
+      {(liveTryOnEnabled || canShowMeasurements) && (
       <div
-        className="absolute left-3 z-[16] flex -translate-y-1/2 flex-col items-center gap-1 rounded-full border border-white/[0.12] bg-black/50 p-1 shadow-[0_8px_28px_rgba(0,0,0,0.5)] backdrop-blur-2xl"
-        style={{ top: `calc((100% - ${SHEET_H}) / 2)` }}
+        className="absolute right-3 z-[16] flex flex-col items-center gap-1 rounded-full border border-white/[0.12] bg-black/50 p-1 shadow-[0_8px_28px_rgba(0,0,0,0.5)] backdrop-blur-2xl"
+        // Top right. With a fit badge the Details button already holds the top row's right end,
+        // so the rail drops just below it instead of covering it.
+        style={{ top: viewMode === "photo" && fit && fit.score !== null ? 68 : 12 }}
       >
-        <button
-          type="button"
-          title={viewMode === "live" ? "Back to photo" : "Live camera"}
-          aria-label={viewMode === "live" ? "Back to photo" : "Live camera"}
-          onClick={() => onViewModeChange(viewMode === "live" ? "photo" : "live")}
-          className="flex h-10 w-10 items-center justify-center rounded-full text-white/80 transition-all hover:bg-white/[0.08] hover:text-white"
-        >
-          {viewMode === "live" ? <ImageIcon className="h-4 w-4" /> : <Camera className="h-4 w-4" />}
-        </button>
+        {canShowMeasurements && (
+          <button
+            type="button"
+            title={showMeasurements ? "Hide measurements" : "Show measurements"}
+            aria-label={showMeasurements ? "Hide measurements" : "Show measurements"}
+            aria-pressed={showMeasurements}
+            onClick={() => setShowMeasurements((on) => !on)}
+            className={cn(
+              "flex h-10 w-10 items-center justify-center rounded-full transition-all hover:bg-white/[0.08] hover:text-white",
+              showMeasurements ? "bg-white/[0.14] text-white" : "text-white/80"
+            )}
+          >
+            <Ruler className="h-4 w-4" />
+          </button>
+        )}
+        {liveTryOnEnabled && (
+          <button
+            type="button"
+            title={viewMode === "live" ? "Back to photo" : "Live camera"}
+            aria-label={viewMode === "live" ? "Back to photo" : "Live camera"}
+            onClick={() => onViewModeChange(viewMode === "live" ? "photo" : "live")}
+            className="flex h-10 w-10 items-center justify-center rounded-full text-white/80 transition-all hover:bg-white/[0.08] hover:text-white"
+          >
+            {viewMode === "live" ? <ImageIcon className="h-4 w-4" /> : <Camera className="h-4 w-4" />}
+          </button>
+        )}
       </div>
       )}
 
@@ -1113,14 +1258,15 @@ function MobileAvatarStrip({
       >
         {/* Style swatches */}
         <div className="flex items-center gap-2 overflow-x-auto flex-1 scrollbar-none overscroll-x-contain [-webkit-overflow-scrolling:touch]">
-          {(hasGeneratedLooks ? tryOnImages : activeItems.map((i) => i.product)).map((item, idx) => {
+          {(hasGeneratedLooks
+            ? [{ imageUrl: profile.avatarUrl || DEFAULT_MANNEQUIN_IMAGE }, ...tryOnImages]
+            : activeItems.map((i) => i.product)
+          ).map((item, idx) => {
             const isGenerated = hasGeneratedLooks;
-            const imgUrl = isGenerated
-              ? (item as GeneratedTryOn).imageUrl
-              : (item as Product).imageUrl;
+            const imgUrl = item.imageUrl;
             return (
               <button key={idx} type="button"
-                aria-label={isGenerated ? `Look ${idx + 1}` : undefined}
+                aria-label={isGenerated ? `Version ${idx + 1}` : undefined}
                 onClick={() => isGenerated ? onSelectImage(idx) : undefined}
                 className={cn(
                   "h-11 w-11 shrink-0 rounded-[var(--radius-md)] overflow-hidden border-2 transition-all",

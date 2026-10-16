@@ -45,3 +45,15 @@ export function mergeGarmentIntoOutfit(current: Product[], newItems: Product[]):
 
   return changed ? merged : current;
 }
+
+/**
+ * Whether `next` is the `previous` look plus something new: it keeps every garment already on
+ * the look and adds at least one more (a bottom onto a top, say). That is the case where a look
+ * is completed in place. A swapped garment (a new top over the old top), a dress replacing a
+ * top and bottom, or an identical outfit is a different look and starts its own version.
+ */
+export function outfitExtendsLook(previous: Product[], next: Product[]): boolean {
+  if (previous.length === 0 || next.length <= previous.length) return false;
+  const nextIds = new Set(next.map((item) => item.id));
+  return previous.every((item) => nextIds.has(item.id));
+}
