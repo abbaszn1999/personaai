@@ -12,10 +12,10 @@ import { resolveEmbedRequest } from "@/lib/embed/resolve";
 import { embedJson, embedOptions } from "@/lib/embed/cors";
 
 /**
- * A render takes ~12-30s. The image model gets two attempts inside a 100 s budget (see
- * gemini-image.ts), so this leaves room for fetching the garment pictures on top.
+ * A render takes ~12-30s. The image model gets two attempts inside a 150 s budget (see
+ * gemini-image.ts), so this leaves room for the render queue (up to 30 s) and fetching the garment pictures on top.
  */
-export const maxDuration = 120;
+export const maxDuration = 240;
 
 const OUT_OF_ALLOWANCE = "This store has exhausted its monthly image allowance and purchased credits";
 

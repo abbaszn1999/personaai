@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+﻿import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { geminiImageCostNanos } from "@/lib/billing/pricing";
 import {
   GeminiImageError,
@@ -226,10 +226,21 @@ describe("requestImage", () => {
 });
 
 describe("request limits", () => {
-  it("gives avatar creation more room than wearing, within its route's 300 s", () => {
-    expect(AVATAR_LIMITS.attemptTimeoutsMs[0]).toBeGreaterThan(WEAR_LIMITS.attemptTimeoutsMs[0]);
-    expect(AVATAR_LIMITS.totalBudgetMs).toBeGreaterThan(WEAR_LIMITS.totalBudgetMs);
+  it("lets a slow first attempt (a bundle) run for a full 100 s", () => {
+    expect(WEAR_LIMITS.attemptTimeoutsMs[0]).toBeGreaterThanOrEqual(100_000);
+    expect(AVATAR_LIMITS.attemptTimeoutsMs[0]).toBeGreaterThanOrEqual(100_000);
+  });
+
+  it("keeps each budget inside its route (wear 240 s with 30 s queue + pictures, avatar 300 s)", () => {
+    expect(WEAR_LIMITS.totalBudgetMs + 30_000 + 20_000).toBeLessThanOrEqual(240_000);
     expect(AVATAR_LIMITS.totalBudgetMs).toBeLessThan(300_000);
+    expect(AVATAR_LIMITS.totalBudgetMs).toBeGreaterThanOrEqual(WEAR_LIMITS.totalBudgetMs);
+  });
+
+  it("never lets the sum of attempts exceed the budget by more than the retry floor", () => {
+    for (const l of [WEAR_LIMITS, AVATAR_LIMITS]) {
+      expect(l.attemptTimeoutsMs[0]).toBeLessThan(l.totalBudgetMs);
+    }
   });
 
   it("makes a single attempt when only one is allowed", async () => {

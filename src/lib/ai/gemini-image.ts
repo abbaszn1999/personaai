@@ -12,10 +12,11 @@ import { getPlatformGeminiApiKey } from "./gemini";
 
 const INTERACTIONS_URL = "https://generativelanguage.googleapis.com/v1beta/interactions";
 /**
- * Renders take 12-30 s, longer for 4+ garments or under load. Two attempts share one budget that
- * is kept inside the route's 120 s `maxDuration` together with fetching the pictures: the old
- * "90 s, twice" could promise 180 s the platform would never wait for, so a slow second attempt
- * ended as a dropped connection instead of an answer.
+ * Renders take 12-30 s for one item, and a bundle or a loaded provider can need a minute or more.
+ * The first attempt is long so a slow render that is still going to succeed is never thrown away;
+ * the short second attempt only exists for an outright failure (5xx, empty image). The budgets
+ * stay inside each route's `maxDuration` together with queueing and fetching the pictures, so a
+ * slow attempt ends as an answer instead of a dropped connection.
  */
 export interface GeminiRequestLimits {
   /** One cap per attempt, in order; the number of entries is the number of attempts. */
@@ -24,14 +25,14 @@ export interface GeminiRequestLimits {
   totalBudgetMs: number;
 }
 
-/** Wearing: the shopper is waiting on a request that returns only at the end, so it stays tight. */
-export const WEAR_LIMITS: GeminiRequestLimits = { attemptTimeoutsMs: [55_000, 45_000], totalBudgetMs: 100_000 };
+/** Wearing an item or a bundle (route `maxDuration` 240 s: up to 30 s queue + pictures + this). */
+export const WEAR_LIMITS: GeminiRequestLimits = { attemptTimeoutsMs: [100_000, 40_000], totalBudgetMs: 150_000 };
 
 /**
  * Avatar creation. Its route streams progress to the browser and allows 300 s, so a slow render
- * can safely be given longer than a wear; real renders take 25-30 s, so this is about 3x headroom.
+ * can be given the most time; real renders take 25-30 s, so the first attempt alone is ~3x that.
  */
-export const AVATAR_LIMITS: GeminiRequestLimits = { attemptTimeoutsMs: [80_000, 70_000], totalBudgetMs: 150_000 };
+export const AVATAR_LIMITS: GeminiRequestLimits = { attemptTimeoutsMs: [100_000, 80_000], totalBudgetMs: 190_000 };
 
 export const ATTEMPT_TIMEOUTS_MS = WEAR_LIMITS.attemptTimeoutsMs;
 export const TOTAL_BUDGET_MS = WEAR_LIMITS.totalBudgetMs;

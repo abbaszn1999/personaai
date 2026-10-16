@@ -86,7 +86,7 @@ export function classifyTryOnThrown(timedOut: boolean): TryOnRequestError {
 }
 
 export interface TryOnRequestOptions {
-  /** One attempt's cap. The server needs up to ~105 s, so this sits above it. */
+  /** One attempt's cap. The server needs up to ~200 s in the worst case (queue, pictures, two Gemini attempts), so this sits above it. */
   attemptTimeoutMs?: number;
   /** All attempts together. */
   totalBudgetMs?: number;
@@ -99,8 +99,8 @@ export interface TryOnRequestOptions {
 }
 
 const DEFAULTS = {
-  attemptTimeoutMs: 115_000,
-  totalBudgetMs: 175_000,
+  attemptTimeoutMs: 215_000,
+  totalBudgetMs: 270_000,
   maxAttempts: 3,
   minAttemptMs: 15_000,
   backoffMs: [1_000, 2_500] as readonly number[],
