@@ -64,7 +64,7 @@ const ARMS_CLEAR_SHARE = 0.85;
 /** Share of the picture width the shoe chip needs beside the feet. */
 const SHOE_CHIP_ROOM = 0.18;
 /** Gap between the body and the height arrow, as a share of the picture width. */
-const HEIGHT_ARROW_GAP = 0.1;
+const HEIGHT_ARROW_GAP = 0.03;
 
 export function computeMeasurementMarks(stats: MeasurementStats, bounds: BodyBounds): MeasurementMarks {
   const marks: MeasurementMarks = {};

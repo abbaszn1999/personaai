@@ -2,6 +2,7 @@ import * as React from "react";
 import Image from "next/image";
 import {
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Check,
@@ -133,8 +134,9 @@ export function WearableChatMessage({
   // The product and bundle suggestions. On the desktop panel they sit in the reply's own column;
   // on mobile (`paged`) they leave it and span the chat's full width, one whole card at a time —
   // the column beside the avatar is far too narrow to show a card in full.
-  const suggestions = (
-    <>
+  const suggestions = (hasProducts || hasBundles) && (
+    // `data-message-cards` lets the mobile chat scroll to the cards themselves, not just the reply.
+    <div data-message-cards className="w-full">
       {hasProducts && inlineProducts && (
         <div className={cn("space-y-1.5 w-full", paged ? "mt-2" : "mt-1")}>
           {message.retrievalNote && (
@@ -160,7 +162,7 @@ export function WearableChatMessage({
           attachedLookId={attachedLookId}
         />
       )}
-    </>
+    </div>
   );
 
   return (
@@ -419,10 +421,13 @@ export function InlineSuggestionCard({
   const cartRemovable = inCart && Boolean(onRemoveFromCart);
   const cartDisabled = isPending || (!inCart && !product.inStock) || (inCart && !cartRemovable);
   return (
+    // The shell leaves a strip above the card for the Ask tab, which straddles the card's top
+    // edge on the right — clear of the photo, and of everything the shopper reads on the card.
+    <div className={cn("relative flex flex-col", onAsk && "pt-4", paged ? "w-full h-full" : "shrink-0 w-56")}>
+    {onAsk && <CardAskButton onAsk={onAsk} isAttached={isAttached} disabled={isBusy} subject="item" />}
     <div
       className={cn(
-        "flex flex-col rounded-[var(--radius-xl)] border bg-[var(--color-surface-card)] overflow-hidden transition-all duration-200",
-        paged ? "w-full h-full" : "shrink-0 w-56",
+        "flex min-h-0 flex-1 flex-col rounded-[var(--radius-xl)] border bg-[var(--color-surface-card)] overflow-hidden transition-all duration-200",
         isAttached
           ? "border-[var(--color-brand)] ring-2 ring-[var(--color-brand)]/40"
           : isWorn
@@ -450,7 +455,6 @@ export function InlineSuggestionCard({
             <span className="rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-semibold text-white">Out of stock</span>
           )}
         </div>
-        {onAsk && <CardAskButton onAsk={onAsk} isAttached={isAttached} disabled={isBusy} subject="item" />}
       </div>
 
       <div className="flex flex-1 flex-col gap-2.5 p-3">
@@ -529,6 +533,7 @@ export function InlineSuggestionCard({
         </button>
       )}
     </div>
+    </div>
   );
 }
 
@@ -553,12 +558,13 @@ function CardAskButton({
       aria-label={isAttached ? "Asking — type your question below" : `Ask about this ${subject}`}
       title={isAttached ? "Attached — type your question below" : `Ask about this ${subject}`}
       className={cn(
-        // A labelled pill, so "Ask" reads as a question to the assistant about this card rather
-        // than an unlabelled chat bubble; it turns solid while this card is the one attached.
-        "absolute right-2 top-2 z-10 flex h-8 items-center gap-1.5 rounded-full pl-2.5 pr-3 text-[11px] font-semibold shadow-[var(--shadow-sm)] transition-all active:scale-95",
+        // A labelled tab on the card's top edge, so "Ask" reads as a question to the assistant
+        // about this card rather than an unlabelled bubble; it turns solid while this card is
+        // the one attached. The card's own border runs behind it.
+        "absolute right-3 top-0 z-10 flex h-8 items-center gap-1.5 rounded-full border pl-2.5 pr-3 text-[11px] font-semibold shadow-[var(--shadow-sm)] transition-all active:scale-95",
         isAttached
-          ? "bg-[var(--color-brand)] text-white cursor-default"
-          : "bg-white/95 text-[#3b3346] hover:bg-white hover:text-[var(--color-brand)] disabled:opacity-50"
+          ? "border-[var(--color-brand)] bg-[var(--color-brand)] text-white cursor-default"
+          : "border-[var(--color-border)] bg-[var(--color-surface-card)] text-[var(--color-text-primary)] hover:border-[var(--color-brand)] hover:text-[var(--color-brand)] disabled:opacity-50"
       )}
     >
       <MessageSquare className={cn("h-3.5 w-3.5", !isAttached && "text-[var(--color-brand)]")} />
@@ -874,6 +880,9 @@ function BundleSuggestionCard({
   onRemoveAllFromCart,
   onAsk,
 }: BundleSuggestionCardProps) {
+  // The per-piece list is folded away until asked for: with it open a look is taller than the
+  // chat on a phone, and the buttons would sit below the fold.
+  const [detailsOpen, setDetailsOpen] = React.useState(false);
   const products = bundle.productIds
     .map((id) => knownProducts[id])
     .filter((p): p is Product => !!p);
@@ -887,17 +896,18 @@ function BundleSuggestionCard({
   const itemsByProductId = new Map(bundle.items.map((item) => [item.productId, item]));
 
   return (
+    <div className={cn("relative flex h-full w-full flex-col", onAsk && "pt-4")}>
+    {onAsk && <CardAskButton onAsk={onAsk} isAttached={isAttached} disabled={isBusy} subject="look" />}
     <div
       className={cn(
-        "flex w-full h-full flex-col rounded-[var(--radius-xl)] border bg-[var(--color-surface-card)] overflow-hidden transition-colors",
+        "flex min-h-0 w-full flex-1 flex-col rounded-[var(--radius-xl)] border bg-[var(--color-surface-card)] overflow-hidden transition-colors",
         isAttached
           ? "border-[var(--color-brand)] ring-1 ring-[var(--color-brand)]"
           : "border-[var(--color-border)]"
       )}
     >
-      <div className="relative shrink-0">
-        <BundleItemMosaic products={products} bundleIndex={index} />
-        {onAsk && <CardAskButton onAsk={onAsk} isAttached={isAttached} disabled={isBusy} subject="look" />}
+      <div className="shrink-0">
+        <BundleStrip products={products} bundleIndex={index} />
       </div>
 
       <div className="flex flex-1 flex-col gap-2.5 p-3">
@@ -910,13 +920,32 @@ function BundleSuggestionCard({
               {formatPrice(total, currency)}
             </span>
           </div>
-          {bundle.rationale ? (
+          {bundle.rationale && (
             <p className="mt-0.5 text-[11px] leading-snug text-[var(--color-text-muted)] line-clamp-2">{bundle.rationale}</p>
-          ) : (
-            <p className="mt-0.5 text-[11px] text-[var(--color-text-muted)]">{products.length} pieces</p>
           )}
         </div>
 
+        <button
+          type="button"
+          onClick={() => setDetailsOpen((open) => !open)}
+          aria-expanded={detailsOpen}
+          className="-my-0.5 flex items-center justify-between gap-2 rounded-[var(--radius-md)] px-1 py-1.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-brand)] transition-colors"
+        >
+          <span className="flex items-center gap-1.5">
+            {products.length} pieces
+            {products.some((p) => p.fitSizes?.length) && (
+              <span className="rounded-full bg-[var(--color-brand-light)] px-1.5 py-px text-[10px] font-semibold text-[var(--color-brand)]">
+                sizes picked for you
+              </span>
+            )}
+          </span>
+          <span className="flex items-center gap-0.5 text-[11px] font-medium text-[var(--color-brand)]">
+            {detailsOpen ? "Hide details" : "Details"}
+            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", detailsOpen && "rotate-180")} />
+          </span>
+        </button>
+
+        {detailsOpen && (
         <ul className="divide-y divide-[var(--color-border)] rounded-[var(--radius-lg)] border border-[var(--color-border)]">
           {products.map((product) => {
             const category = itemsByProductId.get(product.id)?.category;
@@ -947,6 +976,7 @@ function BundleSuggestionCard({
             );
           })}
         </ul>
+        )}
 
         <div className="mt-auto flex items-center gap-2">
           <button
@@ -977,6 +1007,7 @@ function BundleSuggestionCard({
         </div>
       </div>
     </div>
+    </div>
   );
 }
 
@@ -994,101 +1025,27 @@ function Thumb({ product, className }: { product: Product; className?: string })
   );
 }
 
-/** Adapts the bundle thumbnail layout to however many items the agent suggested. */
-function BundleItemMosaic({ products, bundleIndex }: { products: Product[]; bundleIndex: number }) {
-  const badge = (
-    <span className="absolute top-2.5 left-2.5 z-10 h-5 w-5 rounded-full bg-black/60 text-white text-[10px] font-bold flex items-center justify-center">
-      {bundleIndex + 1}
-    </span>
-  );
-
-  // 1 item — single hero image
-  if (products.length === 1) {
-    return (
-      <div className="relative p-1.5 bg-[var(--color-surface-base)]">
-        {badge}
-        <Thumb product={products[0]} className="aspect-[5/3] w-full" />
-      </div>
-    );
-  }
-
-  // 2 items — equal split
-  if (products.length === 2) {
-    return (
-      <div className="relative grid grid-cols-2 gap-0.5 p-1.5 bg-[var(--color-surface-base)]">
-        {badge}
-        {products.map((p) => (
-          <Thumb key={p.id} product={p} className="aspect-square" />
-        ))}
-      </div>
-    );
-  }
-
-  // 3 items — one featured left, two stacked right
-  if (products.length === 3) {
-    return (
-      <div className="relative grid grid-cols-2 grid-rows-2 gap-0.5 p-1.5 bg-[var(--color-surface-base)] h-[168px]">
-        {badge}
-        <Thumb product={products[0]} className="row-span-2 h-full" />
-        <Thumb product={products[1]} className="h-full" />
-        <Thumb product={products[2]} className="h-full" />
-      </div>
-    );
-  }
-
-  // 4 items — classic 2×2
-  if (products.length === 4) {
-    return (
-      <div className="relative grid grid-cols-2 gap-0.5 p-1.5 bg-[var(--color-surface-base)]">
-        {badge}
-        {products.map((p) => (
-          <Thumb key={p.id} product={p} className="aspect-square" />
-        ))}
-      </div>
-    );
-  }
-
-  // 5 items — 3 on top, 2 centered below
-  if (products.length === 5) {
-    return (
-      <div className="relative p-1.5 bg-[var(--color-surface-base)] space-y-0.5">
-        {badge}
-        <div className="grid grid-cols-3 gap-0.5">
-          {products.slice(0, 3).map((p) => (
-            <Thumb key={p.id} product={p} className="aspect-square" />
-          ))}
-        </div>
-        <div className="grid grid-cols-2 gap-0.5 w-[66%] mx-auto">
-          {products.slice(3, 5).map((p) => (
-            <Thumb key={p.id} product={p} className="aspect-square" />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  // 6 items — 3×2 grid
-  if (products.length === 6) {
-    return (
-      <div className="relative grid grid-cols-3 grid-rows-2 gap-0.5 p-1.5 bg-[var(--color-surface-base)]">
-        {badge}
-        {products.map((p) => (
-          <Thumb key={p.id} product={p} className="aspect-square" />
-        ))}
-      </div>
-    );
-  }
-
-  // 7+ items — horizontal filmstrip (scrollable)
+/** The pieces of a look side by side in one short row: every piece is visible at a glance, and
+ *  the card stays a fixed, small height whatever the number of pieces (a 2×2 collage was as tall
+ *  as the card is wide, which pushed the buttons off the screen on a phone). A look of five or
+ *  more pieces scrolls sideways instead of squeezing them. */
+function BundleStrip({ products, bundleIndex }: { products: Product[]; bundleIndex: number }) {
+  const many = products.length > 4;
   return (
-    <div className="relative p-1.5 bg-[var(--color-surface-base)]">
-      {badge}
-      <div className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+    <div className="relative bg-[var(--color-surface-base)] p-1.5">
+      <span className="absolute left-2.5 top-2.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-[10px] font-bold text-white">
+        {bundleIndex + 1}
+      </span>
+      <div
+        className={cn(
+          "flex gap-1.5",
+          many && "overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+        )}
+      >
         {products.map((p) => (
-          <Thumb key={p.id} product={p} className="shrink-0 h-[72px] w-[72px]" />
+          <Thumb key={p.id} product={p} className={cn("h-28", many ? "w-[84px] shrink-0" : "min-w-0 flex-1")} />
         ))}
       </div>
-      <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-[var(--color-surface-base)] to-transparent" />
     </div>
   );
 }

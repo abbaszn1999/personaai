@@ -536,6 +536,18 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
     if (mode === "latest") {
       const nodes = list.querySelectorAll<HTMLElement>("[data-message-id]");
       const last = nodes[nodes.length - 1];
+      // A reply with product or look cards: the cards are what the shopper came for, so bring
+      // them into view — whole, when they fit, with their top edge at the top when they don't.
+      const cards = last?.dataset.messageRole === "assistant" ? last.querySelector<HTMLElement>("[data-message-cards]") : null;
+      if (cards) {
+        const listTop = list.getBoundingClientRect().top;
+        const rect = cards.getBoundingClientRect();
+        const top = rect.top - listTop + list.scrollTop;
+        const view = list.clientHeight;
+        const target = rect.height + 24 <= view ? top + rect.height + 12 - view : top - 8;
+        list.scrollTo({ top: Math.max(0, target), behavior });
+        return;
+      }
       if (last && last.dataset.messageRole === "assistant" && last.offsetHeight > list.clientHeight - 24) {
         const delta = last.getBoundingClientRect().top - list.getBoundingClientRect().top;
         list.scrollTo({ top: Math.max(0, list.scrollTop + delta - 8), behavior });
@@ -551,10 +563,26 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
     if (!open) return;
     const mode = agent.isTyping || agent.isScanning ? "end" : "latest";
     const frame = window.requestAnimationFrame(() => scrollMessages(mode, "smooth"));
-    const settled = window.setTimeout(() => scrollMessages(mode, "smooth"), CHAT_PANEL_SETTLE_MS);
+    // Product photos and the carousel finish laying out after the message lands, which moves
+    // the cards; align again a couple of times so the final position is the one that sticks —
+    // unless the shopper has already taken over the scrolling.
+    const list = messagesRef.current;
+    let takenOver = false;
+    const takeOver = () => {
+      takenOver = true;
+    };
+    list?.addEventListener("touchstart", takeOver, { passive: true });
+    list?.addEventListener("wheel", takeOver, { passive: true });
+    const realign = [CHAT_PANEL_SETTLE_MS, 700, 1400].map((delay, i) =>
+      window.setTimeout(() => {
+        if (!takenOver) scrollMessages(mode, i === 0 ? "smooth" : "auto");
+      }, delay)
+    );
     return () => {
       window.cancelAnimationFrame(frame);
-      window.clearTimeout(settled);
+      realign.forEach(window.clearTimeout);
+      list?.removeEventListener("touchstart", takeOver);
+      list?.removeEventListener("wheel", takeOver);
     };
   }, [agent.messages, agent.isTyping, agent.isScanning, open, scrollMessages]);
 
@@ -670,6 +698,8 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
       <div
         aria-hidden={!open}
         inert={!open}
+        // While it is open the chat owns every gesture: it never moves the store's page.
+        data-no-page-scroll={open ? "" : undefined}
         className={cn(
           "absolute inset-0 z-[30] flex flex-col",
           CHAT_PANEL_TRANSITION,

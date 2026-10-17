@@ -108,6 +108,13 @@ const INFO_COLUMN_CLEARANCE = 280;
  *  picture has loaded and reported its real size. */
 const DEFAULT_PHOTO_ASPECT = 3 / 4;
 
+/** Mobile: the strip of the frame kept clear above the photo for the fit badge and Details
+ *  (12px margin + 44px row + 8px gap)... */
+const MOBILE_STAGE_TOP = 64;
+/** ...and below it for the version swatches and cart (the sheet inset + 10px margin + 44px row
+ *  + 6px gap). The photo sits between the two. */
+const MOBILE_STAGE_BOTTOM = `calc(${SHEET_H} + 60px)`;
+
 /** Softens the photo's left and right edges into the blurred fill behind it. */
 /** Share of the photo's width, at each edge, that is stretched sideways to fill the stage. */
 const EDGE_STRIP = 0.04;
@@ -1112,6 +1119,14 @@ function MobileAvatarStrip({
   const [showMeasurements, setShowMeasurements] = React.useState(false);
   const canShowMeasurements =
     viewMode === "photo" && !isGenerating && !isRegeneratingAvatar && imgSrc !== DEFAULT_MANNEQUIN_IMAGE;
+  // The photo's real shape, read once it loads; plate + cut-out avatars are always 3:4. The stage
+  // box below takes this aspect, so the measurement marks and hotspots line up with the photo.
+  const [imgAspect, setImgAspect] = React.useState(DEFAULT_PHOTO_ASPECT);
+  const photoAspect = backdropUrl ? DEFAULT_PHOTO_ASPECT : imgAspect;
+  function handleImageLoad(e: React.SyntheticEvent<HTMLImageElement>) {
+    const { naturalWidth, naturalHeight } = e.currentTarget;
+    if (naturalWidth > 0 && naturalHeight > 0) setImgAspect(naturalWidth / naturalHeight);
+  }
 
   /** Every path that opens a full-cover panel goes through here so the chat sheet is always
    *  collapsed out of the way first. */
@@ -1175,53 +1190,55 @@ function MobileAvatarStrip({
           />
         </div>
       ) : (
-        <>
-          {backdropUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={backdropUrl} alt="" className="absolute inset-0 w-full h-full object-cover object-center select-none" />
-          )}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={imgSrc}
-            alt="Avatar"
-            onError={onImageError}
-            // Anchored above centre: when the host page gives the widget a frame shorter than
-            // a 2:3 figure, `cover` has to crop vertically, and cropping the feet is far
-            // better than cropping the head and the garment being tried on.
-            className="absolute inset-0 w-full h-full object-cover select-none [object-position:50%_15%]"
-          />
-        </>
-      )}
+        // The stage: the whole figure, head to shoes, sits BETWEEN the top bar (fit badge,
+        // Details) and the bottom bar (versions, cart) rather than under them, so no control
+        // ever covers the face or the shoes and nothing needs scrolling. The box takes the
+        // photo's own aspect ratio, so the edge fill, measurement marks and hotspots line up
+        // with it exactly; the space beside it continues the photo's own edge colour.
+        <div
+          className="absolute inset-x-0 flex justify-center"
+          style={{ top: MOBILE_STAGE_TOP, bottom: MOBILE_STAGE_BOTTOM }}
+        >
+          <div className="relative h-full flex-none select-none" style={{ aspectRatio: photoAspect }}>
+            <EdgeExtension src={backdropUrl ?? imgSrc} side="left" />
+            <EdgeExtension src={backdropUrl ?? imgSrc} side="right" />
+            <div className="absolute inset-0">
+              {backdropUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={backdropUrl} alt="" draggable={false} className="absolute inset-0 h-full w-full select-none object-cover" />
+              )}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={imgSrc}
+                alt="Avatar"
+                onError={onImageError}
+                onLoad={handleImageLoad}
+                draggable={false}
+                className="absolute inset-0 h-full w-full select-none object-cover"
+              />
+            </div>
 
-      {/* ── Hotspot pins — absolute inset-0 matches the cover-filled image exactly ── */}
-      {/* Measurement marks — same cover fit and object-position as the photo above. */}
-      {canShowMeasurements && showMeasurements && (
-        <MeasurementOverlay profile={profile} imageUrl={imgSrc} fit="cover" position={{ x: 0.5, y: 0.15 }} />
-      )}
+            {canShowMeasurements && showMeasurements && (
+              <MeasurementOverlay profile={profile} imageUrl={imgSrc} fit="cover" />
+            )}
 
-      {viewMode === "photo" && !isGenerating && !isRegeneratingAvatar && (
-        <div className="absolute inset-0 z-[18] pointer-events-none">
-          {activeItems.map((item) => (
-            <GarmentHotspot
-              key={item.product.id}
-              item={item}
-              inCart={cartItemIds.has(item.product.id)}
-              isPending={pendingCartIds.has(item.product.id)}
-              onAddToCart={onAddToCart}
-              onRemoveFromCart={onRemoveFromCart}
-            />
-          ))}
+            {viewMode === "photo" && !isGenerating && !isRegeneratingAvatar && (
+              <div className="pointer-events-none absolute inset-0 z-[18]">
+                {activeItems.map((item) => (
+                  <GarmentHotspot
+                    key={item.product.id}
+                    item={item}
+                    inCart={cartItemIds.has(item.product.id)}
+                    isPending={pendingCartIds.has(item.product.id)}
+                    onAddToCart={onAddToCart}
+                    onRemoveFromCart={onRemoveFromCart}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
-
-      {/* Top gradient — just enough to seat the badges, kept off the model's face */}
-      <div className="absolute inset-x-0 top-0 h-16 z-[9] pointer-events-none"
-        style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.45), transparent)" }}
-      />
-      {/* Bottom gradient — rides on top of the sheet so it always seats the controls below */}
-      <div className="absolute inset-x-0 h-16 z-[9] pointer-events-none"
-        style={{ bottom: SHEET_H, background: "linear-gradient(to top, rgba(0,0,0,0.5), transparent)" }}
-      />
 
       {/* ── Top row: only a generated version with real chart analysis gets a fit badge. ── */}
       {viewMode === "photo" && fit && fit.score !== null && <div className="absolute top-3 inset-x-3 z-[10] flex items-center justify-between gap-2">
@@ -1544,6 +1561,8 @@ function MobileInlinePanel({
   const styles = MOBILE_SURFACE[useWearableTheme()];
   return (
     <div
+      // Full-cover panel: its gestures never move the store's page (see forward-page-scroll).
+      data-no-page-scroll=""
       className={cn("absolute inset-x-0 top-0 z-[20] flex flex-col backdrop-blur-2xl", styles.panel)}
       style={{ bottom: SHEET_H }}
     >
