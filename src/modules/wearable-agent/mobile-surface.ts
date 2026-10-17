@@ -1,6 +1,6 @@
 /** Shared class tokens for the mobile surfaces that are *not* layered directly over the
- *  avatar photo — the chat bottom sheet and the full-cover panels (Fit Analysis, Edit Stats,
- *  Size Guide) that open on top of it.
+ *  avatar photo — the full-screen chat panel and the full-cover panels (Fit Analysis, Edit Stats,
+ *  Size Guide) that open over the avatar.
  *
  *  These used to hardcode `#0d0c12` / `#0a0910` / `text-white` in a few dozen places, so a
  *  merchant on the light theme ended up with a black sheet holding a white, theme-aware
@@ -10,11 +10,8 @@
  */
 export const MOBILE_SURFACE = {
   dark: {
-    sheet: "border-white/[0.10] bg-[#0d0c12]/95",
-    grabber: "bg-white/25",
     headerTitle: "text-white",
     headerMeta: "text-white/45",
-    headerPress: "active:bg-white/[0.04]",
     launcher: "bg-[#151320]/95 border border-white/[0.12]",
     inputRow: "border-white/[0.07]",
     input:
@@ -36,11 +33,8 @@ export const MOBILE_SURFACE = {
     sizeChipIdle: "border-white/[0.06] bg-white/[0.05] text-white/40",
   },
   light: {
-    sheet: "border-black/[0.08] bg-white/95",
-    grabber: "bg-black/20",
     headerTitle: "text-[var(--color-text-primary)]",
     headerMeta: "text-[var(--color-text-muted)]",
-    headerPress: "active:bg-black/[0.04]",
     launcher: "bg-white/95 border border-black/[0.08]",
     inputRow: "border-black/[0.07]",
     input:
@@ -72,17 +66,18 @@ export const SAFE_BOTTOM = "pb-[max(0.75rem,env(safe-area-inset-bottom))]";
  *  page on focus, which on an embedded widget leaves the host page scrolled and scaled. */
 export const NO_IOS_ZOOM_TEXT = "text-[16px]";
 
-/** Free space left above the chat sheet, as a CSS length. Every control layered over the
- *  avatar positions itself against this instead of the frame's own bottom edge, so nothing
- *  ends up stranded underneath the sheet once it is dragged open. */
+/** Space the controls layered over the avatar keep clear of at the bottom of the frame, as a CSS
+ *  length. The avatar screen no longer has a sheet under it, so this is just the home indicator
+ *  plus a little air; `MobileChatLayout` sets it, and every control positions itself against it
+ *  instead of the frame's own bottom edge. */
 export const SHEET_H = "var(--sheet-h, 0px)";
 
-/** How long the sheet's height takes to settle on a new snap, in ms. Anything measured against
- *  the sheet (the message list's scroll position) is read again once this has passed. */
-export const SHEET_TRANSITION_MS = 380;
-export const SHEET_SETTLE_MS = SHEET_TRANSITION_MS + 40;
+/** How long the chat panel's slide takes, in ms. Anything measured against the panel (the
+ *  message list's scroll position) is read again once this has passed. */
+export const CHAT_PANEL_TRANSITION_MS = 320;
+export const CHAT_PANEL_SETTLE_MS = CHAT_PANEL_TRANSITION_MS + 40;
 
 /** A long ease-out: fast off the mark, then a soft landing, so opening and closing read as one
  *  continuous glide instead of a jump. */
-export const SHEET_TRANSITION =
-  "transition-[height,background-color,border-color,border-radius] duration-[380ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none";
+export const CHAT_PANEL_TRANSITION =
+  "transition-[translate,box-shadow] duration-[320ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none";

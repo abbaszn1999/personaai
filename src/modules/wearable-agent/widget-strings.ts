@@ -25,6 +25,10 @@ export interface WidgetStrings {
   placeholderAskItem: string;
   placeholderCompleteLook: string;
   placeholderAskLook: string;
+  /** The chat tab on the avatar screen, and the controls that open and close the chat panel. */
+  chatTab: string;
+  openChat: string;
+  closeChat: string;
 }
 
 export type WidgetLanguage = "en" | "ar" | "fr";
@@ -49,6 +53,9 @@ const WIDGET_STRINGS: Record<WidgetLanguage, WidgetStrings> = {
     placeholderAskItem: "Ask anything about this item…",
     placeholderCompleteLook: "Tell me the occasion, style or budget — or just say go…",
     placeholderAskLook: "Ask about this look, or change it…",
+    chatTab: "Chat",
+    openChat: "Open chat",
+    closeChat: "Close chat and see your look",
   },
   ar: {
     searching: "جارٍ التحقق من الكتالوج…",
@@ -72,6 +79,9 @@ const WIDGET_STRINGS: Record<WidgetLanguage, WidgetStrings> = {
     placeholderAskItem: "اسأل أي شيء عن هذه القطعة…",
     placeholderCompleteLook: "أخبرني بالمناسبة أو الأسلوب أو الميزانية — أو اكتب «ابدأ»…",
     placeholderAskLook: "اسأل عن هذه الإطلالة أو اطلب تعديلها…",
+    chatTab: "دردشة",
+    openChat: "فتح الدردشة",
+    closeChat: "إغلاق الدردشة ورؤية إطلالتك",
   },
   fr: {
     searching: "Vérification du catalogue…",
@@ -95,6 +105,9 @@ const WIDGET_STRINGS: Record<WidgetLanguage, WidgetStrings> = {
     placeholderAskItem: "Posez une question sur cet article…",
     placeholderCompleteLook: "Dites-moi l'occasion, le style ou le budget — ou écrivez « go »…",
     placeholderAskLook: "Posez une question sur ce look, ou modifiez-le…",
+    chatTab: "Chat",
+    openChat: "Ouvrir le chat",
+    closeChat: "Fermer le chat et voir votre look",
   },
 };
 

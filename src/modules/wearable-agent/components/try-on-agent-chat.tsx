@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowUp, ChevronDown, ChevronUp, GripVertical, MessageCircle } from "lucide-react";
+import { ArrowUp, ChevronRight, GripVertical, MessageCircle, X } from "lucide-react";
 import type { UseTryOnAgentReturn } from "../hooks/use-try-on-agent";
 import type { ChatMessage, Product } from "@/modules/commerce/types";
 import {
@@ -13,9 +13,9 @@ import {
 import { AvatarMannequinPanel } from "./avatar-mannequin-panel";
 import { ProfileSwitcher } from "./profile-switcher";
 import { useEmbedShopperSession } from "../hooks/embed-shopper-session";
-import { useBottomSheet } from "../hooks/use-bottom-sheet";
+import { useKeyboardInset } from "../hooks/use-keyboard-inset";
 import { MAX_RENDERED_MESSAGES, takeLastMessages } from "../utils/chat-history";
-import { MOBILE_SURFACE, NO_IOS_ZOOM_TEXT, SAFE_BOTTOM, SHEET_H, SHEET_SETTLE_MS, SHEET_TRANSITION } from "../mobile-surface";
+import { CHAT_PANEL_SETTLE_MS, CHAT_PANEL_TRANSITION, MOBILE_SURFACE, NO_IOS_ZOOM_TEXT, SAFE_BOTTOM, SHEET_H } from "../mobile-surface";
 import { AgentOrb } from "@/components/ui/agent-orb";
 import { useVariantPicker } from "@/components/ui/variant-picker-popover";
 import { cn } from "@/lib/utils/cn";
@@ -428,7 +428,7 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
   );
 }
 
-// ─── Mobile: Avatar fills full frame, chat is a bottom sheet ─────────────────
+// ─── Mobile: avatar fills the frame, chat is a full-screen panel behind a side tab ───────────
 interface MobileChatLayoutProps {
   agent: UseTryOnAgentReturn;
   outfitItemIds: string[];
@@ -438,52 +438,52 @@ interface MobileChatLayoutProps {
   workspaceId?: string;
 }
 
-/** On mobile the avatar fills the whole frame and the chat is a drag-and-snap bottom sheet.
- *  The sheet's live height is published as `--sheet-h` by `useBottomSheet`, and every control
- *  layered over the avatar positions itself against it, so dragging the sheet open never
- *  strands the cart pill, the swatch rail or the mode toggle underneath it. */
+/** Two states, never a mix: the avatar with nothing over the body, or the chat over the whole
+ *  screen. A tab on the left edge opens the chat; it slides in from the left and covers the
+ *  avatar, and the close button (or tapping Wear) slides it away again. It opens by tap only —
+ *  a swipe from the left edge is the browser's own "back" gesture on an iPhone. The panel stays
+ *  mounted while closed, so the conversation, scroll position and half-typed message are all
+ *  still there when it is reopened. */
 function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, embed, workspaceId }: MobileChatLayoutProps) {
   const handleAddToCart = onAddToCart ?? agent.addToCart;
   const handleBulkAddToCart = onBulkAddToCart ?? agent.addToCart;
   const theme = useWearableTheme();
   const branding = useWearableBranding();
   const widgetLocale = useWidgetLocale();
+  const strings = widgetStrings(widgetLocale);
   const panelBg = CHAT_PANEL_BG_BY_THEME[theme];
   const styles = MOBILE_SURFACE[theme];
-  // Destructured rather than read as `sheet.*` during render: the hook's return mixes refs with
-  // state, and the compiler treats every field of a ref-holding object as a ref.
-  const {
-    rootRef: sheetRootRef,
-    headerRef: sheetHeaderRef,
-    snap: sheetSnap,
-    setSnap,
-    raiseTo,
-    toggle: toggleSheet,
-    isDragging: sheetDragging,
-    consumedDrag,
-    keyboardInset,
-    expanded: sheetExpanded,
-    handleProps: sheetHandleProps,
-  } = useBottomSheet(72, "half");
+  const keyboardInset = useKeyboardInset();
   const messagesRef = React.useRef<HTMLDivElement>(null);
   const handleRemoveFromCart = agent.removeFromCart;
-  // Wearing something is about watching the avatar change, so the sheet gets out of the way the
-  // moment Wear is pressed — for an item and for a whole bundle. The shopper can still pull it
-  // back up while the render runs; nothing closes it again until the next Wear.
+
+  const [open, setOpen] = React.useState(false);
+  const [everOpened, setEverOpened] = React.useState(false);
+  const [unread, setUnread] = React.useState(0);
+  const openPanel = React.useCallback(() => {
+    setOpen(true);
+    setEverOpened(true);
+    setUnread(0);
+  }, []);
+  const closePanel = React.useCallback(() => setOpen(false), []);
+
+  // Wearing something is about watching the avatar change, so the panel slides away the moment
+  // Wear is pressed — for an item and for a whole bundle. The tab is there to bring it back.
   const wearItemAndClose = React.useCallback(
     (product: Product) => {
-      setSnap("peek");
+      setOpen(false);
       agent.wearItem(product);
     },
-    [agent, setSnap]
+    [agent]
   );
   const wearBundleAndClose = React.useCallback(
     (productIds: string[]) => {
-      setSnap("peek");
+      setOpen(false);
       agent.wearBundle(productIds);
     },
-    [agent, setSnap]
+    [agent]
   );
+
   const cartItemIds = agent.cartItems.map((p) => p.id);
   // Quick replies are just a cold-start nudge — once the shopper has sent a real message,
   // showing them again below every subsequent turn is clutter, not a shortcut.
@@ -492,35 +492,36 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
   const chatBusy = agent.isTyping || agent.isScanning || agent.isReplying;
   const sendDisabled = agent.isTyping || agent.isGenerating || agent.isScanning || agent.isReplying;
   const messageList = useVisibleMessages(agent.messages);
-  // The full header bar (title, profile switcher, grab handle) only makes sense once there's
-  // an actual panel underneath it to be the header *of* — at rest, collapsed, it used to
-  // render that same edge-to-edge bar with nothing open below it, which read as a flat,
-  // slightly-broken strip glued to the bottom of the screen rather than an intentional
-  // control. Mid-drag is treated as "chrome" too so the bar doesn't pop between the two
-  // looks while the sheet is visibly resizing under the shopper's finger.
-  const showSheetChrome = sheetExpanded || sheetDragging;
 
-  // The sheet opens itself at "half" (see `useBottomSheet(72, "half")`) so the welcome message is
-  // on screen without a tap. After that it only ever grows, and only while it is open: a
-  // shopper's own message or a reply that carries cards raises it to "tall" so the answer is
-  // seen whole. A closed sheet stays closed — re-opening it on every message would yank it up
-  // over the avatar, and would undo the collapse that wearing something does on purpose.
-  const lastGrowthSignature = React.useRef<string | null>(null);
+  // The two follow-ups below react to a change in the conversation by setting state while
+  // rendering (the pattern React documents for "adjusting state when a prop changes"), not from
+  // an effect, so the panel and the tab's badge are right on the very frame the message lands.
+  const latestMessageId = agent.messages[agent.messages.length - 1]?.id ?? null;
+  const [seenMessageId, setSeenMessageId] = React.useState(latestMessageId);
+  if (latestMessageId !== seenMessageId) {
+    setSeenMessageId(latestMessageId);
+    // Wear slides the panel away to show the render; if the render then fails, the explanation
+    // and its Retry button are in the chat, so the panel comes back for them.
+    if (latestMessageId?.startsWith("msg-tryon-error-")) setOpen(true);
+  }
+
+  // While the panel is closed, replies are counted on the tab instead of stealing the screen,
+  // so there is still a reason to look at it without forcing it open.
+  const [seenCount, setSeenCount] = React.useState(agent.messages.length);
+  if (agent.messages.length !== seenCount) {
+    setSeenCount(agent.messages.length);
+    const added = agent.messages.length - seenCount;
+    if (!open && added > 0) setUnread((count) => count + added);
+  }
+
+  // The tab pulses a few seconds on a first visit so it is not mistaken for part of the page,
+  // and stops for good once the shopper has opened the chat.
+  const [hintDone, setHintDone] = React.useState(false);
   React.useEffect(() => {
-    const last = agent.messages[agent.messages.length - 1];
-    if (!last) return;
-    const cards = (last.productRecommendations?.length ?? 0) + (last.bundles?.length ?? 0);
-    const signature = `${last.id}:${cards}`;
-    const previous = lastGrowthSignature.current;
-    lastGrowthSignature.current = signature;
-    // The first pass only records where the conversation already is (the welcome message, or a
-    // restored history) so loading the widget never reshapes the sheet.
-    if (previous === null || previous === signature) return;
-    if (last.role === "user" || cards > 0) raiseTo("tall");
-    // Wear folds the sheet away to show the scan; if the render then fails, the explanation and
-    // its Retry button are in the chat, so the sheet comes back for them.
-    else if (last.id.startsWith("msg-tryon-error-")) setSnap("half");
-  }, [agent.messages, raiseTo, setSnap]);
+    const timer = window.setTimeout(() => setHintDone(true), 9_000);
+    return () => window.clearTimeout(timer);
+  }, []);
+  const showHint = !open && !everOpened && !hintDone;
 
   // Scrolls the message list to the newest answer. A reply taller than the visible list is
   // aligned by its top, so the start of the answer and its first card are never cut off; any
@@ -540,17 +541,18 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
     list.scrollTo({ top: list.scrollHeight, behavior });
   }, []);
 
-  // Runs once now and again when the sheet's height transition has finished: the first scroll is
-  // measured against a height that is still moving, the second against the one it settled on.
+  // Runs once now and again when the panel's slide has finished: the first scroll is measured
+  // while the panel is still moving, the second against the size it settled on.
   React.useEffect(() => {
+    if (!open) return;
     const mode = agent.isTyping || agent.isScanning ? "end" : "latest";
     const frame = window.requestAnimationFrame(() => scrollMessages(mode, "smooth"));
-    const settled = window.setTimeout(() => scrollMessages(mode, "smooth"), SHEET_SETTLE_MS);
+    const settled = window.setTimeout(() => scrollMessages(mode, "smooth"), CHAT_PANEL_SETTLE_MS);
     return () => {
       window.cancelAnimationFrame(frame);
       window.clearTimeout(settled);
     };
-  }, [agent.messages, agent.isTyping, agent.isScanning, sheetSnap, scrollMessages]);
+  }, [agent.messages, agent.isTyping, agent.isScanning, open, scrollMessages]);
 
   // "Ask about this" and "Complete the look" put a card above the composer, which shortens the
   // list under the shopper's thumb. Keep the end of the conversation in view instead of leaving
@@ -563,33 +565,23 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
   React.useEffect(() => {
     if (!attachmentKey) return;
     const frame = window.requestAnimationFrame(() => scrollMessages("end", "smooth"));
-    const settled = window.setTimeout(() => scrollMessages("end", "smooth"), SHEET_SETTLE_MS);
+    const settled = window.setTimeout(() => scrollMessages("end", "smooth"), CHAT_PANEL_SETTLE_MS);
     return () => {
       window.cancelAnimationFrame(frame);
       window.clearTimeout(settled);
     };
   }, [attachmentKey, scrollMessages]);
 
-  // While the sheet is collapsed, replies are announced on the handle instead of stealing
-  // the screen, so there is still a reason to look down without forcing it open.
-  const [unread, setUnread] = React.useState(0);
-  const seenCount = React.useRef(agent.messages.length);
-  React.useEffect(() => {
-    const added = agent.messages.length - seenCount.current;
-    seenCount.current = agent.messages.length;
-    if (sheetExpanded) setUnread(0);
-    else if (added > 0) setUnread((count) => count + added);
-  }, [agent.messages.length, sheetExpanded]);
-
   return (
     <div
-      ref={sheetRootRef}
       className="relative h-full min-h-0 overflow-hidden"
-      style={{ background: panelBg, "--sheet-h": "72px" } as React.CSSProperties}
+      // The avatar screen has no sheet to clear any more, only the home indicator: every control
+      // layered over the avatar positions itself against this one variable.
+      style={{ background: panelBg, "--sheet-h": "calc(env(safe-area-inset-bottom, 0px) + 8px)" } as React.CSSProperties}
     >
-      {/* ── Layer 0: Avatar fills the whole frame and never reflows while the sheet moves —
-           a height change here would rescale the photo on every pointer frame. ── */}
-      <div className="absolute inset-0">
+      {/* ── Layer 0: the avatar fills the whole frame. While the chat is open it is inert, so
+           focus and screen readers stay in the panel that is covering it. ── */}
+      <div className="absolute inset-0" inert={open} aria-hidden={open}>
         <AvatarMannequinPanel
           profile={agent.profile}
           outfitItems={agent.outfitItems}
@@ -612,7 +604,6 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
           isUploadingBackdrop={agent.isUploadingBackdrop}
           backdropUploadError={agent.backdropUploadError}
           mobile
-          onRequestSpace={() => setSnap("peek")}
           embed={embed}
           workspaceId={workspaceId}
         />
@@ -620,8 +611,8 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
 
       {agent.cartSyncError && (
         <div
-          className="pointer-events-none absolute inset-x-0 z-40 flex justify-center px-4"
-          style={{ bottom: `calc(${SHEET_H} + 10px)` }}
+          className={cn("pointer-events-none absolute inset-x-0 z-50 flex justify-center px-4", open && "top-3")}
+          style={open ? undefined : { bottom: `calc(${SHEET_H} + 10px)` }}
         >
           <div className="max-w-[90%] rounded-2xl bg-red-500/95 px-4 py-2.5 text-xs font-medium leading-relaxed text-white shadow-lg backdrop-blur-sm">
             {agent.cartSyncError}
@@ -629,231 +620,204 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
         </div>
       )}
 
-      {/* ── Layer 1: Bottom sheet chat ── */}
-      <div
+      {/* ── Layer 1: the chat tab, on the left edge at mid-height. ── */}
+      <button
+        type="button"
+        aria-label={strings.openChat}
+        aria-expanded={open}
+        tabIndex={open ? -1 : 0}
+        onClick={openPanel}
         className={cn(
-          "absolute inset-x-0 bottom-0 z-[30] flex flex-col rounded-t-[var(--radius-2xl)] border-t",
-          showSheetChrome ? cn("backdrop-blur-2xl", styles.sheet) : "border-transparent bg-transparent",
-          !sheetDragging && SHEET_TRANSITION
+          "absolute left-0 top-1/2 z-[25] flex min-h-24 w-[52px] -translate-y-1/2 flex-col items-center justify-center gap-1.5 rounded-r-[22px] border border-l-0 py-3 pr-1 shadow-[0_10px_32px_rgba(0,0,0,0.35)] backdrop-blur-2xl",
+          "transition-[translate,opacity,scale] duration-300 ease-out motion-reduce:transition-none active:scale-95",
+          styles.launcher,
+          open ? "pointer-events-none -translate-x-full opacity-0" : "opacity-100"
         )}
-        style={{ height: SHEET_H }}
       >
-        {/* ── Grab handle + header row. The whole row is the drag surface, so the sheet can be
-             flicked between snap points from anywhere along it, not just the 40px pill.
-             At rest and collapsed, this is a floating launcher button instead — see
-             showSheetChrome above for why the two need to look nothing alike. ── */}
+        {showHint && (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-0 rounded-r-[22px] border-2 border-[var(--color-brand)] opacity-60 motion-safe:animate-ping motion-reduce:hidden"
+          />
+        )}
+        <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full gradient-violet">
+          {branding.logoUrl ? (
+            <img src={branding.logoUrl} alt="" className="h-9 w-9 rounded-full object-cover" />
+          ) : (
+            <MessageCircle className="h-[18px] w-[18px] text-white" />
+          )}
+          {unread > 0 && (
+            <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-[var(--color-surface-base)] bg-[var(--color-error,#ef4444)] px-1 text-[10px] font-bold text-white">
+              {unread > 9 ? "9+" : unread}
+            </span>
+          )}
+        </span>
+        <span className={cn("text-[11px] font-semibold leading-none", styles.headerTitle)}>{strings.chatTab}</span>
+        <ChevronRight className={cn("h-4 w-4", styles.headerMeta)} />
+      </button>
+
+      {/* ── Layer 2: the chat, a full-screen panel that slides in from the left. Always mounted,
+           so the conversation is already laid out when it opens and nothing pops in at the end
+           of the slide. While closed it is off-screen, inert and out of the tab order. ── */}
+      <div
+        aria-hidden={!open}
+        inert={!open}
+        className={cn(
+          "absolute inset-0 z-[30] flex flex-col",
+          CHAT_PANEL_TRANSITION,
+          open ? "translate-x-0 shadow-[8px_0_40px_rgba(0,0,0,0.35)]" : "-translate-x-full"
+        )}
+        style={{ background: panelBg }}
+      >
+        {/* Header — profile switcher where a logo would sit, the agent's branding in the
+            middle, and the close button, which is the way back to the avatar. */}
         <div
-          ref={sheetHeaderRef}
-          {...sheetHandleProps}
           className={cn(
-            "relative flex touch-none items-center shrink-0",
-            showSheetChrome ? cn("gap-2 px-3 pt-3 pb-3", styles.headerPress) : "justify-center px-3 pt-2 pb-[max(1.5rem,calc(env(safe-area-inset-bottom)+0.75rem))]"
+            "flex shrink-0 items-center gap-2 border-b px-3 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]",
+            styles.panelBorder
           )}
         >
-          {showSheetChrome ? (
-            <>
-              <div className={cn("pointer-events-none absolute left-1/2 top-2 h-1 w-10 -translate-x-1/2 rounded-full", styles.grabber)} />
-              {/* Profile switcher takes the logo's old top-left spot; the branding itself moves
-                  to the center of the header button below. Only reachable once the sheet has
-                  actually opened — the collapsed launcher button below is chat-only, on
-                  purpose, so it stays a single, unambiguous action. */}
-              {embed && (
-                <div className="mt-1 shrink-0">
-                  <ChatProfileSwitcher agent={agent} />
-                </div>
-              )}
-              <button
-                type="button"
-                aria-expanded={sheetExpanded}
-                aria-label={sheetExpanded ? "Collapse chat" : "Expand chat"}
-                onClick={() => {
-                  if (!consumedDrag()) toggleSheet();
-                }}
-                className="relative mt-1 flex min-h-11 min-w-0 flex-1 items-center justify-center"
-              >
-                <div className="flex min-w-0 items-center gap-2">
-                  {branding.logoUrl ? (
-                    <img src={branding.logoUrl} alt="" className="h-5 w-5 shrink-0 rounded-full object-cover" />
-                  ) : (
-                    <MessageCircle className="h-5 w-5 shrink-0 text-[var(--color-brand)]" />
-                  )}
-                  <span className={cn("truncate text-[14px] font-semibold", styles.headerTitle)}>
-                    {compactChatLabel(branding.agentName)}
-                  </span>
-                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-success)] animate-pulse-dot" />
-                </div>
-                <div className={cn("absolute right-0 flex items-center gap-2", styles.headerMeta)}>
-                  {sheetExpanded ? <ChevronDown className="h-5 w-5" /> : <ChevronUp className="h-5 w-5" />}
-                </div>
-              </button>
-            </>
-          ) : (
-            // Floating chat launcher — a self-contained pill (not an edge-to-edge bar) so it
-            // reads as a deliberate, tappable control sitting *on* the photo rather than a
-            // strip glued to the bottom of the screen. Drag-up from here still opens the
-            // sheet (same handleProps as the expanded header), a plain tap snaps it to "half".
+          <div className="flex min-w-0 flex-1 items-center justify-start">
+            {embed && <ChatProfileSwitcher agent={agent} />}
+          </div>
+          <div className="flex min-w-0 shrink items-center gap-2">
+            {branding.logoUrl ? (
+              <img src={branding.logoUrl} alt="" className="h-6 w-6 shrink-0 rounded-full object-cover" />
+            ) : (
+              <MessageCircle className="h-5 w-5 shrink-0 text-[var(--color-brand)]" />
+            )}
+            <span className={cn("truncate text-[15px] font-semibold", styles.headerTitle)}>
+              {compactChatLabel(branding.agentName)}
+            </span>
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-success)] animate-pulse-dot" />
+          </div>
+          <div className="flex min-w-0 flex-1 items-center justify-end">
             <button
               type="button"
-              aria-label="Open chat"
-              onClick={() => {
-                if (!consumedDrag()) toggleSheet();
-              }}
+              aria-label={strings.closeChat}
+              onClick={closePanel}
               className={cn(
-                "relative flex min-h-14 items-center gap-2.5 rounded-full pl-2.5 pr-5 shadow-[0_10px_32px_rgba(0,0,0,0.35)] backdrop-blur-2xl transition-transform active:scale-[0.97]",
-                styles.launcher
+                "flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors",
+                styles.panelClose
               )}
             >
-              <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full gradient-violet">
-                {branding.logoUrl ? (
-                  <img src={branding.logoUrl} alt="" className="h-9 w-9 rounded-full object-cover" />
-                ) : (
-                  <MessageCircle className="h-[18px] w-[18px] text-white" />
-                )}
-                {unread > 0 && (
-                  <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-[var(--color-surface-base)] bg-[var(--color-error,#ef4444)] px-1 text-[10px] font-bold text-white">
-                    {unread}
-                  </span>
-                )}
-              </span>
-              <span className="flex flex-col items-start leading-tight">
-                <span className={cn("text-[13px] font-semibold", styles.headerTitle)}>
-                  {compactChatLabel(branding.agentName)}
-                </span>
-                <span className={cn("flex items-center gap-1 text-[11px]", styles.headerMeta)}>
-                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-success)] animate-pulse-dot" />
-                  {branding.launcherLabel}
-                </span>
-              </span>
+              <X className="h-5 w-5" />
             </button>
-          )}
+          </div>
         </div>
 
-        {/* ── Messages + quick replies + input. Always mounted, so opening and closing is the
-             sheet's height gliding over content that is already laid out and merely fades,
-             instead of a message list popping into existence at the end of the animation.
-             While collapsed it is clipped to nothing, hidden, and out of the tab order. ── */}
-          <div
-            aria-hidden={!sheetExpanded}
-            inert={!sheetExpanded}
-            className={cn(
-              "flex flex-col flex-1 min-h-0 overflow-hidden transition-opacity duration-300 ease-out motion-reduce:transition-none",
-              sheetExpanded ? "opacity-100" : "pointer-events-none opacity-0"
-            )}
-          >
-            {/* Messages */}
-            <div
-              ref={messagesRef}
-              className="flex-1 overflow-y-auto overscroll-contain scrollbar-none px-3 py-2 space-y-3 min-h-0 [-webkit-overflow-scrolling:touch]"
-            >
-              {messageList.hasEarlier && (
-                <ShowEarlierMessagesButton onClick={messageList.showEarlier} className={styles.quickReply} />
-              )}
-              {messageList.visible.map((msg, idx) => {
-                const msgProducts = (msg.productRecommendations ?? [])
-                  .map((id) => agent.knownProducts[id])
-                  .filter((p): p is NonNullable<typeof p> => !!p);
-                return (
-                  <div key={msg.id} data-message-id={msg.id} data-message-role={msg.role}>
-                    <WearableChatMessage
-                      message={msg}
-                      paged
-                      isLast={idx === messageList.visible.length - 1}
-                      userPhotoUrl={profilePhotoUrl(agent.profile)}
-                      inlineProducts={msgProducts.length > 0 ? msgProducts : undefined}
-                      outfitItemIds={outfitItemIds}
-                      cartItemIds={cartItemIds}
-                      pendingCartItemIds={agent.pendingCartItemIds}
-                      isGenerating={agent.isGenerating}
-                      onWearItem={wearItemAndClose}
-                      onAddToCart={handleAddToCart}
-                      onRemoveFromCart={handleRemoveFromCart}
-                      knownProducts={agent.knownProducts}
-                      attachedItemId={agent.attachment?.kind === "item" ? agent.attachment.product.id : null}
-                      attachedLookId={agent.attachment?.kind === "look" ? agent.attachment.look.id : null}
-                      isBusy={chatBusy}
-                      sendDisabled={sendDisabled}
-                      onRetry={msg.id === agent.retryMessageId ? agent.retryLastTurn : undefined}
-                      onAskAboutItem={agent.attachItem}
-                      onCompleteLook={agent.completeLook}
-                      onQuickOption={(label) => agent.sendMessage(label)}
-                      onRenderBundle={wearBundleAndClose}
-                      onAddBundleToCart={agent.addBundleToCart}
-                      onRemoveBundleFromCart={agent.removeBundleFromCart}
-                      onAskAboutLook={agent.attachLook}
-                    />
-                  </div>
-                );
-              })}
-              {agent.isTyping && <WearableTypingIndicator stage={agent.typingStage} />}
-              {agent.isScanning && <WearableScanningIndicator stageIndex={agent.scanStageIndex} resultCount={agent.scanResultCount} />}
-            </div>
-
-            {/* Quick replies */}
-            {canShowQuickReplies && branding.quickReplies.length > 0 && (
-              <div className="flex flex-wrap gap-2 shrink-0 px-3 pb-2">
-                {branding.quickReplies.map((qr) => (
-                  <button
-                    key={qr.label}
-                    type="button"
-                    dir="auto"
-                    onClick={() => agent.sendMessage(qr.query)}
-                    className={cn(
-                      "flex min-h-9 items-center rounded-full border px-3 text-[12px] transition-all",
-                      "hover:border-[var(--color-brand)]/60 hover:text-[var(--color-brand)]",
-                      styles.quickReply
-                    )}
-                  >
-                    {qr.label}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Input — lifted above the on-screen keyboard, and padded clear of the home
-                indicator when there is no keyboard. What the shopper attached sits inside it,
-                above the text field. */}
-            <div
-              className={cn("flex flex-col gap-2.5 shrink-0 border-t px-3 pt-3", styles.inputRow, !keyboardInset && SAFE_BOTTOM)}
-              style={keyboardInset ? { paddingBottom: keyboardInset + 12 } : undefined}
-            >
-              {agent.attachment && (
-                <ComposerAttachment
-                  attachment={agent.attachment}
+        {/* Messages */}
+        <div
+          ref={messagesRef}
+          className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-3 py-3 scrollbar-none [-webkit-overflow-scrolling:touch]"
+        >
+          {messageList.hasEarlier && (
+            <ShowEarlierMessagesButton onClick={messageList.showEarlier} className={styles.quickReply} />
+          )}
+          {messageList.visible.map((msg, idx) => {
+            const msgProducts = (msg.productRecommendations ?? [])
+              .map((id) => agent.knownProducts[id])
+              .filter((p): p is NonNullable<typeof p> => !!p);
+            return (
+              <div key={msg.id} data-message-id={msg.id} data-message-role={msg.role}>
+                <WearableChatMessage
+                  message={msg}
+                  paged
+                  isLast={idx === messageList.visible.length - 1}
+                  userPhotoUrl={profilePhotoUrl(agent.profile)}
+                  inlineProducts={msgProducts.length > 0 ? msgProducts : undefined}
+                  outfitItemIds={outfitItemIds}
+                  cartItemIds={cartItemIds}
+                  pendingCartItemIds={agent.pendingCartItemIds}
+                  isGenerating={agent.isGenerating}
+                  onWearItem={wearItemAndClose}
+                  onAddToCart={handleAddToCart}
+                  onRemoveFromCart={handleRemoveFromCart}
                   knownProducts={agent.knownProducts}
-                  onClear={agent.detach}
-                  tone={theme}
+                  attachedItemId={agent.attachment?.kind === "item" ? agent.attachment.product.id : null}
+                  attachedLookId={agent.attachment?.kind === "look" ? agent.attachment.look.id : null}
+                  isBusy={chatBusy}
+                  sendDisabled={sendDisabled}
+                  onRetry={msg.id === agent.retryMessageId ? agent.retryLastTurn : undefined}
+                  onAskAboutItem={agent.attachItem}
+                  onCompleteLook={agent.completeLook}
+                  onQuickOption={(label) => agent.sendMessage(label)}
+                  onRenderBundle={wearBundleAndClose}
+                  onAddBundleToCart={agent.addBundleToCart}
+                  onRemoveBundleFromCart={agent.removeBundleFromCart}
+                  onAskAboutLook={agent.attachLook}
                 />
-              )}
-              <div className="flex gap-2">
-                <input
-                  dir="auto"
-                  className={cn(
-                    "flex-1 h-11 min-w-0 rounded-full border px-4 transition-colors focus:outline-none",
-                    NO_IOS_ZOOM_TEXT,
-                    styles.input
-                  )}
-                  placeholder={composerPlaceholder(widgetStrings(widgetLocale), agent.attachment?.kind, branding.inputPlaceholder)}
-                  value={agent.input}
-                  onChange={(e) => agent.setInput(e.target.value)}
-                  onFocus={() => setSnap("full")}
-                  onKeyDown={(e) => e.key === "Enter" && agent.sendMessage()}
-                  disabled={sendDisabled}
-                />
-                <button
-                  type="button"
-                  aria-label="Send message"
-                  onClick={() => agent.sendMessage()}
-                  disabled={!agent.input.trim() || sendDisabled}
-                  className={cn(
-                    "h-11 w-11 rounded-full gradient-brand text-[var(--color-brand-contrast)] flex items-center justify-center shrink-0 transition-all",
-                    "disabled:opacity-40 disabled:cursor-not-allowed"
-                  )}
-                >
-                  <ArrowUp className="h-4 w-4" />
-                </button>
               </div>
-            </div>
+            );
+          })}
+          {agent.isTyping && <WearableTypingIndicator stage={agent.typingStage} />}
+          {agent.isScanning && <WearableScanningIndicator stageIndex={agent.scanStageIndex} resultCount={agent.scanResultCount} />}
+        </div>
+
+        {/* Quick replies */}
+        {canShowQuickReplies && branding.quickReplies.length > 0 && (
+          <div className="flex shrink-0 flex-wrap gap-2 px-3 pb-2">
+            {branding.quickReplies.map((qr) => (
+              <button
+                key={qr.label}
+                type="button"
+                dir="auto"
+                onClick={() => agent.sendMessage(qr.query)}
+                className={cn(
+                  "flex min-h-9 items-center rounded-full border px-3 text-[12px] transition-all",
+                  "hover:border-[var(--color-brand)]/60 hover:text-[var(--color-brand)]",
+                  styles.quickReply
+                )}
+              >
+                {qr.label}
+              </button>
+            ))}
           </div>
+        )}
+
+        {/* Input — lifted above the on-screen keyboard, and padded clear of the home indicator
+            when there is no keyboard. What the shopper attached sits inside it, above the text
+            field. */}
+        <div
+          className={cn("flex shrink-0 flex-col gap-2.5 border-t px-3 pt-3", styles.inputRow, !keyboardInset && SAFE_BOTTOM)}
+          style={keyboardInset ? { paddingBottom: keyboardInset + 12 } : undefined}
+        >
+          {agent.attachment && (
+            <ComposerAttachment
+              attachment={agent.attachment}
+              knownProducts={agent.knownProducts}
+              onClear={agent.detach}
+              tone={theme}
+            />
+          )}
+          <div className="flex gap-2">
+            <input
+              dir="auto"
+              className={cn(
+                "h-11 min-w-0 flex-1 rounded-full border px-4 transition-colors focus:outline-none",
+                NO_IOS_ZOOM_TEXT,
+                styles.input
+              )}
+              placeholder={composerPlaceholder(strings, agent.attachment?.kind, branding.inputPlaceholder)}
+              value={agent.input}
+              onChange={(e) => agent.setInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && agent.sendMessage()}
+              disabled={sendDisabled}
+            />
+            <button
+              type="button"
+              aria-label="Send message"
+              onClick={() => agent.sendMessage()}
+              disabled={!agent.input.trim() || sendDisabled}
+              className={cn(
+                "flex h-11 w-11 shrink-0 items-center justify-center rounded-full gradient-brand text-[var(--color-brand-contrast)] transition-all",
+                "disabled:cursor-not-allowed disabled:opacity-40"
+              )}
+            >
+              <ArrowUp className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
