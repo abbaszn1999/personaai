@@ -12,6 +12,7 @@ import {
 } from "./wearable-chat-message";
 import { AvatarMannequinPanel } from "./avatar-mannequin-panel";
 import { ProfileSwitcher } from "./profile-switcher";
+import { requestWidgetAlign } from "../widget-align";
 import { useEmbedShopperSession } from "../hooks/embed-shopper-session";
 import { useKeyboardInset } from "../hooks/use-keyboard-inset";
 import { MAX_RENDERED_MESSAGES, takeLastMessages } from "../utils/chat-history";
@@ -465,11 +466,16 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
     setOpen(true);
     setEverOpened(true);
     setUnread(0);
+    requestWidgetAlign(messagesRef.current);
   }, []);
   const closePanel = React.useCallback(() => setOpen(false), []);
   // The tab shows over the avatar only: the live camera and the Details panels (reported by the
   // avatar panel) take the whole screen and the tab steps aside for them.
   const [tabHidden, setTabHidden] = React.useState(false);
+  // Those full-screen surfaces, like the chat, are brought fully into view below the store's header.
+  React.useEffect(() => {
+    if (tabHidden) requestWidgetAlign(messagesRef.current);
+  }, [tabHidden]);
 
   // Wearing something is about watching the avatar change, so the panel slides away the moment
   // Wear is pressed — for an item and for a whole bundle. The tab is there to bring it back.
@@ -715,10 +721,13 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
             styles.panelBorder
           )}
         >
-          <div className="flex min-w-0 flex-1 items-center justify-start">
+          {/* The side slots keep their own width (at least the close button's, so the name stays
+              centred when there is no profile pill) and only the name gives way on a narrow
+              phone — the pill can never slide over the logo. */}
+          <div className="flex min-w-11 shrink-0 items-center justify-start">
             {embed && <ChatProfileSwitcher agent={agent} />}
           </div>
-          <div className="flex min-w-0 shrink items-center gap-2">
+          <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
             {branding.logoUrl ? (
               <img src={branding.logoUrl} alt="" className="h-6 w-6 shrink-0 rounded-full object-cover" />
             ) : (
@@ -729,7 +738,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
             </span>
             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-success)] animate-pulse-dot" />
           </div>
-          <div className="flex min-w-0 flex-1 items-center justify-end">
+          <div className="flex min-w-11 shrink-0 items-center justify-end">
             <button
               type="button"
               aria-label={strings.closeChat}

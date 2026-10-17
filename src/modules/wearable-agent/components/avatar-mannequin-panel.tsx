@@ -49,7 +49,6 @@ import { useRealtimeTryOn } from "../hooks/use-realtime-tryon";
 import { RealtimeTryOnOverlay } from "./realtime-tryon-overlay";
 import { LiveProductPicker } from "./live-product-picker";
 import { LiveProductStack } from "./live-product-stack";
-
 interface AvatarMannequinPanelProps {
   profile: TryOnProfile;
   outfitItems: Product[];
