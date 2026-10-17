@@ -8,6 +8,7 @@ import { formatPrice } from "@/modules/commerce/constants";
 import { cn } from "@/lib/utils/cn";
 import { useClickOutside } from "@/lib/hooks/use-click-outside";
 import { useWearableTheme } from "../theme-context";
+import { HOTSPOT_MIN_GAP, placeHotspotCard, spreadHotspots, type Point } from "../utils/hotspot-layout";
 
 export interface ActiveLookItem {
   product: Product;
@@ -22,6 +23,8 @@ interface GarmentHotspotProps {
   onAddToCart: (product: Product) => void;
   /** A second press on an item already in the cart takes it back out. */
   onRemoveFromCart?: (product: Product) => void;
+  /** Where the other dots are (the layer's pixels), so the open card stays off them. */
+  neighbours?: readonly Point[];
 }
 
 /** Fixed, known width — the horizontal flip math below needs an exact number to compare
@@ -31,7 +34,15 @@ const GAP = 10;
 /** Never let the card touch the frame's own edge, phone or desktop. */
 const EDGE_PADDING = 10;
 
-export function GarmentHotspot({ item, inCart, isPending = false, onAddToCart, onRemoveFromCart }: GarmentHotspotProps) {
+export function GarmentHotspot({
+  item,
+  inCart,
+  isPending = false,
+  onAddToCart,
+  onRemoveFromCart,
+  neighbours = [],
+}: GarmentHotspotProps) {
+  const neighbourKey = neighbours.map((p) => `${Math.round(p.x)},${Math.round(p.y)}`).join("|");
   const light = useWearableTheme() === "light";
   const [isOpen, setIsOpen] = React.useState(false);
   const [placement, setPlacement] = React.useState({ left: GAP, top: 0, width: CARD_WIDTH });
@@ -83,22 +94,20 @@ export function GarmentHotspot({ item, inCart, isPending = false, onAddToCart, o
       const width = Math.min(CARD_WIDTH, Math.max(160, parent.clientWidth - EDGE_PADDING * 2));
       const cardHeight = card.getBoundingClientRect().height;
 
-      const roomRight = parent.clientWidth - anchorX;
-      const preferredLeft = roomRight >= anchorX ? anchorX + GAP : anchorX - GAP - width;
-      const globalLeft = Math.max(
-        EDGE_PADDING,
-        Math.min(parent.clientWidth - EDGE_PADDING - width, preferredLeft)
-      );
-
       const sheetHeight = parseFloat(getComputedStyle(parent).getPropertyValue("--sheet-h")) || 0;
       const visibleHeight = Math.max(0, parent.clientHeight - sheetHeight);
-      const preferredTop = anchorY - cardHeight / 2;
-      const globalTop = Math.max(
-        EDGE_PADDING,
-        Math.min(Math.max(EDGE_PADDING, visibleHeight - EDGE_PADDING - cardHeight), preferredTop)
-      );
+      // Beside the dot when there is room; otherwise in a free slot above or below, so it
+      // never sits on the dot's neighbours (a tee's card used to cover the jacket's dot).
+      const spot = placeHotspotCard({
+        anchor: { x: anchorX, y: anchorY },
+        others: neighbours,
+        card: { width, height: cardHeight },
+        frame: { width: parent.clientWidth, height: visibleHeight },
+        gap: GAP,
+        edge: EDGE_PADDING,
+      });
 
-      setPlacement({ left: globalLeft - anchorX, top: globalTop - anchorY, width });
+      setPlacement({ left: spot.x - anchorX, top: spot.y - anchorY, width });
     };
 
     update();
@@ -106,12 +115,15 @@ export function GarmentHotspot({ item, inCart, isPending = false, onAddToCart, o
     observer.observe(parent);
     observer.observe(card);
     return () => observer.disconnect();
-  }, [isOpen, item.position.left, item.position.top]);
+    // `neighbourKey` stands in for the array itself, which is a new object every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, item.position.left, item.position.top, neighbourKey]);
 
   return (
     <div
       ref={rootRef}
-      className="absolute z-[25] pointer-events-auto"
+      // The open one rises above its neighbours so its card is never under another dot.
+      className={cn("absolute pointer-events-auto", isOpen ? "z-[28]" : "z-[25]")}
       style={{ top: item.position.top, left: item.position.left }}
       onPointerEnter={(e) => {
         if (e.pointerType === "mouse") cancelClose();
@@ -233,6 +245,71 @@ export function GarmentHotspot({ item, inCart, isPending = false, onAddToCart, o
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+interface GarmentHotspotLayerProps {
+  items: readonly ActiveLookItem[];
+  cartItemIds: ReadonlySet<string>;
+  pendingCartIds: ReadonlySet<string>;
+  onAddToCart: (product: Product) => void;
+  onRemoveFromCart?: (product: Product) => void;
+}
+
+/**
+ * Every dot on the avatar, laid out together. Each garment has a guessed spot on the body, and a
+ * jacket over a tee guesses almost the same one, so dots that would sit closer than a thumb can
+ * tell apart are spread out (see `spreadHotspots`) and each open card is kept off the others.
+ * It works from the dots' pixel positions, not from which garments there are, so any outfit —
+ * any number of pieces, any gender — gets dots that are all easy to hit.
+ */
+export function GarmentHotspotLayer({
+  items,
+  cartItemIds,
+  pendingCartIds,
+  onAddToCart,
+  onRemoveFromCart,
+}: GarmentHotspotLayerProps) {
+  const layerRef = React.useRef<HTMLDivElement>(null);
+  const [size, setSize] = React.useState({ width: 0, height: 0 });
+
+  React.useLayoutEffect(() => {
+    const el = layerRef.current;
+    if (!el) return;
+    const measure = () => setSize({ width: el.clientWidth, height: el.clientHeight });
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const points = React.useMemo(() => {
+    if (size.width === 0 || size.height === 0) return [];
+    const half = HOTSPOT_MIN_GAP / 2;
+    const ys = spreadHotspots(
+      items.map((item) => (parseFloat(item.position.top) / 100) * size.height),
+      HOTSPOT_MIN_GAP,
+      half,
+      Math.max(half, size.height - half)
+    );
+    return items.map((item, i) => ({ x: (parseFloat(item.position.left) / 100) * size.width, y: ys[i] }));
+  }, [items, size.width, size.height]);
+
+  return (
+    <div ref={layerRef} className="pointer-events-none absolute inset-0 z-[18]">
+      {points.length === items.length &&
+        items.map((item, i) => (
+          <GarmentHotspot
+            key={item.product.id}
+            item={{ ...item, position: { top: `${points[i].y}px`, left: `${points[i].x}px` } }}
+            inCart={cartItemIds.has(item.product.id)}
+            isPending={pendingCartIds.has(item.product.id)}
+            onAddToCart={onAddToCart}
+            onRemoveFromCart={onRemoveFromCart}
+            neighbours={points.filter((_, j) => j !== i)}
+          />
+        ))}
     </div>
   );
 }

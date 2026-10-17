@@ -37,7 +37,7 @@ import {
 import { isKidsAudience } from "../audiences";
 import { EditModelStatsModal } from "./edit-model-stats-modal";
 import { AvatarWearScanOverlay } from "./avatar-wear-scan-overlay";
-import { GarmentHotspot, type ActiveLookItem } from "./garment-hotspot";
+import { GarmentHotspotLayer, type ActiveLookItem } from "./garment-hotspot";
 import { MeasurementOverlay } from "./measurement-overlay";
 import { SizeGuideModal } from "./size-guide-modal";
 import { cn } from "@/lib/utils/cn";
@@ -707,18 +707,13 @@ export function AvatarMannequinPanel({
               {/* Hotspots — pointer-events-none on the wrapper so empty space lets clicks reach
                   the photo underneath; each hotspot dot opts back in with pointer-events-auto. */}
               {viewMode === "photo" && !isGenerating && !isRegeneratingAvatar && (
-                <div className="pointer-events-none absolute inset-0 z-[18]">
-                  {activeItems.map((item) => (
-                    <GarmentHotspot
-                      key={item.product.id}
-                      item={item}
-                      inCart={cartItemIds.has(item.product.id)}
-                      isPending={pendingCartIds.has(item.product.id)}
-                      onAddToCart={onAddToCart}
-                      onRemoveFromCart={onRemoveFromCart}
-                    />
-                  ))}
-                </div>
+                <GarmentHotspotLayer
+                  items={activeItems}
+                  cartItemIds={cartItemIds}
+                  pendingCartIds={pendingCartIds}
+                  onAddToCart={onAddToCart}
+                  onRemoveFromCart={onRemoveFromCart}
+                />
               )}
             </div>
           </div>
@@ -1222,18 +1217,13 @@ function MobileAvatarStrip({
             )}
 
             {viewMode === "photo" && !isGenerating && !isRegeneratingAvatar && (
-              <div className="pointer-events-none absolute inset-0 z-[18]">
-                {activeItems.map((item) => (
-                  <GarmentHotspot
-                    key={item.product.id}
-                    item={item}
-                    inCart={cartItemIds.has(item.product.id)}
-                    isPending={pendingCartIds.has(item.product.id)}
-                    onAddToCart={onAddToCart}
-                    onRemoveFromCart={onRemoveFromCart}
-                  />
-                ))}
-              </div>
+              <GarmentHotspotLayer
+                items={activeItems}
+                cartItemIds={cartItemIds}
+                pendingCartIds={pendingCartIds}
+                onAddToCart={onAddToCart}
+                onRemoveFromCart={onRemoveFromCart}
+              />
             )}
           </div>
         </div>

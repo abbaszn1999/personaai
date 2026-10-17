@@ -49,7 +49,7 @@ interface PagedCarouselProps {
 /**
  * A swipeable row that shows one full card at a time and settles on the next card in whole —
  * never between two. The next card peeks in at the edge, which is what tells a thumb there is
- * more to swipe; arrows appear only where there is a mouse to click them. Used for the product
+ * more to swipe, and arrows on the picture step one card at a time for a tap. Used for the product
  * and bundle suggestions in the mobile chat.
  */
 export function PagedCarousel({ children, label, arrowTop = "28%", className }: PagedCarouselProps) {
@@ -120,7 +120,7 @@ export function PagedCarousel({ children, label, arrowTop = "28%", className }: 
   );
 
   const arrowClass =
-    "absolute z-20 hidden -translate-y-1/2 h-9 w-9 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-card)]/95 text-[var(--color-text-secondary)] shadow-[var(--shadow-sm)] items-center justify-center active:scale-95 hover:text-[var(--color-brand)] hover:border-[var(--color-brand)] transition-colors [@media(hover:hover)]:flex";
+    "absolute z-20 flex -translate-y-1/2 h-10 w-10 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-card)]/95 text-[var(--color-text-secondary)] shadow-[var(--shadow-md,0_4px_14px_rgba(0,0,0,0.18))] items-center justify-center active:scale-95 hover:text-[var(--color-brand)] hover:border-[var(--color-brand)] transition-colors";
 
   return (
     <div className={cn("relative w-full", className)}>

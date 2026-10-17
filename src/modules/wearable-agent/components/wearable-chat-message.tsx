@@ -931,15 +931,15 @@ function BundleSuggestionCard({
           aria-expanded={detailsOpen}
           className="-my-0.5 flex items-center justify-between gap-2 rounded-[var(--radius-md)] px-1 py-1.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-brand)] transition-colors"
         >
-          <span className="flex items-center gap-1.5">
+          <span className="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
             {products.length} pieces
             {products.some((p) => p.fitSizes?.length) && (
               <span className="rounded-full bg-[var(--color-brand-light)] px-1.5 py-px text-[10px] font-semibold text-[var(--color-brand)]">
-                sizes picked for you
+                Your sizes
               </span>
             )}
           </span>
-          <span className="flex items-center gap-0.5 text-[11px] font-medium text-[var(--color-brand)]">
+          <span className="flex shrink-0 items-center gap-0.5 whitespace-nowrap text-[11px] font-medium text-[var(--color-brand)]">
             {detailsOpen ? "Hide details" : "Details"}
             <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", detailsOpen && "rotate-180")} />
           </span>
@@ -954,16 +954,16 @@ function BundleSuggestionCard({
               <li key={product.id} className="flex items-center gap-2.5 px-2 py-1.5">
                 <Thumb product={product} className="h-10 w-10 shrink-0 border border-[var(--color-border)]" />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-xs font-medium text-[var(--color-text-primary)]">{product.name}</p>
-                  <p className="mt-0.5 flex items-center gap-1.5 text-[10px] text-[var(--color-text-muted)]">
+                  <p className="line-clamp-2 text-xs font-medium leading-snug text-[var(--color-text-primary)]">{product.name}</p>
+                  <p className="mt-0.5 flex min-w-0 items-center gap-1.5 whitespace-nowrap text-[10px] text-[var(--color-text-muted)]">
                     {product.fitSizes?.length ? (
-                      <span className="rounded-full bg-[var(--color-brand-light)] px-1.5 py-px font-semibold text-[var(--color-brand)]">
+                      <span className="shrink-0 rounded-full bg-[var(--color-brand-light)] px-1.5 py-px font-semibold text-[var(--color-brand)]">
                         Size {product.fitSizes[0]}
                       </span>
                     ) : null}
-                    {category && <span className="truncate capitalize">{category}</span>}
+                    {category && <span className="min-w-0 truncate capitalize">{category}</span>}
                     {inCart && (
-                      <span className="flex items-center gap-0.5 text-[var(--color-brand)]">
+                      <span className="flex shrink-0 items-center gap-0.5 text-[var(--color-brand)]">
                         <Check className="h-2.5 w-2.5" /> In cart
                       </span>
                     )}
@@ -1065,7 +1065,7 @@ export function WearableScanningIndicator({
       <div className="h-8 w-8 rounded-full gradient-violet flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
         <Search className="h-4 w-4 text-white" />
       </div>
-      <div className="w-72 rounded-[var(--radius-xl)] rounded-bl-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-base)] px-4 py-3 space-y-2.5">
+      <div className="w-72 max-w-full rounded-[var(--radius-xl)] rounded-bl-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-base)] px-4 py-3 space-y-2.5">
         <div className="flex items-center justify-between">
           <span dir="auto" className="text-xs font-semibold text-[var(--color-text-primary)]">{strings.scanTitle}</span>
           <Loader2 className="h-3.5 w-3.5 text-[var(--color-brand)] animate-spin" />
@@ -1105,7 +1105,7 @@ interface TryOnResultCardProps {
 
 function TryOnResultCard({ items, recommendedSizes, fitNotes }: TryOnResultCardProps) {
   return (
-    <div className="rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] overflow-hidden shadow-sm w-72 mt-1">
+    <div className="rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] overflow-hidden shadow-sm w-72 max-w-full min-w-0 mt-1">
       <div className="p-3 space-y-2.5">
         <div className="flex items-center gap-1.5">
           <Ruler className="h-3.5 w-3.5 text-[var(--color-brand)]" />
@@ -1113,8 +1113,8 @@ function TryOnResultCard({ items, recommendedSizes, fitNotes }: TryOnResultCardP
         </div>
         <div className="space-y-1.5">
           {items.map((item) => (
-            <div key={item.productId} className="flex items-center justify-between">
-              <span className="text-xs text-[var(--color-text-secondary)] truncate pr-2">{item.name}</span>
+            <div key={item.productId} className="flex min-w-0 items-center justify-between">
+              <span className="min-w-0 truncate pr-2 text-xs text-[var(--color-text-secondary)]">{item.name}</span>
               <span className="text-xs font-bold text-[var(--color-brand)] shrink-0 bg-[var(--color-brand-light)] px-2 py-0.5 rounded-full">
                 {recommendedSizes[item.productId] ?? item.selectedVariant ?? "M"}
               </span>
@@ -1123,7 +1123,7 @@ function TryOnResultCard({ items, recommendedSizes, fitNotes }: TryOnResultCardP
         </div>
         <div className="flex items-start gap-2 rounded-[var(--radius-md)] bg-[var(--color-success-light)] px-2.5 py-2">
           <CheckCircle2 className="h-3.5 w-3.5 text-[var(--color-success)] mt-0.5 shrink-0" />
-          <p className="text-[11px] text-[var(--color-success)] leading-relaxed">{fitNotes}</p>
+          <p className="min-w-0 break-words text-[11px] text-[var(--color-success)] leading-relaxed">{fitNotes}</p>
         </div>
       </div>
     </div>
