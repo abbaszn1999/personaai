@@ -59,6 +59,8 @@ export const WAIST_AT = 0.41;
 
 /** The detected row is arm to arm; the chest and waist lines run across the torso. */
 const TORSO_SHARE = 0.72;
+/** A middle run narrower than this share of the row means the arms are clear of the torso. */
+const ARMS_CLEAR_SHARE = 0.85;
 /** Share of the picture width the shoe chip needs beside the feet. */
 const SHOE_CHIP_ROOM = 0.18;
 /** Gap between the body and the height arrow, as a share of the picture width. */
@@ -83,8 +85,13 @@ export function computeMeasurementMarks(stats: MeasurementStats, bounds: BodyBou
       const y = bounds.top + span * at;
       const extent = bounds.extentAt(y);
       if (!extent) return undefined;
-      const centre = (extent.left + extent.right) / 2;
-      const half = ((extent.right - extent.left) * TORSO_SHARE) / 2;
+      const torso = bounds.torsoAt(y) ?? extent;
+      const torsoWidth = torso.right - torso.left;
+      const extentWidth = extent.right - extent.left;
+      const centre = (torso.left + torso.right) / 2;
+      // Arms hanging clear of the body leave the torso on its own: measure that, edge to edge.
+      // Arms touching it can't be told apart, so take the usual torso share of the full row.
+      const half = (torsoWidth < extentWidth * ARMS_CLEAR_SHARE ? torsoWidth : extentWidth * TORSO_SHARE) / 2;
       return { y, left: centre - half, right: centre + half, label };
     };
 

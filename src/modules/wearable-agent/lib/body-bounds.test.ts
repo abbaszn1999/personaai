@@ -78,6 +78,19 @@ describe("findBodyBounds", () => {
     expect(bounds!.bottom).toBeCloseTo(150 / H, 1);
   });
 
+  it("finds the torso on its own on a cut-out whose arms hang clear of the body", () => {
+    const clearArms: Rect[] = [
+      { x0: 52, x1: 68, y0: 14, y1: 30 }, // head
+      { x0: 46, x1: 74, y0: 30, y1: 90 }, // torso
+      { x0: 36, x1: 42, y0: 30, y1: 85 }, // left arm
+      { x0: 78, x1: 84, y0: 30, y1: 85 }, // right arm
+      { x0: 46, x1: 74, y0: 90, y1: 150 }, // legs
+    ];
+    const bounds = findBodyBounds(render(() => [0, 0, 0, 0], [120, 120, 120, 255], clearArms), W, H);
+    expect(bounds!.extentAt(60 / H)).toEqual({ left: 36 / W, right: 84 / W });
+    expect(bounds!.torsoAt(60 / H)).toEqual({ left: 46 / W, right: 74 / W });
+  });
+
   it("returns null for an empty backdrop", () => {
     expect(findBodyBounds(render(solid([200, 200, 200]), null), W, H)).toBeNull();
   });

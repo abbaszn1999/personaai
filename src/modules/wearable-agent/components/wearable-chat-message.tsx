@@ -4,15 +4,16 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Check,
   ImageOff,
   Layers,
   Loader2,
   MessageSquare,
-  PlusCircle,
   RotateCcw,
   Ruler,
   Search,
   Shirt,
+  ShoppingBag,
   Sparkles,
   Star,
   User,
@@ -417,15 +418,11 @@ export function InlineSuggestionCard({
   // In the cart, the same button takes the product back out — unless nothing can remove it.
   const cartRemovable = inCart && Boolean(onRemoveFromCart);
   const cartDisabled = isPending || (!inCart && !product.inStock) || (inCart && !cartRemovable);
-  const label = paged ? "text-[11px]" : "text-[10px]";
-  // The narrow desktop tile has no spare width, so its secondary buttons carry less padding.
-  const secondaryPad = paged ? "px-2.5" : "px-1.5";
-
   return (
     <div
       className={cn(
-        "rounded-[var(--radius-xl)] border bg-[var(--color-surface-card)] overflow-hidden transition-all duration-200",
-        paged ? "w-full" : "shrink-0 w-48",
+        "flex flex-col rounded-[var(--radius-xl)] border bg-[var(--color-surface-card)] overflow-hidden transition-all duration-200",
+        paged ? "w-full h-full" : "shrink-0 w-52",
         isAttached
           ? "border-[var(--color-brand)] ring-2 ring-[var(--color-brand)]/40"
           : isWorn
@@ -433,155 +430,201 @@ export function InlineSuggestionCard({
             : "border-[var(--color-border)] hover:border-[var(--color-brand)]/50"
       )}
     >
-      <div className={cn("relative bg-white", paged ? "h-48" : "h-36")}>
-        <ProductPreviewImage product={product} className="object-contain" />
-        {isWorn && (
-          <div className="absolute inset-0 bg-[var(--color-brand)]/10 flex items-center justify-center">
-            <div className="h-7 w-7 rounded-full gradient-violet flex items-center justify-center shadow-lg">
-              {wearBusy ? (
-                <Loader2 className="h-3.5 w-3.5 text-white animate-spin" />
-              ) : (
-                <CheckCircle2 className="h-3.5 w-3.5 text-white" />
-              )}
-            </div>
+      <div className={cn("relative shrink-0 bg-white", paged ? "h-44" : "h-40")}>
+        <ProductPreviewImage product={product} className="object-contain p-2" />
+        {wearBusy && (
+          <div className="absolute inset-0 bg-white/60 flex items-center justify-center">
+            <Loader2 className="h-5 w-5 text-[var(--color-brand)] animate-spin" />
           </div>
         )}
-        {!product.inStock && (
-          <span className="absolute left-1.5 top-1.5 rounded-full bg-black/70 px-1.5 py-0.5 text-[9px] font-semibold text-white">
-            Out of stock
-          </span>
-        )}
-      </div>
-
-      <div className="p-2.5 space-y-2">
-        <div>
-          <p className="text-xs font-semibold text-[var(--color-text-primary)] line-clamp-1">{product.name}</p>
-          {product.reviewCount > 0 && (
-            <div className="flex items-center gap-1 mt-0.5">
-              <Star className="h-2.5 w-2.5 text-amber-400 fill-current" />
-              <span className="text-[10px] text-[var(--color-text-muted)]">
-                {product.rating} ({product.reviewCount})
-              </span>
-            </div>
-          )}
-        </div>
-        <div className="flex items-center justify-between gap-1.5">
-          <span className="text-xs font-bold text-[var(--color-text-primary)]">
-            {formatPrice(product.price, product.currency)}
-          </span>
+        <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
           {product.fitSizes?.length ? (
             <span
               title="The store's size chart fits your measurements to this size"
-              className="shrink-0 rounded-full bg-[var(--color-brand-light)] px-1.5 py-0.5 text-[9px] font-semibold text-[var(--color-brand)]"
+              className="rounded-full bg-[var(--color-brand)] px-2 py-0.5 text-[10px] font-semibold text-[var(--color-brand-contrast)] shadow-sm"
             >
-              Your size: {product.fitSizes[0]}
+              Your size · {product.fitSizes[0]}
             </span>
           ) : null}
+          {!product.inStock && (
+            <span className="rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-semibold text-white">Out of stock</span>
+          )}
         </div>
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={inCart ? onRemoveFromCart : onAddToCart}
-            disabled={cartDisabled}
-            aria-pressed={inCart}
-            title={inCart ? (cartRemovable ? "In your cart — tap to remove" : "In your cart") : "Add to cart"}
-            className={cn(
-              "group flex-1 flex items-center justify-center gap-1 whitespace-nowrap font-semibold px-2 py-1.5 rounded-full transition-all",
-              label,
-              inCart
-                ? cn(
-                    "bg-[var(--color-brand-light)] text-[var(--color-brand)]",
-                    cartRemovable ? "hover:bg-[var(--color-error,#ef4444)]/10 hover:text-[var(--color-error,#ef4444)]" : "cursor-default"
-                  )
-                : product.inStock
-                  ? "border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-brand)] hover:text-[var(--color-brand)]"
-                  : "bg-[var(--color-surface-base)] text-[var(--color-text-muted)] cursor-not-allowed"
-            )}
-          >
-            {isPending ? (
-              <>
-                <Loader2 className="h-2.5 w-2.5 animate-spin" /> {inCart ? "Removing…" : "Adding…"}
-              </>
-            ) : inCart ? (
-              <>
-                <CheckCircle2 className="h-2.5 w-2.5" />
-                <span className={cn(cartRemovable && "group-hover:hidden")}>Added</span>
-                {cartRemovable && <span className="hidden group-hover:inline">Remove</span>}
-              </>
-            ) : (
-              <>
-                <PlusCircle className="h-2.5 w-2.5" /> Cart
-              </>
-            )}
-          </button>
+        {onAsk && <CardAskButton onAsk={onAsk} isAttached={isAttached} disabled={isBusy} subject="item" />}
+      </div>
+
+      <div className="flex flex-1 flex-col gap-2.5 p-3">
+        <div className="flex items-start justify-between gap-2">
+          <p className="min-w-0 text-[13px] font-medium leading-snug text-[var(--color-text-primary)] line-clamp-2">
+            {product.name}
+          </p>
+          <span className="shrink-0 text-[13px] font-bold leading-snug text-[var(--color-text-primary)]">
+            {formatPrice(product.price, product.currency)}
+          </span>
+        </div>
+        {product.reviewCount > 0 && (
+          <div className="-mt-1.5 flex items-center gap-1">
+            <Star className="h-3 w-3 text-amber-400 fill-current" />
+            <span className="text-[11px] text-[var(--color-text-muted)]">
+              {product.rating} ({product.reviewCount})
+            </span>
+          </div>
+        )}
+
+        <div className="mt-auto flex items-center gap-2">
           <button
             type="button"
             onClick={onWear}
             disabled={wearDisabled}
             title={isWorn ? "On your avatar" : "Wear it — render on avatar"}
             className={cn(
-              "flex-1 flex items-center justify-center gap-1 whitespace-nowrap font-semibold px-2 py-1.5 rounded-full transition-all",
-              label,
+              "h-9 min-w-0 flex-1 flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full text-xs font-semibold transition-all",
               isWorn
                 ? "bg-[var(--color-brand-light)] text-[var(--color-brand)] cursor-default"
-                : "gradient-brand text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+                : "gradient-brand text-[var(--color-brand-contrast)] shadow-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
             )}
           >
             {wearBusy ? (
               <>
-                <Loader2 className="h-2.5 w-2.5 animate-spin" /> Rendering
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Rendering
               </>
             ) : isWorn ? (
               <>
-                <CheckCircle2 className="h-2.5 w-2.5" /> On Avatar
+                <CheckCircle2 className="h-3.5 w-3.5" /> On your avatar
               </>
             ) : (
               <>
-                <Sparkles className="h-2.5 w-2.5" /> Wear It
+                <Sparkles className="h-3.5 w-3.5" /> Wear it
               </>
             )}
           </button>
+          <CardCartButton
+            inCart={inCart}
+            isPending={isPending}
+            disabled={cartDisabled}
+            removable={cartRemovable}
+            inStock={product.inStock}
+            onClick={inCart ? onRemoveFromCart : onAddToCart}
+          />
         </div>
-        {(onAsk || onCompleteLook) && (
-          <div className="flex items-center gap-1">
-            {onAsk && (
-              <button
-                type="button"
-                onClick={onAsk}
-                disabled={isAttached || isBusy}
-                title={isAttached ? "Attached — type your question below" : "Ask about this item"}
-                className={cn(
-                  "shrink-0 flex items-center justify-center gap-1 whitespace-nowrap font-semibold py-1.5 rounded-full transition-all",
-                  secondaryPad,
-                  label,
-                  isAttached
-                    ? "bg-[var(--color-brand-light)] text-[var(--color-brand)] cursor-default"
-                    : "text-[var(--color-text-muted)] hover:text-[var(--color-brand)] hover:bg-[var(--color-brand-light)] disabled:opacity-40"
-                )}
-              >
-                <MessageSquare className="h-2.5 w-2.5" /> {isAttached ? "Asking" : "Ask"}
-              </button>
-            )}
-            {onCompleteLook && (
-              <button
-                type="button"
-                onClick={onCompleteLook}
-                disabled={isBusy || !product.inStock}
-                title="Build a full outfit around this item"
-                className={cn(
-                  // One line, always: it takes the room Ask leaves over and never wraps.
-                  "min-w-0 flex-1 flex items-center justify-center gap-1 whitespace-nowrap font-semibold py-1.5 rounded-full text-[var(--color-text-muted)] hover:text-[var(--color-brand)] hover:bg-[var(--color-brand-light)] disabled:opacity-40 transition-all",
-                  secondaryPad,
-                  label
-                )}
-              >
-                <Layers className="h-2.5 w-2.5" /> Complete the look
-              </button>
-            )}
-          </div>
-        )}
       </div>
+
+      {onCompleteLook && (
+        <button
+          type="button"
+          onClick={onCompleteLook}
+          disabled={isBusy || !product.inStock}
+          title="Build a full outfit around this item"
+          className="group flex shrink-0 items-center justify-between gap-2 border-t border-[var(--color-border)] px-3 py-2 text-[11px] font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-brand-light)] hover:text-[var(--color-brand)] disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
+        >
+          <span className="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
+            <Layers className="h-3.5 w-3.5 shrink-0" /> Complete the look
+          </span>
+          <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform group-hover:translate-x-0.5 rtl:rotate-180" />
+        </button>
+      )}
     </div>
+  );
+}
+
+/** The round "ask about this" button in the top corner of a card's picture. */
+function CardAskButton({
+  onAsk,
+  isAttached,
+  disabled,
+  subject,
+}: {
+  onAsk: () => void;
+  isAttached: boolean;
+  disabled: boolean;
+  subject: "item" | "look";
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onAsk}
+      disabled={isAttached || disabled}
+      aria-pressed={isAttached}
+      aria-label={isAttached ? "Asking — type your question below" : `Ask about this ${subject}`}
+      title={isAttached ? "Attached — type your question below" : `Ask about this ${subject}`}
+      className={cn(
+        "absolute right-2 top-2 z-10 h-8 w-8 rounded-full flex items-center justify-center shadow-[var(--shadow-sm)] transition-colors",
+        isAttached
+          ? "bg-[var(--color-brand)] text-[var(--color-brand-contrast)] cursor-default"
+          : "bg-white/95 text-[#3b3346] hover:text-[var(--color-brand)] disabled:opacity-50"
+      )}
+    >
+      <MessageSquare className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
+/** Square cart toggle beside the primary action: a bag to add, a check once it is in the cart
+ *  (an × on hover when it can be taken back out). */
+function CardCartButton({
+  inCart,
+  isPending,
+  disabled,
+  removable,
+  inStock,
+  onClick,
+  label,
+}: {
+  inCart: boolean;
+  isPending: boolean;
+  disabled: boolean;
+  removable: boolean;
+  inStock: boolean;
+  onClick?: () => void;
+  /** Shown beside the icon when there is room for words ("Add all"). */
+  label?: string;
+}) {
+  const title = isPending
+    ? inCart
+      ? "Removing from your cart…"
+      : "Adding to your cart…"
+    : inCart
+      ? removable
+        ? "In your cart — tap to remove"
+        : "In your cart"
+      : inStock
+        ? "Add to cart"
+        : "Out of stock";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={inCart}
+      aria-label={title}
+      title={title}
+      className={cn(
+        "group h-9 shrink-0 flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full border text-xs font-semibold transition-all",
+        label ? "px-3.5" : "w-9",
+        inCart
+          ? cn(
+              "border-transparent bg-[var(--color-brand-light)] text-[var(--color-brand)]",
+              removable
+                ? "hover:bg-[var(--color-error,#ef4444)]/10 hover:text-[var(--color-error,#ef4444)]"
+                : "cursor-default"
+            )
+          : inStock
+            ? "border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-brand)] hover:text-[var(--color-brand)]"
+            : "border-[var(--color-border)] text-[var(--color-text-muted)] opacity-50 cursor-not-allowed"
+      )}
+    >
+      {isPending ? (
+        <Loader2 className="h-4 w-4 animate-spin" />
+      ) : inCart ? (
+        <>
+          <Check className={cn("h-4 w-4", removable && "group-hover:hidden")} />
+          {removable && <X className="hidden h-4 w-4 group-hover:block" />}
+        </>
+      ) : (
+        <ShoppingBag className="h-4 w-4" />
+      )}
+      {label && <span>{inCart ? (removable ? "In cart" : "Added") : label}</span>}
+    </button>
   );
 }
 
@@ -820,116 +863,92 @@ function BundleSuggestionCard({
   return (
     <div
       className={cn(
-        "w-full h-full rounded-[var(--radius-xl)] border bg-[var(--color-surface-card)] overflow-hidden transition-colors",
+        "flex w-full h-full flex-col rounded-[var(--radius-xl)] border bg-[var(--color-surface-card)] overflow-hidden transition-colors",
         isAttached
           ? "border-[var(--color-brand)] ring-1 ring-[var(--color-brand)]"
           : "border-[var(--color-border)]"
       )}
     >
-      <BundleItemMosaic products={products} bundleIndex={index} />
+      <div className="relative shrink-0">
+        <BundleItemMosaic products={products} bundleIndex={index} />
+        {onAsk && <CardAskButton onAsk={onAsk} isAttached={isAttached} disabled={isBusy} subject="look" />}
+      </div>
 
-      <div className="p-3 space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-sm font-semibold text-[var(--color-text-primary)]">{bundle.label}</p>
-          <span className="shrink-0 text-[10px] rounded-full bg-[var(--color-brand-light)] text-[var(--color-brand)] px-2 py-0.5 font-semibold">
-            {products.length} Items
-          </span>
+      <div className="flex flex-1 flex-col gap-2.5 p-3">
+        <div>
+          <div className="flex items-start justify-between gap-2">
+            <p className="min-w-0 text-sm font-semibold leading-snug text-[var(--color-text-primary)] line-clamp-1">
+              {bundle.label}
+            </p>
+            <span className="shrink-0 text-sm font-bold leading-snug text-[var(--color-text-primary)]">
+              {formatPrice(total, currency)}
+            </span>
+          </div>
+          {bundle.rationale ? (
+            <p className="mt-0.5 text-[11px] leading-snug text-[var(--color-text-muted)] line-clamp-2">{bundle.rationale}</p>
+          ) : (
+            <p className="mt-0.5 text-[11px] text-[var(--color-text-muted)]">{products.length} pieces</p>
+          )}
         </div>
 
-        <ul className="space-y-1">
+        <ul className="divide-y divide-[var(--color-border)] rounded-[var(--radius-lg)] border border-[var(--color-border)]">
           {products.map((product) => {
             const category = itemsByProductId.get(product.id)?.category;
+            const inCart = cartItemIds.includes(product.id);
             return (
-              <li key={product.id} className="flex items-center justify-between gap-2 text-[11px]">
-                <span className="flex items-center gap-1.5 min-w-0">
-                  {category && (
-                    <span className="shrink-0 rounded bg-[var(--color-surface-base)] text-[var(--color-text-muted)] px-1.5 py-0.5 uppercase tracking-wide text-[9px] font-semibold">
-                      {category}
-                    </span>
-                  )}
-                  <span className="truncate text-[var(--color-text-secondary)]">{product.name}</span>
-                  {product.fitSizes?.length ? (
-                    <span className="shrink-0 text-[9px] font-semibold text-[var(--color-brand)]">{product.fitSizes[0]}</span>
-                  ) : null}
+              <li key={product.id} className="flex items-center gap-2.5 px-2 py-1.5">
+                <Thumb product={product} className="h-10 w-10 shrink-0 border border-[var(--color-border)]" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-medium text-[var(--color-text-primary)]">{product.name}</p>
+                  <p className="mt-0.5 flex items-center gap-1.5 text-[10px] text-[var(--color-text-muted)]">
+                    {product.fitSizes?.length ? (
+                      <span className="rounded-full bg-[var(--color-brand-light)] px-1.5 py-px font-semibold text-[var(--color-brand)]">
+                        Size {product.fitSizes[0]}
+                      </span>
+                    ) : null}
+                    {category && <span className="truncate capitalize">{category}</span>}
+                    {inCart && (
+                      <span className="flex items-center gap-0.5 text-[var(--color-brand)]">
+                        <Check className="h-2.5 w-2.5" /> In cart
+                      </span>
+                    )}
+                  </p>
+                </div>
+                <span className="shrink-0 text-xs font-semibold text-[var(--color-text-primary)]">
+                  {formatPrice(product.price, product.currency)}
                 </span>
-                <span className="shrink-0 font-medium text-[var(--color-text-primary)]">{formatPrice(product.price, product.currency)}</span>
               </li>
             );
           })}
         </ul>
 
-        {bundle.rationale && (
-          <p className="text-[11px] italic text-[var(--color-text-muted)] line-clamp-2">{bundle.rationale}</p>
-        )}
-
-        <p className="text-sm font-bold text-[var(--color-text-primary)]">{formatPrice(total, currency)}</p>
-
-        <div className="flex items-center gap-1.5 pt-0.5">
-          <button
-            type="button"
-            onClick={allInCart ? onRemoveAllFromCart : onAddAllToCart}
-            disabled={anyPending || (allInCart && !onRemoveAllFromCart)}
-            aria-pressed={allInCart}
-            title={allInCart ? (onRemoveAllFromCart ? "In your cart — tap to remove" : "In your cart") : "Add the whole look to your cart"}
-            className={cn(
-              "group flex-1 flex items-center justify-center gap-1 whitespace-nowrap text-[11px] font-semibold px-2.5 py-1.5 rounded-full transition-all",
-              allInCart
-                ? cn(
-                    "bg-[var(--color-brand-light)] text-[var(--color-brand)]",
-                    onRemoveAllFromCart ? "hover:bg-[var(--color-error,#ef4444)]/10 hover:text-[var(--color-error,#ef4444)]" : "cursor-default"
-                  )
-                : "border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-brand)] hover:text-[var(--color-brand)]"
-            )}
-          >
-            {anyPending ? (
-              <>
-                <Loader2 className="h-3 w-3 animate-spin" /> {allInCart ? "Removing…" : "Adding…"}
-              </>
-            ) : allInCart ? (
-              <>
-                <CheckCircle2 className="h-3 w-3" />
-                <span className={cn(onRemoveAllFromCart && "group-hover:hidden")}>Added</span>
-                {onRemoveAllFromCart && <span className="hidden group-hover:inline">Remove All</span>}
-              </>
-            ) : (
-              <>
-                <PlusCircle className="h-3 w-3" /> Add All
-              </>
-            )}
-          </button>
+        <div className="mt-auto flex items-center gap-2">
           <button
             type="button"
             onClick={onRender}
             disabled={isGenerating}
-            className="flex-1 flex items-center justify-center gap-1 whitespace-nowrap text-[11px] font-semibold px-2.5 py-1.5 rounded-full gradient-brand text-[var(--color-brand-contrast)] hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            className="h-9 min-w-0 flex-1 flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full gradient-brand text-xs font-semibold text-[var(--color-brand-contrast)] shadow-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
           >
             {isGenerating ? (
               <>
-                <Loader2 className="h-3 w-3 animate-spin" /> Rendering
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Rendering
               </>
             ) : (
               <>
-                <Sparkles className="h-3 w-3" /> Render Full Look
+                <Sparkles className="h-3.5 w-3.5" /> Wear full look
               </>
             )}
           </button>
+          <CardCartButton
+            inCart={allInCart}
+            isPending={anyPending}
+            disabled={anyPending || (allInCart && !onRemoveAllFromCart)}
+            removable={Boolean(onRemoveAllFromCart)}
+            inStock
+            label="Add all"
+            onClick={allInCart ? onRemoveAllFromCart : onAddAllToCart}
+          />
         </div>
-        {onAsk && (
-          <button
-            type="button"
-            onClick={onAsk}
-            disabled={isAttached || isBusy}
-            aria-pressed={isAttached}
-            className={cn(
-              "w-full flex items-center justify-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-full border transition-all disabled:cursor-default",
-              isAttached
-                ? "border-[var(--color-brand)] bg-[var(--color-brand-light)] text-[var(--color-brand)]"
-                : "border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-brand)] hover:text-[var(--color-brand)] disabled:opacity-40"
-            )}
-          >
-            <MessageSquare className="h-3 w-3" /> {isAttached ? "Asking about this bundle" : "Ask about this bundle"}
-          </button>
-        )}
       </div>
     </div>
   );

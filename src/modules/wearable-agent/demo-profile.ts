@@ -13,10 +13,10 @@ export interface DemoSeed {
   audience: TryOnAudience;
 }
 
-const FEMALE_AVATAR = "/avatars/avatar-studio-female-1.png";
-// Not `avatar-studio-male-1`: that file is the widget's fallback mannequin, which the avatar
-// panel treats as "no real avatar yet" and draws without a backdrop or measurement overlay.
-const MALE_AVATAR = "/avatars/avatar-studio-male-2.png";
+// Transparent cutouts, like a real shopper's render: the merchant's backdrop shows behind them
+// and the measurement marks find the body from the alpha channel, not from the scenery.
+const FEMALE_AVATAR = "/avatars/demo/demo-female-1.webp";
+const MALE_AVATAR = "/avatars/demo/demo-male-2.webp";
 
 /** The department to preview, from the ones the store sells: the first one offered, or adult
  *  men's when the store hasn't restricted them. */

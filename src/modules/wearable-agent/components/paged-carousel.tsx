@@ -47,13 +47,13 @@ interface PagedCarouselProps {
 }
 
 /**
- * A swipeable row that shows exactly one full card at a time, centred, and settles on the next
- * card in whole — never between two. Used for the product and bundle suggestions in the mobile
- * chat, where a free-scrolling row left the next card half cut off after every swipe.
+ * A swipeable row that shows one full card at a time and settles on the next card in whole —
+ * never between two. The next card peeks in at the edge, which is what tells a thumb there is
+ * more to swipe; arrows appear only where there is a mouse to click them. Used for the product
+ * and bundle suggestions in the mobile chat.
  */
 export function PagedCarousel({ children, label, arrowTop = "28%", className }: PagedCarouselProps) {
   const scroller = React.useRef<HTMLDivElement>(null);
-  const [active, setActive] = React.useState(0);
   const [hasPrevious, setHasPrevious] = React.useState(false);
   const [hasNext, setHasNext] = React.useState(false);
   const pages = React.Children.toArray(children);
@@ -73,7 +73,6 @@ export function PagedCarousel({ children, label, arrowTop = "28%", className }: 
   const sync = React.useCallback(() => {
     const m = measure();
     if (!m) return;
-    setActive(Math.max(0, m.current));
     setHasPrevious(neighbourIndex(m.centers, m.current, -1) !== null);
     setHasNext(neighbourIndex(m.centers, m.current, 1) !== null);
   }, [measure]);
@@ -92,7 +91,7 @@ export function PagedCarousel({ children, label, arrowTop = "28%", className }: 
     };
   }, [sync, pages.length]);
 
-  // One scroll event per frame is plenty to keep the dots and arrows honest while swiping.
+  // One scroll event per frame is plenty to keep the arrows honest while swiping.
   const frame = React.useRef<number | null>(null);
   const onScroll = React.useCallback(() => {
     if (frame.current !== null) return;
@@ -120,31 +119,21 @@ export function PagedCarousel({ children, label, arrowTop = "28%", className }: 
     [measure]
   );
 
-  const goToPage = React.useCallback(
-    (index: number) => {
-      const el = scroller.current;
-      const m = measure();
-      if (!el || !m || index < 0 || index >= m.centers.length) return;
-      el.scrollBy({ left: m.centers[index] - m.viewCenter, behavior: "smooth" });
-    },
-    [measure]
-  );
-
   const arrowClass =
-    "absolute z-20 -translate-y-1/2 h-9 w-9 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-card)]/95 text-[var(--color-text-secondary)] shadow-[var(--shadow-sm)] flex items-center justify-center active:scale-95 hover:text-[var(--color-brand)] hover:border-[var(--color-brand)] transition-colors";
+    "absolute z-20 hidden -translate-y-1/2 h-9 w-9 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-card)]/95 text-[var(--color-text-secondary)] shadow-[var(--shadow-sm)] items-center justify-center active:scale-95 hover:text-[var(--color-brand)] hover:border-[var(--color-brand)] transition-colors [@media(hover:hover)]:flex";
 
   return (
     <div className={cn("relative w-full", className)}>
       <div
         ref={scroller}
         onScroll={onScroll}
-        className="relative flex w-full gap-3 overflow-x-auto overscroll-x-contain snap-x snap-mandatory pb-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+        className="relative flex w-full gap-2.5 overflow-x-auto overscroll-x-contain snap-x snap-mandatory pb-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
       >
         {pages.map((page, index) => (
           <div
             // Pages are positional: a re-render never reorders them, only appends.
             key={index}
-            className="w-full shrink-0 snap-center snap-always"
+            className={cn("shrink-0 snap-start snap-always", pages.length > 1 ? "w-[86%]" : "w-full")}
             aria-roledescription="slide"
             aria-label={`${index + 1} / ${pages.length}`}
           >
@@ -174,25 +163,6 @@ export function PagedCarousel({ children, label, arrowTop = "28%", className }: 
         >
           <ChevronRight className="h-4 w-4" />
         </button>
-      )}
-
-      {pages.length > 1 && (
-        <div className="mt-1.5 flex items-center justify-center gap-1.5" role="tablist" aria-label={label}>
-          {pages.map((_, index) => (
-            <button
-              key={index}
-              type="button"
-              role="tab"
-              aria-selected={index === active}
-              aria-label={`${label} ${index + 1}`}
-              onClick={() => goToPage(index)}
-              className={cn(
-                "h-1.5 rounded-full transition-all duration-200",
-                index === active ? "w-4 bg-[var(--color-brand)]" : "w-1.5 bg-[var(--color-border)]"
-              )}
-            />
-          ))}
-        </div>
       )}
     </div>
   );

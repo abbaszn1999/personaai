@@ -29,6 +29,10 @@ export interface BodyBounds {
   /** Outer left-to-right extent of the body on the row at `y` (fraction of the image height):
    *  arm to arm at chest height, shoe to shoe at the bottom. Null if that row has no body. */
   extentAt(y: number): BodyRun | null;
+  /** On a cut-out, the unbroken run of body through the middle of the figure on the row at `y`:
+   *  just the torso where the arms hang clear of it, the same as `extentAt` where they touch.
+   *  Without an alpha channel there is no telling arms from torso, so it equals `extentAt`. */
+  torsoAt(y: number): BodyRun | null;
 }
 
 /** Colour change between neighbouring pixels (summed over RGB) that counts as the body's
@@ -91,10 +95,8 @@ export function findBodyBounds(data: Uint8ClampedArray, width: number, height: n
 
   let transparent = 0;
   for (let i = 3; i < data.length; i += 4) if (data[i] < 200) transparent++;
-  const raw =
-    transparent / (width * height) > TRANSPARENT_SHARE
-      ? extentsFromAlpha(data, width, height)
-      : extentsFromEdges(data, width, height);
+  const cutOut = transparent / (width * height) > TRANSPARENT_SHARE;
+  const raw = cutOut ? extentsFromAlpha(data, width, height) : extentsFromEdges(data, width, height);
 
   const minWidth = Math.max(2, Math.round(width * MIN_ROW_SHARE));
   const rows: Extent[] = raw.map((e) => (e && e[1] - e[0] >= minWidth ? e : null));
@@ -126,14 +128,31 @@ export function findBodyBounds(data: Uint8ClampedArray, width: number, height: n
     if (e[1] > rightmost) rightmost = e[1];
   }
 
+  const rowAt = (y: number) => Math.min(height - 1, Math.max(0, Math.round(y * (height - 1))));
+  const toRun = (e: [number, number]): BodyRun => ({ left: e[0] / width, right: e[1] / width });
+  const solid = (row: number, x: number) => data[(row * width + x) * 4 + 3] >= 128;
+
   return {
     top: top / height,
     bottom: (bottom + 1) / height,
     leftmost: leftmost / width,
     rightmost: rightmost / width,
     extentAt(y) {
-      const e = rows[Math.min(height - 1, Math.max(0, Math.round(y * (height - 1))))];
-      return e ? { left: e[0] / width, right: e[1] / width } : null;
+      const e = rows[rowAt(y)];
+      return e ? toRun(e) : null;
+    },
+    torsoAt(y) {
+      const row = rowAt(y);
+      const e = rows[row];
+      if (!e) return null;
+      if (!cutOut) return toRun(e);
+      const centre = Math.round((e[0] + e[1]) / 2);
+      if (!solid(row, centre)) return toRun(e);
+      let left = centre;
+      while (left > e[0] && solid(row, left - 1)) left--;
+      let right = centre;
+      while (right < e[1] - 1 && solid(row, right + 1)) right++;
+      return right + 1 - left >= minWidth ? toRun([left, right + 1]) : toRun(e);
     },
   };
 }
