@@ -466,6 +466,9 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
     setUnread(0);
   }, []);
   const closePanel = React.useCallback(() => setOpen(false), []);
+  // The tab shows over the avatar only: the live camera and the Details panels (reported by the
+  // avatar panel) take the whole screen and the tab steps aside for them.
+  const [tabHidden, setTabHidden] = React.useState(false);
 
   // Wearing something is about watching the avatar change, so the panel slides away the moment
   // Wear is pressed — for an item and for a whole bundle. The tab is there to bring it back.
@@ -604,6 +607,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
           isUploadingBackdrop={agent.isUploadingBackdrop}
           backdropUploadError={agent.backdropUploadError}
           mobile
+          onChatTabHiddenChange={setTabHidden}
           embed={embed}
           workspaceId={workspaceId}
         />
@@ -625,16 +629,18 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
         type="button"
         aria-label={strings.openChat}
         aria-expanded={open}
-        tabIndex={open ? -1 : 0}
+        aria-hidden={tabHidden}
+        tabIndex={open || tabHidden ? -1 : 0}
+        inert={tabHidden}
         onClick={openPanel}
         className={cn(
           "absolute left-0 top-1/2 z-[25] flex min-h-24 w-[52px] -translate-y-1/2 flex-col items-center justify-center gap-1.5 rounded-r-[22px] border border-l-0 py-3 pr-1 shadow-[0_10px_32px_rgba(0,0,0,0.35)] backdrop-blur-2xl",
           "transition-[translate,opacity,scale] duration-300 ease-out motion-reduce:transition-none active:scale-95",
           styles.launcher,
-          open ? "pointer-events-none -translate-x-full opacity-0" : "opacity-100"
+          open || tabHidden ? "pointer-events-none -translate-x-full opacity-0" : "opacity-100"
         )}
       >
-        {showHint && (
+        {showHint && !tabHidden && (
           <span
             aria-hidden
             className="pointer-events-none absolute inset-0 rounded-r-[22px] border-2 border-[var(--color-brand)] opacity-60 motion-safe:animate-ping motion-reduce:hidden"

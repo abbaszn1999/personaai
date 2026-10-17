@@ -422,7 +422,7 @@ export function InlineSuggestionCard({
     <div
       className={cn(
         "flex flex-col rounded-[var(--radius-xl)] border bg-[var(--color-surface-card)] overflow-hidden transition-all duration-200",
-        paged ? "w-full h-full" : "shrink-0 w-52",
+        paged ? "w-full h-full" : "shrink-0 w-56",
         isAttached
           ? "border-[var(--color-brand)] ring-2 ring-[var(--color-brand)]/40"
           : isWorn
@@ -441,7 +441,7 @@ export function InlineSuggestionCard({
           {product.fitSizes?.length ? (
             <span
               title="The store's size chart fits your measurements to this size"
-              className="rounded-full bg-[var(--color-brand)] px-2 py-0.5 text-[10px] font-semibold text-[var(--color-brand-contrast)] shadow-sm"
+              className="rounded-full bg-[var(--color-brand)] px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm"
             >
               Your size · {product.fitSizes[0]}
             </span>
@@ -478,23 +478,23 @@ export function InlineSuggestionCard({
             disabled={wearDisabled}
             title={isWorn ? "On your avatar" : "Wear it — render on avatar"}
             className={cn(
-              "h-9 min-w-0 flex-1 flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full text-xs font-semibold transition-all",
+              "h-9 min-w-0 flex-1 flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-2 text-xs font-semibold transition-all",
               isWorn
                 ? "bg-[var(--color-brand-light)] text-[var(--color-brand)] cursor-default"
-                : "gradient-brand text-[var(--color-brand-contrast)] shadow-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+                : "gradient-brand text-white shadow-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
             )}
           >
             {wearBusy ? (
               <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Rendering
+                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" /> Rendering
               </>
             ) : isWorn ? (
               <>
-                <CheckCircle2 className="h-3.5 w-3.5" /> On your avatar
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> On avatar
               </>
             ) : (
               <>
-                <Sparkles className="h-3.5 w-3.5" /> Wear it
+                <Sparkles className="h-3.5 w-3.5 shrink-0" /> Wear it
               </>
             )}
           </button>
@@ -504,6 +504,8 @@ export function InlineSuggestionCard({
             disabled={cartDisabled}
             removable={cartRemovable}
             inStock={product.inStock}
+            label="Add"
+            fill
             onClick={inCart ? onRemoveFromCart : onAddToCart}
           />
         </div>
@@ -515,12 +517,15 @@ export function InlineSuggestionCard({
           onClick={onCompleteLook}
           disabled={isBusy || !product.inStock}
           title="Build a full outfit around this item"
-          className="group flex shrink-0 items-center justify-between gap-2 border-t border-[var(--color-border)] px-3 py-2 text-[11px] font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-brand-light)] hover:text-[var(--color-brand)] disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
+          // A tinted footer in the brand colour: clearly a feature of its own, but a step
+          // below the two solid buttons above it.
+          className="group flex shrink-0 items-center gap-2 border-t border-[var(--color-brand)]/20 bg-[var(--color-brand-light)] px-3 py-2.5 text-xs font-semibold text-[var(--color-brand)] hover:bg-[var(--color-brand)]/15 disabled:opacity-40 disabled:hover:bg-[var(--color-brand-light)] transition-colors"
         >
-          <span className="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
-            <Layers className="h-3.5 w-3.5 shrink-0" /> Complete the look
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white shadow-sm">
+            <Layers className="h-3.5 w-3.5" />
           </span>
-          <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform group-hover:translate-x-0.5 rtl:rotate-180" />
+          <span className="min-w-0 flex-1 truncate text-start">Complete the look</span>
+          <ChevronRight className="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-0.5 rtl:rotate-180 rtl:group-hover:-translate-x-0.5" />
         </button>
       )}
     </div>
@@ -548,13 +553,16 @@ function CardAskButton({
       aria-label={isAttached ? "Asking — type your question below" : `Ask about this ${subject}`}
       title={isAttached ? "Attached — type your question below" : `Ask about this ${subject}`}
       className={cn(
-        "absolute right-2 top-2 z-10 h-8 w-8 rounded-full flex items-center justify-center shadow-[var(--shadow-sm)] transition-colors",
+        // A labelled pill, so "Ask" reads as a question to the assistant about this card rather
+        // than an unlabelled chat bubble; it turns solid while this card is the one attached.
+        "absolute right-2 top-2 z-10 flex h-8 items-center gap-1.5 rounded-full pl-2.5 pr-3 text-[11px] font-semibold shadow-[var(--shadow-sm)] transition-all active:scale-95",
         isAttached
-          ? "bg-[var(--color-brand)] text-[var(--color-brand-contrast)] cursor-default"
-          : "bg-white/95 text-[#3b3346] hover:text-[var(--color-brand)] disabled:opacity-50"
+          ? "bg-[var(--color-brand)] text-white cursor-default"
+          : "bg-white/95 text-[#3b3346] hover:bg-white hover:text-[var(--color-brand)] disabled:opacity-50"
       )}
     >
-      <MessageSquare className="h-3.5 w-3.5" />
+      <MessageSquare className={cn("h-3.5 w-3.5", !isAttached && "text-[var(--color-brand)]")} />
+      {isAttached ? "Asking" : "Ask"}
     </button>
   );
 }
@@ -569,6 +577,7 @@ function CardCartButton({
   inStock,
   onClick,
   label,
+  fill = false,
 }: {
   inCart: boolean;
   isPending: boolean;
@@ -576,8 +585,10 @@ function CardCartButton({
   removable: boolean;
   inStock: boolean;
   onClick?: () => void;
-  /** Shown beside the icon when there is room for words ("Add all"). */
+  /** Shown beside the icon when there is room for words ("Add", "Add all"). */
   label?: string;
+  /** Share the row with the primary action instead of sizing to its content. */
+  fill?: boolean;
 }) {
   const title = isPending
     ? inCart
@@ -599,8 +610,8 @@ function CardCartButton({
       aria-label={title}
       title={title}
       className={cn(
-        "group h-9 shrink-0 flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full border text-xs font-semibold transition-all",
-        label ? "px-3.5" : "w-9",
+        "group h-9 flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full border text-xs font-semibold transition-all",
+        fill ? "min-w-0 flex-1 px-2" : cn("shrink-0", label ? "px-3.5" : "w-9"),
         inCart
           ? cn(
               "border-transparent bg-[var(--color-brand-light)] text-[var(--color-brand)]",
@@ -623,7 +634,22 @@ function CardCartButton({
       ) : (
         <ShoppingBag className="h-4 w-4" />
       )}
-      {label && <span>{inCart ? (removable ? "In cart" : "Added") : label}</span>}
+      {label && (
+        <span className="truncate">
+          {inCart ? (
+            removable ? (
+              <>
+                <span className="group-hover:hidden">Added</span>
+                <span className="hidden group-hover:inline">Remove</span>
+              </>
+            ) : (
+              "Added"
+            )
+          ) : (
+            label
+          )}
+        </span>
+      )}
     </button>
   );
 }
@@ -927,7 +953,7 @@ function BundleSuggestionCard({
             type="button"
             onClick={onRender}
             disabled={isGenerating}
-            className="h-9 min-w-0 flex-1 flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full gradient-brand text-xs font-semibold text-[var(--color-brand-contrast)] shadow-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            className="h-9 min-w-0 flex-1 flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full gradient-brand text-xs font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
           >
             {isGenerating ? (
               <>

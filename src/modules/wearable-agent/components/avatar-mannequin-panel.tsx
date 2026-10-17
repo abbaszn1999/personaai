@@ -14,6 +14,7 @@ import {
   Pencil,
   Ruler,
   ShoppingBag,
+  User,
   X,
 } from "lucide-react";
 import type { GeneratedTryOn } from "../hooks/use-try-on-agent";
@@ -79,6 +80,10 @@ interface AvatarMannequinPanelProps {
    *  Analysis, Edit Stats, Size Guide) is unusable in the sliver left above an expanded
    *  sheet, so opening one reclaims the frame first. */
   onRequestSpace?: () => void;
+  /** Mobile only — true while something else owns the whole screen (the live camera, or the
+   *  Fit Analysis / Edit Stats / Size Guide panels), so the parent can tuck its chat tab away
+   *  and show it only over the avatar itself. */
+  onChatTabHiddenChange?: (hidden: boolean) => void;
   embed?: EmbedRuntimeConfig;
   workspaceId?: string;
 }
@@ -390,6 +395,7 @@ export function AvatarMannequinPanel({
   onBulkAddToCart,
   mobile = false,
   onRequestSpace,
+  onChatTabHiddenChange,
   embed,
   workspaceId,
 }: AvatarMannequinPanelProps) {
@@ -618,6 +624,7 @@ export function AvatarMannequinPanel({
         realtime={realtime}
         liveProducts={liveProducts}
         onRequestSpace={onRequestSpace}
+        onChatTabHiddenChange={onChatTabHiddenChange}
       />
     );
   }
@@ -1039,6 +1046,7 @@ interface MobileAvatarStripProps {
   realtime: ReturnType<typeof useRealtimeTryOn>;
   liveProducts: Product[];
   onRequestSpace?: () => void;
+  onChatTabHiddenChange?: (hidden: boolean) => void;
 }
 
 /** What sub-panel is open over the avatar on mobile. */
@@ -1076,11 +1084,23 @@ function MobileAvatarStrip({
   realtime,
   liveProducts,
   onRequestSpace,
+  onChatTabHiddenChange,
 }: MobileAvatarStripProps) {
   const theme = useWearableTheme();
   const panelBg = PANEL_BG_BY_THEME[theme];
   const styles = MOBILE_SURFACE[theme];
   const [panel, setPanel] = React.useState<MobilePanel>(null);
+
+  // The chat tab belongs over the avatar only. The live camera and the Details panels each take
+  // the whole screen, and a tab hanging over them covers their content. Mirrors the conditions
+  // the panels below render under, so a panel that is set but not showing never hides the tab.
+  const detailPanelShown =
+    viewMode === "photo" && ((panel === "details" && fit !== null) || panel === "edit" || panel === "size-guide");
+  const chatTabHidden = viewMode === "live" || detailPanelShown;
+  React.useEffect(() => {
+    onChatTabHiddenChange?.(chatTabHidden);
+  }, [chatTabHidden, onChatTabHiddenChange]);
+  React.useEffect(() => () => onChatTabHiddenChange?.(false), [onChatTabHiddenChange]);
   const [editDraft, setEditDraft] = React.useState<TryOnProfile>(profile);
   const [showMeasurements, setShowMeasurements] = React.useState(false);
   const canShowMeasurements =
@@ -1214,7 +1234,23 @@ function MobileAvatarStrip({
         </button>
       </div>}
 
-      {(liveTryOnEnabled || canShowMeasurements) && (
+      {/* Live camera: the way back is a labelled pill, not a bare icon, centred between the
+          camera's own "Live" timer on the left and "Stop Live" on the right. Switching to the
+          avatar also ends the camera session (see `changeViewMode`). */}
+      {viewMode === "live" && liveTryOnEnabled && (
+        <button
+          type="button"
+          onClick={() => onViewModeChange("photo")}
+          aria-label="Back to your avatar"
+          title="Back to your avatar"
+          className="absolute left-1/2 top-4 z-[16] inline-flex min-h-11 -translate-x-1/2 items-center gap-1.5 rounded-full border border-white/20 bg-black/60 px-3.5 text-[12px] font-semibold text-white shadow-lg backdrop-blur-xl transition-all hover:bg-black/75 active:scale-95"
+        >
+          <User className="h-4 w-4" />
+          Avatar
+        </button>
+      )}
+
+      {viewMode === "photo" && (liveTryOnEnabled || canShowMeasurements) && (
       <div
         className="absolute right-3 z-[16] flex flex-col items-center gap-1 rounded-full border border-white/[0.12] bg-black/50 p-1 shadow-[0_8px_28px_rgba(0,0,0,0.5)] backdrop-blur-2xl"
         // Top right. With a fit badge the Details button already holds the top row's right end,
@@ -1239,12 +1275,12 @@ function MobileAvatarStrip({
         {liveTryOnEnabled && (
           <button
             type="button"
-            title={viewMode === "live" ? "Back to photo" : "Live camera"}
-            aria-label={viewMode === "live" ? "Back to photo" : "Live camera"}
-            onClick={() => onViewModeChange(viewMode === "live" ? "photo" : "live")}
+            title="Live camera"
+            aria-label="Live camera"
+            onClick={() => onViewModeChange("live")}
             className="flex h-10 w-10 items-center justify-center rounded-full text-white/80 transition-all hover:bg-white/[0.08] hover:text-white"
           >
-            {viewMode === "live" ? <ImageIcon className="h-4 w-4" /> : <Camera className="h-4 w-4" />}
+            <Camera className="h-4 w-4" />
           </button>
         )}
       </div>
