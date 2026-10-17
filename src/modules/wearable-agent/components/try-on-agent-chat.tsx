@@ -149,6 +149,7 @@ export function TryOnAgentChat({ agent, viewportMode = "desktop", embed, workspa
       onRemoveFromOutfit={agent.removeFromOutfit}
       onSaveMeasurements={agent.saveMeasurements}
       onAddToCart={picker.requestAddToCart}
+      onRemoveFromCart={agent.removeFromCart}
       onBulkAddToCart={agent.addToCart}
       onChangeBackdrop={agent.changeBackdrop}
       onUploadBackdrop={agent.uploadCustomBackdrop}
@@ -601,6 +602,7 @@ function MobileChatLayout({ agent, outfitItemIds, onAddToCart, onBulkAddToCart, 
           onRemoveFromOutfit={agent.removeFromOutfit}
           onSaveMeasurements={agent.saveMeasurements}
           onAddToCart={handleAddToCart}
+          onRemoveFromCart={handleRemoveFromCart}
           onBulkAddToCart={handleBulkAddToCart}
           onChangeBackdrop={agent.changeBackdrop}
           onUploadBackdrop={agent.uploadCustomBackdrop}

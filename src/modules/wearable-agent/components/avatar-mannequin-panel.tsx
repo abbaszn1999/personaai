@@ -68,6 +68,8 @@ interface AvatarMannequinPanelProps {
   onRemoveFromOutfit: (id: string) => void;
   onSaveMeasurements: (patch: Partial<TryOnProfile>) => void;
   onAddToCart: (product: Product) => void;
+  /** Takes a product back out of the cart — the hotspot card's button toggles between the two. */
+  onRemoveFromCart?: (product: Product) => void;
   /** Bulk "Add all to cart" — bypasses the variant picker and keeps today's
    *  auto-pick-first-in-stock-variant behavior. Falls back to `onAddToCart` when omitted. */
   onBulkAddToCart?: (product: Product) => void;
@@ -392,6 +394,7 @@ export function AvatarMannequinPanel({
   onRemoveFromOutfit,
   onSaveMeasurements,
   onAddToCart,
+  onRemoveFromCart,
   onBulkAddToCart,
   mobile = false,
   onRequestSpace,
@@ -615,6 +618,7 @@ export function AvatarMannequinPanel({
         onSelectImage={onSelectImage}
         onRemoveFromOutfit={onRemoveFromOutfit}
         onAddToCart={onAddToCart}
+        onRemoveFromCart={onRemoveFromCart}
         handleAddAllToCart={handleAddAllToCart}
         lookLabel={lookLabel}
         onSaveMeasurements={onSaveMeasurements}
@@ -705,6 +709,7 @@ export function AvatarMannequinPanel({
                       inCart={cartItemIds.has(item.product.id)}
                       isPending={pendingCartIds.has(item.product.id)}
                       onAddToCart={onAddToCart}
+                      onRemoveFromCart={onRemoveFromCart}
                     />
                   ))}
                 </div>
@@ -1037,6 +1042,7 @@ interface MobileAvatarStripProps {
   onSelectImage: (i: number) => void;
   onRemoveFromOutfit: (id: string) => void;
   onAddToCart: (p: Product) => void;
+  onRemoveFromCart?: (p: Product) => void;
   handleAddAllToCart: () => void;
   lookLabel: string;
   onSaveMeasurements: (patch: Partial<TryOnProfile>) => void;
@@ -1075,6 +1081,7 @@ function MobileAvatarStrip({
   setActiveSwatchIndex,
   onSelectImage,
   onAddToCart,
+  onRemoveFromCart,
   handleAddAllToCart,
   lookLabel,
   onSaveMeasurements,
@@ -1201,6 +1208,7 @@ function MobileAvatarStrip({
               inCart={cartItemIds.has(item.product.id)}
               isPending={pendingCartIds.has(item.product.id)}
               onAddToCart={onAddToCart}
+              onRemoveFromCart={onRemoveFromCart}
             />
           ))}
         </div>
