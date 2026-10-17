@@ -15,6 +15,7 @@ import { newTryOnRequestId, requestTryOnImage, TryOnRequestError } from "../util
 import { AVATAR_GENERATION_STAGES, AVATAR_STYLE_LABELS } from "../constants";
 import { isKidsAudience, KIDS_AGE_RANGE } from "../audiences";
 import { INITIAL_WEARABLE_MESSAGE, SCAN_STAGE_DURATION_MS, SCAN_STAGES } from "../mocks/responses";
+import { demoProfile, type DemoSeed } from "../demo-profile";
 import {
   recommendSizesForProducts,
   buildFitNote,
@@ -616,16 +617,21 @@ export function useTryOnAgent(
   embed?: EmbedRuntimeConfig,
   welcomeMessage?: string,
   workspaceId?: string,
-  shopper?: ShopperProfileBridge
+  shopper?: ShopperProfileBridge,
+  /** Starts as an already-set-up shopper (avatar, measurements, welcome message) instead of at
+   *  onboarding. Used only by the branding page's live preview. */
+  demo?: DemoSeed | null
 ) {
+  const demoSeedProfile = demo ? demoProfile(demo.audience) : null;
+  const demoWelcome: ChatMessage = welcomeMessage ? { ...INITIAL_WEARABLE_MESSAGE, content: welcomeMessage } : INITIAL_WEARABLE_MESSAGE;
   const localPersisted = embed ? normalizePersistedState(loadEmbedState<unknown>(embed.embedToken)) : null;
   const persisted = shopper ? overlayServerProfiles(shopper.profiles, localPersisted) : localPersisted;
   const activeSlot = persisted ? (persisted.profiles.find((p) => p.id === persisted.activeProfileId) ?? null) : null;
 
   const [state, setState] = React.useState<TryOnAgentState>({
-    profile: activeSlot?.profile ?? INITIAL_PROFILE,
-    onboardingPhase: resumeOnboardingPhase(activeSlot?.profile),
-    profileSubmitted: activeSlot?.profileSubmitted ?? false,
+    profile: activeSlot?.profile ?? demoSeedProfile ?? INITIAL_PROFILE,
+    onboardingPhase: demoSeedProfile && !activeSlot ? "audience" : resumeOnboardingPhase(activeSlot?.profile),
+    profileSubmitted: activeSlot?.profileSubmitted ?? Boolean(demoSeedProfile),
     generationProgress: 0,
     generationStageIndex: 0,
     avatarsArrived: 0,
@@ -634,7 +640,7 @@ export function useTryOnAgent(
     avatarPartialNote: null,
     selectedAvatarId: activeSlot?.selectedAvatarId ?? null,
     customAvatarUrl: null,
-    messages: activeSlot?.messages ?? [],
+    messages: activeSlot?.messages ?? (demoSeedProfile ? [demoWelcome] : []),
     outfitItems: activeSlot?.outfitItems ?? [],
     input: activeSlot?.input ?? "",
     isTyping: false,
@@ -657,6 +663,17 @@ export function useTryOnAgent(
     backdropUploadError: null,
     cartSyncError: null,
   });
+
+  // In the branding preview the welcome message follows what the merchant is typing, for as long
+  // as it is still the only message. Adjusted while rendering rather than from an effect, so the
+  // bubble is right on the same frame as the text field.
+  const [syncedWelcome, setSyncedWelcome] = React.useState(welcomeMessage);
+  if (demo && syncedWelcome !== welcomeMessage) {
+    setSyncedWelcome(welcomeMessage);
+    setState((s) =>
+      s.messages.length === 1 && s.messages[0].id === INITIAL_WEARABLE_MESSAGE.id ? { ...s, messages: [demoWelcome] } : s
+    );
+  }
 
   const [profilesMeta, setProfilesMeta] = React.useState<{ id: string; label: string }[]>(
     () => persisted?.profiles.map((p) => ({ id: p.id, label: p.label })) ?? [{ id: DEFAULT_PROFILE_ID, label: "Profile 1" }]

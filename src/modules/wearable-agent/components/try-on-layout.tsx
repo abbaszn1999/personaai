@@ -19,6 +19,7 @@ import type { PreviewViewportMode } from "./preview-viewport-toggle";
 import type { OnboardingPhase, TryOnAudience } from "@/modules/wearable-agent/types";
 import { WearableThemeProvider, type WearableTheme } from "../theme-context";
 import { WearableBrandingProvider, type WearableBrandingInput } from "../branding-context";
+import type { DemoSeed } from "../demo-profile";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils/cn";
 import { resolveRadiusCssVars } from "@/lib/branding/resolve-brand-vars";
@@ -46,6 +47,9 @@ interface TryOnLayoutProps {
    *  back to a full viewport once the avatar is ready and chat needs the height. The
    *  dashboard preview ignores this. */
   onFillViewportChange?: (fill: boolean) => void;
+  /** Skips sign-in and onboarding and starts as a ready-made shopper. Only the branding page's
+   *  live preview sets this; it is ignored for embeds. */
+  demo?: DemoSeed;
 }
 
 /** The steps that share OnboardingShell's chrome. Kept as one list so the shell below can be a
@@ -66,6 +70,7 @@ export function TryOnLayout({
   workspaceId,
   audiences,
   onFillViewportChange,
+  demo,
 }: TryOnLayoutProps) {
   const [fillViewport, setFillViewport] = React.useState(!embed);
   const compact = Boolean(embed && !fillViewport);
@@ -104,6 +109,7 @@ export function TryOnLayout({
               branding={branding}
               workspaceId={workspaceId}
               audiences={audiences}
+              demo={demo}
             />
           )}
         </div>
@@ -181,6 +187,7 @@ function TryOnExperience({
   audiences,
   shopper,
   onFillViewportChange,
+  demo,
 }: {
   viewportMode: PreviewViewportMode;
   embed?: EmbedRuntimeConfig;
@@ -189,8 +196,9 @@ function TryOnExperience({
   audiences?: TryOnAudience[];
   shopper?: ShopperProfileBridge;
   onFillViewportChange?: (fill: boolean) => void;
+  demo?: DemoSeed;
 }) {
-  const agent = useTryOnAgent(embed, branding?.welcomeMessage, workspaceId, shopper);
+  const agent = useTryOnAgent(embed, branding?.welcomeMessage, workspaceId, shopper, demo);
   const shopperSession = React.useContext(EmbedShopperSessionContext);
 
   React.useLayoutEffect(() => {

@@ -42,9 +42,9 @@ import { WEARABLE_QUICK_REPLIES } from "@/modules/wearable-agent/mocks/responses
 import { CatalogReadyGate } from "@/modules/store/components/catalog-ready-gate";
 import { cn } from "@/lib/utils/cn";
 import { FontPicker } from "./font-picker";
-import { fontFamilyCssValue, loadGoogleFont } from "@/lib/fonts/google-fonts";
-import { resolveBrandCssVars } from "@/lib/branding/resolve-brand-vars";
-import { BrandingAgentPreview, type PreviewDevice, type PreviewScreen } from "./branding-agent-preview";
+import { loadGoogleFont } from "@/lib/fonts/google-fonts";
+import { BrandingLivePreview, type PreviewDevice, type PreviewScreen } from "./branding-live-preview";
+import { useOnboardingAudiences } from "@/modules/wearable-agent/hooks/use-onboarding-audiences";
 
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
@@ -126,6 +126,9 @@ export function WsBrandingEditor({ workspace }: Props) {
 
   const [device, setDevice] = React.useState<PreviewDevice>("desktop");
   const [screen, setScreen] = React.useState<PreviewScreen>("chat");
+  /** Bumped by Reset: the live preview starts over with a fresh shopper. */
+  const [previewResetKey, setPreviewResetKey] = React.useState(0);
+  const audiences = useOnboardingAudiences();
   const [activeSection, setActiveSection] = React.useState<string>("identity");
 
   const [justSaved, setJustSaved] = React.useState(false);
@@ -295,12 +298,10 @@ export function WsBrandingEditor({ workspace }: Props) {
 
   function chooseScreen(next: PreviewScreen) {
     setScreen(next);
-    if (next === "launcher") setDevice("mobile");
   }
 
   function chooseDevice(next: PreviewDevice) {
     setDevice(next);
-    if (next === "desktop" && screen === "launcher") setScreen("chat");
   }
 
   React.useEffect(() => {
@@ -341,10 +342,6 @@ export function WsBrandingEditor({ workspace }: Props) {
     return () => observer.disconnect();
   }, []);
 
-  const brandStyle: React.CSSProperties = {
-    ...resolveBrandCssVars(form.primaryColor),
-    fontFamily: fontFamilyCssValue(form.fontFamily),
-  };
   const contrast = whiteContrast(form.primaryColor);
 
   return (
@@ -670,14 +667,6 @@ export function WsBrandingEditor({ workspace }: Props) {
               onFocus={() => chooseScreen("sign-in")}
             />
 
-            <TextField
-              label="Mobile chat button"
-              value={form.launcherLabel}
-              max={BRANDING_LIMITS.launcherLabel}
-              onChange={(launcherLabel) => update({ launcherLabel })}
-              hint="Label on the collapsed chat button on phones."
-              onFocus={() => chooseScreen("launcher")}
-            />
           </Section>
 
           {/* Setup */}
@@ -755,6 +744,14 @@ export function WsBrandingEditor({ workspace }: Props) {
           <div className="flex h-full min-h-0 flex-col gap-3">
             <div className="flex flex-wrap items-center gap-2">
               <p className="mr-auto text-xs font-semibold uppercase tracking-widest text-[var(--color-text-muted)]">Live preview</p>
+              <button
+                type="button"
+                onClick={() => setPreviewResetKey((key) => key + 1)}
+                title="Start over: clears the chat, the outfit and the cart"
+                className="flex h-8 items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-card)] px-2.5 text-xs font-medium text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-primary)]"
+              >
+                <RotateCcw className="h-3.5 w-3.5" /> Reset
+              </button>
               <IconToggle
                 options={[
                   { id: "chat", label: "Chat" },
@@ -783,40 +780,20 @@ export function WsBrandingEditor({ workspace }: Props) {
             </div>
 
             <div className="relative flex min-h-0 flex-1 items-stretch justify-center overflow-hidden rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[radial-gradient(circle_at_1px_1px,var(--color-border)_1px,transparent_0)] [background-size:18px_18px] p-4">
-              {device === "desktop" ? (
-                <div className="flex w-full min-w-0 flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-card)] shadow-[var(--shadow-elevated)]">
-                  <div className="flex shrink-0 items-center gap-1.5 border-b border-[var(--color-border)] px-3 py-2.5">
-                    <span className="h-3 w-3 rounded-full bg-red-400" />
-                    <span className="h-3 w-3 rounded-full bg-amber-400" />
-                    <span className="h-3 w-3 rounded-full bg-green-400" />
-                    <div className="ml-2 flex h-5 flex-1 items-center rounded-full bg-[var(--color-surface-base)] px-3 text-[10px] text-[var(--color-text-muted)]">
-                      yourstore.com
-                    </div>
-                  </div>
-                  <div
-                    className={cn("embed-preview-surface relative min-h-0 flex-1 overflow-hidden bg-[var(--color-surface-base)] p-4", form.theme === "dark" && "dark")}
-                    style={brandStyle}
-                  >
-                    <BrandingAgentPreview branding={form} device={device} screen={screen} />
-                  </div>
-                </div>
-              ) : (
-                <div className="flex h-full max-h-[760px] aspect-[9/19] flex-col overflow-hidden rounded-[44px] border-[10px] border-[#0d0b10] bg-[#0d0b10] shadow-[var(--shadow-elevated)]">
-                  <div className="relative flex h-6 shrink-0 items-center justify-center">
-                    <span className="h-4 w-20 rounded-full bg-black" />
-                  </div>
-                  <div
-                    className={cn("embed-preview-surface relative min-h-0 flex-1 overflow-hidden rounded-[30px] bg-[var(--color-surface-base)]", form.theme === "dark" && "dark")}
-                    style={brandStyle}
-                  >
-                    <BrandingAgentPreview branding={form} device={device} screen={screen} />
-                  </div>
-                </div>
-              )}
+              <BrandingLivePreview
+                branding={form}
+                device={device}
+                screen={screen}
+                workspaceId={workspace.id}
+                audiences={audiences}
+                resetKey={previewResetKey}
+              />
             </div>
 
             <div className="flex items-center justify-between text-xs text-[var(--color-text-muted)]">
-              <span>Updates as you type. Shoppers see it after you save.</span>
+              <span>
+                This is the real widget: design edits show at once, and chat and try-on run for real, using your credits. Shoppers see changes after you save.
+              </span>
               <Link href="/preview" className="inline-flex items-center gap-1 font-medium text-[var(--color-brand)] hover:underline">
                 Try the real agent <ExternalLink className="h-3 w-3" />
               </Link>
