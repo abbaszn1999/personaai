@@ -52,10 +52,11 @@ function FilterMenu({
 interface FilterBarProps {
   filters: UsageFilters;
   generatedAt: string | null;
+  showCosts: boolean;
   onChange: (patch: Partial<UsageFilters>) => void;
 }
 
-export function FilterBar({ filters, generatedAt, onChange }: FilterBarProps) {
+export function FilterBar({ filters, generatedAt, showCosts, onChange }: FilterBarProps) {
   return (
     <div className="card-base p-4 space-y-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -135,23 +136,25 @@ export function FilterBar({ filters, generatedAt, onChange }: FilterBarProps) {
           ]}
           onChange={(bucket) => onChange({ bucket })}
         />
-        <div className="flex items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-base)] p-1">
-          {(["usd", "units"] as const).map((view) => (
-            <button
-              key={view}
-              type="button"
-              onClick={() => onChange({ view })}
-              className={cn(
-                "px-3 py-1 rounded-full text-xs font-semibold",
-                filters.view === view
-                  ? "bg-[var(--color-surface-card)] text-[var(--color-text-primary)] shadow-sm"
-                  : "text-[var(--color-text-muted)]"
-              )}
-            >
-              {view === "usd" ? "Dollars" : "Units"}
-            </button>
-          ))}
-        </div>
+        {showCosts && (
+          <div className="flex items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-base)] p-1">
+            {(["usd", "units"] as const).map((view) => (
+              <button
+                key={view}
+                type="button"
+                onClick={() => onChange({ view })}
+                className={cn(
+                  "px-3 py-1 rounded-full text-xs font-semibold",
+                  filters.view === view
+                    ? "bg-[var(--color-surface-card)] text-[var(--color-text-primary)] shadow-sm"
+                    : "text-[var(--color-text-muted)]"
+                )}
+              >
+                {view === "usd" ? "Dollars" : "Units"}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

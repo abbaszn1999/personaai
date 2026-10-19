@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { queryUsageSessions } from "@/lib/db/usage-report";
+import { withoutShopperCosts } from "@/lib/billing/usage-report";
 import { resolveUsageRequest } from "../resolve";
 
 const PAGE_SIZE = 25;
@@ -12,7 +13,7 @@ export async function GET(req: NextRequest) {
 
     const resolved = await resolveUsageRequest(user.id, req.nextUrl.searchParams);
     if ("error" in resolved) return Response.json({ error: resolved.error }, { status: resolved.status });
-    const { range } = resolved;
+    const { range, showCosts } = resolved;
     const sessionId = req.nextUrl.searchParams.get("sessionId");
     const page = Math.max(0, Number.parseInt(req.nextUrl.searchParams.get("page") ?? "0", 10) || 0);
 
@@ -29,7 +30,8 @@ export async function GET(req: NextRequest) {
 
     return Response.json(
       {
-        shoppers: result.shoppers,
+        shoppers: showCosts ? result.shoppers : withoutShopperCosts(result.shoppers),
+        showCosts,
         shopperCount: result.shopperCount,
         page: sessionId ? 0 : page,
         pageSize: PAGE_SIZE,

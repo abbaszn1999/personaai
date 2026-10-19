@@ -118,7 +118,7 @@ async function recordGoogle(url: string, method: string, body: string, response:
     const storage = (ms: number) => Math.ceil((tokens * GOOGLE.storagePerTokenHour * Math.max(ms, 0)) / 3_600_000);
     if (method === "POST") {
       ledger.cacheCreates += 1;
-      ledger.cacheNanos += tokens * GOOGLE.input + storage(expires - Date.parse(String(json?.createTime ?? "")));
+      ledger.cacheNanos += storage(expires - Date.parse(String(json?.createTime ?? "")));
     } else {
       const previous = cacheExpiry.get(name) ?? Date.parse(String(json?.updateTime ?? ""));
       ledger.cacheExtends += 1;

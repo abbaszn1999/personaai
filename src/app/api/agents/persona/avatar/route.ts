@@ -100,8 +100,8 @@ export async function POST(req: NextRequest) {
           { photoBase64, photoMimeType, ...measured.measurements },
           requestedCount
         )) {
-          if (closed || req.signal.aborted) break;
-
+          // All renders are already in flight and Google bills each one, so keep recording finished
+          // renders after the shopper leaves; only the sending is skipped (safeEnqueue).
           if (event.type === "variation") {
             const consumed = await consumeImageGeneration(
               user.id,

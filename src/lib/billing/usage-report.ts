@@ -37,6 +37,9 @@ export interface ShopperUsage {
   avatarUnits: number;
   liveEvents: number;
   liveSeconds: number;
+  /** Metered cost of everything this shopper used, in nano-dollars. Absent when the merchant's
+   *  costs are hidden. */
+  costNanos?: number;
   firstSeen: string | null;
   lastSeen: string | null;
 }
@@ -49,6 +52,10 @@ export interface ToolBreakdownLine {
   share: number;
   changePercent: number | null;
 }
+
+/** A tool line as sent to the browser: without the cost-derived fields when costs are hidden. */
+export type UsageToolLine = Omit<ToolBreakdownLine, "costNanos" | "share" | "changePercent"> &
+  Partial<Pick<ToolBreakdownLine, "costNanos" | "share" | "changePercent">>;
 
 export interface UsageSeriesPoint {
   bucket: string;
@@ -72,13 +79,22 @@ export function toolCostNanos(tool: UsageTool, units: number): number {
 }
 
 export function shopperCostNanos(shopper: ShopperUsage): number {
-  return (
-    toolCostNanos("chat", shopper.chatUnits) +
-    toolCostNanos("search", shopper.searchUnits) +
-    toolCostNanos("try_on", shopper.tryOnUnits) +
-    toolCostNanos("avatar", shopper.avatarUnits) +
-    toolCostNanos("live", shopper.liveSeconds)
-  );
+  const cost = shopper.costNanos;
+  return typeof cost === "number" && Number.isFinite(cost) ? Math.max(0, cost) : 0;
+}
+
+/** Drops everything that reveals what a tool cost: the cost itself, and the share and change
+ *  derived from it. Quantity and units stay. */
+export function withoutToolCosts(lines: ToolBreakdownLine[]): UsageToolLine[] {
+  return lines.map(({ tool, quantity, units }) => ({ tool, quantity, units }));
+}
+
+export function withoutShopperCosts(shoppers: ShopperUsage[]): ShopperUsage[] {
+  return shoppers.map((shopper) => {
+    const rest = { ...shopper };
+    delete rest.costNanos;
+    return rest;
+  });
 }
 
 export function projectedCycleCostNanos(input: {
@@ -183,7 +199,7 @@ export function fillSeries(
     if (!tools.includes(row.tool)) continue;
     const point = byBucket.get(row.bucket);
     if (!point) continue;
-    point[row.tool] += metric === "units" ? row.units : toolCostNanos(row.tool, row.units);
+    point[row.tool] += metric === "units" ? row.units : row.nanos;
   }
   return buckets.map((bucket) => byBucket.get(bucket)!);
 }
@@ -194,9 +210,10 @@ export function toolBreakdown(current: UsageAggregateRow[], previous: UsageAggre
       (acc, row) => {
         acc.quantity += row.quantity;
         acc.units += row.units;
+        acc.nanos += row.nanos;
         return acc;
       },
-      { quantity: 0, units: 0 }
+      { quantity: 0, units: 0, nanos: 0 }
     );
   const lines = USAGE_TOOLS.map((tool) => {
     const now = sum(current, tool);
@@ -205,9 +222,9 @@ export function toolBreakdown(current: UsageAggregateRow[], previous: UsageAggre
       tool,
       quantity: now.quantity,
       units: now.units,
-      costNanos: toolCostNanos(tool, now.units),
+      costNanos: now.nanos,
       share: 0,
-      changePercent: changePercent(toolCostNanos(tool, now.units), toolCostNanos(tool, before.units)),
+      changePercent: changePercent(now.nanos, before.nanos),
     };
   });
   const total = lines.reduce((acc, line) => acc + line.costNanos, 0);
@@ -220,7 +237,7 @@ export function toolBreakdown(current: UsageAggregateRow[], previous: UsageAggre
 export function totalCostNanos(rows: UsageAggregateRow[], tool: UsageTool | "all" = "all"): number {
   return rows
     .filter((row) => tool === "all" || row.tool === tool)
-    .reduce((sum, row) => sum + toolCostNanos(row.tool, row.units), 0);
+    .reduce((sum, row) => sum + row.nanos, 0);
 }
 
 function timeZoneOffsetMs(date: Date, timeZone: string): number {
@@ -349,13 +366,14 @@ function dollars(nanos: number): string {
   return (nanos / 1_000_000_000).toFixed(6);
 }
 
-export function usageCsv(input: { rows: UsageAggregateRow[]; shoppers: ShopperUsage[] }): string {
-  const lines = ["section,bucket,tool,session,source,quantity,units,cost_usd"];
+export function usageCsv(input: { rows: UsageAggregateRow[]; shoppers: ShopperUsage[]; showCosts: boolean }): string {
+  const cost = (nanos: number): Array<string | number> => (input.showCosts ? [dollars(nanos)] : []);
+  const lines = [input.showCosts ? "section,bucket,tool,session,source,quantity,units,cost_usd" : "section,bucket,tool,session,source,quantity,units"];
   const trend = [...input.rows].sort((a, b) => a.bucket.localeCompare(b.bucket) || a.tool.localeCompare(b.tool));
   for (const row of trend) {
     if (row.quantity === 0 && row.units === 0) continue;
     lines.push(
-      ["trend", row.bucket, row.tool, "", "", row.quantity, row.units, dollars(toolCostNanos(row.tool, row.units))]
+      ["trend", row.bucket, row.tool, "", "", row.quantity, row.units, ...cost(row.nanos)]
         .map(csvCell)
         .join(",")
     );
@@ -379,7 +397,7 @@ export function usageCsv(input: { rows: UsageAggregateRow[]; shoppers: ShopperUs
           shopper.source ?? "",
           quantity,
           units,
-          dollars(toolCostNanos(tool, units)),
+          ...cost(toolCostNanos(tool, units)),
         ].map(csvCell).join(",")
       );
     }

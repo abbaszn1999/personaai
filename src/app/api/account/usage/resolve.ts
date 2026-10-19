@@ -4,7 +4,7 @@ import { resolveUsageRange, type ResolvedUsageRange } from "@/lib/billing/usage-
 export async function resolveUsageRequest(
   userId: string,
   params: URLSearchParams
-): Promise<{ range: ResolvedUsageRange } | { error: string; status: number }> {
+): Promise<{ range: ResolvedUsageRange; showCosts: boolean } | { error: string; status: number }> {
   const billing = await getAccountBillingContext(userId);
   if (!billing) return { error: "Account not found", status: 404 };
   const resolved = resolveUsageRange({
@@ -20,5 +20,6 @@ export async function resolveUsageRequest(
     cycleEnd: new Date(billing.cycleEndIso),
   });
   if ("error" in resolved) return { error: resolved.error, status: 400 };
-  return { range: resolved };
+  // Read fresh from the account row, not the cookie-cached profile, so an admin's change applies at once.
+  return { range: resolved, showCosts: Boolean(billing.user.show_usage_costs) };
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 import {
   changePercent,
   costPerShopperNanos,
@@ -13,6 +13,8 @@ import {
   toolCostNanos,
   totalCostNanos,
   usageCsv,
+  withoutShopperCosts,
+  withoutToolCosts,
   type ShopperUsage,
   type UsageAggregateRow,
 } from "./usage-report";
@@ -59,11 +61,11 @@ describe("comparisons", () => {
 });
 
 describe("series", () => {
-  it("fills missing days with zero and keeps billed nanos", () => {
-    const rows = [row({ bucket: "2026-09-02", tool: "chat", units: 2, quantity: 3 })];
+  it("fills missing days with zero and keeps metered nanos", () => {
+    const rows = [row({ bucket: "2026-09-02", tool: "chat", units: 2, quantity: 3, nanos: 4_120_000 })];
     const series = fillSeries(rows, ["2026-09-01", "2026-09-02"], "nanos");
     expect(series[0]).toMatchObject({ bucket: "2026-09-01", chat: 0, live: 0 });
-    expect(series[1].chat).toBe(5_000_000);
+    expect(series[1].chat).toBe(4_120_000);
   });
 
   it("enumerates UTC days and Monday weeks", () => {
@@ -77,8 +79,8 @@ describe("series", () => {
   });
 
   it("shares spend across tools and compares with the previous window", () => {
-    const current = [row({ tool: "chat", units: 1 }), row({ tool: "live", units: 60 })];
-    const previous = [row({ tool: "chat", units: 2 })];
+    const current = [row({ tool: "chat", units: 1, nanos: 1_500_000 }), row({ tool: "live", units: 60, nanos: 1_200_000_000 })];
+    const previous = [row({ tool: "chat", units: 2, nanos: 3_000_000 })];
     const lines = toolBreakdown(current, previous);
     const chat = lines.find((line) => line.tool === "chat")!;
     const live = lines.find((line) => line.tool === "live")!;
@@ -104,6 +106,7 @@ describe("shoppers and csv", () => {
     avatarUnits: 0,
     liveEvents: 0,
     liveSeconds: 0,
+    costNanos: 1_870_000,
     firstSeen: null,
     lastSeen: null,
   };
@@ -113,16 +116,44 @@ describe("shoppers and csv", () => {
     expect(shopperLabel(shopper)).toBe("Guest #abc123");
     expect(shopperLabel({ ...shopper, source: "preview" })).toBe("Preview #abc123");
     expect(shopperLabel({ ...shopper, sessionId: null, source: null })).toBe("Unattributed (before tracking)");
-    expect(shopperCostNanos(shopper)).toBe(2_500_000);
+    expect(shopperCostNanos(shopper)).toBe(1_870_000);
   });
 
   it("quotes commas and keeps units next to dollars", () => {
     const csv = usageCsv({
-      rows: [row({ tool: "chat", units: 1, quantity: 2, bucket: "2026-09-01" })],
+      rows: [row({ tool: "chat", units: 1, quantity: 2, bucket: "2026-09-01", nanos: 1_870_000 })],
       shoppers: [{ ...shopper, sessionId: "a,b" }],
+      showCosts: true,
     });
-    expect(csv).toContain("trend,2026-09-01,chat,,,2,1,0.002500");
+    expect(csv).toContain("cost_usd");
+    expect(csv).toContain("trend,2026-09-01,chat,,,2,1,0.001870");
     expect(csv).toContain('"Guest #a,b"');
+  });
+
+  it("leaves the cost column out of the csv when costs are hidden", () => {
+    const csv = usageCsv({
+      rows: [row({ tool: "chat", units: 1, quantity: 2, bucket: "2026-09-01", nanos: 1_870_000 })],
+      shoppers: [shopper],
+      showCosts: false,
+    });
+    const lines = csv.split("\n");
+    expect(lines[0]).toBe("section,bucket,tool,session,source,quantity,units");
+    expect(csv).not.toContain("cost");
+    expect(csv).not.toContain("0.00187");
+    expect(lines[1]).toBe("trend,2026-09-01,chat,,,2,1");
+  });
+
+  it("strips every cost-derived field from tool lines and shoppers", () => {
+    const lines = toolBreakdown([row({ tool: "chat", units: 1, nanos: 1_500_000 })], [row({ tool: "chat", units: 2, nanos: 3_000_000 })]);
+    const hidden = withoutToolCosts(lines);
+    expect(hidden.length).toBe(lines.length);
+    for (const line of hidden) {
+      expect(Object.keys(line).sort()).toEqual(["quantity", "tool", "units"]);
+    }
+    const [stripped] = withoutShopperCosts([shopper]);
+    expect(stripped).not.toHaveProperty("costNanos");
+    expect(shopperCostNanos(stripped)).toBe(0);
+    expect(shopper.costNanos).toBe(1_870_000);
   });
 });
 

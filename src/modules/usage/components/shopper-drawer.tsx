@@ -22,10 +22,12 @@ function Row({ label, value }: { label: string; value: string }) {
 export function ShopperDrawer({
   sessionId,
   apiQuery,
+  showCosts,
   onClose,
 }: {
   sessionId: string;
   apiQuery: string;
+  showCosts: boolean;
   onClose: () => void;
 }) {
   const [shopper, setShopper] = React.useState<ShopperUsage | null>(null);
@@ -70,9 +72,11 @@ export function ShopperDrawer({
         <p className="text-sm text-[var(--color-text-muted)]">No usage for this shopper in the selected range.</p>
       ) : (
         <div>
-          <p className="text-2xl font-display font-extrabold text-[var(--color-text-primary)] mb-4">
-            {formatUsdFromNanos(shopperCostNanos(shopper))}
-          </p>
+          {showCosts && (
+            <p className="text-2xl font-display font-extrabold text-[var(--color-text-primary)] mb-4">
+              {formatUsdFromNanos(shopperCostNanos(shopper))}
+            </p>
+          )}
           <Row label="First seen" value={formatWhen(shopper.firstSeen)} />
           <Row label="Last seen" value={formatWhen(shopper.lastSeen)} />
           <Row label="Conversation" value={`${shopper.chatCalls.toLocaleString()} calls · ${shopper.chatUnits.toLocaleString()} units`} />

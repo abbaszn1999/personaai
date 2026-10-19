@@ -7,6 +7,7 @@ import {
   fillSeries,
   toolBreakdown,
   totalCostNanos,
+  withoutToolCosts,
 } from "@/lib/billing/usage-report";
 import { resolveUsageRequest } from "../resolve";
 
@@ -17,7 +18,7 @@ export async function GET(req: NextRequest) {
 
     const resolved = await resolveUsageRequest(user.id, req.nextUrl.searchParams);
     if ("error" in resolved) return Response.json({ error: resolved.error }, { status: resolved.status });
-    const { range } = resolved;
+    const { range, showCosts } = resolved;
 
     const [current, previous, shoppers, previousShoppers] = await Promise.all([
       queryUsageReport({
@@ -59,8 +60,21 @@ export async function GET(req: NextRequest) {
     const filtered = current.filter((row) => range.tool === "all" || row.tool === range.tool);
     const previousFiltered = previous.filter((row) => range.tool === "all" || row.tool === range.tool);
     const buckets = enumerateBuckets(range.from.toISOString(), range.to.toISOString(), range.bucket, range.timeZone);
-    const spendNanos = totalCostNanos(filtered);
-    const previousSpendNanos = totalCostNanos(previousFiltered);
+    const tools = toolBreakdown(filtered, previousFiltered);
+    // Costs are the platform's real spend. Unless an admin turned them on for this merchant they are
+    // left out of the response itself, not just hidden by the page.
+    const costs = showCosts
+      ? (() => {
+          const spendNanos = totalCostNanos(filtered);
+          const previousSpendNanos = totalCostNanos(previousFiltered);
+          return {
+            spendNanos,
+            previousSpendNanos,
+            changePercent: changePercent(spendNanos, previousSpendNanos),
+            seriesNanos: fillSeries(filtered, buckets, "nanos"),
+          };
+        })()
+      : {};
 
     return Response.json(
       {
@@ -76,14 +90,12 @@ export async function GET(req: NextRequest) {
           tool: range.tool,
           timeZone: range.timeZone,
         },
-        spendNanos,
-        previousSpendNanos,
-        changePercent: changePercent(spendNanos, previousSpendNanos),
+        showCosts,
+        ...costs,
         shopperCount: shoppers.shopperCount,
         previousShopperCount: previousShoppers.shopperCount,
-        seriesNanos: fillSeries(filtered, buckets, "nanos"),
         seriesUnits: fillSeries(filtered, buckets, "units"),
-        tools: toolBreakdown(filtered, previousFiltered),
+        tools: showCosts ? tools : withoutToolCosts(tools),
       },
       { headers: { "Cache-Control": "no-store" } }
     );

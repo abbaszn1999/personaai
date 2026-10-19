@@ -66,21 +66,13 @@ export function geminiCacheStorageNanosPerTokenHour(at: Date | number = Date.now
 }
 
 /**
- * What one explicit cache costs: creating it bills its tokens as input (only when created, not when
- * extended), and keeping it bills storage for every hour of TTL bought.
+ * What one explicit cache costs: storage for every hour of TTL bought. The Gemini API does not bill
+ * creating a cache (its tokens are not charged as input), unlike Vertex AI.
  */
-export function geminiCacheCostNanos(input: {
-  tokens: number;
-  ttlSeconds: number;
-  created: boolean;
-  at?: Date | number;
-  model?: string | null;
-}): number {
+export function geminiCacheCostNanos(input: { tokens: number; ttlSeconds: number; at?: Date | number }): number {
   const tokens = wholeTokens(input.tokens);
   const at = input.at ?? Date.now();
-  const creation = input.created ? tokens * geminiTokenRates(at, input.model).input : 0;
-  const storage = Math.ceil((tokens * geminiCacheStorageNanosPerTokenHour(at) * Math.max(input.ttlSeconds, 0)) / 3_600);
-  return creation + storage;
+  return Math.ceil((tokens * geminiCacheStorageNanosPerTokenHour(at) * Math.max(input.ttlSeconds, 0)) / 3_600);
 }
 
 export interface GeminiTokenCounts {

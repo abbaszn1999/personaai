@@ -9,10 +9,12 @@ export function MerchantActions({
   userId,
   email,
   tierId,
+  showUsageCosts,
 }: {
   userId: string;
   email: string;
   tierId: PlanTierId | null;
+  showUsageCosts: boolean;
 }) {
   const router = useRouter();
   const [message, setMessage] = useState("");
@@ -61,6 +63,32 @@ export function MerchantActions({
         <Button type="button" disabled={busy} onClick={() => run("/api/admin/impersonate", { userId })}>
           Log in as {email}
         </Button>
+      </section>
+
+      <section className="space-y-2 border-t border-[var(--color-border)] pt-4">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Usage page</h3>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-[var(--color-text-primary)]">Show costs on this merchant's Usage page</p>
+            <p className="text-xs text-[var(--color-text-muted)]">
+              Off hides every dollar amount, the cost share and change columns, and the cost in the CSV. Units, quantities and wallets stay visible.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={showUsageCosts}
+            aria-label="Show costs on this merchant's Usage page"
+            disabled={busy}
+            onClick={() => run(`/api/admin/merchants/${userId}/usage-costs`, { show: !showUsageCosts })}
+            className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${showUsageCosts ? "gradient-brand" : "bg-[var(--color-border)]"}`}
+          >
+            <span
+              className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${showUsageCosts ? "translate-x-5" : "translate-x-0.5"}`}
+            />
+          </button>
+        </div>
+        <p className="text-xs text-[var(--color-text-muted)]">Currently {showUsageCosts ? "on" : "off"}.</p>
       </section>
 
       <section className="space-y-2 border-t border-[var(--color-border)] pt-4">

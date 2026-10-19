@@ -179,7 +179,9 @@ async function postInteraction(body: unknown, apiKey: string): Promise<unknown> 
     } catch (err) {
       if (err instanceof GeminiImageError) throw err;
       const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
-      lastError = new GeminiImageError(
+      // No retry here: a request that timed out or dropped may still have finished on Google's side,
+      // and a second attempt would be billed on top of a render we never received or recorded.
+      throw new GeminiImageError(
         timedOut ? "Gemini took too long to render the image. Please try again." : "Couldn't reach Gemini. Please try again."
       );
     }

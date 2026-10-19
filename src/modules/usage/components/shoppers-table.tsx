@@ -7,20 +7,21 @@ import { formatWhen } from "../constants";
 interface ShoppersTableProps {
   shoppers: ShopperUsage[];
   shopperCount: number;
+  showCosts: boolean;
   page: number;
   pageSize: number;
   onPage: (page: number) => void;
   onOpen: (sessionId: string) => void;
 }
 
-export function ShoppersTable({ shoppers, shopperCount, page, pageSize, onPage, onOpen }: ShoppersTableProps) {
+export function ShoppersTable({ shoppers, shopperCount, showCosts, page, pageSize, onPage, onOpen }: ShoppersTableProps) {
   const pages = Math.max(1, Math.ceil(shopperCount / pageSize));
   return (
     <div className="card-base overflow-hidden">
       <div className="px-5 py-4 border-b border-[var(--color-border)] flex items-center justify-between">
         <div>
           <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">Shoppers</h3>
-          <p className="text-xs text-[var(--color-text-muted)] mt-0.5">Highest spend first. Open a row for the breakdown.</p>
+          <p className="text-xs text-[var(--color-text-muted)] mt-0.5">{showCosts ? "Highest spend first. Open a row for the breakdown." : "Most active first. Open a row for the breakdown."}</p>
         </div>
         <span className="text-xs text-[var(--color-text-muted)]">{shopperCount.toLocaleString()} in this filter</span>
       </div>
@@ -38,7 +39,7 @@ export function ShoppersTable({ shoppers, shopperCount, page, pageSize, onPage, 
                 <th className="px-3 py-3 font-medium">Try-on</th>
                 <th className="px-3 py-3 font-medium">Avatar</th>
                 <th className="px-3 py-3 font-medium">Live</th>
-                <th className="px-3 py-3 font-medium">Cost</th>
+                {showCosts && <th className="px-3 py-3 font-medium">Cost</th>}
                 <th className="px-5 py-3 font-medium">Last seen</th>
               </tr>
             </thead>
@@ -62,9 +63,11 @@ export function ShoppersTable({ shoppers, shopperCount, page, pageSize, onPage, 
                   <td className="px-3 py-3 text-[var(--color-text-secondary)]">
                     {(shopper.liveSeconds / 60).toLocaleString(undefined, { maximumFractionDigits: 1 })}
                   </td>
-                  <td className="px-3 py-3 font-semibold text-[var(--color-text-primary)]">
-                    {formatUsdFromNanos(shopperCostNanos(shopper))}
-                  </td>
+                  {showCosts && (
+                    <td className="px-3 py-3 font-semibold text-[var(--color-text-primary)]">
+                      {formatUsdFromNanos(shopperCostNanos(shopper))}
+                    </td>
+                  )}
                   <td className="px-5 py-3 text-[var(--color-text-secondary)]">{formatWhen(shopper.lastSeen)}</td>
                 </tr>
               ))}

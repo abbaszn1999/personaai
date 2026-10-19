@@ -33,6 +33,7 @@ interface KpiRowProps {
 }
 
 export function KpiRow({ report, summary, loading }: KpiRowProps) {
+  const showCosts = Boolean(report?.showCosts);
   const spend = report?.spendNanos ?? 0;
   const shoppers = report?.shopperCount ?? 0;
   const perShopper = costPerShopperNanos(spend, shoppers);
@@ -54,14 +55,36 @@ export function KpiRow({ report, summary, loading }: KpiRowProps) {
     );
   }
 
+  const quantityOf = (...tools: string[]) =>
+    (report?.tools ?? []).filter((line) => tools.includes(line.tool)).reduce((sum, line) => sum + line.quantity, 0);
+  const activeShoppersCard = (
+    <Card
+      label="Active shoppers"
+      value={shoppers.toLocaleString()}
+      detail={<Delta value={report ? changePercent(shoppers, report.previousShopperCount) : null} />}
+    />
+  );
+  const note = (text: string) => <span className="text-xs text-[var(--color-text-muted)]">{text}</span>;
+
+  if (!showCosts) {
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        {activeShoppersCard}
+        <Card label="Conversations" value={quantityOf("chat").toLocaleString()} detail={note("Assistant replies in this filter")} />
+        <Card label="Catalog searches" value={quantityOf("search").toLocaleString()} detail={note("Product searches in this filter")} />
+        <Card
+          label="Try-ons and avatars"
+          value={quantityOf("try_on", "avatar").toLocaleString()}
+          detail={note("Garment renders and avatar images")}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
       <Card label="Spend" value={formatUsdFromNanos(spend)} detail={<Delta value={report?.changePercent ?? null} />} />
-      <Card
-        label="Active shoppers"
-        value={shoppers.toLocaleString()}
-        detail={<Delta value={report ? changePercent(shoppers, report.previousShopperCount) : null} />}
-      />
+      {activeShoppersCard}
       <Card
         label="Cost per shopper"
         value={perShopper === null ? "—" : formatUsdFromNanos(perShopper)}

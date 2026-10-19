@@ -70,6 +70,7 @@ export default async function MerchantDetailPage({ params }: { params: Promise<{
       <MerchantActions
         userId={merchant.id}
         email={merchant.email}
+        showUsageCosts={merchant.showUsageCosts}
         tierId={
           merchant.subscription &&
           ["active", "trialing", "past_due", "incomplete"].includes(merchant.subscription.status)

@@ -92,6 +92,7 @@ export async function queryUsageSessions(input: {
     avatarUnits: num(row.avatar_units),
     liveEvents: num(row.live_events),
     liveSeconds: num(row.live_seconds),
+    costNanos: num(row.cost_nanos),
     firstSeen: (row.first_seen as string | null) ?? null,
     lastSeen: (row.last_seen as string | null) ?? null,
   }));

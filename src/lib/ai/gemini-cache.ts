@@ -49,6 +49,8 @@ const deadNames = new Map<string, number>();
 /** The newest cache per model and display name, so the one a new prefix replaces is deleted. */
 const latest = new Map<string, { key: string; name: string }>();
 const pending = new Set<string>();
+/** Tokens each cache this process created or extended holds, to price its unused storage if it is deleted early. */
+const cacheTokens = new Map<string, number>();
 
 export function prefixCacheKey(model: string, prefix: string): string {
   return createHash("sha256").update(`${model}\n${prefix}`).digest("hex").slice(0, 40);
@@ -120,8 +122,7 @@ export interface ResolvePrefixCacheInput {
   stored?: PrefixCacheEntry | null;
   /** Called after a cache is created or extended, to record it for other instances. */
   persist?: (entry: PrefixCacheEntry) => Promise<void>;
-  /** What a create or extension this call started cost — creation tokens and the storage hours
-   *  bought — so it is charged to whoever the prefix belongs to. Called once per create/extend. */
+  /** What a create or extension this call started cost — the storage hours it bought — so it is charged to whoever the prefix belongs to. Called once per create/extend. */
   onCost?: (charge: CacheCharge) => void;
   /** Receives the background create/extend this call started, so the caller can wait for its cost. */
   track?: (task: Promise<void>) => void;
@@ -218,19 +219,18 @@ async function createCache(key: string, input: ResolvePrefixCacheInput): Promise
     retryAt.delete(key);
     logCache("created", input, key, cache.name, cache);
     const tokens = tokensOf(cache, input.prefix);
+    remember(cacheTokens, cache.name, tokens);
     input.onCost?.({
       nanos: geminiCacheCostNanos({
         tokens,
         ttlSeconds: Math.max(0, (expiresAt - createdAtOf(cache, requestedAt)) / 1000),
-        created: true,
-        model: input.model,
       }),
       tokens,
       name: cache.name,
       created: true,
     });
-    supersede(key, cache.name, input);
     await input.persist?.({ name: cache.name, key, expiresAt: new Date(expiresAt).toISOString() });
+    await supersede(key, cache.name, input);
   } catch (error) {
     remember(retryAt, key, isTooSmallError(error) ? Infinity : Date.now() + FAILURE_BACKOFF_MS);
     console.warn(`[gemini-cache] could not cache ${input.displayName}; running inline:`, errorMessage(error));
@@ -256,12 +256,11 @@ async function extendCache(key: string, known: KnownCache, input: ResolvePrefixC
   logCache("extended", input, key, name, cache);
   // Storage is billed for the hours the extension added on top of what was already paid for.
   const tokens = tokensOf(cache, input.prefix);
+  remember(cacheTokens, name, tokens);
   input.onCost?.({
     nanos: geminiCacheCostNanos({
       tokens,
       ttlSeconds: Math.max(0, (expiresAt - Math.max(known.expiresAt, Date.now())) / 1000),
-      created: false,
-      model: input.model,
     }),
     tokens,
     name,
@@ -270,21 +269,35 @@ async function extendCache(key: string, known: KnownCache, input: ResolvePrefixC
   await input.persist?.({ name, key, expiresAt: new Date(expiresAt).toISOString() });
 }
 
-/** Records a new cache as its display name's newest and deletes the one a changed prefix left behind. */
-function supersede(key: string, name: string, input: ResolvePrefixCacheInput): void {
+/** Records a new cache as its display name's newest and deletes the one a changed prefix left behind.
+ *  Storage for the deleted cache was charged up to its expiry, so what it had left is credited back
+ *  once Google confirms the delete; a cache that was already gone gets no credit, its stop time unknown. */
+async function supersede(key: string, name: string, input: ResolvePrefixCacheInput): Promise<void> {
   const slot = slotOf(input);
   const previous = latest.get(slot);
   remember(latest, slot, { key, name });
   if (!previous || previous.key === key) return;
+  const paidUntil = entries.get(previous.key)?.expiresAt;
+  const tokens = cacheTokens.get(previous.name);
   forgetPrefixCache(previous.name);
-  void deleteCache(input.apiKey, previous.name);
+  cacheTokens.delete(previous.name);
+  const deleted = await deleteCache(input.apiKey, previous.name);
+  if (!deleted || !tokens || !paidUntil) return;
+  const unused = geminiCacheCostNanos({
+    tokens,
+    ttlSeconds: Math.max(0, (paidUntil - Date.now()) / 1000),
+  });
+  if (unused > 0) input.onCost?.({ nanos: -unused, tokens, name: previous.name, created: false });
 }
 
-async function deleteCache(apiKey: string, name: string): Promise<void> {
+/** True only when this call removed the cache; one already gone returns false. */
+async function deleteCache(apiKey: string, name: string): Promise<boolean> {
   try {
     await getGeminiClient(apiKey).caches.delete({ name });
+    return true;
   } catch (error) {
     if (!isGoneError(error)) console.warn(`[gemini-cache] could not delete ${name}:`, errorMessage(error));
+    return false;
   }
 }
 

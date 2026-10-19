@@ -1,6 +1,6 @@
 "use client";
 
-import { formatUsdFromNanos, type ToolBreakdownLine, type UsageTool } from "@/lib/billing/usage-report";
+import { formatUsdFromNanos, type UsageTool, type UsageToolLine } from "@/lib/billing/usage-report";
 import { TOOL_META } from "../constants";
 
 function changeLabel(value: number | null): string {
@@ -18,14 +18,17 @@ function unitLabel(tool: UsageTool, units: number): string {
   return units.toLocaleString();
 }
 
-export function ToolBreakdownTable({ lines }: { lines: ToolBreakdownLine[] }) {
+export function ToolBreakdownTable({ lines, showCosts }: { lines: UsageToolLine[]; showCosts: boolean }) {
   const visible = lines.filter(
-    (line) => line.quantity > 0 || line.units > 0 || line.costNanos > 0 || (line.changePercent !== null && line.changePercent !== 0)
+    (line) =>
+      line.quantity > 0 ||
+      line.units > 0 ||
+      (showCosts && ((line.costNanos ?? 0) > 0 || (line.changePercent != null && line.changePercent !== 0)))
   );
   return (
     <div className="card-base overflow-hidden">
       <div className="px-5 py-4 border-b border-[var(--color-border)]">
-        <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">Spend by tool</h3>
+        <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">{showCosts ? "Spend by tool" : "Usage by tool"}</h3>
       </div>
       {visible.length === 0 ? (
         <p className="px-5 py-10 text-center text-sm text-[var(--color-text-muted)]">No tool usage in this range.</p>
@@ -37,9 +40,13 @@ export function ToolBreakdownTable({ lines }: { lines: ToolBreakdownLine[] }) {
                 <th className="px-5 py-3 font-medium">Tool</th>
                 <th className="px-3 py-3 font-medium">Quantity</th>
                 <th className="px-3 py-3 font-medium">Units</th>
-                <th className="px-3 py-3 font-medium">Cost</th>
-                <th className="px-3 py-3 font-medium">Share</th>
-                <th className="px-5 py-3 font-medium">Change</th>
+                {showCosts && (
+                  <>
+                    <th className="px-3 py-3 font-medium">Cost</th>
+                    <th className="px-3 py-3 font-medium">Share</th>
+                    <th className="px-5 py-3 font-medium">Change</th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -57,9 +64,13 @@ export function ToolBreakdownTable({ lines }: { lines: ToolBreakdownLine[] }) {
                       {line.quantity.toLocaleString()} {meta.quantity}
                     </td>
                     <td className="px-3 py-3 text-[var(--color-text-secondary)]">{unitLabel(line.tool, line.units)}</td>
-                    <td className="px-3 py-3 font-semibold text-[var(--color-text-primary)]">{formatUsdFromNanos(line.costNanos)}</td>
-                    <td className="px-3 py-3 text-[var(--color-text-secondary)]">{Math.round(line.share * 100)}%</td>
-                    <td className="px-5 py-3 text-[var(--color-text-secondary)]">{changeLabel(line.changePercent)}</td>
+                    {showCosts && (
+                      <>
+                        <td className="px-3 py-3 font-semibold text-[var(--color-text-primary)]">{formatUsdFromNanos(line.costNanos ?? 0)}</td>
+                        <td className="px-3 py-3 text-[var(--color-text-secondary)]">{Math.round((line.share ?? 0) * 100)}%</td>
+                        <td className="px-5 py-3 text-[var(--color-text-secondary)]">{changeLabel(line.changePercent ?? null)}</td>
+                      </>
+                    )}
                   </tr>
                 );
               })}

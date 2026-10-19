@@ -25,6 +25,8 @@ export interface UserRow {
   session_units_balance: number;
   session_cost_carry_nanos: number;
   overage_cap_cents: number | null;
+  /** Admin-controlled: whether the merchant's Usage page shows dollar costs. */
+  show_usage_costs: boolean;
   subscription_tier: string;
   created_at: string;
   updated_at: string;

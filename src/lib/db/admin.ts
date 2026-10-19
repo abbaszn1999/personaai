@@ -247,6 +247,7 @@ export async function getMerchantDetail(userId: string) {
     storeName: (store?.store_name as string | null) ?? null,
     storeStatus: (store?.store_status as string | null) ?? "draft",
     embedEnabled: Boolean(store?.embed_enabled),
+    showUsageCosts: Boolean(user.show_usage_costs),
     createdAt: user.created_at,
     provider: user.provider,
     tier: billing.tier,

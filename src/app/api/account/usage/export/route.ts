@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
 
     const resolved = await resolveUsageRequest(user.id, req.nextUrl.searchParams);
     if ("error" in resolved) return Response.json({ error: resolved.error }, { status: resolved.status });
-    const { range } = resolved;
+    const { range, showCosts } = resolved;
 
     const [rows, sessions] = await Promise.all([
       queryUsageReport({
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
     ]);
 
     const filtered = rows.filter((row) => range.tool === "all" || row.tool === range.tool);
-    const csv = usageCsv({ rows: filtered, shoppers: sessions.shoppers });
+    const csv = usageCsv({ rows: filtered, shoppers: sessions.shoppers, showCosts });
     const stamp = range.from.toISOString().slice(0, 10);
     return new Response(csv, {
       headers: {

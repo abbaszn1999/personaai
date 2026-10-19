@@ -320,7 +320,7 @@ describe("resolvePrefixCache memory bounds", () => {
 });
 
 describe("resolvePrefixCache cost", () => {
-  it("charges creation tokens plus the storage hours bought, once, to the call that started it", async () => {
+  it("charges only the storage hours bought, not creation, once, to the call that started it", async () => {
     create.mockResolvedValue({ name: "c/new", expireTime: inMs(HOUR), usageMetadata: { totalTokenCount: 12_000 } });
     const onCost = vi.fn();
     const tracked: Promise<void>[] = [];
@@ -333,10 +333,10 @@ describe("resolvePrefixCache cost", () => {
     expect(tracked).toHaveLength(1);
     expect(onCost).toHaveBeenCalledTimes(1);
     const [[charge]] = onCost.mock.calls;
-    // 12,000 tokens at the input rate, plus about an hour of storage at $0.50 per 1M tokens per hour.
+    // About an hour of storage at $0.50 per 1M tokens per hour; the Gemini API bills no creation fee.
     expect(charge).toMatchObject({ tokens: 12_000, created: true, name: "c/new" });
-    expect(charge.nanos).toBeGreaterThan(12_000 * 750);
-    expect(charge.nanos).toBeLessThanOrEqual(12_000 * 750 + 12_000 * 500 + 1);
+    expect(charge.nanos).toBeGreaterThan(12_000 * 500 * 0.95);
+    expect(charge.nanos).toBeLessThanOrEqual(12_000 * 500 + 1);
   });
 
   it("charges storage from when Google created the cache, not from when the answer arrived", async () => {
@@ -351,8 +351,30 @@ describe("resolvePrefixCache cost", () => {
     await Promise.all(tracked);
 
     const [[charge]] = onCost.mock.calls;
-    // The full hour Google stores it: 12,000 tokens as input plus 12,000 token-hours of storage.
-    expect(charge.nanos).toBe(12_000 * 750 + 12_000 * 500);
+    // The full hour Google stores it: 12,000 token-hours of storage.
+    expect(charge.nanos).toBe(12_000 * 500);
+  });
+
+  it("credits back the storage of a cache deleted early, and nothing when the delete fails", async () => {
+    const tracked: Promise<void>[] = [];
+    const onCost = vi.fn();
+    const base = { apiKey: "k", model: "gemini-3.8-flash", displayName: "persona:refund", onCost, track: (task: Promise<void>) => tracked.push(task) };
+    create
+      .mockResolvedValueOnce({ name: "c/old", expireTime: inMs(HOUR), usageMetadata: { totalTokenCount: 12_000 } })
+      .mockResolvedValueOnce({ name: "c/new", expireTime: inMs(HOUR), usageMetadata: { totalTokenCount: 12_000 } });
+    mod.resolvePrefixCache({ ...base, prefix: `${LONG}refund-1` });
+    await Promise.all(tracked);
+    onCost.mockClear();
+
+    mod.resolvePrefixCache({ ...base, prefix: `${LONG}refund-2` });
+    await Promise.all(tracked);
+
+    expect(remove).toHaveBeenCalledWith({ name: "c/old" });
+    const refund = onCost.mock.calls.map(([charge]) => charge)[1];
+    // Almost the whole hour of storage for 12,000 tokens was unused: $0.50 per 1M tokens per hour.
+    expect(refund.nanos).toBeLessThan(0);
+    expect(-refund.nanos).toBeGreaterThan(12_000 * 500 * 0.95);
+    expect(-refund.nanos).toBeLessThanOrEqual(12_000 * 500 + 1);
   });
 
   it("charges an extension only the storage hours it added", async () => {

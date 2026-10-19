@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { Download, Gauge } from "lucide-react";
 import { DashboardPageHeader } from "@/components/layout/dashboard-header-context";
@@ -19,12 +19,12 @@ export function UsagePage() {
   const workspace = useWorkspaceStore((state) => state.workspace);
   const hasLoaded = useWorkspaceStore((state) => state.hasLoaded);
   if (!hasLoaded) {
-    return <DashboardPageHeader title="Usage" description="Spend, shoppers, and cost by tool" />;
+    return <DashboardPageHeader title="Usage" description="Usage by tool and shopper" />;
   }
   if (!workspace) {
     return (
       <>
-        <DashboardPageHeader title="Usage" description="Spend, shoppers, and cost by tool" />
+        <DashboardPageHeader title="Usage" description="Usage by tool and shopper" />
         <div className="p-6">
           <EmptyState
             icon={<Gauge className="h-6 w-6" />}
@@ -46,13 +46,16 @@ function UsagePageContent() {
   const { filters, update, apiQuery, ready } = useUsageFilters();
   const { report, sessions, loading, error } = useUsageReport(apiQuery, filters.page, ready);
   const { summary, loading: billingLoading } = useBilling();
+  // Costs stay hidden until the report says otherwise, so nothing flashes for a merchant who has them off.
+  const showCosts = Boolean(report?.showCosts);
+  const view = showCosts ? filters.view : "units";
   const bucket = report?.range.bucket ?? (filters.bucket === "week" ? "week" : "day");
 
   return (
     <>
       <DashboardPageHeader
         title="Usage"
-        description="What this store spent, on which tool, and for how many shoppers"
+        description={showCosts ? "What this store spent, on which tool, and for how many shoppers" : "Which tools this store used, and by how many shoppers"}
         actions={
           ready ? (
             <a
@@ -66,7 +69,7 @@ function UsagePageContent() {
         }
       />
       <div className="p-6 space-y-6">
-        <FilterBar filters={filters} generatedAt={report?.generatedAt ?? null} onChange={update} />
+        <FilterBar filters={filters} generatedAt={report?.generatedAt ?? null} showCosts={showCosts} onChange={update} />
         {!ready ? (
           <p className="text-sm text-[var(--color-text-muted)]">Choose a start and end date to see this range.</p>
         ) : (
@@ -80,15 +83,16 @@ function UsagePageContent() {
             <KpiRow report={report} summary={summary} loading={loading} />
             <WalletMeters summary={summary} loading={billingLoading} />
             <SpendTrendChart
-              points={filters.view === "units" ? (report?.seriesUnits ?? []) : (report?.seriesNanos ?? [])}
+              points={view === "units" ? (report?.seriesUnits ?? []) : (report?.seriesNanos ?? [])}
               bucket={bucket}
-              view={filters.view}
+              view={view}
               tool={filters.tool}
             />
-            <ToolBreakdownTable lines={report?.tools ?? []} />
+            <ToolBreakdownTable lines={report?.tools ?? []} showCosts={showCosts} />
             <ShoppersTable
               shoppers={sessions?.shoppers ?? []}
               shopperCount={sessions?.shopperCount ?? 0}
+              showCosts={showCosts}
               page={filters.page}
               pageSize={sessions?.pageSize ?? 25}
               onPage={(page) => update({ page })}
@@ -98,7 +102,7 @@ function UsagePageContent() {
         )}
       </div>
       {filters.shopper && (
-        <ShopperDrawer sessionId={filters.shopper} apiQuery={apiQuery} onClose={() => update({ shopper: "" })} />
+        <ShopperDrawer sessionId={filters.shopper} apiQuery={apiQuery} showCosts={showCosts} onClose={() => update({ shopper: "" })} />
       )}
     </>
   );

@@ -1,4 +1,4 @@
-import type { ShopperUsage, ToolBreakdownLine, UsageSeriesPoint } from "@/lib/billing/usage-report";
+import type { ShopperUsage, UsageSeriesPoint, UsageToolLine } from "@/lib/billing/usage-report";
 
 export interface UsageReportPayload {
   generatedAt: string;
@@ -13,18 +13,21 @@ export interface UsageReportPayload {
     tool: string;
     timeZone: string;
   };
-  spendNanos: number;
-  previousSpendNanos: number;
-  changePercent: number | null;
+  /** False when an admin has hidden costs for this merchant. The cost fields below are then absent. */
+  showCosts: boolean;
+  spendNanos?: number;
+  previousSpendNanos?: number;
+  changePercent?: number | null;
   shopperCount: number;
   previousShopperCount: number;
-  seriesNanos: UsageSeriesPoint[];
+  seriesNanos?: UsageSeriesPoint[];
   seriesUnits: UsageSeriesPoint[];
-  tools: ToolBreakdownLine[];
+  tools: UsageToolLine[];
 }
 
 export interface UsageSessionsPayload {
   shoppers: ShopperUsage[];
+  showCosts?: boolean;
   shopperCount: number;
   page: number;
   pageSize: number;
