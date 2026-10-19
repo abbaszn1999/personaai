@@ -34,7 +34,7 @@ function Field({
 }) {
   return (
     <label htmlFor={id} className="group block">
-      <span className="flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.18em] text-faint transition-colors group-focus-within:text-brand">
+      <span className="flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.18em] text-muted transition-colors group-focus-within:text-brand">
         {label}
         {hint}
       </span>
@@ -49,7 +49,7 @@ function Field({
 }
 
 const inputClass =
-  "mt-2 w-full rounded-2xl border border-hairline bg-[var(--surface-input)] px-4 py-3.5 text-[15px] text-bone placeholder:text-muted/40 outline-none transition focus:border-brand/60 focus:bg-surface focus:shadow-[0_0_0_4px_rgba(247,109,1,0.12)] aria-[invalid=true]:border-red-400/60";
+  "mt-2 w-full rounded-2xl border border-bone/25 bg-[var(--surface-input)] px-4 py-3.5 text-[15px] font-medium text-bone placeholder:font-normal placeholder:text-muted/80 outline-none transition focus:border-brand/60 focus:bg-surface focus:shadow-[0_0_0_4px_rgba(247,109,1,0.12)] aria-[invalid=true]:border-red-400/60";
 
 export function ContactForm() {
   const root = useRef<HTMLDivElement>(null);
@@ -261,7 +261,7 @@ export function ContactForm() {
           {/* Its own row, with each choice a separate button: squeezed into half a row beside the
               store URL, three labels in one shared pill ran into each other. */}
           <fieldset>
-            <legend className="font-mono text-[10px] uppercase tracking-[0.18em] text-faint">Platform</legend>
+            <legend className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">Platform</legend>
             <div role="radiogroup" aria-label="Platform" className="mt-2 grid grid-cols-[1fr_1.35fr_1fr] gap-2.5">
               {platforms.map((item) => {
                 const selected = platform === item;
@@ -276,7 +276,7 @@ export function ContactForm() {
                       "flex min-h-[52px] items-center justify-center gap-2 whitespace-nowrap rounded-2xl border px-3 text-[14px] font-medium transition",
                       selected
                         ? "border-brand bg-brand/10 text-bone shadow-[0_0_0_3px_rgba(247,109,1,0.12)]"
-                        : "border-hairline bg-[var(--surface-input)] text-muted hover:border-brand/40 hover:text-bone",
+                        : "border-bone/25 bg-[var(--surface-input)] text-muted hover:border-brand/40 hover:text-bone",
                     )}
                   >
                     <span
