@@ -3,6 +3,8 @@ import { fetchPublicImage } from "@/lib/images/product-image";
 
 export const DECART_REALTIME_MODEL = "lucy-vton-latest" as const;
 export const REALTIME_TRYON_SESSION_CAP_SECONDS = 90;
+/** Decart rejects a client token whose `maxSessionDuration` is under 10 seconds. */
+export const REALTIME_TRYON_MIN_SESSION_SECONDS = 10;
 
 export class DecartApiError extends Error {
   constructor(message: string, public status?: number) {
@@ -28,16 +30,18 @@ function getDecartClient() {
 export async function createDecartClientToken(
   maxSessionDuration = REALTIME_TRYON_SESSION_CAP_SECONDS
 ) {
+  // Fewer seconds than Decart's minimum would fail with a generic token error, so say what is
+  // actually wrong. The routes pass this message and status straight to the shopper.
+  if (Math.floor(maxSessionDuration) < REALTIME_TRYON_MIN_SESSION_SECONDS) {
+    throw new DecartApiError("There isn't enough live try-on time left for a session.", 402);
+  }
   try {
     return await getDecartClient().tokens.create({
       expiresIn: 600,
       allowedModels: [DECART_REALTIME_MODEL],
       constraints: {
         realtime: {
-          maxSessionDuration: Math.max(
-            1,
-            Math.min(REALTIME_TRYON_SESSION_CAP_SECONDS, Math.floor(maxSessionDuration))
-          ),
+          maxSessionDuration: Math.min(REALTIME_TRYON_SESSION_CAP_SECONDS, Math.floor(maxSessionDuration)),
         },
       },
     });

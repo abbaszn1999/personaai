@@ -7,7 +7,8 @@ import type { Product } from "@/modules/commerce/types";
 import type { EmbedRuntimeConfig } from "./use-try-on-agent";
 import { embedRequestHeaders, getOrCreateEmbedSessionId } from "@/lib/embed/client/embed-storage";
 import { LIVE_SESSION_PRODUCT_ID, LIVE_SESSION_PRODUCT_NAME } from "@/lib/billing/live-session";
-import { resolveGarmentSlot } from "../utils/fit-metrics";
+import { buildLiveTryOnPrompt } from "../utils/live-tryon-prompt";
+import { prepareReferenceImage } from "../utils/reference-image";
 
 export const REALTIME_TRYON_SESSION_CAP_SECONDS = 90;
 
@@ -32,22 +33,6 @@ interface ActivePreview {
   id: string;
   product: Product;
   startedAt: number;
-}
-
-function buildTryOnPrompt(product: Product): string {
-  const slot = resolveGarmentSlot(product);
-  const target =
-    slot === "top" || slot === "outerwear" || slot === "dress"
-      ? "current top"
-      : slot === "bottom"
-        ? "current bottoms"
-        : slot === "shoes"
-          ? "current footwear"
-          : /\b(hat|cap|beanie|headwear)\b/i.test(`${product.name} ${product.description}`)
-            ? "current headwear"
-            : "current garment";
-  const description = [product.name, product.description].filter(Boolean).join(", ").slice(0, 280);
-  return `Substitute the ${target} with ${description}. Preserve the person's identity, body shape, pose, and surroundings.`;
 }
 
 function base64ToBlob(base64: string, mimeType: string): Blob {
@@ -411,9 +396,9 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
 
     switchQueueRef.current = switchQueueRef.current.catch(() => {}).then(async () => {
       try {
-        const image = await getReferenceImage(product, embed, workspaceId);
+        const image = await prepareReferenceImage(await getReferenceImage(product, embed, workspaceId));
         await client.set({
-          prompt: buildTryOnPrompt(product),
+          prompt: buildLiveTryOnPrompt(product),
           image,
           enhance: false,
         });

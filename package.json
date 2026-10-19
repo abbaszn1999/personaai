@@ -27,7 +27,7 @@
     "setup:stripe": "dotenv -e .env.local -- node scripts/setup-stripe-catalog.mjs"
   },
   "dependencies": {
-    "@decartai/sdk": "^0.1.17",
+    "@decartai/sdk": "^0.2.12",
     "@google/genai": "^2.10.0",
     "@radix-ui/react-avatar": "^1.2.1",
     "@radix-ui/react-dialog": "^1.1.18",
