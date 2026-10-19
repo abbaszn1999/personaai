@@ -160,3 +160,73 @@ export async function addItemToWooCommerceCart(
     return { ok: false, error: "Couldn't reach the store to add this to your cart — check your connection." };
   }
 }
+
+interface WooCartLine {
+  key?: string;
+  id?: number;
+}
+
+/** The cart line keys holding one item id (a product, or the variation resolved for it). */
+export function wooLineKeys(lines: readonly WooCartLine[], itemId: number): string[] {
+  return lines.filter((line) => line.id === itemId && typeof line.key === "string").map((line) => line.key as string);
+}
+
+/**
+ * Takes one item back out of the shopper's real WooCommerce cart. The Store API removes by
+ * line key, not by product id, so the cart is read first and the matching lines are looked up.
+ * An item that is already gone counts as removed.
+ */
+export async function removeItemFromWooCommerceCart(origin: string, itemId: number): Promise<AddToCartResult> {
+  const cartUrl = `${origin}/wp-json/wc/store/v1/cart`;
+  try {
+    if (!session || session.origin !== origin || !session.nonce) {
+      await refreshSession(origin);
+    }
+
+    const cartRes = await fetch(cartUrl, {
+      credentials: "include",
+      headers: { Accept: "application/json" },
+    });
+    readNonce(cartRes, origin);
+    if (!cartRes.ok) {
+      return { ok: false, error: `Couldn't update your cart — store returned ${cartRes.status}` };
+    }
+    const cart = (await cartRes.json().catch(() => ({}))) as { items?: WooCartLine[] };
+    const keys = wooLineKeys(cart.items ?? [], itemId);
+
+    for (const key of keys) {
+      const post = () =>
+        fetch(`${cartUrl}/remove-item`, {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            ...(session?.nonce ? { Nonce: session.nonce } : {}),
+          },
+          body: JSON.stringify({ key }),
+        });
+      let res = await post();
+      // A stale nonce answers 401/403: refresh once and retry before reporting a failure.
+      if (res.status === 401 || res.status === 403) {
+        await refreshSession(origin);
+        res = await post();
+      }
+      readNonce(res, origin);
+      console.debug(`${LOG_PREFIX} POST remove-item key=${key} ->`, res.status);
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as WooStoreApiErrorBody;
+        return {
+          ok: false,
+          error: `Couldn't remove this from your cart — ${body.message || `store returned ${res.status}`}`,
+        };
+      }
+    }
+
+    if (keys.length > 0) notifyThemeCartUpdated();
+    return { ok: true };
+  } catch (err) {
+    console.error(`${LOG_PREFIX} network error removing item ${itemId}`, err);
+    return { ok: false, error: "Couldn't reach the store to remove this from your cart — check your connection." };
+  }
+}

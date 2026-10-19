@@ -44,7 +44,7 @@ describe("widgetStrings", () => {
   it("has every text filled in, with one scan stage per SCAN_STAGES entry, in every language", () => {
     for (const language of LANGUAGES) {
       const strings = widgetStrings(language);
-      for (const key of ["searching", "composing", "scanTitle", "chatError", "retry"] as const) {
+      for (const key of ["searching", "composing", "scanTitle", "chatError", "retry", "chatTab", "openChat", "closeChat"] as const) {
         expect(strings[key].trim(), `${language}.${key}`).not.toBe("");
       }
       expect(strings.scanStages, language).toHaveLength(SCAN_STAGES.length);

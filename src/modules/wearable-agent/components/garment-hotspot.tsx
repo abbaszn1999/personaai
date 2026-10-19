@@ -2,12 +2,13 @@
 
 import * as React from "react";
 import Image from "next/image";
-import { Check, Loader2, Plus, ShoppingBag } from "lucide-react";
+import { Check, Loader2, Plus, ShoppingBag, X } from "lucide-react";
 import type { Product } from "@/modules/commerce/types";
 import { formatPrice } from "@/modules/commerce/constants";
 import { cn } from "@/lib/utils/cn";
 import { useClickOutside } from "@/lib/hooks/use-click-outside";
 import { useWearableTheme } from "../theme-context";
+import { HOTSPOT_MIN_GAP, placeHotspotCard, spreadHotspots, type Point } from "../utils/hotspot-layout";
 
 export interface ActiveLookItem {
   product: Product;
@@ -20,6 +21,10 @@ interface GarmentHotspotProps {
   inCart: boolean;
   isPending?: boolean;
   onAddToCart: (product: Product) => void;
+  /** A second press on an item already in the cart takes it back out. */
+  onRemoveFromCart?: (product: Product) => void;
+  /** Where the other dots are (the layer's pixels), so the open card stays off them. */
+  neighbours?: readonly Point[];
 }
 
 /** Fixed, known width — the horizontal flip math below needs an exact number to compare
@@ -29,7 +34,15 @@ const GAP = 10;
 /** Never let the card touch the frame's own edge, phone or desktop. */
 const EDGE_PADDING = 10;
 
-export function GarmentHotspot({ item, inCart, isPending = false, onAddToCart }: GarmentHotspotProps) {
+export function GarmentHotspot({
+  item,
+  inCart,
+  isPending = false,
+  onAddToCart,
+  onRemoveFromCart,
+  neighbours = [],
+}: GarmentHotspotProps) {
+  const neighbourKey = neighbours.map((p) => `${Math.round(p.x)},${Math.round(p.y)}`).join("|");
   const light = useWearableTheme() === "light";
   const [isOpen, setIsOpen] = React.useState(false);
   const [placement, setPlacement] = React.useState({ left: GAP, top: 0, width: CARD_WIDTH });
@@ -37,9 +50,16 @@ export function GarmentHotspot({ item, inCart, isPending = false, onAddToCart }:
   const cardRef = React.useRef<HTMLDivElement>(null);
   const closeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Hover and focus-out only drive the card for a real mouse or keyboard. A touch screen
+  // fabricates mouse events from a tap (enter, then click) and blurs the dot whenever the
+  // shopper touches anything inside the card, so wiring those to open/close made the card
+  // flicker shut on a phone. Touch opens and closes by tapping the dot, or by tapping outside.
+  const keyboardFocus = React.useRef(false);
+
   // Using a delayed close so the mouse can travel from the dot across the gap
   // into the popover without the card disappearing mid-journey.
   function scheduleClose() {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
     closeTimer.current = setTimeout(() => setIsOpen(false), 160);
   }
   function cancelClose() {
@@ -74,22 +94,20 @@ export function GarmentHotspot({ item, inCart, isPending = false, onAddToCart }:
       const width = Math.min(CARD_WIDTH, Math.max(160, parent.clientWidth - EDGE_PADDING * 2));
       const cardHeight = card.getBoundingClientRect().height;
 
-      const roomRight = parent.clientWidth - anchorX;
-      const preferredLeft = roomRight >= anchorX ? anchorX + GAP : anchorX - GAP - width;
-      const globalLeft = Math.max(
-        EDGE_PADDING,
-        Math.min(parent.clientWidth - EDGE_PADDING - width, preferredLeft)
-      );
-
       const sheetHeight = parseFloat(getComputedStyle(parent).getPropertyValue("--sheet-h")) || 0;
       const visibleHeight = Math.max(0, parent.clientHeight - sheetHeight);
-      const preferredTop = anchorY - cardHeight / 2;
-      const globalTop = Math.max(
-        EDGE_PADDING,
-        Math.min(Math.max(EDGE_PADDING, visibleHeight - EDGE_PADDING - cardHeight), preferredTop)
-      );
+      // Beside the dot when there is room; otherwise in a free slot above or below, so it
+      // never sits on the dot's neighbours (a tee's card used to cover the jacket's dot).
+      const spot = placeHotspotCard({
+        anchor: { x: anchorX, y: anchorY },
+        others: neighbours,
+        card: { width, height: cardHeight },
+        frame: { width: parent.clientWidth, height: visibleHeight },
+        gap: GAP,
+        edge: EDGE_PADDING,
+      });
 
-      setPlacement({ left: globalLeft - anchorX, top: globalTop - anchorY, width });
+      setPlacement({ left: spot.x - anchorX, top: spot.y - anchorY, width });
     };
 
     update();
@@ -97,23 +115,54 @@ export function GarmentHotspot({ item, inCart, isPending = false, onAddToCart }:
     observer.observe(parent);
     observer.observe(card);
     return () => observer.disconnect();
-  }, [isOpen, item.position.left, item.position.top]);
+    // `neighbourKey` stands in for the array itself, which is a new object every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, item.position.left, item.position.top, neighbourKey]);
 
   return (
     <div
       ref={rootRef}
-      className="absolute z-[25] pointer-events-auto"
+      // The open one rises above its neighbours so its card is never under another dot.
+      className={cn("absolute pointer-events-auto", isOpen ? "z-[28]" : "z-[25]")}
       style={{ top: item.position.top, left: item.position.left }}
+      onPointerEnter={(e) => {
+        if (e.pointerType === "mouse") cancelClose();
+      }}
+      onPointerLeave={(e) => {
+        if (e.pointerType === "mouse") scheduleClose();
+      }}
+      onFocus={(e) => {
+        // Only keyboard focus (focus-visible) opens the card; a tap also focuses the dot.
+        if ((e.target as HTMLElement).matches?.(":focus-visible")) {
+          keyboardFocus.current = true;
+          cancelClose();
+          setIsOpen(true);
+        }
+      }}
+      onBlur={(e) => {
+        if (!keyboardFocus.current) return;
+        if (rootRef.current?.contains(e.relatedTarget as Node | null)) return;
+        keyboardFocus.current = false;
+        scheduleClose();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") setIsOpen(false);
+      }}
     >
       {/* Hotspot dot — hover opens, click toggles. Hit area is larger than the visible dot to
           clear the 44px touch-target minimum without making the marker itself look oversized. */}
       <button
         type="button"
-        onClick={() => { cancelClose(); setIsOpen((v) => !v); }}
-        onMouseEnter={() => { cancelClose(); setIsOpen(true); }}
-        onMouseLeave={scheduleClose}
-        onFocus={() => { cancelClose(); setIsOpen(true); }}
-        onBlur={scheduleClose}
+        onPointerEnter={(e) => {
+          if (e.pointerType === "mouse") setIsOpen(true);
+        }}
+        onClick={(e) => {
+          cancelClose();
+          // A mouse has already opened it by hovering, so its click must not toggle it shut.
+          // `detail === 0` is a keyboard-triggered click: toggle.
+          const mouse = (e.nativeEvent as PointerEvent).pointerType === "mouse" && e.detail > 0;
+          setIsOpen((open) => (mouse ? true : !open));
+        }}
         aria-label={`${item.product.name} — view details`}
         aria-expanded={isOpen}
         className="relative -translate-x-1/2 -translate-y-1/2 h-11 w-11 flex items-center justify-center group"
@@ -137,10 +186,6 @@ export function GarmentHotspot({ item, inCart, isPending = false, onAddToCart }:
       {isOpen && (
         <div
           ref={cardRef}
-          onMouseEnter={cancelClose}
-          onMouseLeave={scheduleClose}
-          onFocus={cancelClose}
-          onBlur={scheduleClose}
           style={{ width: placement.width, left: placement.left, top: placement.top }}
           className={cn(
             "absolute rounded-[var(--radius-xl)] border backdrop-blur-2xl p-3 z-[30] animate-fade-in",
@@ -168,27 +213,103 @@ export function GarmentHotspot({ item, inCart, isPending = false, onAddToCart }:
 
           <button
             type="button"
-            onClick={() => { onAddToCart(item.product); setIsOpen(false); }}
-            disabled={inCart || isPending}
+            // The card stays open after either press: the shopper sees the result and can undo it.
+            onClick={() => (inCart ? onRemoveFromCart?.(item.product) : onAddToCart(item.product))}
+            disabled={isPending || (inCart && !onRemoveFromCart)}
+            aria-pressed={inCart}
             className={cn(
               "mt-2.5 w-full h-11 rounded-[var(--radius-md)] text-[12px] font-semibold flex items-center justify-center gap-1.5 transition-all",
               inCart
                 ? light
-                  ? "bg-black/[0.05] text-[#17121d]/60 cursor-default"
-                  : "bg-white/10 text-white/60 cursor-default"
+                  ? "bg-black/[0.05] text-[#17121d] hover:bg-red-500/10 active:scale-[0.97]"
+                  : "bg-white/10 text-white hover:bg-red-500/15 active:scale-[0.97]"
                 : "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-white hover:brightness-110 active:scale-[0.97]"
             )}
           >
             {isPending ? (
-              <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Adding…</>
+              <><Loader2 className="h-3.5 w-3.5 animate-spin" /> {inCart ? "Removing…" : "Adding…"}</>
             ) : inCart ? (
-              <><Check className="h-3.5 w-3.5" /> Added to Cart</>
+              <>
+                <Check className="h-3.5 w-3.5 text-[#10b981]" /> In cart
+                {onRemoveFromCart && (
+                  <>
+                    <span aria-hidden className={light ? "h-4 w-px bg-black/15" : "h-4 w-px bg-white/20"} />
+                    <X className="h-3.5 w-3.5 text-red-500" />
+                    <span className="text-red-500">Remove</span>
+                  </>
+                )}
+              </>
             ) : (
               <><ShoppingBag className="h-3.5 w-3.5" /> Add to Cart</>
             )}
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+interface GarmentHotspotLayerProps {
+  items: readonly ActiveLookItem[];
+  cartItemIds: ReadonlySet<string>;
+  pendingCartIds: ReadonlySet<string>;
+  onAddToCart: (product: Product) => void;
+  onRemoveFromCart?: (product: Product) => void;
+}
+
+/**
+ * Every dot on the avatar, laid out together. Each garment has a guessed spot on the body, and a
+ * jacket over a tee guesses almost the same one, so dots that would sit closer than a thumb can
+ * tell apart are spread out (see `spreadHotspots`) and each open card is kept off the others.
+ * It works from the dots' pixel positions, not from which garments there are, so any outfit —
+ * any number of pieces, any gender — gets dots that are all easy to hit.
+ */
+export function GarmentHotspotLayer({
+  items,
+  cartItemIds,
+  pendingCartIds,
+  onAddToCart,
+  onRemoveFromCart,
+}: GarmentHotspotLayerProps) {
+  const layerRef = React.useRef<HTMLDivElement>(null);
+  const [size, setSize] = React.useState({ width: 0, height: 0 });
+
+  React.useLayoutEffect(() => {
+    const el = layerRef.current;
+    if (!el) return;
+    const measure = () => setSize({ width: el.clientWidth, height: el.clientHeight });
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const points = React.useMemo(() => {
+    if (size.width === 0 || size.height === 0) return [];
+    const half = HOTSPOT_MIN_GAP / 2;
+    const ys = spreadHotspots(
+      items.map((item) => (parseFloat(item.position.top) / 100) * size.height),
+      HOTSPOT_MIN_GAP,
+      half,
+      Math.max(half, size.height - half)
+    );
+    return items.map((item, i) => ({ x: (parseFloat(item.position.left) / 100) * size.width, y: ys[i] }));
+  }, [items, size.width, size.height]);
+
+  return (
+    <div ref={layerRef} className="pointer-events-none absolute inset-0 z-[18]">
+      {points.length === items.length &&
+        items.map((item, i) => (
+          <GarmentHotspot
+            key={item.product.id}
+            item={{ ...item, position: { top: `${points[i].y}px`, left: `${points[i].x}px` } }}
+            inCart={cartItemIds.has(item.product.id)}
+            isPending={pendingCartIds.has(item.product.id)}
+            onAddToCart={onAddToCart}
+            onRemoveFromCart={onRemoveFromCart}
+            neighbours={points.filter((_, j) => j !== i)}
+          />
+        ))}
     </div>
   );
 }

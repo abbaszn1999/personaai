@@ -2,17 +2,19 @@ import * as React from "react";
 import Image from "next/image";
 import {
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Check,
   ImageOff,
   Layers,
   Loader2,
   MessageSquare,
-  PlusCircle,
   RotateCcw,
   Ruler,
   Search,
   Shirt,
+  ShoppingBag,
   Sparkles,
   Star,
   User,
@@ -25,6 +27,7 @@ import type { ChatAttachment, TypingStage } from "../hooks/use-try-on-agent";
 import { useWearableBranding } from "../branding-context";
 import { useWidgetLocale, widgetStrings } from "../widget-strings";
 import { cn } from "@/lib/utils/cn";
+import { PagedCarousel } from "./paged-carousel";
 
 interface WearableChatMessageProps {
   message: ChatMessageType;
@@ -48,13 +51,18 @@ interface WearableChatMessageProps {
   sendDisabled?: boolean;
   /** Set only on the bubble of a failed reply. */
   onRetry?: () => void;
+  /** Mobile: suggestions span the whole chat width and swipe one full card at a time. */
+  paged?: boolean;
   onWearItem?: (product: Product) => void;
   onAddToCart?: (product: Product) => void;
+  /** A second press on an item that is already in the cart takes it back out. */
+  onRemoveFromCart?: (product: Product) => void;
   onAskAboutItem?: (product: Product) => void;
   onCompleteLook?: (product: Product) => void;
   onQuickOption?: (label: string) => void;
   onRenderBundle?: (productIds: string[]) => void;
   onAddBundleToCart?: (productIds: string[]) => void;
+  onRemoveBundleFromCart?: (productIds: string[]) => void;
   onAskAboutLook?: (bundle: BundleSuggestion) => void;
 }
 
@@ -81,19 +89,24 @@ export function WearableChatMessage({
   isBusy = false,
   sendDisabled = false,
   onRetry,
+  paged = false,
   onWearItem,
   onAddToCart,
+  onRemoveFromCart,
   onAskAboutItem,
   onCompleteLook,
   onQuickOption,
   onRenderBundle,
   onAddBundleToCart,
+  onRemoveBundleFromCart,
   onAskAboutLook,
 }: WearableChatMessageProps) {
   const renderCard = (product: Product) => (
     <InlineSuggestionCard
       key={product.id}
       product={product}
+      paged={paged}
+      onRemoveFromCart={onRemoveFromCart ? () => onRemoveFromCart(product) : undefined}
       isWorn={outfitItemIds.includes(product.id)}
       inCart={cartItemIds.includes(product.id)}
       isPending={pendingCartItemIds.includes(product.id)}
@@ -115,8 +128,46 @@ export function WearableChatMessage({
   const [failedUserPhotoUrl, setFailedUserPhotoUrl] = React.useState<string | null>(null);
   const showUserPhoto = Boolean(userPhotoUrl && userPhotoUrl !== failedUserPhotoUrl);
 
+  const hasProducts = Boolean(inlineProducts && inlineProducts.length > 0);
+  const hasBundles = Boolean(message.bundles && message.bundles.length > 0);
+
+  // The product and bundle suggestions. On the desktop panel they sit in the reply's own column;
+  // on mobile (`paged`) they leave it and span the chat's full width, one whole card at a time —
+  // the column beside the avatar is far too narrow to show a card in full.
+  const suggestions = (hasProducts || hasBundles) && (
+    // `data-message-cards` lets the mobile chat scroll to the cards themselves, not just the reply.
+    <div data-message-cards className="w-full">
+      {hasProducts && inlineProducts && (
+        <div className={cn("space-y-1.5 w-full", paged ? "mt-2" : "mt-1")}>
+          {message.retrievalNote && (
+            <p className="text-[10px] text-[var(--color-text-muted)] px-0.5">{message.retrievalNote}</p>
+          )}
+          <InlineProductScroller paged={paged}>{inlineProducts.map(renderCard)}</InlineProductScroller>
+        </div>
+      )}
+
+      {hasBundles && message.bundles && (
+        <BundleCarousel
+          bundles={message.bundles}
+          paged={paged}
+          cartItemIds={cartItemIds}
+          pendingCartItemIds={pendingCartItemIds}
+          isGenerating={isGenerating}
+          isBusy={isBusy}
+          knownProducts={knownProducts}
+          onRenderBundle={onRenderBundle}
+          onAddBundleToCart={onAddBundleToCart}
+          onRemoveBundleFromCart={onRemoveBundleFromCart}
+          onAskAboutLook={onAskAboutLook}
+          attachedLookId={attachedLookId}
+        />
+      )}
+    </div>
+  );
+
   return (
-    <div className={cn("flex items-start gap-2.5 animate-fade-in", isUser ? "flex-row-reverse" : "flex-row")}>
+    <div className="animate-fade-in">
+    <div className={cn("flex items-start gap-2.5", isUser ? "flex-row-reverse" : "flex-row")}>
       {!isUser ? (
         branding.logoUrl ? (
           <img
@@ -192,29 +243,7 @@ export function WearableChatMessage({
           </div>
         )}
 
-        {inlineProducts && inlineProducts.length > 0 && (
-          <div className="space-y-1.5 w-full mt-1">
-            {message.retrievalNote && (
-              <p className="text-[10px] text-[var(--color-text-muted)] px-0.5">{message.retrievalNote}</p>
-            )}
-            <InlineProductScroller>{inlineProducts.map(renderCard)}</InlineProductScroller>
-          </div>
-        )}
-
-        {message.bundles && message.bundles.length > 0 && (
-          <BundleCarousel
-            bundles={message.bundles}
-            cartItemIds={cartItemIds}
-            pendingCartItemIds={pendingCartItemIds}
-            isGenerating={isGenerating}
-            isBusy={isBusy}
-            knownProducts={knownProducts}
-            onRenderBundle={onRenderBundle}
-            onAddBundleToCart={onAddBundleToCart}
-            onAskAboutLook={onAskAboutLook}
-            attachedLookId={attachedLookId}
-          />
-        )}
+        {!paged && suggestions}
 
         {message.tryOnImage && (
           <TryOnResultCard
@@ -225,11 +254,26 @@ export function WearableChatMessage({
         )}
       </div>
     </div>
+    {paged && suggestions}
+    </div>
   );
 }
 
+/** Horizontally scrollable product row with arrow controls on the edges. On mobile (`paged`) it
+ *  is a carousel that shows one whole card at a time instead. */
+function InlineProductScroller({ children, paged = false }: { children: React.ReactNode; paged?: boolean }) {
+  if (paged) {
+    return (
+      <PagedCarousel label="products" arrowTop="26%">
+        {React.Children.toArray(children)}
+      </PagedCarousel>
+    );
+  }
+  return <FreeProductScroller>{children}</FreeProductScroller>;
+}
+
 /** Horizontally scrollable product row with arrow controls on the edges. */
-function InlineProductScroller({ children }: { children: React.ReactNode }) {
+function FreeProductScroller({ children }: { children: React.ReactNode }) {
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = React.useState(false);
   const [canScrollRight, setCanScrollRight] = React.useState(false);
@@ -306,8 +350,12 @@ interface InlineSuggestionCardProps {
   /** True when this product is attached above the composer. */
   isAttached?: boolean;
   isBusy?: boolean;
+  /** Mobile: the card fills the carousel page instead of being a fixed-width tile. */
+  paged?: boolean;
   onWear: () => void;
   onAddToCart: () => void;
+  /** Pressing the cart button again while the product is in the cart takes it back out. */
+  onRemoveFromCart?: () => void;
   onAsk?: () => void;
   onCompleteLook?: () => void;
 }
@@ -359,19 +407,27 @@ export function InlineSuggestionCard({
   isGenerating,
   isAttached = false,
   isBusy = false,
+  paged = false,
   onWear,
   onAddToCart,
+  onRemoveFromCart,
   onAsk,
   onCompleteLook,
 }: InlineSuggestionCardProps) {
   // Disable while anything is rendering (avoid overlapping requests) or once it's already on the avatar.
   const wearDisabled = !product.inStock || isGenerating || isWorn;
   const wearBusy = isGenerating && isWorn;
-
+  // In the cart, the same button takes the product back out — unless nothing can remove it.
+  const cartRemovable = inCart && Boolean(onRemoveFromCart);
+  const cartDisabled = isPending || (!inCart && !product.inStock) || (inCart && !cartRemovable);
   return (
+    // The shell leaves a strip above the card for the Ask tab, which straddles the card's top
+    // edge on the right — clear of the photo, and of everything the shopper reads on the card.
+    <div className={cn("relative flex flex-col", onAsk && "pt-4", paged ? "w-full h-full" : "shrink-0 w-56")}>
+    {onAsk && <CardAskButton onAsk={onAsk} isAttached={isAttached} disabled={isBusy} subject="item" />}
     <div
       className={cn(
-        "shrink-0 w-48 rounded-[var(--radius-xl)] border bg-[var(--color-surface-card)] overflow-hidden transition-all duration-200",
+        "flex min-h-0 flex-1 flex-col rounded-[var(--radius-xl)] border bg-[var(--color-surface-card)] overflow-hidden transition-all duration-200",
         isAttached
           ? "border-[var(--color-brand)] ring-2 ring-[var(--color-brand)]/40"
           : isWorn
@@ -379,140 +435,228 @@ export function InlineSuggestionCard({
             : "border-[var(--color-border)] hover:border-[var(--color-brand)]/50"
       )}
     >
-      <div className="relative h-36 bg-white">
-        <ProductPreviewImage product={product} className="object-contain" />
-        {isWorn && (
-          <div className="absolute inset-0 bg-[var(--color-brand)]/10 flex items-center justify-center">
-            <div className="h-7 w-7 rounded-full gradient-violet flex items-center justify-center shadow-lg">
-              {wearBusy ? (
-                <Loader2 className="h-3.5 w-3.5 text-white animate-spin" />
-              ) : (
-                <CheckCircle2 className="h-3.5 w-3.5 text-white" />
-              )}
-            </div>
+      <div className={cn("relative shrink-0 bg-white", paged ? "h-44" : "h-40")}>
+        <ProductPreviewImage product={product} className="object-contain p-2" />
+        {wearBusy && (
+          <div className="absolute inset-0 bg-white/60 flex items-center justify-center">
+            <Loader2 className="h-5 w-5 text-[var(--color-brand)] animate-spin" />
           </div>
         )}
-        {!product.inStock && (
-          <span className="absolute left-1.5 top-1.5 rounded-full bg-black/70 px-1.5 py-0.5 text-[9px] font-semibold text-white">
-            Out of stock
-          </span>
-        )}
-      </div>
-
-      <div className="p-2.5 space-y-2">
-        <div>
-          <p className="text-xs font-semibold text-[var(--color-text-primary)] line-clamp-1">{product.name}</p>
-          {product.reviewCount > 0 && (
-            <div className="flex items-center gap-1 mt-0.5">
-              <Star className="h-2.5 w-2.5 text-amber-400 fill-current" />
-              <span className="text-[10px] text-[var(--color-text-muted)]">
-                {product.rating} ({product.reviewCount})
-              </span>
-            </div>
-          )}
-        </div>
-        <div className="flex items-center justify-between gap-1.5">
-          <span className="text-xs font-bold text-[var(--color-text-primary)]">
-            {formatPrice(product.price, product.currency)}
-          </span>
+        <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
           {product.fitSizes?.length ? (
             <span
               title="The store's size chart fits your measurements to this size"
-              className="shrink-0 rounded-full bg-[var(--color-brand-light)] px-1.5 py-0.5 text-[9px] font-semibold text-[var(--color-brand)]"
+              className="rounded-full bg-[var(--color-brand)] px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm"
             >
-              Your size: {product.fitSizes[0]}
+              Your size · {product.fitSizes[0]}
             </span>
           ) : null}
+          {!product.inStock && (
+            <span className="rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-semibold text-white">Out of stock</span>
+          )}
         </div>
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={onAddToCart}
-            disabled={inCart || isPending || !product.inStock}
-            title="Add to cart"
-            className={cn(
-              "flex-1 flex items-center justify-center gap-1 text-[10px] font-semibold px-2 py-1.5 rounded-full transition-all",
-              inCart
-                ? "bg-[var(--color-brand-light)] text-[var(--color-brand)] cursor-default"
-                : product.inStock
-                  ? "border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-brand)] hover:text-[var(--color-brand)]"
-                  : "bg-[var(--color-surface-base)] text-[var(--color-text-muted)] cursor-not-allowed"
-            )}
-          >
-            {isPending ? (
-              <>
-                <Loader2 className="h-2.5 w-2.5 animate-spin" /> Adding…
-              </>
-            ) : inCart ? (
-              <>
-                <CheckCircle2 className="h-2.5 w-2.5" /> Added
-              </>
-            ) : (
-              <>
-                <PlusCircle className="h-2.5 w-2.5" /> Cart
-              </>
-            )}
-          </button>
+      </div>
+
+      <div className="flex flex-1 flex-col gap-2.5 p-3">
+        <div className="flex items-start justify-between gap-2">
+          <p className="min-w-0 text-[13px] font-medium leading-snug text-[var(--color-text-primary)] line-clamp-2">
+            {product.name}
+          </p>
+          <span className="shrink-0 text-[13px] font-bold leading-snug text-[var(--color-text-primary)]">
+            {formatPrice(product.price, product.currency)}
+          </span>
+        </div>
+        {product.reviewCount > 0 && (
+          <div className="-mt-1.5 flex items-center gap-1">
+            <Star className="h-3 w-3 text-amber-400 fill-current" />
+            <span className="text-[11px] text-[var(--color-text-muted)]">
+              {product.rating} ({product.reviewCount})
+            </span>
+          </div>
+        )}
+
+        <div className="mt-auto flex items-center gap-2">
           <button
             type="button"
             onClick={onWear}
             disabled={wearDisabled}
             title={isWorn ? "On your avatar" : "Wear it — render on avatar"}
             className={cn(
-              "flex-1 flex items-center justify-center gap-1 text-[10px] font-semibold px-2 py-1.5 rounded-full transition-all",
+              "h-9 min-w-0 flex-1 flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-2 text-xs font-semibold transition-all",
               isWorn
                 ? "bg-[var(--color-brand-light)] text-[var(--color-brand)] cursor-default"
-                : "gradient-brand text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+                : "gradient-brand text-white shadow-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
             )}
           >
             {wearBusy ? (
               <>
-                <Loader2 className="h-2.5 w-2.5 animate-spin" /> Rendering
+                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" /> Rendering
               </>
             ) : isWorn ? (
               <>
-                <CheckCircle2 className="h-2.5 w-2.5" /> On Avatar
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> On avatar
               </>
             ) : (
               <>
-                <Sparkles className="h-2.5 w-2.5" /> Wear It
+                <Sparkles className="h-3.5 w-3.5 shrink-0" /> Wear it
               </>
             )}
           </button>
+          <CardCartButton
+            inCart={inCart}
+            isPending={isPending}
+            disabled={cartDisabled}
+            removable={cartRemovable}
+            inStock={product.inStock}
+            label="Add"
+            fill
+            onClick={inCart ? onRemoveFromCart : onAddToCart}
+          />
         </div>
-        {(onAsk || onCompleteLook) && (
-          <div className="flex items-center gap-1">
-            {onAsk && (
-              <button
-                type="button"
-                onClick={onAsk}
-                disabled={isAttached || isBusy}
-                title={isAttached ? "Attached — type your question below" : "Ask about this item"}
-                className={cn(
-                  "flex-1 flex items-center justify-center gap-1 text-[10px] font-semibold px-1.5 py-1.5 rounded-full transition-all",
-                  isAttached
-                    ? "bg-[var(--color-brand-light)] text-[var(--color-brand)] cursor-default"
-                    : "text-[var(--color-text-muted)] hover:text-[var(--color-brand)] hover:bg-[var(--color-brand-light)] disabled:opacity-40"
-                )}
-              >
-                <MessageSquare className="h-2.5 w-2.5" /> {isAttached ? "Asking" : "Ask"}
-              </button>
-            )}
-            {onCompleteLook && (
-              <button
-                type="button"
-                onClick={onCompleteLook}
-                disabled={isBusy || !product.inStock}
-                title="Build a full outfit around this item"
-                className="flex-[1.6] flex items-center justify-center gap-1 text-[10px] font-semibold px-1.5 py-1.5 rounded-full text-[var(--color-text-muted)] hover:text-[var(--color-brand)] hover:bg-[var(--color-brand-light)] disabled:opacity-40 transition-all"
-              >
-                <Layers className="h-2.5 w-2.5" /> Complete the look
-              </button>
-            )}
-          </div>
-        )}
       </div>
+
+      {onCompleteLook && (
+        <button
+          type="button"
+          onClick={onCompleteLook}
+          disabled={isBusy || !product.inStock}
+          title="Build a full outfit around this item"
+          // A tinted footer in the brand colour: clearly a feature of its own, but a step
+          // below the two solid buttons above it.
+          className="group flex shrink-0 items-center gap-2 border-t border-[var(--color-brand)]/20 bg-[var(--color-brand-light)] px-3 py-2.5 text-xs font-semibold text-[var(--color-brand)] hover:bg-[var(--color-brand)]/15 disabled:opacity-40 disabled:hover:bg-[var(--color-brand-light)] transition-colors"
+        >
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white shadow-sm">
+            <Layers className="h-3.5 w-3.5" />
+          </span>
+          <span className="min-w-0 flex-1 truncate text-start">Complete the look</span>
+          <ChevronRight className="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-0.5 rtl:rotate-180 rtl:group-hover:-translate-x-0.5" />
+        </button>
+      )}
     </div>
+    </div>
+  );
+}
+
+/** The round "ask about this" button in the top corner of a card's picture. */
+function CardAskButton({
+  onAsk,
+  isAttached,
+  disabled,
+  subject,
+}: {
+  onAsk: () => void;
+  isAttached: boolean;
+  disabled: boolean;
+  subject: "item" | "look";
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onAsk}
+      disabled={isAttached || disabled}
+      aria-pressed={isAttached}
+      aria-label={isAttached ? "Asking — type your question below" : `Ask about this ${subject}`}
+      title={isAttached ? "Attached — type your question below" : `Ask about this ${subject}`}
+      className={cn(
+        // A labelled tab on the card's top edge, so "Ask" reads as a question to the assistant
+        // about this card rather than an unlabelled bubble; it turns solid while this card is
+        // the one attached. The card's own border runs behind it.
+        "absolute right-3 top-0 z-10 flex h-8 items-center gap-1.5 rounded-full border pl-2.5 pr-3 text-[11px] font-semibold shadow-[var(--shadow-sm)] transition-all active:scale-95",
+        isAttached
+          ? "border-[var(--color-brand)] bg-[var(--color-brand)] text-white cursor-default"
+          : "border-[var(--color-border)] bg-[var(--color-surface-card)] text-[var(--color-text-primary)] hover:border-[var(--color-brand)] hover:text-[var(--color-brand)] disabled:opacity-50"
+      )}
+    >
+      <MessageSquare className={cn("h-3.5 w-3.5", !isAttached && "text-[var(--color-brand)]")} />
+      {isAttached ? "Asking" : "Ask"}
+    </button>
+  );
+}
+
+/** Square cart toggle beside the primary action: a bag to add, a check once it is in the cart
+ *  (an × on hover when it can be taken back out). */
+function CardCartButton({
+  inCart,
+  isPending,
+  disabled,
+  removable,
+  inStock,
+  onClick,
+  label,
+  fill = false,
+}: {
+  inCart: boolean;
+  isPending: boolean;
+  disabled: boolean;
+  removable: boolean;
+  inStock: boolean;
+  onClick?: () => void;
+  /** Shown beside the icon when there is room for words ("Add", "Add all"). */
+  label?: string;
+  /** Share the row with the primary action instead of sizing to its content. */
+  fill?: boolean;
+}) {
+  const title = isPending
+    ? inCart
+      ? "Removing from your cart…"
+      : "Adding to your cart…"
+    : inCart
+      ? removable
+        ? "In your cart — tap to remove"
+        : "In your cart"
+      : inStock
+        ? "Add to cart"
+        : "Out of stock";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={inCart}
+      aria-label={title}
+      title={title}
+      className={cn(
+        "group h-9 flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full border text-xs font-semibold transition-all",
+        fill ? "min-w-0 flex-1 px-2" : cn("shrink-0", label ? "px-3.5" : "w-9"),
+        inCart
+          ? cn(
+              "border-transparent bg-[var(--color-brand-light)] text-[var(--color-brand)]",
+              removable
+                ? "hover:bg-[var(--color-error,#ef4444)]/10 hover:text-[var(--color-error,#ef4444)]"
+                : "cursor-default"
+            )
+          : inStock
+            ? "border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-brand)] hover:text-[var(--color-brand)]"
+            : "border-[var(--color-border)] text-[var(--color-text-muted)] opacity-50 cursor-not-allowed"
+      )}
+    >
+      {isPending ? (
+        <Loader2 className="h-4 w-4 animate-spin" />
+      ) : inCart ? (
+        <>
+          <Check className={cn("h-4 w-4", removable && "group-hover:hidden")} />
+          {removable && <X className="hidden h-4 w-4 group-hover:block" />}
+        </>
+      ) : (
+        <ShoppingBag className="h-4 w-4" />
+      )}
+      {label && (
+        <span className="truncate">
+          {inCart ? (
+            removable ? (
+              <>
+                <span className="group-hover:hidden">Added</span>
+                <span className="hidden group-hover:inline">Remove</span>
+              </>
+            ) : (
+              "Added"
+            )
+          ) : (
+            label
+          )}
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -635,14 +779,17 @@ interface BundleCarouselProps {
   knownProducts: Record<string, Product>;
   onRenderBundle?: (productIds: string[]) => void;
   onAddBundleToCart?: (productIds: string[]) => void;
+  onRemoveBundleFromCart?: (productIds: string[]) => void;
   onAskAboutLook?: (bundle: BundleSuggestion) => void;
   /** Which look is attached, so the row shows which one the bar above the composer means. */
   attachedLookId?: string | null;
+  /** Mobile: one whole bundle per swipe, with arrows and dots, instead of a free-scrolling row. */
+  paged?: boolean;
 }
 
-/** Shows every stylist option side by side. The row scrolls horizontally when five cards exceed
- *  the chat width, which keeps every option visible and directly comparable without hiding four
- *  of them behind Previous/Next arrows. */
+/** Shows the stylist's options. On the desktop panel they sit side by side in a free-scrolling
+ *  row; on mobile (`paged`) each look is a full page of its own, so swiping always lands on a
+ *  whole bundle in the middle of the chat. */
 function BundleCarousel({
   bundles,
   cartItemIds,
@@ -652,26 +799,51 @@ function BundleCarousel({
   knownProducts,
   onRenderBundle,
   onAddBundleToCart,
+  onRemoveBundleFromCart,
   onAskAboutLook,
   attachedLookId,
+  paged = false,
 }: BundleCarouselProps) {
+  // A look whose pieces are all unknown renders nothing, and must not leave a blank page behind.
+  const shown = bundles.filter((bundle) => bundle.productIds.some((id) => knownProducts[id]));
+  const card = (bundle: BundleSuggestion, index: number) => (
+    <BundleSuggestionCard
+      bundle={bundle}
+      index={index}
+      cartItemIds={cartItemIds}
+      pendingCartItemIds={pendingCartItemIds}
+      isGenerating={isGenerating}
+      knownProducts={knownProducts}
+      isAttached={bundle.id === attachedLookId}
+      isBusy={isBusy}
+      onRender={() => onRenderBundle?.(bundle.productIds)}
+      onAddAllToCart={() => onAddBundleToCart?.(bundle.productIds)}
+      onRemoveAllFromCart={onRemoveBundleFromCart ? () => onRemoveBundleFromCart(bundle.productIds) : undefined}
+      onAsk={onAskAboutLook && bundle.slots ? () => onAskAboutLook(bundle) : undefined}
+    />
+  );
+
+  if (shown.length === 0) return null;
+
+  if (paged) {
+    return (
+      <div className="mt-2 w-full">
+        <PagedCarousel label="looks" arrowTop="24%">
+          {shown.map((bundle, index) => (
+            <div key={bundle.id} className="h-full">
+              {card(bundle, index)}
+            </div>
+          ))}
+        </PagedCarousel>
+      </div>
+    );
+  }
+
   return (
     <div className="flex w-full gap-3 mt-1 overflow-x-auto pb-2 snap-x snap-mandatory [scrollbar-width:thin]">
-      {bundles.map((bundle, index) => (
+      {shown.map((bundle, index) => (
         <div key={bundle.id} className="shrink-0 w-[min(320px,82vw)] snap-start">
-          <BundleSuggestionCard
-            bundle={bundle}
-            index={index}
-            cartItemIds={cartItemIds}
-            pendingCartItemIds={pendingCartItemIds}
-            isGenerating={isGenerating}
-            knownProducts={knownProducts}
-            isAttached={bundle.id === attachedLookId}
-            isBusy={isBusy}
-            onRender={() => onRenderBundle?.(bundle.productIds)}
-            onAddAllToCart={() => onAddBundleToCart?.(bundle.productIds)}
-            onAsk={onAskAboutLook && bundle.slots ? () => onAskAboutLook(bundle) : undefined}
-          />
+          {card(bundle, index)}
         </div>
       ))}
     </div>
@@ -689,6 +861,8 @@ interface BundleSuggestionCardProps {
   isBusy?: boolean;
   onRender: () => void;
   onAddAllToCart: () => void;
+  /** Pressing the button again once every piece is in the cart takes the whole look back out. */
+  onRemoveAllFromCart?: () => void;
   onAsk?: () => void;
 }
 
@@ -703,8 +877,12 @@ function BundleSuggestionCard({
   isBusy = false,
   onRender,
   onAddAllToCart,
+  onRemoveAllFromCart,
   onAsk,
 }: BundleSuggestionCardProps) {
+  // The per-piece list is folded away until asked for: with it open a look is taller than the
+  // chat on a phone, and the buttons would sit below the fold.
+  const [detailsOpen, setDetailsOpen] = React.useState(false);
   const products = bundle.productIds
     .map((id) => knownProducts[id])
     .filter((p): p is Product => !!p);
@@ -718,112 +896,117 @@ function BundleSuggestionCard({
   const itemsByProductId = new Map(bundle.items.map((item) => [item.productId, item]));
 
   return (
+    <div className={cn("relative flex h-full w-full flex-col", onAsk && "pt-4")}>
+    {onAsk && <CardAskButton onAsk={onAsk} isAttached={isAttached} disabled={isBusy} subject="look" />}
     <div
       className={cn(
-        "w-full h-full rounded-[var(--radius-xl)] border bg-[var(--color-surface-card)] overflow-hidden transition-colors",
+        "flex min-h-0 w-full flex-1 flex-col rounded-[var(--radius-xl)] border bg-[var(--color-surface-card)] overflow-hidden transition-colors",
         isAttached
           ? "border-[var(--color-brand)] ring-1 ring-[var(--color-brand)]"
           : "border-[var(--color-border)]"
       )}
     >
-      <BundleItemMosaic products={products} bundleIndex={index} />
+      <div className="shrink-0">
+        <BundleStrip products={products} bundleIndex={index} />
+      </div>
 
-      <div className="p-3 space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-sm font-semibold text-[var(--color-text-primary)]">{bundle.label}</p>
-          <span className="shrink-0 text-[10px] rounded-full bg-[var(--color-brand-light)] text-[var(--color-brand)] px-2 py-0.5 font-semibold">
-            {products.length} Items
-          </span>
+      <div className="flex flex-1 flex-col gap-2.5 p-3">
+        <div>
+          <div className="flex items-start justify-between gap-2">
+            <p className="min-w-0 text-sm font-semibold leading-snug text-[var(--color-text-primary)] line-clamp-1">
+              {bundle.label}
+            </p>
+            <span className="shrink-0 text-sm font-bold leading-snug text-[var(--color-text-primary)]">
+              {formatPrice(total, currency)}
+            </span>
+          </div>
+          {bundle.rationale && (
+            <p className="mt-0.5 text-[11px] leading-snug text-[var(--color-text-muted)] line-clamp-2">{bundle.rationale}</p>
+          )}
         </div>
 
-        <ul className="space-y-1">
+        <button
+          type="button"
+          onClick={() => setDetailsOpen((open) => !open)}
+          aria-expanded={detailsOpen}
+          className="-my-0.5 flex items-center justify-between gap-2 rounded-[var(--radius-md)] px-1 py-1.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-brand)] transition-colors"
+        >
+          <span className="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
+            {products.length} pieces
+            {products.some((p) => p.fitSizes?.length) && (
+              <span className="rounded-full bg-[var(--color-brand-light)] px-1.5 py-px text-[10px] font-semibold text-[var(--color-brand)]">
+                Your sizes
+              </span>
+            )}
+          </span>
+          <span className="flex shrink-0 items-center gap-0.5 whitespace-nowrap text-[11px] font-medium text-[var(--color-brand)]">
+            {detailsOpen ? "Hide details" : "Details"}
+            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", detailsOpen && "rotate-180")} />
+          </span>
+        </button>
+
+        {detailsOpen && (
+        <ul className="divide-y divide-[var(--color-border)] rounded-[var(--radius-lg)] border border-[var(--color-border)]">
           {products.map((product) => {
             const category = itemsByProductId.get(product.id)?.category;
+            const inCart = cartItemIds.includes(product.id);
             return (
-              <li key={product.id} className="flex items-center justify-between gap-2 text-[11px]">
-                <span className="flex items-center gap-1.5 min-w-0">
-                  {category && (
-                    <span className="shrink-0 rounded bg-[var(--color-surface-base)] text-[var(--color-text-muted)] px-1.5 py-0.5 uppercase tracking-wide text-[9px] font-semibold">
-                      {category}
-                    </span>
-                  )}
-                  <span className="truncate text-[var(--color-text-secondary)]">{product.name}</span>
-                  {product.fitSizes?.length ? (
-                    <span className="shrink-0 text-[9px] font-semibold text-[var(--color-brand)]">{product.fitSizes[0]}</span>
-                  ) : null}
+              <li key={product.id} className="flex items-center gap-2.5 px-2 py-1.5">
+                <Thumb product={product} className="h-10 w-10 shrink-0 border border-[var(--color-border)]" />
+                <div className="min-w-0 flex-1">
+                  <p className="line-clamp-2 text-xs font-medium leading-snug text-[var(--color-text-primary)]">{product.name}</p>
+                  <p className="mt-0.5 flex min-w-0 items-center gap-1.5 whitespace-nowrap text-[10px] text-[var(--color-text-muted)]">
+                    {product.fitSizes?.length ? (
+                      <span className="shrink-0 rounded-full bg-[var(--color-brand-light)] px-1.5 py-px font-semibold text-[var(--color-brand)]">
+                        Size {product.fitSizes[0]}
+                      </span>
+                    ) : null}
+                    {category && <span className="min-w-0 truncate capitalize">{category}</span>}
+                    {inCart && (
+                      <span className="flex shrink-0 items-center gap-0.5 text-[var(--color-brand)]">
+                        <Check className="h-2.5 w-2.5" /> In cart
+                      </span>
+                    )}
+                  </p>
+                </div>
+                <span className="shrink-0 text-xs font-semibold text-[var(--color-text-primary)]">
+                  {formatPrice(product.price, product.currency)}
                 </span>
-                <span className="shrink-0 font-medium text-[var(--color-text-primary)]">{formatPrice(product.price, product.currency)}</span>
               </li>
             );
           })}
         </ul>
-
-        {bundle.rationale && (
-          <p className="text-[11px] italic text-[var(--color-text-muted)] line-clamp-2">{bundle.rationale}</p>
         )}
 
-        <p className="text-sm font-bold text-[var(--color-text-primary)]">{formatPrice(total, currency)}</p>
-
-        <div className="flex items-center gap-1.5 pt-0.5">
-          <button
-            type="button"
-            onClick={onAddAllToCart}
-            disabled={allInCart || anyPending}
-            className={cn(
-              "flex-1 flex items-center justify-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-full transition-all",
-              allInCart
-                ? "bg-[var(--color-brand-light)] text-[var(--color-brand)] cursor-default"
-                : "border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-brand)] hover:text-[var(--color-brand)]"
-            )}
-          >
-            {anyPending ? (
-              <>
-                <Loader2 className="h-3 w-3 animate-spin" /> Adding…
-              </>
-            ) : allInCart ? (
-              <>
-                <CheckCircle2 className="h-3 w-3" /> Added
-              </>
-            ) : (
-              <>
-                <PlusCircle className="h-3 w-3" /> Add All
-              </>
-            )}
-          </button>
+        <div className="mt-auto flex items-center gap-2">
           <button
             type="button"
             onClick={onRender}
             disabled={isGenerating}
-            className="flex-1 flex items-center justify-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-full gradient-brand text-[var(--color-brand-contrast)] hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            className="h-9 min-w-0 flex-1 flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full gradient-brand text-xs font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
           >
             {isGenerating ? (
               <>
-                <Loader2 className="h-3 w-3 animate-spin" /> Rendering
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Rendering
               </>
             ) : (
               <>
-                <Sparkles className="h-3 w-3" /> Render Full Look
+                <Sparkles className="h-3.5 w-3.5" /> Wear full look
               </>
             )}
           </button>
+          <CardCartButton
+            inCart={allInCart}
+            isPending={anyPending}
+            disabled={anyPending || (allInCart && !onRemoveAllFromCart)}
+            removable={Boolean(onRemoveAllFromCart)}
+            inStock
+            label="Add all"
+            onClick={allInCart ? onRemoveAllFromCart : onAddAllToCart}
+          />
         </div>
-        {onAsk && (
-          <button
-            type="button"
-            onClick={onAsk}
-            disabled={isAttached || isBusy}
-            aria-pressed={isAttached}
-            className={cn(
-              "w-full flex items-center justify-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-full border transition-all disabled:cursor-default",
-              isAttached
-                ? "border-[var(--color-brand)] bg-[var(--color-brand-light)] text-[var(--color-brand)]"
-                : "border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-brand)] hover:text-[var(--color-brand)] disabled:opacity-40"
-            )}
-          >
-            <MessageSquare className="h-3 w-3" /> {isAttached ? "Asking about this bundle" : "Ask about this bundle"}
-          </button>
-        )}
       </div>
+    </div>
     </div>
   );
 }
@@ -842,101 +1025,27 @@ function Thumb({ product, className }: { product: Product; className?: string })
   );
 }
 
-/** Adapts the bundle thumbnail layout to however many items the agent suggested. */
-function BundleItemMosaic({ products, bundleIndex }: { products: Product[]; bundleIndex: number }) {
-  const badge = (
-    <span className="absolute top-2.5 left-2.5 z-10 h-5 w-5 rounded-full bg-black/60 text-white text-[10px] font-bold flex items-center justify-center">
-      {bundleIndex + 1}
-    </span>
-  );
-
-  // 1 item — single hero image
-  if (products.length === 1) {
-    return (
-      <div className="relative p-1.5 bg-[var(--color-surface-base)]">
-        {badge}
-        <Thumb product={products[0]} className="aspect-[5/3] w-full" />
-      </div>
-    );
-  }
-
-  // 2 items — equal split
-  if (products.length === 2) {
-    return (
-      <div className="relative grid grid-cols-2 gap-0.5 p-1.5 bg-[var(--color-surface-base)]">
-        {badge}
-        {products.map((p) => (
-          <Thumb key={p.id} product={p} className="aspect-square" />
-        ))}
-      </div>
-    );
-  }
-
-  // 3 items — one featured left, two stacked right
-  if (products.length === 3) {
-    return (
-      <div className="relative grid grid-cols-2 grid-rows-2 gap-0.5 p-1.5 bg-[var(--color-surface-base)] h-[168px]">
-        {badge}
-        <Thumb product={products[0]} className="row-span-2 h-full" />
-        <Thumb product={products[1]} className="h-full" />
-        <Thumb product={products[2]} className="h-full" />
-      </div>
-    );
-  }
-
-  // 4 items — classic 2×2
-  if (products.length === 4) {
-    return (
-      <div className="relative grid grid-cols-2 gap-0.5 p-1.5 bg-[var(--color-surface-base)]">
-        {badge}
-        {products.map((p) => (
-          <Thumb key={p.id} product={p} className="aspect-square" />
-        ))}
-      </div>
-    );
-  }
-
-  // 5 items — 3 on top, 2 centered below
-  if (products.length === 5) {
-    return (
-      <div className="relative p-1.5 bg-[var(--color-surface-base)] space-y-0.5">
-        {badge}
-        <div className="grid grid-cols-3 gap-0.5">
-          {products.slice(0, 3).map((p) => (
-            <Thumb key={p.id} product={p} className="aspect-square" />
-          ))}
-        </div>
-        <div className="grid grid-cols-2 gap-0.5 w-[66%] mx-auto">
-          {products.slice(3, 5).map((p) => (
-            <Thumb key={p.id} product={p} className="aspect-square" />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  // 6 items — 3×2 grid
-  if (products.length === 6) {
-    return (
-      <div className="relative grid grid-cols-3 grid-rows-2 gap-0.5 p-1.5 bg-[var(--color-surface-base)]">
-        {badge}
-        {products.map((p) => (
-          <Thumb key={p.id} product={p} className="aspect-square" />
-        ))}
-      </div>
-    );
-  }
-
-  // 7+ items — horizontal filmstrip (scrollable)
+/** The pieces of a look side by side in one short row: every piece is visible at a glance, and
+ *  the card stays a fixed, small height whatever the number of pieces (a 2×2 collage was as tall
+ *  as the card is wide, which pushed the buttons off the screen on a phone). A look of five or
+ *  more pieces scrolls sideways instead of squeezing them. */
+function BundleStrip({ products, bundleIndex }: { products: Product[]; bundleIndex: number }) {
+  const many = products.length > 4;
   return (
-    <div className="relative p-1.5 bg-[var(--color-surface-base)]">
-      {badge}
-      <div className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+    <div className="relative bg-[var(--color-surface-base)] p-1.5">
+      <span className="absolute left-2.5 top-2.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-[10px] font-bold text-white">
+        {bundleIndex + 1}
+      </span>
+      <div
+        className={cn(
+          "flex gap-1.5",
+          many && "overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+        )}
+      >
         {products.map((p) => (
-          <Thumb key={p.id} product={p} className="shrink-0 h-[72px] w-[72px]" />
+          <Thumb key={p.id} product={p} className={cn("h-28", many ? "w-[84px] shrink-0" : "min-w-0 flex-1")} />
         ))}
       </div>
-      <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-[var(--color-surface-base)] to-transparent" />
     </div>
   );
 }
@@ -956,7 +1065,7 @@ export function WearableScanningIndicator({
       <div className="h-8 w-8 rounded-full gradient-violet flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
         <Search className="h-4 w-4 text-white" />
       </div>
-      <div className="w-72 rounded-[var(--radius-xl)] rounded-bl-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-base)] px-4 py-3 space-y-2.5">
+      <div className="w-72 max-w-full rounded-[var(--radius-xl)] rounded-bl-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-base)] px-4 py-3 space-y-2.5">
         <div className="flex items-center justify-between">
           <span dir="auto" className="text-xs font-semibold text-[var(--color-text-primary)]">{strings.scanTitle}</span>
           <Loader2 className="h-3.5 w-3.5 text-[var(--color-brand)] animate-spin" />
@@ -996,7 +1105,7 @@ interface TryOnResultCardProps {
 
 function TryOnResultCard({ items, recommendedSizes, fitNotes }: TryOnResultCardProps) {
   return (
-    <div className="rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] overflow-hidden shadow-sm w-72 mt-1">
+    <div className="rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] overflow-hidden shadow-sm w-72 max-w-full min-w-0 mt-1">
       <div className="p-3 space-y-2.5">
         <div className="flex items-center gap-1.5">
           <Ruler className="h-3.5 w-3.5 text-[var(--color-brand)]" />
@@ -1004,8 +1113,8 @@ function TryOnResultCard({ items, recommendedSizes, fitNotes }: TryOnResultCardP
         </div>
         <div className="space-y-1.5">
           {items.map((item) => (
-            <div key={item.productId} className="flex items-center justify-between">
-              <span className="text-xs text-[var(--color-text-secondary)] truncate pr-2">{item.name}</span>
+            <div key={item.productId} className="flex min-w-0 items-center justify-between">
+              <span className="min-w-0 truncate pr-2 text-xs text-[var(--color-text-secondary)]">{item.name}</span>
               <span className="text-xs font-bold text-[var(--color-brand)] shrink-0 bg-[var(--color-brand-light)] px-2 py-0.5 rounded-full">
                 {recommendedSizes[item.productId] ?? item.selectedVariant ?? "M"}
               </span>
@@ -1014,7 +1123,7 @@ function TryOnResultCard({ items, recommendedSizes, fitNotes }: TryOnResultCardP
         </div>
         <div className="flex items-start gap-2 rounded-[var(--radius-md)] bg-[var(--color-success-light)] px-2.5 py-2">
           <CheckCircle2 className="h-3.5 w-3.5 text-[var(--color-success)] mt-0.5 shrink-0" />
-          <p className="text-[11px] text-[var(--color-success)] leading-relaxed">{fitNotes}</p>
+          <p className="min-w-0 break-words text-[11px] text-[var(--color-success)] leading-relaxed">{fitNotes}</p>
         </div>
       </div>
     </div>

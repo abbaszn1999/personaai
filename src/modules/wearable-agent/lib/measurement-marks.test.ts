@@ -9,6 +9,9 @@ const BOUNDS: BodyBounds = {
   leftmost: 0.3,
   rightmost: 0.7,
   extentAt: (y) => (y > 0.85 ? { left: 0.4, right: 0.6 } : { left: 0.3, right: 0.7 }),
+  torsoAt(y) {
+    return this.extentAt(y);
+  },
 };
 
 const ADULT = { heightCm: 190, chestCm: 105, waistCm: 92, shoeSizeEu: 44, kids: false };
@@ -31,6 +34,12 @@ describe("computeMeasurementMarks", () => {
     // Narrower than arm to arm, and centred.
     expect(marks.chest!.right - marks.chest!.left).toBeLessThan(0.4);
     expect((marks.chest!.left + marks.chest!.right) / 2).toBeCloseTo(0.5, 5);
+  });
+
+  it("measures the torso edge to edge when the arms hang clear of it", () => {
+    const marks = computeMeasurementMarks(ADULT, { ...BOUNDS, torsoAt: () => ({ left: 0.4, right: 0.58 }) });
+    expect(marks.chest!.left).toBeCloseTo(0.4, 5);
+    expect(marks.chest!.right).toBeCloseTo(0.58, 5);
   });
 
   it("gives a kid only the height arrow and the shoe chip", () => {

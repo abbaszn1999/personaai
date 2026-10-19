@@ -128,6 +128,9 @@ export function MeasurementOverlay({ profile, imageUrl, fit = "contain", positio
     };
 
     const { height, chest, waist, shoe } = marks;
+    // A narrow phone frame crops the sides of a covered picture, which can push the arrow (and
+    // the label centred on it) off the left edge; keep both on screen.
+    const heightX = height ? Math.max(px(height.x), pillWidth(height.label) / 2 + 4) : 0;
     content = (
       <svg
         width={box.w}
@@ -138,10 +141,10 @@ export function MeasurementOverlay({ profile, imageUrl, fit = "contain", positio
       >
         {height && (
           <g>
-            <line x1={px(height.x)} x2={px(height.x)} y1={py(height.top)} y2={py(height.bottom)} stroke={LINE} strokeWidth={1.5} />
+            <line x1={heightX} x2={heightX} y1={py(height.top)} y2={py(height.bottom)} stroke={LINE} strokeWidth={1.5} />
             {/* Arrowheads at both ends, so it reads as "this far, head to toe". */}
             <polyline
-              points={`${px(height.x) - 4},${py(height.top) + 7} ${px(height.x)},${py(height.top)} ${px(height.x) + 4},${py(height.top) + 7}`}
+              points={`${heightX - 4},${py(height.top) + 7} ${heightX},${py(height.top)} ${heightX + 4},${py(height.top) + 7}`}
               fill="none"
               stroke={LINE}
               strokeWidth={1.5}
@@ -149,18 +152,18 @@ export function MeasurementOverlay({ profile, imageUrl, fit = "contain", positio
               strokeLinejoin="round"
             />
             <polyline
-              points={`${px(height.x) - 4},${py(height.bottom) - 7} ${px(height.x)},${py(height.bottom)} ${px(height.x) + 4},${py(height.bottom) - 7}`}
+              points={`${heightX - 4},${py(height.bottom) - 7} ${heightX},${py(height.bottom)} ${heightX + 4},${py(height.bottom) - 7}`}
               fill="none"
               stroke={LINE}
               strokeWidth={1.5}
               strokeLinecap="round"
               strokeLinejoin="round"
             />
-            <line x1={px(height.x) - 6} x2={px(height.x) + 6} y1={py(height.top)} y2={py(height.top)} stroke={LINE} strokeWidth={1.5} />
-            <line x1={px(height.x) - 6} x2={px(height.x) + 6} y1={py(height.bottom)} y2={py(height.bottom)} stroke={LINE} strokeWidth={1.5} />
+            <line x1={heightX - 6} x2={heightX + 6} y1={py(height.top)} y2={py(height.top)} stroke={LINE} strokeWidth={1.5} />
+            <line x1={heightX - 6} x2={heightX + 6} y1={py(height.bottom)} y2={py(height.bottom)} stroke={LINE} strokeWidth={1.5} />
             {/* A fifth of the way down rather than mid-way, which is where the tool rail sits
                 on a narrow stage. */}
-            <Pill x={px(height.x)} y={py(height.top) + (py(height.bottom) - py(height.top)) * 0.2} label={height.label} anchor="middle" />
+            <Pill x={heightX} y={py(height.top) + (py(height.bottom) - py(height.top)) * 0.2} label={height.label} anchor="middle" />
           </g>
         )}
         {chest && girth(chest)}

@@ -1,7 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { geminiImageCostNanos } from "@/lib/billing/pricing";
-import { GeminiImageError, imageModel, parseInteractionResponse, readInteractionUsage } from "./gemini-image";
-
+import {
+  GeminiImageError,
+  imageModel,
+  parseInteractionResponse,
+  readInteractionUsage,
+  requestImage,
+  AVATAR_LIMITS,
+  WEAR_LIMITS,
+} from "./gemini-image";
 const PNG_BASE64 = Buffer.from("png-bytes").toString("base64");
 
 describe("imageModel", () => {
@@ -119,7 +126,7 @@ describe("parseInteractionResponse", () => {
   it("falls back to the first image block inside the steps", () => {
     const result = parseInteractionResponse({
       steps: [
-        { type: "thought", summary: "…" },
+        { type: "thought", summary: "ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦" },
         { type: "model_output", content: [{ type: "text", text: "Here you go" }, { type: "image", data: PNG_BASE64 }] },
       ],
     });
@@ -132,5 +139,121 @@ describe("parseInteractionResponse", () => {
   it("throws a GeminiImageError when the response holds no image", () => {
     expect(() => parseInteractionResponse({ status: "completed", steps: [] })).toThrow(GeminiImageError);
     expect(() => parseInteractionResponse(null)).toThrow(GeminiImageError);
+  });
+});
+
+describe("requestImage", () => {
+  const okBody = { output_image: { type: "image", mime_type: "image/png", data: PNG_BASE64 } };
+  const reply = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("returns the image on the first success", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(reply(200, okBody));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await requestImage((model) => ({ model }), "key");
+    expect(result.image.toString()).toBe("png-bytes");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry a 200 that carries no image", async () => {
+    // Google may already have billed that response, so a second attempt would be paid twice.
+    const fetchMock = vi.fn().mockResolvedValue(reply(200, { status: "completed", steps: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const error = (await requestImage((model) => ({ model }), "key").catch((e) => e)) as GeminiImageError;
+    expect(error).toBeInstanceOf(GeminiImageError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries an overloaded provider", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(reply(503, { error: "overloaded" }))
+      .mockResolvedValueOnce(reply(200, okBody));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(requestImage((model) => ({ model }), "key")).resolves.toBeDefined();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry a dropped connection or a timeout", async () => {
+    const dropped = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
+    vi.stubGlobal("fetch", dropped);
+    const droppedError = (await requestImage((model) => ({ model }), "key").catch((e) => e)) as GeminiImageError;
+    expect(droppedError.code).toBe("unreachable");
+    expect(dropped).toHaveBeenCalledTimes(1);
+
+    const timedOut = vi.fn().mockRejectedValue(new DOMException("timed out", "TimeoutError"));
+    vi.stubGlobal("fetch", timedOut);
+    const timeoutError = (await requestImage((model) => ({ model }), "key").catch((e) => e)) as GeminiImageError;
+    expect(timeoutError.code).toBe("timeout");
+    expect(timedOut).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry a refusal", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(reply(403, { error: "API key invalid" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const error = (await requestImage((model) => ({ model }), "key").catch((e) => e)) as GeminiImageError;
+    expect(error).toBeInstanceOf(GeminiImageError);
+    expect(error.code).toBe("rejected");
+    expect(error.retryable).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("ends with a retryable error when both attempts fail", async () => {
+    // A Response body can be read once, so each call gets its own.
+    const fetchMock = vi.fn().mockImplementation(async () => reply(500, { error: "boom" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const error = (await requestImage((model) => ({ model }), "key").catch((e) => e)) as GeminiImageError;
+    expect(error.code).toBe("provider_busy");
+    expect(error.retryable).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses the fallback model for the second attempt when one is configured", async () => {
+    vi.stubEnv("GEMINI_TRYON_MODEL", "primary-model");
+    vi.stubEnv("GEMINI_TRYON_FALLBACK_MODEL", "fallback-model");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(reply(500, {}))
+      .mockResolvedValueOnce(reply(200, okBody));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await requestImage((model) => ({ model }), "key");
+    const models = fetchMock.mock.calls.map(([, init]) => JSON.parse((init as RequestInit).body as string).model);
+    expect(models).toEqual(["primary-model", "fallback-model"]);
+  });
+});
+
+describe("request limits", () => {
+  it("lets a slow first attempt (a bundle) run for a full 100 s", () => {
+    expect(WEAR_LIMITS.attemptTimeoutsMs[0]).toBeGreaterThanOrEqual(100_000);
+    expect(AVATAR_LIMITS.attemptTimeoutsMs[0]).toBeGreaterThanOrEqual(100_000);
+  });
+
+  it("keeps each budget inside its route (wear 240 s with 30 s queue + pictures, avatar 300 s)", () => {
+    expect(WEAR_LIMITS.totalBudgetMs + 30_000 + 20_000).toBeLessThanOrEqual(240_000);
+    expect(AVATAR_LIMITS.totalBudgetMs).toBeLessThan(300_000);
+    expect(AVATAR_LIMITS.totalBudgetMs).toBeGreaterThanOrEqual(WEAR_LIMITS.totalBudgetMs);
+  });
+
+  it("never lets the sum of attempts exceed the budget by more than the retry floor", () => {
+    for (const l of [WEAR_LIMITS, AVATAR_LIMITS]) {
+      expect(l.attemptTimeoutsMs[0]).toBeLessThan(l.totalBudgetMs);
+    }
+  });
+
+  it("makes a single attempt when only one is allowed", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify({}), { status: 500 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await requestImage((model) => ({ model }), "key", { attemptTimeoutsMs: [5_000], totalBudgetMs: 5_000 }).catch(() => {});
+    vi.unstubAllGlobals();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

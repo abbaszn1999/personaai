@@ -48,6 +48,19 @@ function scrollPageBy(dy: number) {
   window.scrollBy({ top: dy, left: 0, behavior: "instant" });
 }
 
+/** Marks a full-screen layer of the widget (the open chat, the Details panels). While a gesture
+ *  is on one, it never moves the store's page: the shopper is working inside the widget, and the
+ *  widget sliding up the page under their thumb — toward the store's header — is the bug. */
+const LOCK_ATTR = "data-no-page-scroll";
+
+function pathHasLock(path: EventTarget[], root: EventTarget): boolean {
+  for (const node of path) {
+    if (node === root) break;
+    if (node instanceof HTMLElement && node.hasAttribute(LOCK_ATTR)) return true;
+  }
+  return false;
+}
+
 function pathHasTrap(path: EventTarget[], root: EventTarget): boolean {
   for (const node of path) {
     if (node === root) break;
@@ -73,6 +86,11 @@ export function attachPageScrollForwarding(root: HTMLElement): () => void {
     if (dy === 0 && e.deltaX === 0) return;
     if (Math.abs(e.deltaX) > Math.abs(dy)) return;
     const path = e.composedPath();
+    if (pathHasLock(path, root)) {
+      // Inside a locked layer: its own scroller may scroll, nothing else moves — least of all the page.
+      if (!innerScrollerAlong(path, root, dy)) e.preventDefault();
+      return;
+    }
     if (!pathHasTrap(path, root)) return;
     if (innerScrollerAlong(path, root, dy)) return;
     e.preventDefault();
@@ -80,12 +98,13 @@ export function attachPageScrollForwarding(root: HTMLElement): () => void {
   };
 
   let touchStartY = 0;
-  let touchMode: "native" | "trap" | "page" = "native";
+  let touchMode: "native" | "trap" | "page" | "locked" = "native";
 
   const onTouchStart = (e: TouchEvent) => {
     touchStartY = e.touches[0]?.clientY ?? 0;
     // Decided once, when the finger lands: only a gesture that starts on a scroll trap needs help.
-    touchMode = pathHasTrap(e.composedPath(), root) ? "trap" : "native";
+    const path = e.composedPath();
+    touchMode = pathHasLock(path, root) ? "locked" : pathHasTrap(path, root) ? "trap" : "native";
   };
 
   const onTouchMove = (e: TouchEvent) => {
@@ -94,6 +113,13 @@ export function attachPageScrollForwarding(root: HTMLElement): () => void {
     const y = e.touches[0]?.clientY ?? touchStartY;
     const dy = touchStartY - y;
     if (dy === 0) return;
+
+    if (touchMode === "locked") {
+      // A scroller inside the layer (the chat list) handles its own gesture natively; anything
+      // else — and the end of that list — must not chain to the page.
+      if (!innerScrollerAlong(e.composedPath(), root, dy) && e.cancelable) e.preventDefault();
+      return;
+    }
 
     if (touchMode === "page") {
       e.preventDefault();

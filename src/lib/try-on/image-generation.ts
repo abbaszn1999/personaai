@@ -1,19 +1,17 @@
 import sharp from "sharp";
-import { editGeminiImage, GeminiImageError } from "@/lib/ai/gemini-image";
+import { AVATAR_LIMITS, editGeminiImage, GeminiImageError } from "@/lib/ai/gemini-image";
 import { flattenOntoChromaKey, stripBackgroundToTransparent } from "@/lib/ai/background-removal";
 import { estimateAvatarCostNanos, estimateTryOnCostNanos, geminiImageCostNanos } from "@/lib/billing/pricing";
+import { PersonaAgentError } from "@/lib/try-on/errors";
+import { loadGarmentReference, readImageBytes } from "@/lib/try-on/image-source";
+import { tryOnRenderGate } from "@/lib/try-on/render-gate";
 import { buildTryOnPrompt } from "@/lib/try-on/prompt";
 import { AVATAR_BACKGROUNDS, loadAvatarBackground } from "@/lib/try-on/avatar-backgrounds";
 import { AVATAR_STYLE_LABELS } from "@/modules/wearable-agent/constants";
 import type { AvatarVariation } from "@/modules/wearable-agent/types";
 import type { GarmentCategory } from "@/modules/wearable-agent/utils/fit-metrics";
 
-export class PersonaAgentError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "PersonaAgentError";
-  }
-}
+export { PersonaAgentError };
 
 /**
  * Matches the 3-slide "Choose your avatar" carousel and the 3 fixed backdrop plates it uses — a
@@ -201,6 +199,7 @@ export async function* generateAvatarVariationsStream(
               { data: loadAvatarBackground(background), mimeType: "image/jpeg" },
             ],
             aspectRatio: AVATAR_ASPECT_RATIO,
+            limits: AVATAR_LIMITS,
           });
           // The real cost comes from the token counts Google returned for this exact call. Only a
           // response that omitted them falls back to the estimate, so an avatar is never free.
@@ -269,20 +268,6 @@ export interface GenerateTryOnImageInput {
   added: TryOnGarmentRef[];
 }
 
-/** Reads a `data:` URL or a remote image URL into raw bytes. */
-async function readImageBytes(urlOrDataUrl: string): Promise<Buffer> {
-  const dataUrlMatch = /^data:[^;]+;base64,(.+)$/.exec(urlOrDataUrl);
-  if (dataUrlMatch) {
-    return Buffer.from(dataUrlMatch[1], "base64");
-  }
-
-  const res = await fetch(urlOrDataUrl);
-  if (!res.ok) {
-    throw new PersonaAgentError(`Couldn't load a reference image (${res.status}).`);
-  }
-  return Buffer.from(await res.arrayBuffer());
-}
-
 /**
  * Whether the image has any see-through pixel, i.e. it is a cut-out saved by the earlier
  * transparent-avatar pipeline. An opaque PNG that merely carries an alpha channel (every pixel
@@ -294,19 +279,6 @@ export async function hasTransparentPixels(bytes: Buffer): Promise<boolean> {
   if (!hasAlpha) return false;
   const { channels } = await image.stats();
   return channels.length >= 4 && channels[channels.length - 1].min < 250;
-}
-
-/**
- * Fetches one garment reference and transcodes it to JPEG.
- *
- * The transcode is the point: most storefronts serve WebP and many block hotlinking, so the
- * model is sent the bytes rather than the merchant's URL, and the render's success does not
- * depend on the merchant's CDN policy. It also applies EXIF rotation, so the model sees the
- * garment the way a shopper does.
- */
-async function loadGarmentReference(imageUrl: string): Promise<Buffer> {
-  const source = await readImageBytes(imageUrl);
-  return sharp(source).rotate().jpeg({ quality: 92 }).toBuffer();
 }
 
 /**
@@ -354,6 +326,14 @@ export async function generateTryOnImage(
     throw new PersonaAgentError("At least one garment is required for a try-on render.");
   }
 
+  // Everything memory-heavy happens inside the gate; see render-gate.ts.
+  return tryOnRenderGate().run(() => renderTryOn(input, garments));
+}
+
+async function renderTryOn(
+  input: GenerateTryOnImageInput,
+  garments: TryOnGarmentRef[]
+): Promise<{ imageUrl: string; garmentCount: number; costNanos: number }> {
   try {
     const avatarBytes = await readImageBytes(input.avatarImageUrl);
     const legacyCutout = await hasTransparentPixels(avatarBytes);
@@ -394,6 +374,6 @@ export async function generateTryOnImage(
   } catch (err) {
     if (err instanceof PersonaAgentError || err instanceof GeminiImageError) throw err;
     console.error("[try-on generateTryOnImage] failed", err);
-    throw new PersonaAgentError("Failed to generate the try-on render. Please try again.");
+    throw new PersonaAgentError("Failed to generate the try-on render. Please try again.", "internal");
   }
 }

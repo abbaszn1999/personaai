@@ -2,6 +2,8 @@ import * as React from "react";
 import { createRoot } from "react-dom/client";
 import { EmbedApp, type PrefetchedEmbedConfig } from "./embed-app";
 import { attachPageScrollForwarding } from "./forward-page-scroll";
+import { attachClipUnderPageHeader } from "./clip-under-page-header";
+import { WIDGET_ALIGN_EVENT } from "@/modules/wearable-agent/widget-align";
 import { setWearableAssetOrigin } from "@/modules/wearable-agent/constants";
 import { setWidgetOrigin } from "./widget-origin";
 // Bundled at build time (see scripts/build-widget.mjs) as raw CSS text so the whole widget
@@ -137,11 +139,21 @@ function boot() {
 
   let currentMode: "fullpage" | "floating" | "compact" = "fullpage";
 
+  // Phone-width full-page widget only (the same 768px line the widget uses for its mobile
+  // layout): on desktop its modals are position:fixed over the whole page and must not be cut.
+  const headerClip = attachClipUnderPageHeader(
+    host,
+    () => currentMode === "fullpage" && host.getBoundingClientRect().width < 768
+  );
+  const reclip = headerClip.refresh;
+  host.addEventListener(WIDGET_ALIGN_EVENT, headerClip.alignBelowHeader);
+
   function applyFullpageHeight() {
     if (currentMode !== "fullpage") return;
     const heightCss = targetEl ? "100%" : `${fullpageHeightPx()}px`;
     host.style.cssText = `display:block;width:100%;height:${heightCss};box-sizing:border-box;overflow:hidden;`;
     mountEl.style.cssText = "width:100%;height:100%;overflow:hidden;";
+    reclip();
   }
 
   function applyCompactHeight() {
@@ -166,6 +178,7 @@ function boot() {
     } else {
       applyFullpageHeight();
     }
+    reclip();
   }
 
   // Mobile browsers fire `resize` continuously while the page is scrolled, purely because the

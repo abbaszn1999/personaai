@@ -212,3 +212,64 @@ export async function addItemToShopifyCart(
   }
   return addItemViaLegacyAjaxCart(origin, variantId, quantity, personaTag);
 }
+
+interface ShopifyAjaxCartLine {
+  key?: string;
+  variant_id?: number;
+  properties?: Record<string, unknown> | null;
+}
+
+/** The cart lines to take out for one variant. The lines Persona added carry its line property,
+ *  and when there are any, only those go: a shopper who also bought the same variant on their own
+ *  keeps it. Without the property (an older cart) every line of the variant is removed. */
+export function linesToRemove(lines: readonly ShopifyAjaxCartLine[], variantId: number): string[] {
+  const ofVariant = lines.filter((line) => line.variant_id === variantId && typeof line.key === "string");
+  const ours = ofVariant.filter((line) => line.properties && PERSONA_LINE_PROPERTY in line.properties);
+  return (ours.length > 0 ? ours : ofVariant).map((line) => line.key as string);
+}
+
+/**
+ * Takes one variant back out of the shopper's real Shopify cart.
+ *
+ * It works through the classic Ajax cart (`/cart.js`, `/cart/change.js`) because the Standard
+ * Storefront Action only adds. Both read the same cart cookie, so a line added by the action is
+ * found and removed here. A variant that is already out of the cart (the shopper removed it in
+ * the store's own drawer) counts as removed, since the shopper's intent is met.
+ */
+export async function removeItemFromShopifyCart(origin: string, variantId: number): Promise<AddToCartResult> {
+  const base = origin.replace(/\/+$/, "");
+  try {
+    const cartRes = await fetch(`${base}/cart.js`, {
+      credentials: "include",
+      headers: { Accept: "application/json" },
+    });
+    if (!cartRes.ok) {
+      return { ok: false, error: `Couldn't update your cart — store returned ${cartRes.status}` };
+    }
+    const cart = (await cartRes.json().catch(() => ({}))) as { items?: ShopifyAjaxCartLine[] };
+    const keys = linesToRemove(cart.items ?? [], variantId);
+
+    for (const key of keys) {
+      const res = await fetch(`${base}/cart/change.js`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ id: key, quantity: 0 }),
+      });
+      console.debug(`${LOG_PREFIX} POST change.js line=${key} quantity=0 ->`, res.status);
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as ShopifyAjaxErrorBody;
+        return {
+          ok: false,
+          error: `Couldn't remove this from your cart — ${body.description || body.message || `store returned ${res.status}`}`,
+        };
+      }
+    }
+
+    if (keys.length > 0) notifyThemeCartUpdated();
+    return { ok: true };
+  } catch (err) {
+    console.error(`${LOG_PREFIX} network error removing variant ${variantId}`, err);
+    return { ok: false, error: "Couldn't reach the store to remove this from your cart — check your connection." };
+  }
+}

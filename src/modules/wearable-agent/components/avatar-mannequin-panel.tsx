@@ -14,6 +14,7 @@ import {
   Pencil,
   Ruler,
   ShoppingBag,
+  User,
   X,
 } from "lucide-react";
 import type { GeneratedTryOn } from "../hooks/use-try-on-agent";
@@ -36,7 +37,7 @@ import {
 import { isKidsAudience } from "../audiences";
 import { EditModelStatsModal } from "./edit-model-stats-modal";
 import { AvatarWearScanOverlay } from "./avatar-wear-scan-overlay";
-import { GarmentHotspot, type ActiveLookItem } from "./garment-hotspot";
+import { GarmentHotspotLayer, type ActiveLookItem } from "./garment-hotspot";
 import { MeasurementOverlay } from "./measurement-overlay";
 import { SizeGuideModal } from "./size-guide-modal";
 import { cn } from "@/lib/utils/cn";
@@ -48,7 +49,6 @@ import { useRealtimeTryOn } from "../hooks/use-realtime-tryon";
 import { RealtimeTryOnOverlay } from "./realtime-tryon-overlay";
 import { LiveProductPicker } from "./live-product-picker";
 import { LiveProductStack } from "./live-product-stack";
-
 interface AvatarMannequinPanelProps {
   profile: TryOnProfile;
   outfitItems: Product[];
@@ -67,6 +67,8 @@ interface AvatarMannequinPanelProps {
   onRemoveFromOutfit: (id: string) => void;
   onSaveMeasurements: (patch: Partial<TryOnProfile>) => void;
   onAddToCart: (product: Product) => void;
+  /** Takes a product back out of the cart — the hotspot card's button toggles between the two. */
+  onRemoveFromCart?: (product: Product) => void;
   /** Bulk "Add all to cart" — bypasses the variant picker and keeps today's
    *  auto-pick-first-in-stock-variant behavior. Falls back to `onAddToCart` when omitted. */
   onBulkAddToCart?: (product: Product) => void;
@@ -79,6 +81,10 @@ interface AvatarMannequinPanelProps {
    *  Analysis, Edit Stats, Size Guide) is unusable in the sliver left above an expanded
    *  sheet, so opening one reclaims the frame first. */
   onRequestSpace?: () => void;
+  /** Mobile only — true while something else owns the whole screen (the live camera, or the
+   *  Fit Analysis / Edit Stats / Size Guide panels), so the parent can tuck its chat tab away
+   *  and show it only over the avatar itself. */
+  onChatTabHiddenChange?: (hidden: boolean) => void;
   embed?: EmbedRuntimeConfig;
   workspaceId?: string;
 }
@@ -100,6 +106,13 @@ const INFO_COLUMN_CLEARANCE = 280;
 /** Aspect ratio of every generated avatar and try-on (Gemini renders 3:4) — used until the
  *  picture has loaded and reported its real size. */
 const DEFAULT_PHOTO_ASPECT = 3 / 4;
+
+/** Mobile: the strip of the frame kept clear above the photo for the fit badge and Details
+ *  (12px margin + 44px row + 8px gap)... */
+const MOBILE_STAGE_TOP = 64;
+/** ...and below it for the version swatches and cart (the sheet inset + 10px margin + 44px row
+ *  + 6px gap). The photo sits between the two. */
+const MOBILE_STAGE_BOTTOM = `calc(${SHEET_H} + 60px)`;
 
 /** Softens the photo's left and right edges into the blurred fill behind it. */
 /** Share of the photo's width, at each edge, that is stretched sideways to fill the stage. */
@@ -387,9 +400,11 @@ export function AvatarMannequinPanel({
   onRemoveFromOutfit,
   onSaveMeasurements,
   onAddToCart,
+  onRemoveFromCart,
   onBulkAddToCart,
   mobile = false,
   onRequestSpace,
+  onChatTabHiddenChange,
   embed,
   workspaceId,
 }: AvatarMannequinPanelProps) {
@@ -609,6 +624,7 @@ export function AvatarMannequinPanel({
         onSelectImage={onSelectImage}
         onRemoveFromOutfit={onRemoveFromOutfit}
         onAddToCart={onAddToCart}
+        onRemoveFromCart={onRemoveFromCart}
         handleAddAllToCart={handleAddAllToCart}
         lookLabel={lookLabel}
         onSaveMeasurements={onSaveMeasurements}
@@ -618,6 +634,7 @@ export function AvatarMannequinPanel({
         realtime={realtime}
         liveProducts={liveProducts}
         onRequestSpace={onRequestSpace}
+        onChatTabHiddenChange={onChatTabHiddenChange}
       />
     );
   }
@@ -690,17 +707,13 @@ export function AvatarMannequinPanel({
               {/* Hotspots — pointer-events-none on the wrapper so empty space lets clicks reach
                   the photo underneath; each hotspot dot opts back in with pointer-events-auto. */}
               {viewMode === "photo" && !isGenerating && !isRegeneratingAvatar && (
-                <div className="pointer-events-none absolute inset-0 z-[18]">
-                  {activeItems.map((item) => (
-                    <GarmentHotspot
-                      key={item.product.id}
-                      item={item}
-                      inCart={cartItemIds.has(item.product.id)}
-                      isPending={pendingCartIds.has(item.product.id)}
-                      onAddToCart={onAddToCart}
-                    />
-                  ))}
-                </div>
+                <GarmentHotspotLayer
+                  items={activeItems}
+                  cartItemIds={cartItemIds}
+                  pendingCartIds={pendingCartIds}
+                  onAddToCart={onAddToCart}
+                  onRemoveFromCart={onRemoveFromCart}
+                />
               )}
             </div>
           </div>
@@ -1030,6 +1043,7 @@ interface MobileAvatarStripProps {
   onSelectImage: (i: number) => void;
   onRemoveFromOutfit: (id: string) => void;
   onAddToCart: (p: Product) => void;
+  onRemoveFromCart?: (p: Product) => void;
   handleAddAllToCart: () => void;
   lookLabel: string;
   onSaveMeasurements: (patch: Partial<TryOnProfile>) => void;
@@ -1039,6 +1053,7 @@ interface MobileAvatarStripProps {
   realtime: ReturnType<typeof useRealtimeTryOn>;
   liveProducts: Product[];
   onRequestSpace?: () => void;
+  onChatTabHiddenChange?: (hidden: boolean) => void;
 }
 
 /** What sub-panel is open over the avatar on mobile. */
@@ -1067,6 +1082,7 @@ function MobileAvatarStrip({
   setActiveSwatchIndex,
   onSelectImage,
   onAddToCart,
+  onRemoveFromCart,
   handleAddAllToCart,
   lookLabel,
   onSaveMeasurements,
@@ -1076,15 +1092,35 @@ function MobileAvatarStrip({
   realtime,
   liveProducts,
   onRequestSpace,
+  onChatTabHiddenChange,
 }: MobileAvatarStripProps) {
   const theme = useWearableTheme();
   const panelBg = PANEL_BG_BY_THEME[theme];
   const styles = MOBILE_SURFACE[theme];
   const [panel, setPanel] = React.useState<MobilePanel>(null);
+
+  // The chat tab belongs over the avatar only. The live camera and the Details panels each take
+  // the whole screen, and a tab hanging over them covers their content. Mirrors the conditions
+  // the panels below render under, so a panel that is set but not showing never hides the tab.
+  const detailPanelShown =
+    viewMode === "photo" && ((panel === "details" && fit !== null) || panel === "edit" || panel === "size-guide");
+  const chatTabHidden = viewMode === "live" || detailPanelShown;
+  React.useEffect(() => {
+    onChatTabHiddenChange?.(chatTabHidden);
+  }, [chatTabHidden, onChatTabHiddenChange]);
+  React.useEffect(() => () => onChatTabHiddenChange?.(false), [onChatTabHiddenChange]);
   const [editDraft, setEditDraft] = React.useState<TryOnProfile>(profile);
   const [showMeasurements, setShowMeasurements] = React.useState(false);
   const canShowMeasurements =
     viewMode === "photo" && !isGenerating && !isRegeneratingAvatar && imgSrc !== DEFAULT_MANNEQUIN_IMAGE;
+  // The photo's real shape, read once it loads; plate + cut-out avatars are always 3:4. The stage
+  // box below takes this aspect, so the measurement marks and hotspots line up with the photo.
+  const [imgAspect, setImgAspect] = React.useState(DEFAULT_PHOTO_ASPECT);
+  const photoAspect = backdropUrl ? DEFAULT_PHOTO_ASPECT : imgAspect;
+  function handleImageLoad(e: React.SyntheticEvent<HTMLImageElement>) {
+    const { naturalWidth, naturalHeight } = e.currentTarget;
+    if (naturalWidth > 0 && naturalHeight > 0) setImgAspect(naturalWidth / naturalHeight);
+  }
 
   /** Every path that opens a full-cover panel goes through here so the chat sheet is always
    *  collapsed out of the way first. */
@@ -1148,52 +1184,50 @@ function MobileAvatarStrip({
           />
         </div>
       ) : (
-        <>
-          {backdropUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={backdropUrl} alt="" className="absolute inset-0 w-full h-full object-cover object-center select-none" />
-          )}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={imgSrc}
-            alt="Avatar"
-            onError={onImageError}
-            // Anchored above centre: when the host page gives the widget a frame shorter than
-            // a 2:3 figure, `cover` has to crop vertically, and cropping the feet is far
-            // better than cropping the head and the garment being tried on.
-            className="absolute inset-0 w-full h-full object-cover select-none [object-position:50%_15%]"
-          />
-        </>
-      )}
+        // The stage: the whole figure, head to shoes, sits BETWEEN the top bar (fit badge,
+        // Details) and the bottom bar (versions, cart) rather than under them, so no control
+        // ever covers the face or the shoes and nothing needs scrolling. The box takes the
+        // photo's own aspect ratio, so the edge fill, measurement marks and hotspots line up
+        // with it exactly; the space beside it continues the photo's own edge colour.
+        <div
+          className="absolute inset-x-0 flex justify-center"
+          style={{ top: MOBILE_STAGE_TOP, bottom: MOBILE_STAGE_BOTTOM }}
+        >
+          <div className="relative h-full flex-none select-none" style={{ aspectRatio: photoAspect }}>
+            <EdgeExtension src={backdropUrl ?? imgSrc} side="left" />
+            <EdgeExtension src={backdropUrl ?? imgSrc} side="right" />
+            <div className="absolute inset-0">
+              {backdropUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={backdropUrl} alt="" draggable={false} className="absolute inset-0 h-full w-full select-none object-cover" />
+              )}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={imgSrc}
+                alt="Avatar"
+                onError={onImageError}
+                onLoad={handleImageLoad}
+                draggable={false}
+                className="absolute inset-0 h-full w-full select-none object-cover"
+              />
+            </div>
 
-      {/* ── Hotspot pins — absolute inset-0 matches the cover-filled image exactly ── */}
-      {/* Measurement marks — same cover fit and object-position as the photo above. */}
-      {canShowMeasurements && showMeasurements && (
-        <MeasurementOverlay profile={profile} imageUrl={imgSrc} fit="cover" position={{ x: 0.5, y: 0.15 }} />
-      )}
+            {canShowMeasurements && showMeasurements && (
+              <MeasurementOverlay profile={profile} imageUrl={imgSrc} fit="cover" />
+            )}
 
-      {viewMode === "photo" && !isGenerating && !isRegeneratingAvatar && (
-        <div className="absolute inset-0 z-[18] pointer-events-none">
-          {activeItems.map((item) => (
-            <GarmentHotspot
-              key={item.product.id}
-              item={item}
-              inCart={cartItemIds.has(item.product.id)}
-              isPending={pendingCartIds.has(item.product.id)}
-              onAddToCart={onAddToCart}
-            />
-          ))}
+            {viewMode === "photo" && !isGenerating && !isRegeneratingAvatar && (
+              <GarmentHotspotLayer
+                items={activeItems}
+                cartItemIds={cartItemIds}
+                pendingCartIds={pendingCartIds}
+                onAddToCart={onAddToCart}
+                onRemoveFromCart={onRemoveFromCart}
+              />
+            )}
+          </div>
         </div>
       )}
-
-      {/* Top gradient — just enough to seat the badges, kept off the model's face */}
-      <div className="absolute inset-x-0 top-0 h-16 z-[9] pointer-events-none"
-        style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.45), transparent)" }}
-      />
-      {/* Bottom gradient — rides on top of the sheet so it always seats the controls below */}
-      <div className="absolute inset-x-0 h-16 z-[9] pointer-events-none"
-        style={{ bottom: SHEET_H, background: "linear-gradient(to top, rgba(0,0,0,0.5), transparent)" }}
-      />
 
       {/* ── Top row: only a generated version with real chart analysis gets a fit badge. ── */}
       {viewMode === "photo" && fit && fit.score !== null && <div className="absolute top-3 inset-x-3 z-[10] flex items-center justify-between gap-2">
@@ -1214,7 +1248,23 @@ function MobileAvatarStrip({
         </button>
       </div>}
 
-      {(liveTryOnEnabled || canShowMeasurements) && (
+      {/* Live camera: the way back is a labelled pill, not a bare icon, centred between the
+          camera's own "Live" timer on the left and "Stop Live" on the right. Switching to the
+          avatar also ends the camera session (see `changeViewMode`). */}
+      {viewMode === "live" && liveTryOnEnabled && (
+        <button
+          type="button"
+          onClick={() => onViewModeChange("photo")}
+          aria-label="Back to your avatar"
+          title="Back to your avatar"
+          className="absolute left-1/2 top-4 z-[16] inline-flex min-h-11 -translate-x-1/2 items-center gap-1.5 rounded-full border border-white/20 bg-black/60 px-3.5 text-[12px] font-semibold text-white shadow-lg backdrop-blur-xl transition-all hover:bg-black/75 active:scale-95"
+        >
+          <User className="h-4 w-4" />
+          Avatar
+        </button>
+      )}
+
+      {viewMode === "photo" && (liveTryOnEnabled || canShowMeasurements) && (
       <div
         className="absolute right-3 z-[16] flex flex-col items-center gap-1 rounded-full border border-white/[0.12] bg-black/50 p-1 shadow-[0_8px_28px_rgba(0,0,0,0.5)] backdrop-blur-2xl"
         // Top right. With a fit badge the Details button already holds the top row's right end,
@@ -1239,12 +1289,12 @@ function MobileAvatarStrip({
         {liveTryOnEnabled && (
           <button
             type="button"
-            title={viewMode === "live" ? "Back to photo" : "Live camera"}
-            aria-label={viewMode === "live" ? "Back to photo" : "Live camera"}
-            onClick={() => onViewModeChange(viewMode === "live" ? "photo" : "live")}
+            title="Live camera"
+            aria-label="Live camera"
+            onClick={() => onViewModeChange("live")}
             className="flex h-10 w-10 items-center justify-center rounded-full text-white/80 transition-all hover:bg-white/[0.08] hover:text-white"
           >
-            {viewMode === "live" ? <ImageIcon className="h-4 w-4" /> : <Camera className="h-4 w-4" />}
+            <Camera className="h-4 w-4" />
           </button>
         )}
       </div>
@@ -1500,6 +1550,8 @@ function MobileInlinePanel({
   const styles = MOBILE_SURFACE[useWearableTheme()];
   return (
     <div
+      // Full-cover panel: its gestures never move the store's page (see forward-page-scroll).
+      data-no-page-scroll=""
       className={cn("absolute inset-x-0 top-0 z-[20] flex flex-col backdrop-blur-2xl", styles.panel)}
       style={{ bottom: SHEET_H }}
     >
