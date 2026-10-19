@@ -9,9 +9,9 @@ interface RealtimeTryOnOverlayProps {
   status: RealtimeTryOnStatus;
   stream: MediaStream | null;
   remainingSeconds: number;
-  activeProductId: string | null;
+  activeLookId: string | null;
   errorMessage: string | null;
-  hasProducts: boolean;
+  hasLook: boolean;
   facingMode: CameraFacingMode;
   isRecording: boolean;
   recordingSeconds: number;
@@ -31,9 +31,9 @@ export function RealtimeTryOnOverlay({
   status,
   stream,
   remainingSeconds,
-  activeProductId,
+  activeLookId,
   errorMessage,
-  hasProducts,
+  hasLook,
   facingMode,
   isRecording,
   recordingSeconds,
@@ -60,16 +60,16 @@ export function RealtimeTryOnOverlay({
           </div>
           <h3 className="text-base font-semibold text-[var(--color-text-primary)]">Live Camera Try-On</h3>
           <p className="mt-2 text-xs leading-relaxed text-[var(--color-text-secondary)]">
-            Open your camera, then choose one of your look&apos;s products to preview it in realtime.
+            Open your camera to see your current look on you, live.
           </p>
           <button
             type="button"
             onClick={onStart}
-            disabled={!hasProducts}
+            disabled={!hasLook}
             className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-full bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] px-5 text-sm font-semibold text-[var(--color-brand-contrast)] shadow-[var(--shadow-glow)] transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45"
           >
             <Play className="h-4 w-4" />
-            {hasProducts ? "Start Live Try-On" : "Pick an item first"}
+            {hasLook ? "Start Live Try-On" : "Create a look first"}
           </button>
         </div>
       </div>
@@ -129,11 +129,11 @@ export function RealtimeTryOnOverlay({
               <span className="text-white/70">{formatRemaining(recordingSeconds)}</span>
             </div>
           )}
-          {!activeProductId && (
+          {!activeLookId && !errorMessage && (
             <div className="absolute inset-0 flex items-center justify-center p-8 pointer-events-none">
               <div className="rounded-2xl border border-white/15 bg-black/55 px-5 py-3 text-center text-sm font-medium text-white shadow-xl backdrop-blur-xl">
-                Choose a product to try on
-                <p className="mt-1 text-[11px] font-normal text-white/50">Select an item from the product list</p>
+                Putting your look on
+                <p className="mt-1 text-[11px] font-normal text-white/50">Hold still for a moment</p>
               </div>
             </div>
           )}

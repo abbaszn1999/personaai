@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const create = vi.hoisted(() => vi.fn(async () => ({ apiKey: "ek_test", expiresAt: "later" })));
 
 vi.mock("@decartai/sdk", () => ({ createDecartClient: () => ({ tokens: { create } }) }));
-vi.mock("@/lib/images/product-image", () => ({ fetchPublicImage: vi.fn() }));
 
 import {
   DecartApiError,

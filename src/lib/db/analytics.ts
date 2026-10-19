@@ -95,7 +95,7 @@ export interface WorkspaceAnalyticsPayload {
    *  add to the billed duration. */
   liveTryOnInsights: {
     totalSessions: number;
-    /** One preview = one switchProduct() call the shopper actively ran until the next switch
+    /** One preview = one look put on the shopper (applyLook) until the next one
      *  or session end (see realtime_tryon_events.sql). */
     totalPreviews: number;
     avgPreviewsPerSession: number;

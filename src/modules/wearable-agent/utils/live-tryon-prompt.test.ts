@@ -1,76 +1,93 @@
 import { describe, expect, it } from "vitest";
 import type { Product } from "@/modules/commerce/types";
-import { LIVE_TRYON_PROMPT_MAX_CHARS, buildLiveTryOnPrompt } from "./live-tryon-prompt";
-import { REFERENCE_IMAGE_MAX_BYTES, fitWithin, needsPreparation } from "./reference-image";
+import { LIVE_TRYON_PROMPT_MAX_CHARS, buildLookTryOnPrompt, lookUsageName } from "./live-tryon-prompt";
+import { sessionSeconds } from "./live-session-seconds";
+import {
+  REFERENCE_IMAGE_MAX_BYTES,
+  fitWithin,
+  hasTranslucentPixels,
+  needsPreparation,
+} from "./reference-image";
 
-const product = (partial: Partial<Product> & Pick<Product, "name">): Product =>
-  ({ id: "p1", description: "", imageUrl: "https://example.com/a.jpg", ...partial }) as Product;
+let counter = 0;
+const product = (name: string): Product =>
+  ({ id: `p${++counter}`, name, description: "", imageUrl: "https://example.com/a.jpg" }) as Product;
 
-describe("buildLiveTryOnPrompt", () => {
-  it("uses the region wording from Decart's prompting guide", () => {
-    expect(buildLiveTryOnPrompt(product({ name: "Navy Hoodie", garmentSlot: "top" }))).toBe(
-      "Substitute the upper body garment with Navy Hoodie."
+describe("buildLookTryOnPrompt", () => {
+  it("names a single item", () => {
+    expect(buildLookTryOnPrompt([product("Navy Hoodie")])).toBe("Substitute the outfit with Navy Hoodie.");
+  });
+
+  it("joins two and three items the way a person would", () => {
+    expect(buildLookTryOnPrompt([product("Navy Hoodie"), product("Chinos")])).toBe(
+      "Substitute the outfit with Navy Hoodie and Chinos."
     );
-    expect(buildLiveTryOnPrompt(product({ name: "Bomber Jacket", garmentSlot: "outerwear" }))).toMatch(
-      /^Substitute the upper body garment with /
-    );
-    expect(buildLiveTryOnPrompt(product({ name: "Chinos", garmentSlot: "bottom" }))).toMatch(
-      /^Substitute the lower body garment with /
-    );
-    expect(buildLiveTryOnPrompt(product({ name: "White Sneakers", garmentSlot: "shoes" }))).toMatch(
-      /^Substitute the footwear with /
+    expect(buildLookTryOnPrompt([product("Navy Hoodie"), product("Chinos"), product("White Sneakers")])).toBe(
+      "Substitute the outfit with Navy Hoodie, Chinos and White Sneakers."
     );
   });
 
-  it("replaces the whole outfit for a dress, not just the top", () => {
-    expect(buildLiveTryOnPrompt(product({ name: "Red Midi Dress", garmentSlot: "dress" }))).toBe(
-      "Substitute the outfit with Red Midi Dress."
-    );
+  it("returns an empty prompt for a look with nothing nameable", () => {
+    expect(buildLookTryOnPrompt([])).toBe("");
+    expect(buildLookTryOnPrompt([product("   "), product("<b></b>")])).toBe("");
   });
 
-  it("substitutes hats and necklaces but adds other accessories on top", () => {
-    expect(buildLiveTryOnPrompt(product({ name: "Knit Beanie", garmentSlot: "other" }))).toMatch(
-      /^Substitute the hat with /
-    );
-    expect(buildLiveTryOnPrompt(product({ name: "Gold Pendant Necklace", garmentSlot: "other" }))).toMatch(
-      /^Substitute the necklace with /
-    );
-    expect(buildLiveTryOnPrompt(product({ name: "Leather Shoulder Bag", garmentSlot: "other" }))).toBe(
-      "Add Leather Shoulder Bag to the outfit."
-    );
+  it("strips markup and entities from names and skips repeats", () => {
+    const prompt = buildLookTryOnPrompt([
+      product("<b>Wool &amp; Cashmere Coat</b>"),
+      product("wool & cashmere coat"),
+      product("Slim Jeans."),
+    ]);
+    expect(prompt).toBe("Substitute the outfit with Wool & Cashmere Coat and Slim Jeans.");
+    expect(prompt).not.toMatch(/<|&amp;/);
   });
 
-  it("asks for one thing only and no longer tells the model to preserve the person", () => {
-    const prompt = buildLiveTryOnPrompt(product({ name: "Navy Hoodie", garmentSlot: "top" }));
+  it("asks for one thing only and does not tell the model to preserve the person", () => {
+    const prompt = buildLookTryOnPrompt([product("Navy Hoodie"), product("Chinos")]);
     expect(prompt).not.toMatch(/preserve|identity|pose|surroundings/i);
     expect(prompt.match(/Substitute|Add /g)).toHaveLength(1);
   });
 
-  it("keeps only the opening sentence of the description, as plain text", () => {
-    const prompt = buildLiveTryOnPrompt(
-      product({
-        name: "Grey Sweatshirt",
-        garmentSlot: "top",
-        description:
-          "<p>A soft crewneck sweatshirt &amp; relaxed fit.</p><p>Free shipping on orders over $50. Machine wash cold.</p>",
-      })
+  it("stays under Decart's roughly 750 character limit with many or very long names", () => {
+    const long = "word ".repeat(400);
+    const longOnes = buildLookTryOnPrompt([product(long), product(`${long}x`), product(`${long}y`)]);
+    expect(longOnes.length).toBeLessThanOrEqual(LIVE_TRYON_PROMPT_MAX_CHARS);
+    expect(longOnes.endsWith(".")).toBe(true);
+
+    const many = buildLookTryOnPrompt(
+      Array.from({ length: 40 }, (_, i) => product(`Linen Overshirt In Sage Green Number ${i + 1}`))
     );
-    expect(prompt).toBe("Substitute the upper body garment with Grey Sweatshirt, A soft crewneck sweatshirt & relaxed fit.");
-    expect(prompt).not.toMatch(/shipping|wash|<|&amp;/);
+    expect(many.length).toBeLessThanOrEqual(LIVE_TRYON_PROMPT_MAX_CHARS);
+    expect(many.startsWith("Substitute the outfit with Linen Overshirt In Sage Green Number 1,")).toBe(true);
+    expect(many.endsWith(".")).toBe(true);
+  });
+});
+
+describe("lookUsageName", () => {
+  it("lists the items and stays a sane length", () => {
+    expect(lookUsageName([product("Hoodie"), product("Chinos")])).toBe("Look: Hoodie, Chinos");
+    expect(lookUsageName([])).toBe("Look");
+    expect(lookUsageName(Array.from({ length: 60 }, () => product("A Very Long Garment Name"))).length).toBeLessThanOrEqual(200);
+  });
+});
+
+describe("sessionSeconds", () => {
+  it("adds the seconds carried over from earlier connections", () => {
+    expect(sessionSeconds(0, 25)).toBe(25);
+    expect(sessionSeconds(60, 20)).toBe(80);
   });
 
-  it("stays well under Decart's roughly 750 character limit however long the text is", () => {
-    const long = "word ".repeat(400);
-    for (const slot of ["top", "dress", "other"] as const) {
-      const prompt = buildLiveTryOnPrompt(product({ name: long, description: long, garmentSlot: slot }));
-      expect(prompt.length).toBeLessThanOrEqual(LIVE_TRYON_PROMPT_MAX_CHARS);
-      expect(prompt.endsWith(".")).toBe(true);
-    }
-    const withLongDescription = buildLiveTryOnPrompt(
-      product({ name: "Wool Coat", garmentSlot: "outerwear", description: `${"very ".repeat(200)}warm.` })
-    );
-    expect(withLongDescription.length).toBeLessThanOrEqual(LIVE_TRYON_PROMPT_MAX_CHARS);
-    expect(withLongDescription.startsWith("Substitute the upper body garment with Wool Coat, very")).toBe(true);
+  it("does not lose time when the tick restarts after a camera flip", () => {
+    const beforeFlip = sessionSeconds(0, 60);
+    const afterFlip = sessionSeconds(beforeFlip, 0);
+    expect(afterFlip).toBe(60);
+    expect(sessionSeconds(beforeFlip, 30)).toBe(90);
+  });
+
+  it("ignores junk input", () => {
+    expect(sessionSeconds(Number.NaN, 10)).toBe(10);
+    expect(sessionSeconds(-5, 10)).toBe(10);
+    expect(sessionSeconds(10, Number.NaN)).toBe(10);
   });
 });
 
@@ -91,5 +108,18 @@ describe("reference image preparation", () => {
     expect(needsPreparation({ ...ok, type: "image/gif" })).toBe(true);
     expect(needsPreparation({ ...ok, size: REFERENCE_IMAGE_MAX_BYTES + 1 })).toBe(true);
     expect(needsPreparation({ ...ok, width: 3000 })).toBe(true);
+  });
+
+  it("flattens a transparent cut-out even when it is otherwise in spec", () => {
+    const ok = { type: "image/png", size: 400_000, width: 1200, height: 1600 };
+    expect(needsPreparation({ ...ok, transparent: true })).toBe(true);
+    expect(needsPreparation({ ...ok, transparent: false })).toBe(false);
+  });
+
+  it("detects see-through pixels", () => {
+    const opaque = new Uint8ClampedArray([10, 20, 30, 255, 40, 50, 60, 255]);
+    const cutout = new Uint8ClampedArray([10, 20, 30, 255, 0, 0, 0, 0]);
+    expect(hasTranslucentPixels(opaque)).toBe(false);
+    expect(hasTranslucentPixels(cutout)).toBe(true);
   });
 });

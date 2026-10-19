@@ -7,20 +7,20 @@ import { cn } from "@/lib/utils/cn";
 
 interface LiveProductPickerProps {
   products: Product[];
-  activeProductId: string | null;
   cartItemIds: Set<string>;
   pendingCartIds: Set<string>;
-  onSelect: (product: Product) => void;
   onAddToCart: (product: Product) => void;
   mobile?: boolean;
 }
 
+/**
+ * The items in the look being worn live, each with add-to-cart. Live try-on always shows the whole
+ * look at once, so there is nothing to select here.
+ */
 export function LiveProductPicker({
   products,
-  activeProductId,
   cartItemIds,
   pendingCartIds,
-  onSelect,
   onAddToCart,
   mobile = false,
 }: LiveProductPickerProps) {
@@ -35,32 +35,21 @@ export function LiveProductPicker({
         <Video className="h-4 w-4 text-[var(--color-brand-strong)]" />
         <div>
           <p className="text-[13px] font-semibold text-[var(--color-text-primary)]">Products in this look</p>
-          <p className="text-[10px] text-[var(--color-text-secondary)]">Choose one item to preview live</p>
+          <p className="text-[10px] text-[var(--color-text-secondary)]">You&apos;re wearing the whole look live</p>
         </div>
       </div>
 
-      <div className={cn("space-y-2 overflow-y-auto", mobile ? "max-h-44" : "max-h-[calc(100vh-190px)]")}>
+      <div className={cn("space-y-2 overflow-y-auto", mobile ? "max-h-32" : "max-h-[calc(100vh-190px)]")}>
         {products.map((product) => {
-          const isActive = activeProductId === product.id;
           const inCart = cartItemIds.has(product.id);
           const isPending = pendingCartIds.has(product.id);
 
           return (
             <div
               key={product.id}
-              className={cn(
-                "flex items-center gap-2.5 rounded-xl border p-2 transition-all",
-                isActive
-                  ? "border-[var(--color-brand-strong)] bg-[var(--color-brand-light)] shadow-[var(--shadow-glow)]"
-                  : "border-[var(--color-border)] bg-[var(--color-surface-base)] hover:border-[var(--color-brand)]/45"
-              )}
+              className="flex items-center gap-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-base)] p-2"
             >
-              <button
-                type="button"
-                onClick={() => onSelect(product)}
-                className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
-                aria-pressed={isActive}
-              >
+              <div className="flex min-w-0 flex-1 items-center gap-2.5">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={product.imageUrl}
@@ -72,14 +61,8 @@ export function LiveProductPicker({
                   <span className="mt-0.5 block text-[11px] text-[var(--color-text-secondary)]">
                     {formatPrice(product.price, product.currency)}
                   </span>
-                  {isActive && (
-                    <span className="mt-1 inline-flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-[var(--color-brand-strong)]">
-                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--color-brand-strong)]" />
-                      Live
-                    </span>
-                  )}
                 </span>
-              </button>
+              </div>
 
               <button
                 type="button"

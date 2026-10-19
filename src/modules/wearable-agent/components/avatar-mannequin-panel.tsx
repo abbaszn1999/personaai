@@ -48,7 +48,6 @@ import type { EmbedRuntimeConfig } from "../hooks/use-try-on-agent";
 import { useRealtimeTryOn } from "../hooks/use-realtime-tryon";
 import { RealtimeTryOnOverlay } from "./realtime-tryon-overlay";
 import { LiveProductPicker } from "./live-product-picker";
-import { LiveProductStack } from "./live-product-stack";
 interface AvatarMannequinPanelProps {
   profile: TryOnProfile;
   outfitItems: Product[];
@@ -515,21 +514,25 @@ export function AvatarMannequinPanel({
       };
     });
   }, [currentTryOn, hasGeneratedLooks, outfitItems, defaultSize, profile.shoeSizeEu, profile.audience]);
-  const liveProducts = React.useMemo(() => {
-    const byId = new Map<string, Product>();
-    for (const version of tryOnImages) {
-      for (const product of version.outfitProducts) byId.set(product.id, product);
-    }
-    for (const product of outfitItems) byId.set(product.id, product);
-    return Array.from(byId.values());
-  }, [tryOnImages, outfitItems]);
+  // Live try-on wears exactly the look on screen. Version 1 (the plain avatar) wears nothing, so
+  // `currentTryOn` is null there and there is nothing to put on the shopper.
+  const liveLook = currentTryOn && currentTryOn.outfitProducts.length > 0 ? currentTryOn : null;
+  const liveProducts = liveLook ? liveLook.outfitProducts : [];
 
-  // Auto-preview the first catalog item as soon as the live camera connects, so the
-  // shopper sees a result immediately instead of having to pick a product themselves first.
+  // Put the look on the shopper once, as soon as the live camera connects. The ref stops a failed
+  // attempt from retrying in a loop, and is only cleared when the session actually ends: a camera
+  // flip passes through "connecting" and re-applies the look itself.
+  const autoAppliedLookRef = React.useRef<string | null>(null);
+  const { status: liveStatus, applyLook } = realtime;
   React.useEffect(() => {
-    if (realtime.status !== "live" || realtime.activeProductId || liveProducts.length === 0) return;
-    void realtime.switchProduct(liveProducts[0]);
-  }, [realtime.status, realtime.activeProductId, liveProducts, realtime.switchProduct]);
+    if (liveStatus === "idle" || liveStatus === "error") {
+      autoAppliedLookRef.current = null;
+      return;
+    }
+    if (liveStatus !== "live" || !liveLook || autoAppliedLookRef.current === liveLook.id) return;
+    autoAppliedLookRef.current = liveLook.id;
+    void applyLook(liveLook);
+  }, [liveStatus, liveLook, applyLook]);
 
   function changeViewMode(next: "photo" | "live") {
     if (next === "live" && !liveTryOnEnabled) return;
@@ -657,9 +660,9 @@ export function AvatarMannequinPanel({
             status={realtime.status}
             stream={realtime.remoteStream}
             remainingSeconds={realtime.remainingSeconds}
-            activeProductId={realtime.activeProductId}
+            activeLookId={realtime.activeLookId}
             errorMessage={realtime.errorMessage}
-            hasProducts={liveProducts.length > 0}
+            hasLook={liveProducts.length > 0}
             facingMode={realtime.facingMode}
             isRecording={realtime.isRecording}
             recordingSeconds={realtime.recordingSeconds}
@@ -779,14 +782,18 @@ export function AvatarMannequinPanel({
       {/* ── Right info column ── */}
       {viewMode === "live" ? (
         <aside className="absolute inset-y-0 right-0 z-[20] w-[300px] border-l border-[var(--color-border)] bg-[var(--color-surface-base)] px-4 pt-5">
-          <LiveProductPicker
-            products={liveProducts}
-            activeProductId={realtime.activeProductId}
-            cartItemIds={cartItemIds}
-            pendingCartIds={pendingCartIds}
-            onSelect={realtime.switchProduct}
-            onAddToCart={onAddToCart}
-          />
+          {liveProducts.length > 0 ? (
+            <LiveProductPicker
+              products={liveProducts}
+              cartItemIds={cartItemIds}
+              pendingCartIds={pendingCartIds}
+              onAddToCart={onAddToCart}
+            />
+          ) : (
+            <p className="text-[12px] leading-relaxed text-[var(--color-text-secondary)]">
+              Live try-on wears one of your looks. Go back, create a look, then try it live.
+            </p>
+          )}
         </aside>
       ) : <div className="absolute top-5 right-5 z-[20] max-h-[calc(100%_-_40px)] w-[252px] flex flex-col gap-3 overflow-y-auto sidebar-scroll">
 
@@ -1170,9 +1177,9 @@ function MobileAvatarStrip({
             status={realtime.status}
             stream={realtime.remoteStream}
             remainingSeconds={realtime.remainingSeconds}
-            activeProductId={realtime.activeProductId}
+            activeLookId={realtime.activeLookId}
             errorMessage={realtime.errorMessage}
-            hasProducts={liveProducts.length > 0}
+            hasLook={liveProducts.length > 0}
             facingMode={realtime.facingMode}
             isRecording={realtime.isRecording}
             recordingSeconds={realtime.recordingSeconds}
@@ -1351,14 +1358,15 @@ function MobileAvatarStrip({
       )}
 
       {viewMode === "live" && realtime.status === "live" && liveProducts.length > 0 && (
-        <LiveProductStack
-          products={liveProducts}
-          activeProductId={realtime.activeProductId}
-          cartItemIds={cartItemIds}
-          pendingCartIds={pendingCartIds}
-          onSelect={realtime.switchProduct}
-          onAddToCart={onAddToCart}
-        />
+        <div className="absolute inset-x-0 bottom-0 z-[18]">
+          <LiveProductPicker
+            mobile
+            products={liveProducts}
+            cartItemIds={cartItemIds}
+            pendingCartIds={pendingCartIds}
+            onAddToCart={onAddToCart}
+          />
+        </div>
       )}
 
       {/* ════════════════════════════════════════════════════════════════════

@@ -3,12 +3,12 @@
 import * as React from "react";
 import type { DecartSDKError, RealTimeClient } from "@decartai/sdk";
 import { loadDecartRuntime } from "./decart-runtime";
-import type { Product } from "@/modules/commerce/types";
-import type { EmbedRuntimeConfig } from "./use-try-on-agent";
+import type { EmbedRuntimeConfig, GeneratedTryOn } from "./use-try-on-agent";
 import { embedRequestHeaders, getOrCreateEmbedSessionId } from "@/lib/embed/client/embed-storage";
 import { LIVE_SESSION_PRODUCT_ID, LIVE_SESSION_PRODUCT_NAME } from "@/lib/billing/live-session";
-import { buildLiveTryOnPrompt } from "../utils/live-tryon-prompt";
+import { buildLookTryOnPrompt, lookUsageName } from "../utils/live-tryon-prompt";
 import { prepareReferenceImage } from "../utils/reference-image";
+import { sessionSeconds } from "../utils/live-session-seconds";
 
 export const REALTIME_TRYON_SESSION_CAP_SECONDS = 90;
 
@@ -31,53 +31,18 @@ interface TokenResponse {
 
 interface ActivePreview {
   id: string;
-  product: Product;
+  look: GeneratedTryOn;
   startedAt: number;
 }
 
-function base64ToBlob(base64: string, mimeType: string): Blob {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return new Blob([bytes], { type: mimeType });
-}
-
 /**
- * Always resolves to a `Blob` — never hands the Decart SDK a bare URL string, since
- * `client.set({ image })` would just run the exact same browser-side `fetch()` on it
- * internally and fail identically. Most merchant image hosts (WooCommerce/self-hosted
- * WordPress media in particular) never send CORS headers because they only ever expected
- * `<img>` tags to load them, so a direct browser `fetch()` here is CORS-blocked from any
- * origin other than the store's own (which is why this only ever showed up in the dashboard
- * preview and not the live embed — the widget shares the merchant's origin there).
+ * The look picture is a data URL already in the browser (or an absolute URL for a saved look),
+ * so it is read directly: there is no cross-origin merchant image host to work around.
  */
-async function getReferenceImage(
-  product: Product,
-  embed?: EmbedRuntimeConfig,
-  workspaceId?: string
-): Promise<Blob> {
-  try {
-    const response = await fetch(product.imageUrl);
-    if (!response.ok) throw new Error(`Reference image returned ${response.status}`);
-    return await response.blob();
-  } catch {
-    // Cross-origin fetch failed (or the URL isn't same-origin) — fall back to a server-side
-    // proxy, which isn't subject to browser CORS rules.
-    const url = embed?.apiBase ? `${embed.apiBase}/persona/reference-image` : "/api/agents/persona/reference-image";
-    const response = await fetch(url, {
-      method: "POST",
-      headers: embed?.embedToken ? embedRequestHeaders(embed.embedToken) : { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...(embed?.embedToken ? { embedToken: embed.embedToken } : { workspaceId }),
-        imageUrl: product.imageUrl,
-      }),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.base64) {
-      throw new Error(data.error || "Unable to load the product's reference image.");
-    }
-    return base64ToBlob(data.base64, data.mimeType || "image/jpeg");
-  }
+async function getLookImage(look: GeneratedTryOn): Promise<Blob> {
+  const response = await fetch(look.imageUrl);
+  if (!response.ok) throw new Error(`The look picture returned ${response.status}`);
+  return response.blob();
 }
 
 function createSessionId(embed?: EmbedRuntimeConfig): string {
@@ -124,7 +89,7 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
   const [status, setStatus] = React.useState<RealtimeTryOnStatus>("idle");
   const [elapsedSeconds, setElapsedSeconds] = React.useState(0);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
-  const [activeProductId, setActiveProductId] = React.useState<string | null>(null);
+  const [activeLookId, setActiveLookId] = React.useState<string | null>(null);
   const [remoteStream, setRemoteStream] = React.useState<MediaStream | null>(null);
   const [facingMode, setFacingMode] = React.useState<CameraFacingMode>("user");
   const [isRecording, setIsRecording] = React.useState(false);
@@ -136,6 +101,9 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
   const sessionIdRef = React.useRef<string | null>(null);
   const stoppingRef = React.useRef(false);
   const elapsedSecondsRef = React.useRef(0);
+  // Decart's tick counts from 0 on every connection; a camera flip opens a new one, so the
+  // seconds already used in this live session are carried here and added to every later tick.
+  const carriedSecondsRef = React.useRef(0);
   const switchQueueRef = React.useRef(Promise.resolve());
   const facingModeRef = React.useRef<CameraFacingMode>("user");
   const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
@@ -187,8 +155,8 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
       postUsage(
         {
           sessionId,
-          productId: preview.product.id,
-          productName: preview.product.name,
+          productId: preview.look.id,
+          productName: lookUsageName(preview.look.outfitProducts),
           durationSeconds: Math.max(1, Math.round((performance.now() - preview.startedAt) / 1000)),
           idempotencyKey: preview.id,
           billable: false,
@@ -233,7 +201,7 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
       cameraStreamRef.current = null;
       setRemoteStream(null);
       setStatus("idle");
-      setActiveProductId(null);
+      setActiveLookId(null);
       console.info("[use-realtime-tryon] session ended", {
         reason,
         elapsedSeconds: elapsedSecondsRef.current,
@@ -256,10 +224,14 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
       if (!options?.keepSession) {
         setElapsedSeconds(0);
         elapsedSecondsRef.current = 0;
-        setActiveProductId(null);
+        carriedSecondsRef.current = 0;
+        setActiveLookId(null);
         sessionIdRef.current = embedToken
           ? getOrCreateEmbedSessionId(embedToken)
           : createSessionId();
+      } else {
+        // The new connection's tick restarts at 0: keep what this session has already used.
+        carriedSecondsRef.current = elapsedSecondsRef.current;
       }
       clientRef.current?.disconnect();
       clientRef.current = null;
@@ -337,9 +309,10 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
 
         realtimeClient.on("generationTick", ({ seconds }) => {
           if (connectGenerationRef.current !== generation) return;
-          elapsedSecondsRef.current = seconds;
-          setElapsedSeconds(seconds);
-          if (seconds >= REALTIME_TRYON_SESSION_CAP_SECONDS) stop("session-cap");
+          const total = sessionSeconds(carriedSecondsRef.current, seconds);
+          elapsedSecondsRef.current = total;
+          setElapsedSeconds(total);
+          if (total >= REALTIME_TRYON_SESSION_CAP_SECONDS) stop("session-cap");
         });
         realtimeClient.on("error", (error: DecartSDKError) => {
           if (connectGenerationRef.current !== generation) return;
@@ -378,45 +351,50 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
     await connect(facingModeRef.current);
   }, [status, connect]);
 
-  const switchProduct = React.useCallback(async (product: Product) => {
+  /** Puts the shopper's look on them: the look's own render (their avatar already wearing the
+   *  outfit) goes to Decart as the single reference image, with a prompt naming its items.
+   *  `resume` re-sends the look that is already active (after a camera flip) without logging a
+   *  second preview. */
+  const applyLook = React.useCallback(async (look: GeneratedTryOn, options?: { resume?: boolean }) => {
     const client = clientRef.current;
     if (!client?.isConnected()) return;
 
-    recordFinishedPreview(activePreviewRef.current);
-    activePreviewRef.current = {
-      id:
-        typeof crypto !== "undefined" && "randomUUID" in crypto
-          ? crypto.randomUUID()
-          : `preview-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      product,
-      startedAt: performance.now(),
-    };
-    setActiveProductId(product.id);
+    const resuming = Boolean(options?.resume) && activePreviewRef.current?.look.id === look.id;
+    if (!resuming) {
+      recordFinishedPreview(activePreviewRef.current);
+      activePreviewRef.current = {
+        id:
+          typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : `preview-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        look,
+        startedAt: performance.now(),
+      };
+    }
+    setActiveLookId(look.id);
     setErrorMessage(null);
 
     switchQueueRef.current = switchQueueRef.current.catch(() => {}).then(async () => {
       try {
-        const image = await prepareReferenceImage(await getReferenceImage(product, embed, workspaceId));
-        await client.set({
-          prompt: buildLiveTryOnPrompt(product),
-          image,
-          enhance: false,
-        });
+        const prompt = buildLookTryOnPrompt(look.outfitProducts);
+        if (!prompt) throw new Error("This look has no items to try on.");
+        const image = await prepareReferenceImage(await getLookImage(look));
+        await client.set({ prompt, image, enhance: false });
       } catch (error) {
-        if (activePreviewRef.current?.product.id === product.id) {
+        if (activePreviewRef.current?.look.id === look.id) {
           activePreviewRef.current = null;
-          setActiveProductId(null);
-          setErrorMessage(error instanceof Error ? error.message : "Unable to apply this product.");
+          setActiveLookId(null);
+          setErrorMessage(error instanceof Error ? error.message : "Unable to apply this look.");
         }
       }
     });
     await switchQueueRef.current;
-  }, [recordFinishedPreview, embed, workspaceId]);
+  }, [recordFinishedPreview]);
 
   /** Switches between the front ("user") and rear ("environment") camera. The SDK build
    *  in use here has no way to hot-swap a live WebRTC video track, so this reconnects the
-   *  session against a freshly-opened stream from the other camera — but keeps the elapsed
-   *  time / session id and re-applies whatever product was active so the switch feels seamless. */
+   *  session against a freshly-opened stream from the other camera, but keeps the elapsed
+   *  time / session id and re-applies the active look so the switch feels seamless. */
   const flipCamera = React.useCallback(async () => {
     const nextMode: CameraFacingMode = facingModeRef.current === "user" ? "environment" : "user";
     facingModeRef.current = nextMode;
@@ -424,12 +402,12 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
 
     if (status !== "live" && status !== "connecting") return;
 
-    const preservedProduct = activePreviewRef.current?.product ?? null;
+    const preservedLook = activePreviewRef.current?.look ?? null;
     const client = await connect(nextMode, { keepSession: true });
-    if (client && preservedProduct) {
-      await switchProduct(preservedProduct);
+    if (client && preservedLook) {
+      await applyLook(preservedLook, { resume: true });
     }
-  }, [status, connect, switchProduct]);
+  }, [status, connect, applyLook]);
 
   const clearRecordingInterval = React.useCallback(() => {
     if (recordingIntervalRef.current !== null) {
@@ -531,13 +509,13 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
     elapsedSeconds,
     remainingSeconds: Math.max(0, REALTIME_TRYON_SESSION_CAP_SECONDS - elapsedSeconds),
     errorMessage,
-    activeProductId,
+    activeLookId,
     remoteStream,
     facingMode,
     isRecording,
     recordingSeconds,
     start,
-    switchProduct,
+    applyLook,
     flipCamera,
     startRecording,
     stopRecording,
