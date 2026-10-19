@@ -6,6 +6,7 @@
  */
 
 import { MESSAGE_MAX, platforms } from "./contact";
+import { getTurnstileToken, tokenFields, type TokenGetter } from "./turnstile";
 
 export const CONTACT_API_URL = (
   process.env.NEXT_PUBLIC_CONTACT_API_URL ?? "https://autommerce-contact-api.onrender.com"
@@ -250,18 +251,45 @@ async function postJson(url: string, body: unknown): Promise<Response | null> {
 /** Sends the lead to the team. The shared API is tried first; if it can't be reached (it is
  *  asleep, or not yet allowing this site) the site's own mail route sends the same details, so
  *  a lead is only lost when both fail. */
-export async function sendLead(
-  payload: LeadPayload,
-  honeypot = "",
-): Promise<{ ok: true; via: "shared" | "local" } | { ok: false; code?: string }> {
-  const shared = await postJson(`${CONTACT_API_URL}/api/contact`, payload);
-  if (shared?.ok) return { ok: true, via: "shared" };
+export interface SendLeadOptions {
+  /** What the hidden trap field held. Real visitors leave it empty. */
+  honeypot?: string;
+  /** How long the form was on screen before it was sent. The shared API quietly drops leads
+   *  that arrive impossibly fast, as bots do. */
+  elapsedMs?: number;
+  getToken?: TokenGetter;
+}
+
+export type SendLeadResult =
+  | { ok: true; via: "shared" | "local"; bookingPass: string | null }
+  | { ok: false; code?: string };
+
+export async function sendLead(payload: LeadPayload, options: SendLeadOptions = {}): Promise<SendLeadResult> {
+  const { honeypot = "", elapsedMs = 0, getToken = getTurnstileToken } = options;
+
+  // Every request needs its own Turnstile token: a token works once.
+  const first = await getToken();
+  if (first === null) return { ok: false, code: "verification" };
+  const shared = await postJson(`${CONTACT_API_URL}/api/contact`, {
+    ...payload,
+    hp: honeypot,
+    elapsedMs,
+    ...tokenFields(first),
+  });
+  if (shared?.ok) {
+    // With Turnstile on, the API answers with a signed pass that /api/book then asks for.
+    const body = (await shared.json().catch(() => ({}))) as { bookingPass?: unknown };
+    return { ok: true, via: "shared", bookingPass: typeof body.bookingPass === "string" ? body.bookingPass : null };
+  }
   // A rejected request (bad details, too many messages) would be rejected again by the local
   // route; only an unreachable or failing service is worth the second attempt.
   if (shared && (shared.status === 400 || shared.status === 429)) {
     return { ok: false, code: shared.status === 429 ? "rate_limited" : "invalid" };
   }
 
+  // The shared API may already have used the first token, so the local route gets a new one.
+  const second = await getToken();
+  if (second === null) return { ok: false, code: "verification" };
   const local = await postJson("/api/contact", {
     name: payload.name,
     email: payload.email,
@@ -269,9 +297,13 @@ export async function sendLead(
     platform: PLATFORM_LABELS[payload.platform],
     message: payload.message,
     website: honeypot,
+    ...tokenFields(second),
   });
-  if (local?.ok) return { ok: true, via: "local" };
-  return { ok: false, code: local?.status === 429 ? "rate_limited" : undefined };
+  if (local?.ok) return { ok: true, via: "local", bookingPass: null };
+  return {
+    ok: false,
+    code: local?.status === 429 ? "rate_limited" : local?.status === 403 ? "verification" : undefined,
+  };
 }
 
 const PLATFORM_LABELS: Record<PlatformValue, PlatformLabel> = {
@@ -284,10 +316,23 @@ export type BookResult =
   | { kind: "booked"; start: string; end: string | null; meetLink: string | null }
   | { kind: "already_booked"; existingStart: string | null }
   | { kind: "slot_unavailable" }
+  | { kind: "verification_expired" }
   | { kind: "error"; status: number | null };
 
-export async function bookSlot(payload: LeadPayload, start: string, timeZone: string): Promise<BookResult> {
-  const res = await postJson(`${CONTACT_API_URL}/api/book`, { ...payload, start, timeZone });
+/** `bookingPass` is the signed pass the shared API gave back when it took the lead. It stands
+ *  in for a second Turnstile check, so booking needs no token of its own. */
+export async function bookSlot(
+  payload: LeadPayload,
+  start: string,
+  timeZone: string,
+  bookingPass: string | null = null,
+): Promise<BookResult> {
+  const res = await postJson(`${CONTACT_API_URL}/api/book`, {
+    ...payload,
+    start,
+    timeZone,
+    ...(bookingPass ? { bookingPass } : {}),
+  });
   if (!res) return { kind: "error", status: null };
   const body = (await res.json().catch(() => ({}))) as {
     code?: string;
@@ -308,5 +353,6 @@ export async function bookSlot(payload: LeadPayload, start: string, timeZone: st
     return { kind: "already_booked", existingStart: typeof body.existingStart === "string" ? body.existingStart : null };
   }
   if (res.status === 409 && body.code === "slot_unavailable") return { kind: "slot_unavailable" };
+  if (res.status === 403 && body.code === "verification_expired") return { kind: "verification_expired" };
   return { kind: "error", status: res.status };
 }

@@ -60,9 +60,14 @@ interface SlotPickerProps {
   onBooked: (info: BookedInfo) => void;
   /** The times couldn't be loaded: the lead has still been sent, so the page says we'll reply. */
   onUnavailable: () => void;
+  /** The signed pass the shared API gave back with the lead; booking sends it instead of a
+   *  second bot check. */
+  bookingPass: string | null;
+  /** The pass was refused as expired: the form must send the details again for a new one. */
+  onExpired: () => void;
 }
 
-export function SlotPicker({ payload, onBack, onBooked, onUnavailable }: SlotPickerProps) {
+export function SlotPicker({ payload, bookingPass, onBack, onBooked, onUnavailable, onExpired }: SlotPickerProps) {
   const [data, setData] = useState<SlotsResponse | null>(null);
   const [reloads, setReloads] = useState(0);
   const [view, setView] = useState<{ year: number; month: number } | null>(null);
@@ -114,7 +119,7 @@ export function SlotPicker({ payload, onBack, onBooked, onUnavailable }: SlotPic
     if (!chosen || booking) return;
     setBooking(true);
     setNotice(null);
-    const result = await bookSlot(payload, chosen, zone);
+    const result = await bookSlot(payload, chosen, zone, bookingPass);
     setBooking(false);
 
     if (result.kind === "booked") {
@@ -124,6 +129,13 @@ export function SlotPicker({ payload, onBack, onBooked, onUnavailable }: SlotPic
     } else if (result.kind === "slot_unavailable") {
       setNotice({ tone: "info", text: "That time was just taken. Please choose another." });
       reload();
+    } else if (result.kind === "verification_expired") {
+      onExpired();
+      setNotice({
+        tone: "error",
+        text: "Your verification expired. Use “Edit my details” above, then continue again to get a new one.",
+        mail: false,
+      });
     } else {
       setNotice({
         tone: "error",

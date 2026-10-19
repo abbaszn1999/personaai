@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist_Mono, Instrument_Serif, Inter, Poppins } from "next/font/google";
 import { SmoothScroll } from "@/components/smooth-scroll";
+import { WhatsAppButton } from "@/components/whatsapp-button";
 import { site } from "@/lib/site";
 import "@/styles/globals.css";
 
@@ -40,6 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="grain">
         <SmoothScroll />
         {children}
+        <WhatsAppButton />
       </body>
     </html>
   );

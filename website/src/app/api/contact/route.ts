@@ -1,4 +1,5 @@
 import { MESSAGE_MAX, platforms } from "@/lib/contact";
+import { verifyTurnstile } from "@/lib/turnstile-verify";
 
 const WINDOW_MS = 10 * 60 * 1000;
 const MAX_PER_WINDOW = 5;
@@ -40,6 +41,11 @@ export async function POST(request: Request) {
   if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || message.length < 10) {
     return Response.json({ error: "invalid" }, { status: 400 });
   }
+
+  // Turnstile: the token comes from the visitor's browser and works once.
+  const verdict = await verifyTurnstile(body.turnstileToken, ip);
+  if (verdict === "failed") return Response.json({ error: "verification_failed" }, { status: 403 });
+  if (verdict === "unavailable") return Response.json({ error: "verification_unavailable" }, { status: 503 });
 
   const key = process.env.RESEND_API_KEY;
   const to = process.env.CONTACT_TO_EMAIL ?? "info@autommerce.com";

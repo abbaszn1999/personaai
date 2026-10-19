@@ -8,8 +8,12 @@ import { FALLBACK_EMAIL, buildPayload, sendLead, validateLead, type LeadErrors, 
 import { BookedPanel, type BookedInfo } from "@/components/contact/booked-panel";
 import { SlotPicker } from "@/components/contact/slot-picker";
 import { cn } from "@/lib/cn";
+import { preloadTurnstile, setTurnstileContainer } from "@/lib/turnstile";
 
 gsap.registerPlugin(useGSAP);
+
+/** The shared API's booking pass lasts 30 minutes; a pass older than this is replaced. */
+const PASS_FRESH_MS = 25 * 60 * 1000;
 
 /** details → (lead sent) → picking a time → booked. `unavailable` is the quiet ending when the
  *  calendar can't be reached: the lead is already with the team, who reply by email. */
@@ -60,9 +64,23 @@ export function ContactForm() {
   const [error, setError] = useState<{ text: string; mail: boolean } | null>(null);
   // The details already sent to the team, so going back to edit and continuing again does not
   // email the same lead twice (but does send it again if the details were changed).
-  const [sentKey, setSentKey] = useState<string | null>(null);
+  // `pass` is the signed booking pass the shared API returns with the lead; it expires, so an
+  // old one is not reused.
+  const [sent, setSent] = useState<{ key: string; pass: string | null; at: number } | null>(null);
+  // When the form appeared: the shared API drops leads that come back impossibly fast.
+  const shownAt = useRef(0);
+  useEffect(() => {
+    shownAt.current = Date.now();
+  }, []);
   const [payload, setPayload] = useState<LeadPayload | null>(null);
   const [booked, setBooked] = useState<BookedInfo | null>(null);
+
+  const turnstileRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    setTurnstileContainer(turnstileRef.current);
+    preloadTurnstile();
+    return () => setTurnstileContainer(null);
+  }, []);
 
   const { contextSafe } = useGSAP({ scope: root });
 
@@ -86,6 +104,9 @@ export function ContactForm() {
   }, [step, showSuccess]);
 
   const onUnavailable = useCallback(() => setStep("unavailable"), []);
+  // The booking pass ran out: forget the sent details so "Edit my details" → continue sends them
+  // again and gets a new pass.
+  const onExpired = useCallback(() => setSent(null), []);
   const onBooked = useCallback((info: BookedInfo) => {
     setBooked(info);
     setStep("booked");
@@ -116,22 +137,25 @@ export function ContactForm() {
     const next = buildPayload(fields);
     const key = JSON.stringify(next);
     setSending(true);
-    if (key !== sentKey) {
-      const result = await sendLead(next, honeypot);
+    const passFresh = sent !== null && (sent.pass === null || Date.now() - sent.at < PASS_FRESH_MS);
+    if (!sent || sent.key !== key || !passFresh) {
+      const result = await sendLead(next, { honeypot, elapsedMs: Date.now() - shownAt.current });
       if (!result.ok) {
         setSending(false);
         setError({
           text:
             result.code === "rate_limited"
               ? "Too many messages in a short time. Try again in a few minutes."
-              : result.code === "invalid"
+              : result.code === "verification"
+                ? "We couldn’t verify that you’re human. Please reload the page and try again."
+                : result.code === "invalid"
                 ? "Check your name, email, and a message of at least 10 characters."
                 : "We couldn’t send your details right now.",
           mail: result.code !== "rate_limited" && result.code !== "invalid",
         });
         return;
       }
-      setSentKey(key);
+      setSent({ key, pass: result.bookingPass, at: Date.now() });
     }
     setSending(false);
     setPayload(next);
@@ -144,7 +168,7 @@ export function ContactForm() {
     setStore("");
     setMessage("");
     setPlatform("Shopify");
-    setSentKey(null);
+    setSent(null);
     setPayload(null);
     setBooked(null);
     setFieldErrors({});
@@ -155,7 +179,14 @@ export function ContactForm() {
   return (
     <div ref={root} className="plan-featured relative scroll-mt-28 overflow-hidden rounded-[36px] p-7 min-[700px]:p-10">
       {step === "picking" && payload ? (
-        <SlotPicker payload={payload} onBack={() => setStep("details")} onBooked={onBooked} onUnavailable={onUnavailable} />
+        <SlotPicker
+          payload={payload}
+          bookingPass={sent?.pass ?? null}
+          onBack={() => setStep("details")}
+          onBooked={onBooked}
+          onUnavailable={onUnavailable}
+          onExpired={onExpired}
+        />
       ) : step === "booked" && booked ? (
         <BookedPanel info={booked} email={payload?.email ?? email} />
       ) : step === "unavailable" ? (
@@ -337,6 +368,8 @@ export function ContactForm() {
           </div>
         </form>
       )}
+      {/* Cloudflare Turnstile. Invisible unless Cloudflare asks the visitor to confirm. */}
+      <div ref={turnstileRef} className="mt-4 flex justify-center empty:mt-0" />
     </div>
   );
 }
