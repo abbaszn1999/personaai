@@ -1,13 +1,4 @@
-export const topics = [
-  { id: "demo", label: "Book a demo" },
-  { id: "sales", label: "Sales & pricing" },
-  { id: "technical", label: "Integration" },
-  { id: "partner", label: "Partnership" },
-] as const;
-
 export const platforms = ["Shopify", "WooCommerce", "Other"] as const;
-
-export type TopicId = (typeof topics)[number]["id"];
 
 export const nextSteps = [
   { n: "01", title: "We read it", body: "Your message goes straight to the Persona team's inbox." },

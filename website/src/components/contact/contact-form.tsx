@@ -3,7 +3,7 @@
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
-import { MESSAGE_MAX, platforms, topics, type TopicId } from "@/lib/contact";
+import { MESSAGE_MAX, platforms } from "@/lib/contact";
 import { site } from "@/lib/site";
 import { cn } from "@/lib/cn";
 
@@ -28,7 +28,6 @@ const inputClass =
 
 export function ContactForm() {
   const root = useRef<HTMLDivElement>(null);
-  const [topic, setTopic] = useState<TopicId>("demo");
   const [platform, setPlatform] = useState<string>("Shopify");
   const [message, setMessage] = useState("");
   const [status, setStatus] = useState<Status>("idle");
@@ -49,7 +48,6 @@ export function ContactForm() {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const payload = {
-      topic,
       platform,
       message,
       name: form.get("name"),
@@ -115,26 +113,6 @@ export function ContactForm() {
         </div>
       ) : (
         <form onSubmit={submit} className="space-y-7">
-          <fieldset>
-            <legend className="font-mono text-[10px] uppercase tracking-[0.18em] text-faint">What is it about?</legend>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {topics.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  aria-pressed={topic === item.id}
-                  onClick={() => setTopic(item.id)}
-                  className={cn(
-                    "rounded-full border px-4 py-2.5 text-[13px] font-medium transition",
-                    topic === item.id ? "border-brand bg-brand text-white shadow-sm" : "border-hairline text-muted hover:border-brand/40 hover:text-bone",
-                  )}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          </fieldset>
-
           <div className="grid gap-5 min-[700px]:grid-cols-2">
             <Field id="name" label="Your name">
               <input id="name" name="name" required autoComplete="name" placeholder="Sara Haddad" className={inputClass} />
@@ -144,30 +122,44 @@ export function ContactForm() {
             </Field>
           </div>
 
-          <div className="grid gap-5 min-[700px]:grid-cols-[1.3fr_1fr]">
-            <Field id="store" label="Store URL" hint={<span className="normal-case tracking-normal">Optional</span>}>
-              <input id="store" name="store" autoComplete="url" placeholder="yourstore.com" className={inputClass} />
-            </Field>
-            <fieldset>
-              <legend className="font-mono text-[10px] uppercase tracking-[0.18em] text-faint">Platform</legend>
-              <div className="mt-2 grid grid-cols-3 rounded-2xl border border-hairline bg-[var(--surface-input)] p-1">
-                {platforms.map((item) => (
+          <Field id="store" label="Store URL" hint={<span className="normal-case tracking-normal">Optional</span>}>
+            <input id="store" name="store" autoComplete="url" placeholder="yourstore.com" className={inputClass} />
+          </Field>
+
+          {/* Its own row, with each choice a separate button: squeezed into half a row beside the
+              store URL, three labels in one shared pill ran into each other. */}
+          <fieldset>
+            <legend className="font-mono text-[10px] uppercase tracking-[0.18em] text-faint">Platform</legend>
+            <div role="radiogroup" aria-label="Platform" className="mt-2 grid grid-cols-[1fr_1.35fr_1fr] gap-2.5">
+              {platforms.map((item) => {
+                const selected = platform === item;
+                return (
                   <button
                     key={item}
                     type="button"
-                    aria-pressed={platform === item}
+                    role="radio"
+                    aria-checked={selected}
                     onClick={() => setPlatform(item)}
                     className={cn(
-                      "rounded-xl py-2.5 text-[12px] font-medium transition",
-                      platform === item ? "bg-bone text-[var(--bg)] shadow-sm" : "text-faint hover:text-muted",
+                      "flex min-h-[52px] items-center justify-center gap-2 whitespace-nowrap rounded-2xl border px-3 text-[14px] font-medium transition",
+                      selected
+                        ? "border-brand bg-brand/10 text-bone shadow-[0_0_0_3px_rgba(247,109,1,0.12)]"
+                        : "border-hairline bg-[var(--surface-input)] text-muted hover:border-brand/40 hover:text-bone",
                     )}
                   >
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "h-2 w-2 shrink-0 rounded-full transition",
+                        selected ? "bg-brand" : "border border-hairline",
+                      )}
+                    />
                     {item}
                   </button>
-                ))}
-              </div>
-            </fieldset>
-          </div>
+                );
+              })}
+            </div>
+          </fieldset>
 
           <Field
             id="message"
