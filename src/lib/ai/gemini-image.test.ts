@@ -6,6 +6,7 @@ import {
   parseInteractionResponse,
   readInteractionUsage,
   requestImage,
+  requestNeverSent,
   AVATAR_LIMITS,
   WEAR_LIMITS,
 } from "./gemini-image";
@@ -178,6 +179,25 @@ describe("requestImage", () => {
     vi.stubGlobal("fetch", fetchMock);
     await expect(requestImage((model) => ({ model }), "key")).resolves.toBeDefined();
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries a connection failure that never reached Google", async () => {
+    const dnsFailure = Object.assign(new TypeError("fetch failed"), { cause: Object.assign(new Error("getaddrinfo"), { code: "ENOTFOUND" }) });
+    const fetchMock = vi.fn().mockRejectedValueOnce(dnsFailure).mockResolvedValueOnce(reply(200, okBody));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(requestImage((model) => ({ model }), "key")).resolves.toBeDefined();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("only treats pre-send connection errors as safe to retry", () => {
+    const withCode = (code: string) => Object.assign(new TypeError("fetch failed"), { cause: { code } });
+    expect(requestNeverSent(withCode("ENOTFOUND"))).toBe(true);
+    expect(requestNeverSent(withCode("ECONNREFUSED"))).toBe(true);
+    expect(requestNeverSent(withCode("UND_ERR_CONNECT_TIMEOUT"))).toBe(true);
+    expect(requestNeverSent(withCode("ECONNRESET"))).toBe(false);
+    expect(requestNeverSent(withCode("UND_ERR_SOCKET"))).toBe(false);
+    expect(requestNeverSent(new TypeError("fetch failed"))).toBe(false);
+    expect(requestNeverSent(new DOMException("timed out", "TimeoutError"))).toBe(false);
   });
 
   it("does not retry a dropped connection or a timeout", async () => {

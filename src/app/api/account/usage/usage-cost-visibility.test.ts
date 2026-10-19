@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ showCosts: false }));
+const state = vi.hoisted(() => ({ showCosts: false, sessionOrders: [] as Array<string | undefined> }));
 
 vi.mock("@/modules/auth/lib/get-user", () => ({ getCurrentUser: async () => ({ id: "owner-1" }) }));
 vi.mock("@/lib/billing/account", () => ({
@@ -16,7 +16,9 @@ vi.mock("@/lib/db/usage-report", () => ({
     { bucket: "2026-10-05", tool: "chat", quantity: 4, units: 2, nanos: 5_000_000 },
     { bucket: "2026-10-05", tool: "search", quantity: 2, units: 2, nanos: 5_000_000 },
   ],
-  queryUsageSessions: async () => ({
+  queryUsageSessions: async (input: { order?: string }) => {
+    state.sessionOrders.push(input.order);
+    return {
     shopperCount: 1,
     shoppers: [
       {
@@ -38,7 +40,8 @@ vi.mock("@/lib/db/usage-report", () => ({
         lastSeen: null,
       },
     ],
-  }),
+    };
+  },
 }));
 
 import { GET as getReport } from "./report/route";
@@ -50,6 +53,7 @@ const request = (path: string) => new NextRequest(`http://localhost/api/account/
 describe("usage cost visibility", () => {
   beforeEach(() => {
     state.showCosts = false;
+    state.sessionOrders.length = 0;
   });
 
   it("leaves every cost out of the report when costs are hidden", async () => {
@@ -85,6 +89,18 @@ describe("usage cost visibility", () => {
     state.showCosts = true;
     const shown = await (await getSessions(request("sessions"))).json();
     expect(shown.shoppers[0].costNanos).toBe(10_000_000);
+  });
+
+  it("does not rank shoppers by cost when costs are hidden", async () => {
+    await getSessions(request("sessions"));
+    await getExport(request("export"));
+    expect(state.sessionOrders).toEqual(["recent", "recent"]);
+
+    state.sessionOrders.length = 0;
+    state.showCosts = true;
+    await getSessions(request("sessions"));
+    await getExport(request("export"));
+    expect(state.sessionOrders).toEqual(["cost", "cost"]);
   });
 
   it("drops the cost_usd column from the export when hidden", async () => {

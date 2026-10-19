@@ -21,7 +21,7 @@ export function ShoppersTable({ shoppers, shopperCount, showCosts, page, pageSiz
       <div className="px-5 py-4 border-b border-[var(--color-border)] flex items-center justify-between">
         <div>
           <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">Shoppers</h3>
-          <p className="text-xs text-[var(--color-text-muted)] mt-0.5">{showCosts ? "Highest spend first. Open a row for the breakdown." : "Most active first. Open a row for the breakdown."}</p>
+          <p className="text-xs text-[var(--color-text-muted)] mt-0.5">{showCosts ? "Highest spend first. Open a row for the breakdown." : "Most recent first. Open a row for the breakdown."}</p>
         </div>
         <span className="text-xs text-[var(--color-text-muted)]">{shopperCount.toLocaleString()} in this filter</span>
       </div>

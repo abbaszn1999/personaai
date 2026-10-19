@@ -62,6 +62,8 @@ export async function queryUsageSessions(input: {
   limit: number;
   offset: number;
   sessionId?: string | null;
+  /** "cost" ranks shoppers by what they cost; "recent" by last activity (used when costs are hidden). */
+  order?: "cost" | "recent";
 }): Promise<{ shoppers: ShopperUsage[]; shopperCount: number }> {
   const { data, error } = await db.rpc("usage_top_sessions", {
     p_owner: input.ownerId,
@@ -72,6 +74,7 @@ export async function queryUsageSessions(input: {
     p_limit: input.limit,
     p_offset: input.offset,
     p_session_id: input.sessionId ?? null,
+    p_order: input.order ?? "cost",
   });
   if (error) {
     console.error("[db/usage-report queryUsageSessions]", error);

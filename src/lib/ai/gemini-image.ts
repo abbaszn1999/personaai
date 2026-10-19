@@ -197,14 +197,30 @@ function codeForStatus(status: number): TryOnErrorCode {
   return status === 429 || status >= 500 ? "provider_busy" : "rejected";
 }
 
+/** Connection errors that happen before any byte of the request reaches Google. */
+const NEVER_SENT_CODES = new Set(["ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "UND_ERR_CONNECT_TIMEOUT"]);
+
+/**
+ * True when a failed `fetch` provably never delivered the request (DNS failure, refused or
+ * timed-out connect). Anything that could have happened after sending, such as a reset or our
+ * own timeout, is not included: that request may already be billed.
+ */
+export function requestNeverSent(err: unknown): boolean {
+  if (!(err instanceof Error) || err.name === "TimeoutError" || err.name === "AbortError") return false;
+  const cause = (err as { cause?: unknown }).cause;
+  const code = cause && typeof cause === "object" ? (cause as { code?: unknown }).code : undefined;
+  return typeof code === "string" && NEVER_SENT_CODES.has(code);
+}
+
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
- * Sends one render request and returns the picture, retrying only overload (429/5xx). A timeout, a
- * dropped connection, an unreadable body or a 200 with no picture is final, because Google may
- * already have billed that request. A refusal (other 4xx) is final too. The retry may use a different model
+ * Sends one render request and returns the picture, retrying overload (429/5xx) and connection
+ * failures that never reached Google. A timeout, a connection that dropped after sending, an unreadable
+ * body or a 200 with no picture is final, because Google may already have billed that request. A refusal
+ * (other 4xx) is final too. The retry may use a different model
  * (`GEMINI_TRYON_FALLBACK_MODEL`) so one model being down does not fail both attempts.
  */
 export async function requestImage(
@@ -248,12 +264,18 @@ export async function requestImage(
       );
     } catch (err) {
       if (err instanceof GeminiImageError) throw err;
-      const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
-      // No retry here: a request that timed out or dropped may still have finished on Google's side,
-      // and a second attempt would be billed on top of a render we never received or recorded.
-      throw timedOut
-        ? new GeminiImageError("Gemini took too long to render the image. Please try again.", undefined, "timeout")
-        : new GeminiImageError("Couldn't reach Gemini. Please try again.", undefined, "unreachable");
+      const unreachable = new GeminiImageError("Couldn't reach Gemini. Please try again.", undefined, "unreachable");
+      if (requestNeverSent(err)) {
+        // Google never saw the request, so nothing can have been billed: asking again is safe.
+        lastError = unreachable;
+      } else {
+        // A request that timed out or dropped after it was sent may still have finished on Google's
+        // side, and a second attempt would be billed on top of a render we never received or recorded.
+        const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+        throw timedOut
+          ? new GeminiImageError("Gemini took too long to render the image. Please try again.", undefined, "timeout")
+          : unreachable;
+      }
     }
 
     if (!lastError.retryable) throw lastError;

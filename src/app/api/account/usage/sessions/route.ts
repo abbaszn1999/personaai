@@ -26,6 +26,8 @@ export async function GET(req: NextRequest) {
       limit: sessionId ? 1 : PAGE_SIZE,
       offset: sessionId ? 0 : page * PAGE_SIZE,
       sessionId,
+      // A list ranked by cost would reveal who cost the most even with the amounts removed.
+      order: showCosts ? "cost" : "recent",
     });
 
     return Response.json(

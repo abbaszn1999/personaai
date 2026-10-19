@@ -30,6 +30,7 @@ export async function GET(req: NextRequest) {
         tool: range.tool,
         limit: 1000,
         offset: 0,
+        order: showCosts ? "cost" : "recent",
       }),
     ]);
 
