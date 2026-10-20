@@ -35,6 +35,19 @@ export function useCatalogReadiness() {
     return () => clearInterval(id);
   }, [inFlight, refreshCatalogSync]);
 
+  // The store is loaded once per session and only polled while indexing, so a publish that finished
+  // after it loaded (from Setup, a scheduled job, another tab) left this reading "not indexed" until
+  // a hard refresh. Re-read whenever the gate is about to show a not-ready state and the tab regains
+  // focus, so a stale snapshot never blocks the embed snippet or the preview.
+  const stale = hasLoaded && Boolean(connection) && catalogSync.status !== "ready" && !inFlight;
+  React.useEffect(() => {
+    if (!stale) return;
+    void refreshCatalogSync();
+    const onFocus = () => void refreshCatalogSync();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [stale, refreshCatalogSync]);
+
   const state: GateState = !hasLoaded
     ? "loading"
     : !connection

@@ -11,6 +11,10 @@ import { SAFE_BOTTOM } from "../../mobile-surface";
  *  generation and selection keep their own full-bleed screens, unchanged from before. */
 const STEP_SEQUENCE: OnboardingPhase[] = ["audience", "measurements"];
 
+/** What the progress bar shows. The last entry is the avatar being built, which has its own screen
+ *  outside this shell; it is listed so the shopper can see how much is left. */
+const PROGRESS_STEPS = [{ label: "Who" }, { label: "Fit" }, { label: "Avatar" }] as const;
+
 interface OnboardingShellProps {
   step: OnboardingPhase;
   onBack?: () => void;
@@ -67,21 +71,36 @@ export function OnboardingShell({ step, onBack, footer, children, reserveTopSpac
             <ChevronLeft className="h-4 w-4" />
           </button>
           <div
-            className="flex flex-1 items-center justify-center gap-1.5"
+            className="flex flex-1 items-start gap-1.5"
             role="progressbar"
             aria-label="Onboarding progress"
-            aria-valuenow={stepIndex}
+            aria-valuenow={stepIndex + 1}
             aria-valuemin={1}
-            aria-valuemax={STEP_SEQUENCE.length - 1}
+            aria-valuemax={PROGRESS_STEPS.length}
+            aria-valuetext={`Step ${stepIndex + 1} of ${PROGRESS_STEPS.length}: ${PROGRESS_STEPS[stepIndex]?.label ?? ""}`}
           >
-            {STEP_SEQUENCE.slice(1).map((s, i) => (
-              <span
-                key={s}
-                className={cn(
-                  "h-1.5 rounded-full transition-all duration-300",
-                  i <= stepIndex - 1 ? "w-6 bg-[var(--color-violet-from)]" : "w-1.5 bg-[var(--color-border)]"
-                )}
-              />
+            {PROGRESS_STEPS.map((progressStep, i) => (
+              <div key={progressStep.label} className="flex min-w-0 flex-1 flex-col gap-1.5">
+                <span
+                  className={cn(
+                    "h-1 rounded-full transition-all duration-500",
+                    i <= stepIndex ? "gradient-brand" : "bg-[var(--color-border)]",
+                    i === stepIndex && "shadow-[0_0_10px_-1px_var(--color-brand)]"
+                  )}
+                />
+                <span
+                  className={cn(
+                    "truncate text-center text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors",
+                    i === stepIndex
+                      ? "text-[var(--color-text-primary)]"
+                      : i < stepIndex
+                        ? "text-[var(--color-text-secondary)]"
+                        : "text-[var(--color-text-muted)]"
+                  )}
+                >
+                  {progressStep.label}
+                </span>
+              </div>
             ))}
           </div>
           <div className="h-11 w-11 shrink-0" aria-hidden />

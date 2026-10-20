@@ -61,10 +61,14 @@ export function PreviewViewportShell({
   }
 
   return (
-    <div className="flex h-full min-h-0 items-center justify-center overflow-y-auto py-6 sidebar-scroll">
+    // `m-auto` on the card (not items-center / justify-center on this scroller): centering a
+    // card taller than the pane pushes its top edge above the scroll origin, where it can never
+    // be scrolled back to. Auto margins centre it when it fits and pin it to the top when not.
+    <div className="flex h-full min-h-0 overflow-y-auto py-6 sidebar-scroll">
       <div
         className={cn(
-          "@container w-full max-w-2xl rounded-[var(--radius-2xl)] border border-[var(--color-border)]",
+          "@container m-auto w-full rounded-[var(--radius-2xl)] border border-[var(--color-border)]",
+          "max-w-2xl",
           "bg-[var(--color-surface-card)] shadow-[var(--shadow-elevated)] overflow-hidden",
           className
         )}

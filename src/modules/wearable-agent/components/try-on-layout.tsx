@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Check, Circle } from "lucide-react";
+import { AVATAR_STYLE_LABELS } from "@/modules/wearable-agent/constants";
 import { useTryOnAgent, type EmbedRuntimeConfig, type ShopperProfileBridge } from "../hooks/use-try-on-agent";
 import { useShopperAuth } from "../hooks/use-shopper-auth";
 import { EmbedShopperSessionContext } from "../hooks/embed-shopper-session";
@@ -226,17 +227,21 @@ function TryOnExperience({
           />
         );
       // Measurements + photo share one screen — one fewer tap between "who's this for" and
-      // avatar generation actually kicking off. Side-by-side from `md` up: stacked, this
-      // screen was the tallest in onboarding by far, mostly padding no wider viewport needed.
+      // avatar generation actually kicking off. Two matched cards side by side from `lg` up,
+      // stacked on a phone, under one headline that says what the screen is for.
       case "measurements":
         return (
-          <div className="flex flex-col gap-6 @lg:flex-row @lg:items-start @lg:gap-8">
-            <div className="flex-1 @lg:min-w-0">
-              <MeasurementsStep profile={agent.profile} onChange={agent.updateProfile} />
+          <div className="flex flex-col gap-5 @lg:gap-6">
+            <div className="text-center">
+              <h2 className="text-[22px] font-bold leading-tight text-[var(--color-text-primary)] @lg:text-2xl">
+                Let&apos;s build your avatar
+              </h2>
+              <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-[var(--color-text-muted)]">
+                Your measurements shape the body and your photo shapes the face, so sizes and fit match you.
+              </p>
             </div>
-            <div className="h-px bg-[var(--color-border)] @lg:hidden" />
-            <div className="hidden self-stretch w-px bg-[var(--color-border)] @lg:block" />
-            <div className="flex-1 @lg:min-w-0">
+            <div className="grid gap-4 @lg:grid-cols-2 @lg:items-stretch @lg:gap-5">
+              <MeasurementsStep profile={agent.profile} onChange={agent.updateProfile} />
               <PhotoStep profile={agent.profile} error={agent.avatarGenerationError} onChange={agent.updateProfile} />
             </div>
           </div>
@@ -255,17 +260,37 @@ function TryOnExperience({
         return (
           <>
             <Button
-              size="lg"
+              size="xl"
               onClick={agent.startAvatarGeneration}
               disabled={!agent.profileComplete}
-              className={cn(agent.profileComplete ? "gradient-violet text-white border-0" : "")}
+              className="group h-12 w-full max-w-sm text-[15px] disabled:pointer-events-none"
             >
               Create my avatar
-              <ArrowRight className="h-4 w-4" />
+              <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
             </Button>
-            {!agent.profileComplete && (
-              <p className="text-xs text-[var(--color-text-muted)]">
-                {agent.measurementsComplete ? "Add a photo to continue" : "Fill in all fields and add a photo to continue"}
+            {/* What is still missing, as two ticks, instead of a sentence to decode. */}
+            <ul className="flex flex-wrap items-center justify-center gap-2" aria-label="What's needed to continue">
+              {[
+                { label: "Measurements", done: agent.measurementsComplete },
+                { label: "Photo", done: Boolean(agent.profile.photoUrl) },
+              ].map(({ label, done }) => (
+                <li
+                  key={label}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors",
+                    done
+                      ? "border-transparent bg-[var(--color-success)]/12 text-[var(--color-success)]"
+                      : "border-[var(--color-border)] text-[var(--color-text-muted)]"
+                  )}
+                >
+                  {done ? <Check className="h-3 w-3" strokeWidth={3} /> : <Circle className="h-3 w-3" />}
+                  {label}
+                </li>
+              ))}
+            </ul>
+            {agent.profileComplete && (
+              <p className="text-xs text-[var(--color-text-muted)] animate-fade-in">
+                Next, you&apos;ll pick from {AVATAR_STYLE_LABELS.length} avatar styles.
               </p>
             )}
           </>

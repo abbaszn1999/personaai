@@ -325,8 +325,26 @@ function SidebarAccountCard({ collapsed, active }: { collapsed: boolean; active:
   const displayName = user
     ? [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email
     : "My Account";
-  const tier = user?.subscriptionTier ?? "trial";
-  const tierLabel = tier.charAt(0).toUpperCase() + tier.slice(1);
+  // The plan actually being charged. `user.subscriptionTier` is not it: that column defaults to
+  // "trial" for every new account, paid or not. Null (nothing paid yet, or still loading) shows
+  // no badge. Re-read on navigation so it appears as soon as checkout returns here.
+  const pathname = usePathname();
+  const [planTier, setPlanTier] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    let cancelled = false;
+    fetch("/api/account/plan-badge", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { tierId?: string | null } | null) => {
+        if (!cancelled) setPlanTier(data?.tierId ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setPlanTier(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
+  const tierLabel = planTier ? planTier.charAt(0).toUpperCase() + planTier.slice(1) : null;
 
   const card = (
     <Link
@@ -350,10 +368,12 @@ function SidebarAccountCard({ collapsed, active }: { collapsed: boolean; active:
         <div className="flex-1 min-w-0 text-left">
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-semibold text-[var(--color-sidebar-text)] truncate">{displayName}</span>
-            <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full gradient-brand text-white shrink-0">
-              <Crown className="h-2.5 w-2.5" />
-              {tierLabel}
-            </span>
+            {tierLabel && (
+              <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full gradient-brand text-white shrink-0">
+                <Crown className="h-2.5 w-2.5" />
+                {tierLabel}
+              </span>
+            )}
           </div>
           <span className="text-[10px] text-[var(--color-sidebar-text-muted)] truncate block mt-0.5">
             {user?.email ?? "Account"}
