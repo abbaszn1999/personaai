@@ -2,7 +2,7 @@ import { indexProductIfInScope } from "@/lib/catalog/index-product";
 import { createCatalogPager } from "@/lib/catalog/pager";
 import { applyWooOrder } from "@/lib/attribution/apply-woo-order";
 import { markAcsProductOutOfStock } from "@/lib/catalog/acs/sync";
-import { getStoreConnectionByStoreUrl } from "@/lib/db/store-connections";
+import { getStoreConnectionsByStoreUrl } from "@/lib/db/store-connections";
 import { markPathConfigStale } from "@/lib/catalog/path-config/rebuild";
 import { noteStoreProductChanged } from "@/lib/catalog/catalog-change";
 import { mapWooWebhookProduct } from "@/lib/woocommerce/client";
@@ -28,12 +28,13 @@ export async function POST(request: Request) {
     return Response.json({ error: "Missing webhook source" }, { status: 400 });
   }
 
-  const connection = await getStoreConnectionByStoreUrl(source);
-  if (!connection) {
+  const candidates = await getStoreConnectionsByStoreUrl(source);
+  if (candidates.length === 0) {
     return Response.json({ ignored: "unknown store" });
   }
 
-  if (!verifyHmacSignature(rawBody, signature, deriveWebhookSecret(connection.id))) {
+  const connection = candidates.find((row) => verifyHmacSignature(rawBody, signature, deriveWebhookSecret(row.id)));
+  if (!connection) {
     return Response.json({ error: "Invalid signature" }, { status: 401 });
   }
 

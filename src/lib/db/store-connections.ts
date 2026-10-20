@@ -186,24 +186,24 @@ export async function getStoreConnectionById(id: string): Promise<StoreConnectio
   return data ? rowToConnection(data) : null;
 }
 
-/** Resolves the connection a webhook belongs to. Store webhooks identify their origin by
- *  domain (`X-Shopify-Shop-Domain`, `X-WC-Webhook-Source`) and nothing else, so this is the
- *  only handle available before the payload can be trusted. */
-export async function getStoreConnectionByStoreUrl(storeUrl: string): Promise<StoreConnectionRow | null> {
+/** Candidate connections a webhook may belong to. Store webhooks identify their origin by
+ *  domain (`X-Shopify-Shop-Domain`, `X-WC-Webhook-Source`) and nothing else, and the same store
+ *  can be connected to more than one account, so callers pick the row whose secret verifies the
+ *  delivery's signature. */
+export async function getStoreConnectionsByStoreUrl(storeUrl: string): Promise<StoreConnectionRow[]> {
   const normalized = storeUrl.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/+$/, "");
 
   const { data, error } = await db
     .from("store_connections")
     .select("*")
-    .ilike("store_url", normalized)
-    .maybeSingle();
+    .ilike("store_url", normalized);
 
   if (error) {
-    console.error("[db/store-connections getStoreConnectionByStoreUrl]", error);
-    return null;
+    console.error("[db/store-connections getStoreConnectionsByStoreUrl]", error);
+    return [];
   }
 
-  return data ? rowToConnection(data) : null;
+  return (data ?? []).map(rowToConnection);
 }
 
 export async function getStoreConnectionByOwner(ownerId: string): Promise<StoreConnectionRow | null> {

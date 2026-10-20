@@ -1,7 +1,7 @@
 import { indexProductIfInScope } from "@/lib/catalog/index-product";
 import { applyShopifyOrderTopic } from "@/lib/attribution/apply-shopify-order";
 import { markAcsProductOutOfStock } from "@/lib/catalog/acs/sync";
-import { getStoreConnectionByStoreUrl } from "@/lib/db/store-connections";
+import { getStoreConnectionsByStoreUrl } from "@/lib/db/store-connections";
 import { markPathConfigStale } from "@/lib/catalog/path-config/rebuild";
 import { noteStoreProductChanged } from "@/lib/catalog/catalog-change";
 import { mapShopifyWebhookProduct, normalizeShopifyDomain } from "@/lib/shopify/client";
@@ -30,8 +30,8 @@ export async function POST(request: Request) {
     return Response.json({ error: "Missing shop domain" }, { status: 400 });
   }
 
-  const connection = await getStoreConnectionByStoreUrl(shopDomain);
-  if (!connection?.apiKeyEncrypted) {
+  const candidates = (await getStoreConnectionsByStoreUrl(shopDomain)).filter((row) => row.apiKeyEncrypted);
+  if (candidates.length === 0) {
     // A 200 on purpose. Shopify retries non-2xx for days, and a webhook for a store that is
     // no longer connected here will never start succeeding.
     return Response.json({ ignored: "unknown store" });
@@ -39,8 +39,11 @@ export async function POST(request: Request) {
 
   // Webhooks registered through the Admin API are signed with the app's own client secret,
   // which is already stored as part of the connection's credentials.
-  const { clientSecret } = decodeCredentials(connection.apiKeyEncrypted);
-  if (!clientSecret || !verifyHmacSignature(rawBody, signature, clientSecret)) {
+  const connection = candidates.find((row) => {
+    const { clientSecret } = decodeCredentials(row.apiKeyEncrypted!);
+    return Boolean(clientSecret) && verifyHmacSignature(rawBody, signature, clientSecret!);
+  });
+  if (!connection) {
     return Response.json({ error: "Invalid signature" }, { status: 401 });
   }
 
