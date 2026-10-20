@@ -1,4 +1,5 @@
 import { indexProductIfInScope } from "@/lib/catalog/index-product";
+import { createCatalogPager } from "@/lib/catalog/pager";
 import { applyWooOrder } from "@/lib/attribution/apply-woo-order";
 import { markAcsProductOutOfStock } from "@/lib/catalog/acs/sync";
 import { getStoreConnectionByStoreUrl } from "@/lib/db/store-connections";
@@ -64,7 +65,12 @@ export async function POST(request: Request) {
       return Response.json({ deleted: true });
     }
 
-    const product = mapWooWebhookProduct(payload, connection.storeCurrency);
+    // A sale or stock edit on one size/colour arrives as a bare variation object (no categories,
+    // no short description), so the parent product is refetched and indexed in its place.
+    const parentId = (payload as { parent_id?: number }).parent_id;
+    const product = parentId
+      ? (await (await createCatalogPager(connection))?.fetchByIds([String(parentId)]))?.[0] ?? null
+      : mapWooWebhookProduct(payload, connection.storeCurrency);
     if (!product) return Response.json({ ignored: "unmappable payload" });
 
     noteStoreProductChanged(connection.id, product.externalId);

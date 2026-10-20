@@ -68,7 +68,14 @@ export async function POST(req: NextRequest) {
     const platformItemId = typeof body.platformItemId === "string" && body.platformItemId.trim()
       ? body.platformItemId.trim()
       : null;
-    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip")?.trim() || "";
+    // Render sits behind Cloudflare, whose first `x-forwarded-for` hop is not the shopper; the
+    // hash must equal the IP WooCommerce stores on the order or the sale can't be matched.
+    const ip =
+      req.headers.get("true-client-ip")?.trim() ||
+      req.headers.get("cf-connecting-ip")?.trim() ||
+      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      req.headers.get("x-real-ip")?.trim() ||
+      "";
     const ua = req.headers.get("user-agent")?.trim() || "";
     // Hashing needs INTERNAL_JOB_SECRET. Without it the add is still logged for analytics,
     // it just can't be matched to a WooCommerce order.
