@@ -2137,7 +2137,9 @@ export function useTryOnAgent(
 
             const result =
               data.platform === "shopify"
-                ? await addItemToShopifyCart(origin, data.id, 1)
+                ? // The session id rides on the cart line as the hidden `_persona` property; it is the only
+                  // thing that lets a paid Shopify order be traced back to this widget session.
+                  await addItemToShopifyCart(origin, data.id, 1, sessionId)
                 : await addItemToWooCommerceCart(origin, data.id, 1);
             if (!result.ok) throw new Error(result.error || "Couldn't add this to your cart.");
             success = true;
