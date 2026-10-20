@@ -1,4 +1,5 @@
-import { MESSAGE_MAX, platforms, topics } from "@/lib/contact";
+import { MESSAGE_MAX, platforms } from "@/lib/contact";
+import { verifyTurnstile } from "@/lib/turnstile-verify";
 
 const WINDOW_MS = 10 * 60 * 1000;
 const MAX_PER_WINDOW = 5;
@@ -35,12 +36,16 @@ export async function POST(request: Request) {
   const email = text(body.email, 200);
   const store = text(body.store, 300);
   const message = text(body.message, MESSAGE_MAX);
-  const topic = topics.find((t) => t.id === body.topic)?.label ?? topics[0].label;
   const platform = platforms.find((p) => p === body.platform) ?? "";
 
   if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || message.length < 10) {
     return Response.json({ error: "invalid" }, { status: 400 });
   }
+
+  // Turnstile: the token comes from the visitor's browser and works once.
+  const verdict = await verifyTurnstile(body.turnstileToken, ip);
+  if (verdict === "failed") return Response.json({ error: "verification_failed" }, { status: 403 });
+  if (verdict === "unavailable") return Response.json({ error: "verification_unavailable" }, { status: 503 });
 
   const key = process.env.RESEND_API_KEY;
   const to = process.env.CONTACT_TO_EMAIL ?? "info@autommerce.com";
@@ -48,7 +53,6 @@ export async function POST(request: Request) {
   if (!key || !to) return Response.json({ error: "not_configured" }, { status: 503 });
 
   const rows = [
-    ["Topic", topic],
     ["Name", name],
     ["Email", email],
     ["Store", store || "—"],
@@ -62,7 +66,7 @@ export async function POST(request: Request) {
       from,
       to: to.split(",").map((a) => a.trim()),
       reply_to: email,
-      subject: `[Persona contact] ${topic} — ${name}`,
+      subject: `[Persona contact] ${name}`,
       text: `${rows.map(([k, v]) => `${k}: ${v}`).join("\n")}\n\n${message}`,
       html: `<table>${rows.map(([k, v]) => `<tr><td><b>${k}</b></td><td>${escape(v)}</td></tr>`).join("")}</table><p style="white-space:pre-wrap">${escape(message)}</p>`,
     }),
