@@ -4,6 +4,7 @@ import { embedJson, embedOptions } from "@/lib/embed/cors";
 import { consumeLiveTryOnSeconds } from "@/lib/db/realtime-tryon-events";
 import { getAccountBillingContext } from "@/lib/billing/account";
 import { isLiveTryOnEnabled } from "@/modules/workspaces/constants";
+import { isLiveMeteringEnabled } from "@/lib/live/live-access";
 
 interface RequestBody {
   embedToken?: string;
@@ -53,7 +54,8 @@ export async function POST(req: NextRequest) {
       cycleStartIso: billing.cycleStartIso,
       includedAllowanceSeconds: billing.tier.monthlyLiveTryOnSeconds,
       idempotencyKey,
-      billable: body.billable !== false,
+      // Metered sessions are billed by the proxy from Decart's seconds; a browser report is never trusted for money.
+      billable: !isLiveMeteringEnabled() && body.billable !== false,
       source: "store",
     });
     return embedJson({ ok: true, secondsBalance });

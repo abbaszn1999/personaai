@@ -28,6 +28,8 @@ interface TokenResponse {
   apiKey?: string;
   /** Signaling proxy to dial instead of `api.decart.ai`; absent when the app talks to Decart directly. */
   realtimeBaseUrl?: string;
+  /** The proxy bills this session from Decart's own seconds; the browser must not record it too. */
+  metered?: boolean;
   error?: string;
 }
 
@@ -101,6 +103,10 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
   const cameraStreamRef = React.useRef<MediaStream | null>(null);
   const activePreviewRef = React.useRef<ActivePreview | null>(null);
   const sessionIdRef = React.useRef<string | null>(null);
+  // The embed's session id is the shopper's, reused across every live session they open, so the
+  // billable row needs its own key per live session or every session after the first is dropped.
+  const liveSessionKeyRef = React.useRef<string | null>(null);
+  const meteredRef = React.useRef(false);
   const stoppingRef = React.useRef(false);
   const elapsedSecondsRef = React.useRef(0);
   // Decart's tick counts from 0 on every connection; a camera flip opens a new one, so the
@@ -169,6 +175,25 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
     [postUsage]
   );
 
+  /** The billable row for a session the proxy doesn't meter (direct-to-Decart or older setups). */
+  const recordUnmeteredSession = React.useCallback(() => {
+    const sessionId = sessionIdRef.current;
+    const liveSessionKey = liveSessionKeyRef.current;
+    const elapsedSeconds = Math.min(REALTIME_TRYON_SESSION_CAP_SECONDS, Math.round(elapsedSecondsRef.current));
+    if (meteredRef.current || !sessionId || !liveSessionKey || elapsedSeconds < 1) return;
+    postUsage(
+      {
+        sessionId,
+        productId: LIVE_SESSION_PRODUCT_ID,
+        productName: LIVE_SESSION_PRODUCT_NAME,
+        durationSeconds: elapsedSeconds,
+        idempotencyKey: `session:${liveSessionKey}`,
+        billable: true,
+      },
+      true
+    );
+  }, [postUsage]);
+
   const stop = React.useCallback(
     (reason = "user") => {
       if (stoppingRef.current) return;
@@ -177,25 +202,8 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
         mediaRecorderRef.current.stop();
       }
-      const sessionId = sessionIdRef.current;
-      const elapsedSeconds = Math.min(
-        REALTIME_TRYON_SESSION_CAP_SECONDS,
-        Math.round(elapsedSecondsRef.current)
-      );
       recordFinishedPreview(activePreviewRef.current, true);
-      if (sessionId && elapsedSeconds >= 1) {
-        postUsage(
-          {
-            sessionId,
-            productId: LIVE_SESSION_PRODUCT_ID,
-            productName: LIVE_SESSION_PRODUCT_NAME,
-            durationSeconds: elapsedSeconds,
-            idempotencyKey: `session:${sessionId}`,
-            billable: true,
-          },
-          true
-        );
-      }
+      recordUnmeteredSession();
       activePreviewRef.current = null;
       clientRef.current?.disconnect();
       clientRef.current = null;
@@ -210,9 +218,10 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
         sessionId: sessionIdRef.current,
       });
       sessionIdRef.current = null;
+      liveSessionKeyRef.current = null;
       stoppingRef.current = false;
     },
-    [postUsage, recordFinishedPreview]
+    [recordFinishedPreview, recordUnmeteredSession]
   );
 
   /** Opens the camera (at `mode`) and connects the Decart session. Shared by `start()` and
@@ -231,6 +240,8 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
         sessionIdRef.current = embedToken
           ? getOrCreateEmbedSessionId(embedToken)
           : createSessionId();
+        liveSessionKeyRef.current = createSessionId();
+        meteredRef.current = false;
       } else {
         // The new connection's tick restarts at 0: keep what this session has already used.
         carriedSecondsRef.current = elapsedSecondsRef.current;
@@ -258,12 +269,16 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
         const tokenResponse = await fetch(tokenUrl, {
           method: "POST",
           headers: embedToken ? embedRequestHeaders(embedToken) : { "Content-Type": "application/json" },
-          body: JSON.stringify(embedToken ? { embedToken } : workspaceId ? { workspaceId } : {}),
+          body: JSON.stringify({
+            ...(embedToken ? { embedToken } : workspaceId ? { workspaceId } : {}),
+            sessionId: sessionIdRef.current,
+          }),
         });
         const tokenData: TokenResponse = await tokenResponse.json().catch(() => ({}));
         if (!tokenResponse.ok || !tokenData.apiKey) {
           throw new Error(tokenData.error || "Live try-on isn't available right now.");
         }
+        meteredRef.current = tokenData.metered === true;
 
         const { createDecartClient, models } = await runtimePromise;
 
@@ -483,25 +498,8 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
 
   React.useEffect(() => {
     const onBeforeUnload = () => {
-      const sessionId = sessionIdRef.current;
-      const elapsedSeconds = Math.min(
-        REALTIME_TRYON_SESSION_CAP_SECONDS,
-        Math.round(elapsedSecondsRef.current)
-      );
       recordFinishedPreview(activePreviewRef.current, true);
-      if (sessionId && elapsedSeconds >= 1) {
-        postUsage(
-          {
-            sessionId,
-            productId: LIVE_SESSION_PRODUCT_ID,
-            productName: LIVE_SESSION_PRODUCT_NAME,
-            durationSeconds: elapsedSeconds,
-            idempotencyKey: `session:${sessionId}`,
-            billable: true,
-          },
-          true
-        );
-      }
+      recordUnmeteredSession();
       clientRef.current?.disconnect();
       cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
     };
@@ -510,7 +508,7 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
       window.removeEventListener("beforeunload", onBeforeUnload);
       onBeforeUnload();
     };
-  }, [postUsage, recordFinishedPreview]);
+  }, [recordFinishedPreview, recordUnmeteredSession]);
 
   return {
     status,

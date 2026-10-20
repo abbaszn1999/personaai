@@ -49,6 +49,45 @@ export async function consumeLiveTryOnSeconds(input: RecordRealtimeTryOnEventInp
   return typeof data === "number" ? data : null;
 }
 
+export interface RecordMeteredLiveSessionInput {
+  ownerId: string;
+  sessionId: string;
+  /** One per Decart upstream session, so every report for it updates the same row. */
+  idempotencyKey: string;
+  /** Decart's cumulative generation seconds for that session. */
+  totalSeconds: number;
+  cycleStartIso: string;
+  includedAllowanceSeconds: number;
+  source: UsageSurface;
+}
+
+/** Sets a proxy-metered session's billable total to the highest value reported, charging only the increase. */
+export async function recordMeteredLiveSessionSeconds(input: RecordMeteredLiveSessionInput): Promise<number | null> {
+  const { data, error } = await db.rpc("record_live_tryon_session_seconds", {
+    p_user_id: input.ownerId,
+    p_session_id: input.sessionId,
+    p_idempotency_key: input.idempotencyKey,
+    p_total_seconds: input.totalSeconds,
+    p_cycle_start: input.cycleStartIso,
+    p_included_allowance: input.includedAllowanceSeconds,
+    p_source: input.source,
+  });
+
+  if (error) {
+    console.error("[db/realtime-tryon-events recordMeteredLiveSessionSeconds]", error);
+    throw error;
+  }
+  const used = await getLiveTryOnSecondsUsedForOwner(input.ownerId, input.cycleStartIso);
+  await maybeAlertWalletUsage({
+    userId: input.ownerId,
+    wallet: "live",
+    used,
+    allowance: input.includedAllowanceSeconds,
+    cycleStartIso: input.cycleStartIso,
+  });
+  return typeof data === "number" ? data : null;
+}
+
 export interface RealtimeTryOnEventRow {
   sessionId: string;
   productId: string;
