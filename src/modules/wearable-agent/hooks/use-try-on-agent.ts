@@ -2187,6 +2187,9 @@ export function useTryOnAgent(
             pendingCartItemIds: s.pendingCartItemIds.filter((id) => id !== product.id),
           }));
           const source = attributionForProduct(messagesRef.current, product.id);
+          // Woo order matching needs platform + the real store item id (variation or product).
+          // Without these the cart add is logged for analytics but never links to a paid order.
+          const target = cartTargetsRef.current.get(product.id);
           void fetch(`${embed.apiBase}/cart-event`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -2199,6 +2202,8 @@ export function useTryOnAgent(
               currency: product.currency,
               quantity: 1,
               success,
+              ...(target?.platform ? { platform: target.platform } : {}),
+              ...(target?.id != null ? { platformItemId: String(target.id) } : {}),
               attribution: source?.attribution ?? null,
               lookId: source?.lookId ?? null,
             }),
