@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { createDecartClientToken, DecartApiError } from "@/lib/ai/decart";
+import { createDecartClientToken, DecartApiError, getDecartRealtimeProxyUrl } from "@/lib/ai/decart";
 import { resolveEmbedRequest } from "@/lib/embed/resolve";
 import { embedJson, embedOptions } from "@/lib/embed/cors";
 import { canStartLiveTryOn, getAccountBillingContext } from "@/lib/billing/account";
@@ -33,7 +33,11 @@ export async function POST(req: NextRequest) {
       balance: billing.user.live_tryon_seconds_balance,
     });
     const token = await createDecartClientToken(remainingSeconds);
-    return embedJson({ apiKey: token.apiKey, expiresAt: token.expiresAt });
+    return embedJson({
+      apiKey: token.apiKey,
+      expiresAt: token.expiresAt,
+      realtimeBaseUrl: getDecartRealtimeProxyUrl(),
+    });
   } catch (error) {
     console.error("[api/embed/persona/live-token POST]", error);
     if (error instanceof DecartApiError) {

@@ -1,5 +1,5 @@
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
-import { createDecartClientToken, DecartApiError } from "@/lib/ai/decart";
+import { createDecartClientToken, DecartApiError, getDecartRealtimeProxyUrl } from "@/lib/ai/decart";
 import { getWorkspaceByIdForOwner } from "@/lib/db/workspaces";
 import { canStartLiveTryOn, getAccountBillingContext } from "@/lib/billing/account";
 import { walletHeadroom } from "@/lib/billing/wallets";
@@ -36,7 +36,11 @@ export async function POST(req: Request) {
       balance: billing.user.live_tryon_seconds_balance,
     });
     const token = await createDecartClientToken(remainingSeconds);
-    return Response.json({ apiKey: token.apiKey, expiresAt: token.expiresAt });
+    return Response.json({
+      apiKey: token.apiKey,
+      expiresAt: token.expiresAt,
+      realtimeBaseUrl: getDecartRealtimeProxyUrl(),
+    });
   } catch (error) {
     console.error("[api/agents/persona/live-token POST]", error);
     if (error instanceof DecartApiError) {

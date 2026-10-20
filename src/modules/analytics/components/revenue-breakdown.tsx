@@ -43,7 +43,7 @@ export function RevenueBreakdown({ payload }: { payload: WorkspaceAnalyticsPaylo
         <Row
           label="3% commission"
           value={formatUsdCents(sales.commissionUsdCents)}
-          hint={`On ${formatUsdCents(Math.max(0, sales.billableNetUsdCents))} of Main plan sales`}
+          hint={`Estimated on ${formatUsdCents(Math.max(0, sales.billableNetUsdCents))} of Main plan sales — billed on renewal`}
         />
         {sales.unbilledNetUsdCents !== 0 && (
           <Row label="Trial sales" value={formatUsdCents(sales.unbilledNetUsdCents)} hint="No commission on the Trial plan" />

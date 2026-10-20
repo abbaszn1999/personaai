@@ -26,6 +26,8 @@ interface UseRealtimeTryOnOptions {
 
 interface TokenResponse {
   apiKey?: string;
+  /** Signaling proxy to dial instead of `api.decart.ai`; absent when the app talks to Decart directly. */
+  realtimeBaseUrl?: string;
   error?: string;
 }
 
@@ -279,7 +281,13 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
         setRemoteStream(cameraStream);
         setStatus("connecting");
 
-        const client = createDecartClient({ apiKey: tokenData.apiKey });
+        // Through the proxy the SDK's telemetry beacon would still go to platform.decart.ai on
+        // its own, so it is switched off along with the redirected signaling.
+        const client = createDecartClient(
+          tokenData.realtimeBaseUrl
+            ? { apiKey: tokenData.apiKey, realtimeBaseUrl: tokenData.realtimeBaseUrl, telemetry: false }
+            : { apiKey: tokenData.apiKey }
+        );
         const realtimeClient = await client.realtime.connect(cameraStream, {
           model,
           mirror: "auto",

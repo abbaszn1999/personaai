@@ -58,8 +58,7 @@ export async function consumeImageGeneration(
 
 /**
  * Counts image generations for a user, optionally since a given ISO timestamp.
- * Not consumed by any UI yet — written so a future usage-chart rewrite can query
- * real generation history instead of the mocked chart.
+ * Surfaced on Analytics → Virtual Try-On Insights as "Images generated".
  */
 export async function getImageGenerationCount(userId: string, sinceIso?: string): Promise<number> {
   let query = db

@@ -5,6 +5,22 @@ export const REALTIME_TRYON_SESSION_CAP_SECONDS = 90;
 /** Decart rejects a client token whose `maxSessionDuration` is under 10 seconds. */
 export const REALTIME_TRYON_MIN_SESSION_SECONDS = 10;
 
+/**
+ * WebSocket base URL of the live try-on signaling proxy (scripts/decart-live-proxy.mjs), handed
+ * to the browser with each client token. Unset means the SDK dials `api.decart.ai` directly.
+ */
+export function getDecartRealtimeProxyUrl(): string | undefined {
+  const raw = process.env.DECART_REALTIME_PROXY_URL?.trim();
+  if (!raw) return undefined;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "wss:" && url.protocol !== "ws:") return undefined;
+    return url.origin;
+  } catch {
+    return undefined;
+  }
+}
+
 export class DecartApiError extends Error {
   constructor(message: string, public status?: number) {
     super(message);

@@ -31,6 +31,7 @@ import {
 import type { ShopperProfileDraft } from "@/lib/embed/client/shopper-api";
 import { addItemToWooCommerceCart, removeItemFromWooCommerceCart } from "@/lib/woocommerce/store-api-client";
 import { addItemToShopifyCart, removeItemFromShopifyCart } from "@/lib/shopify/ajax-cart-client";
+import { topicFromAttribution } from "@/lib/agents/attribution";
 
 // Mirrors DEFAULT_AVATAR_VARIATION_COUNT in src/lib/try-on/image-generation.ts — kept as a local
 // literal rather than importing that module, since this hook ships in the client widget bundle
@@ -1972,7 +1973,7 @@ export function useTryOnAgent(
             case "done": {
               sawDone = true;
               if (pendingQuickOptions) patchAssistantMessage({ quickOptions: pendingQuickOptions });
-              logChatEvent("assistant", null, turnAttribution);
+              logChatEvent("assistant", topicFromAttribution(turnAttribution), turnAttribution);
               break;
             }
             default:

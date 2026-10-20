@@ -7,12 +7,12 @@ interface TryOnInsightsProps {
   payload: WorkspaceAnalyticsPayload | null;
 }
 
-/** Most-tried-on products, top recommended sizes, and avg try-ons per session — all logged by
- *  the widget itself the moment a static (Photo mode) try-on render completes (see
- *  try-on-events.ts). Falls back to an honest empty state when no shopper has generated one yet
- *  in this range. Live camera try-on has its own separate LiveTryOnInsights card. */
+/** Images generated (billed try-on renders), most-tried-on products, top recommended sizes, and
+ *  avg try-ons per session. Product/size rows come from try-on-events once a static (Photo mode)
+ *  try-on completes. Live camera try-on has its own separate LiveTryOnInsights card. */
 export function TryOnInsights({ payload }: TryOnInsightsProps) {
   const d = payload?.tryOnInsights;
+  const imagesGenerated = payload?.imagesGenerated ?? 0;
 
   return (
     <div className="card-base p-5 flex flex-col gap-4">
@@ -24,6 +24,16 @@ export function TryOnInsights({ payload }: TryOnInsightsProps) {
         <div>
           <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">Virtual Try-On Insights</h3>
           <p className="text-xs text-[var(--color-text-muted)]">Wearable workspace only</p>
+        </div>
+      </div>
+
+      <div className="rounded-[var(--radius-xl)] border border-[var(--color-border)] p-3 flex items-center gap-3">
+        <div className="h-9 w-9 rounded-lg bg-[var(--color-brand-light)] flex items-center justify-center shrink-0">
+          <Camera className="h-4 w-4 text-[var(--color-brand)]" />
+        </div>
+        <div>
+          <p className="text-xs text-[var(--color-text-muted)]">Images generated</p>
+          <p className="text-xl font-bold text-[var(--color-text-primary)]">{imagesGenerated.toLocaleString()}</p>
         </div>
       </div>
 

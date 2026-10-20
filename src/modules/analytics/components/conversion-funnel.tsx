@@ -4,7 +4,9 @@ const STEP_HINTS = [
   "Shoppers who opened Persona",
   "Tried on, previewed live, asked the assistant, or added to cart",
   "Added a product from the widget",
-  "Bought through an attributed order",
+  // Sessions that opened in this range and later ordered — can differ from the Orders KPI,
+  // which counts attributed orders whose payment fell in the range.
+  "Attributed orders from sessions opened in this range",
 ];
 
 function pct(part: number, whole: number): string {

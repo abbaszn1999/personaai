@@ -54,6 +54,34 @@ export function createAttributionCollector(anchored = false) {
   };
 }
 
+const ACTION_TOPIC_LABELS: Record<string, string> = {
+  filter: "Product browse",
+  cosine: "Product search",
+  answer: "Style advice",
+  complete_look: "Complete the look",
+  look_follow_up: "Look follow-up",
+  attribute_answer: "Product details",
+};
+
+/**
+ * Short label for the Analytics "Top topics" list. Prefers the catalog path the shopper
+ * browsed (leaf segment), otherwise a readable name for the turn's action.
+ */
+export function topicFromAttribution(attribution: TurnAttribution | null | undefined): string | null {
+  if (!attribution) return null;
+  if (attribution.path) {
+    const leaf = attribution.path
+      .split(">")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .pop();
+    const label = leaf || attribution.path.trim();
+    return label ? label.slice(0, 80) : null;
+  }
+  const fromAction = ACTION_TOPIC_LABELS[attribution.action] ?? attribution.action.trim();
+  return fromAction ? fromAction.slice(0, 80) : null;
+}
+
 /** Accepts attribution from an untrusted client and keeps only well-formed, bounded fields. */
 export function parseAttribution(raw: unknown): TurnAttribution | null {
   if (!raw || typeof raw !== "object") return null;
