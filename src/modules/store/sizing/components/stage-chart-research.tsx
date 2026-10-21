@@ -50,7 +50,7 @@ type StatusFilter = "all" | "done" | "needs_action";
  * Sizing categories print as their raw keys (`tops`, not "Tops & knitwear") deliberately. A friendly
  * label would hide exactly the class of bug this screen exists to catch.
  */
-export function StageChartResearch() {
+export function StageChartResearch({ stageLabel }: { stageLabel?: string } = {}) {
   const run = useSizingStore((s) => s.run);
   const brands = useSizingStore((s) => s.chartBrands);
   const charts = useSizingStore((s) => s.charts);
@@ -202,6 +202,7 @@ export function StageChartResearch() {
     <div className="space-y-4">
       <StageHeaderBanner
         stageNumber={4}
+        stageLabel={stageLabel}
         eyebrow="Global Brand Charts"
         title={
           brands.length === 0

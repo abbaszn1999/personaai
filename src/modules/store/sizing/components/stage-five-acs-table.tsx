@@ -184,13 +184,42 @@ function writeCached(key: string, value: unknown) {
   }
 }
 
+/** Where Stage 5 reads its rows and totals from. */
+export interface StageFiveDataSource {
+  products(params: URLSearchParams, signal?: AbortSignal): Promise<AcsStageFiveResponse>;
+  summary(): Promise<SizingResolutionSummary>;
+}
+
+/** The live store's own endpoints. What Setup uses; the Sync preview swaps in its own. */
+export const API_STAGE_FIVE_SOURCE: StageFiveDataSource = {
+  async products(params, signal) {
+    const result = await fetch(`/api/store-connection/sizing/acs-products?${params}`, {
+      cache: "no-store",
+      signal,
+    });
+    const body = await result.json() as AcsStageFiveResponse & { error?: string };
+    if (!result.ok) throw new Error(body.error ?? "Could not load ACS products");
+    return body;
+  },
+  async summary() {
+    const result = await fetch("/api/store-connection/sizing/resolution-summary", {
+      cache: "no-store",
+    });
+    const body = await result.json() as SizingResolutionSummary & { error?: string };
+    if (!result.ok) throw new Error(body.error ?? "Could not load sizing totals");
+    return body;
+  },
+};
+
 export function StageFiveAcsTable({
   refreshKey,
   cacheScope,
+  source = API_STAGE_FIVE_SOURCE,
 }: {
   refreshKey: string | null | undefined;
   /** Whose catalog this is, so a cached answer is never shown to a different store. */
   cacheScope: string;
+  source?: StageFiveDataSource;
 }) {
   const [response, setResponse] = React.useState<AcsStageFiveResponse | null>(null);
   const [summary, setSummary] = React.useState<SizingResolutionSummary | null>(null);
@@ -231,12 +260,7 @@ export function StageFiveAcsTable({
     setError(null);
 
     try {
-      const result = await fetch(`/api/store-connection/sizing/acs-products?${params}`, {
-        cache: "no-store",
-        signal: controller.signal,
-      });
-      const body = await result.json() as AcsStageFiveResponse & { error?: string };
-      if (!result.ok) throw new Error(body.error ?? "Could not load ACS products");
+      const body = await source.products(params, controller.signal);
       if (requestController.current !== controller) return;
       setResponse(body);
       setShowingRequested(true);
@@ -248,8 +272,8 @@ export function StageFiveAcsTable({
         nextParams.set("offset", String(page * pageSize));
         const nextKey = `${cacheScope}:${refreshKey ?? "draft"}:products:${nextParams}`;
         if (!readCached(nextKey)) {
-          void fetch(`/api/store-connection/sizing/acs-products?${nextParams}`, { cache: "no-store" })
-            .then(async (next) => (next.ok ? writeCached(nextKey, await next.json()) : undefined))
+          void source.products(nextParams)
+            .then((next) => writeCached(nextKey, next))
             .catch(() => undefined);
         }
       }
@@ -267,18 +291,14 @@ export function StageFiveAcsTable({
         setLoading(false);
       }
     }
-  }, [availability, brandType, cacheScope, page, pageSize, query, refreshKey, type]);
+  }, [availability, brandType, cacheScope, page, pageSize, query, refreshKey, source, type]);
 
   const loadSummary = React.useCallback(async () => {
     const cacheKey = `${cacheScope}:${refreshKey ?? "draft"}:summary`;
     const cached = readCached<SizingResolutionSummary>(cacheKey);
     if (cached) setSummary(cached);
     try {
-      const result = await fetch("/api/store-connection/sizing/resolution-summary", {
-        cache: "no-store",
-      });
-      const body = await result.json() as SizingResolutionSummary & { error?: string };
-      if (!result.ok) throw new Error(body.error ?? "Could not load sizing totals");
+      const body = await source.summary();
       setSummary(body);
       writeCached(cacheKey, body);
       if (body.refreshing) {
@@ -287,7 +307,7 @@ export function StageFiveAcsTable({
     } catch {
       if (!cached) setSummary(null);
     }
-  }, [cacheScope, refreshKey]);
+  }, [cacheScope, refreshKey, source]);
 
   React.useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);

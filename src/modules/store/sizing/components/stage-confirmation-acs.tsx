@@ -6,11 +6,56 @@ import { AlertTriangle, ArrowLeft, ArrowRight, Loader2, ShieldCheck } from "luci
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { leafLabel } from "@/modules/store/mapping/persona-taxonomy";
-import { isRunWorking, type UnresolvedSizingGroup } from "../server-types";
+import { isRunWorking, type SizingRun, type UnresolvedSizingGroup } from "../server-types";
 import { useSizingStore } from "../store";
-import { StageFiveAcsTable } from "./stage-five-acs-table";
+import { StageFiveAcsTable, type StageFiveDataSource } from "./stage-five-acs-table";
 
-export function StageConfirmation() {
+interface PublishResponseBody {
+  run?: SizingRun;
+  error?: string;
+  message?: string;
+  rescanning?: boolean;
+  requiresConfirmation?: boolean;
+  unresolved?: number;
+  total?: number;
+  groups?: UnresolvedSizingGroup[];
+}
+
+/** Sends one publish request and reports its HTTP-style outcome. */
+export type SizingPublisher = (
+  confirmUnresolved?: number,
+) => Promise<{ status: number; ok: boolean; body: PublishResponseBody }>;
+
+const publishThroughApi: SizingPublisher = async (confirmUnresolved) => {
+  const response = await fetch("/api/store-connection/sizing/publish", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(confirmUnresolved === undefined ? {} : { confirmUnresolved }),
+  });
+  const body = await response.json() as PublishResponseBody;
+  return { status: response.status, ok: response.ok, body };
+};
+
+interface StageConfirmationProps {
+  /** Replaces the "Stage 5 of 5" pill, for flows with their own numbering (Sync). */
+  stageLabel?: string;
+  /** Where the table reads from. Defaults to the live store's endpoints. */
+  source?: StageFiveDataSource;
+  /** Scopes the table's cached answers. Defaults to the live connection. */
+  cacheScope?: string;
+  /** Sends the publish request. Defaults to the live publish endpoint; the Sync preview swaps in a simulation. */
+  publisher?: SizingPublisher;
+  /** Replaces the jump to the Sizing Tester. */
+  onOpenTester?: () => void;
+}
+
+export function StageConfirmation({
+  stageLabel,
+  source,
+  cacheScope,
+  publisher = publishThroughApi,
+  onOpenTester,
+}: StageConfirmationProps = {}) {
   const router = useRouter();
   const pathname = usePathname();
   const run = useSizingStore((state) => state.run);
@@ -56,21 +101,8 @@ export function StageConfirmation() {
     setNotice(null);
     setPendingConfirmation(null);
     try {
-      const response = await fetch("/api/store-connection/sizing/publish", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(confirmUnresolved === undefined ? {} : { confirmUnresolved }),
-      });
-      const body = await response.json() as {
-        run?: NonNullable<typeof run>;
-        error?: string;
-        message?: string;
-        rescanning?: boolean;
-        requiresConfirmation?: boolean;
-        unresolved?: number;
-        total?: number;
-        groups?: UnresolvedSizingGroup[];
-      };
+      const response = await publisher(confirmUnresolved);
+      const body = response.body;
       if (response.status === 409 && body.requiresConfirmation) {
         setPublishing(false);
         setPendingConfirmation({
@@ -116,7 +148,9 @@ export function StageConfirmation() {
         <div className="border-b border-slate-200 bg-gradient-to-r from-violet-50 via-white to-pink-50 px-6 py-5">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <span className="text-xs font-semibold text-violet-700">Stage 5 of 5 · ACS Catalog Mirror</span>
+              <span className="text-xs font-semibold text-violet-700">
+                {stageLabel ?? "Stage 5 of 5"} · ACS Catalog Mirror
+              </span>
               <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
                 ACS Product Preview &amp; Published Catalog
               </h1>
@@ -137,7 +171,11 @@ export function StageConfirmation() {
       {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
       {notice && <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-800">{notice}</div>}
 
-      <StageFiveAcsTable refreshKey={run?.publishedAt} cacheScope={run?.connectionId ?? "none"} />
+      <StageFiveAcsTable
+        refreshKey={run?.publishedAt}
+        cacheScope={cacheScope ?? run?.connectionId ?? "none"}
+        source={source}
+      />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button
@@ -152,7 +190,7 @@ export function StageConfirmation() {
           {run?.publishedAt && !publishWorking && (
             <button
               type="button"
-              onClick={() => router.push(`${pathname}?section=sizingtester`)}
+              onClick={() => (onOpenTester ? onOpenTester() : router.push(`${pathname}?section=sizingtester`))}
               className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-white px-5 py-2.5 text-sm font-bold text-violet-700 shadow-sm"
             >
               Open Sizing Tester <ArrowRight className="h-4 w-4" />

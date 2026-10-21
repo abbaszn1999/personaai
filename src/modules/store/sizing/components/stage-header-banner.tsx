@@ -16,6 +16,8 @@ interface StageHeaderBannerProps {
   /** Stats pills or buttons anchored to the right, mirroring the demo's per-stage header actions. */
   actions?: React.ReactNode;
   className?: string;
+  /** Replaces the "Stage N of N" pill text, for flows with their own numbering (Sync). */
+  stageLabel?: string;
 }
 
 /**
@@ -31,6 +33,7 @@ export function StageHeaderBanner({
   aiPowered,
   actions,
   className,
+  stageLabel,
 }: StageHeaderBannerProps) {
   return (
     <div
@@ -50,7 +53,7 @@ export function StageHeaderBanner({
             )}
           >
             {aiPowered && <Sparkles className="h-3 w-3" />}
-            Stage {stageNumber} of {LAST_STAGE}
+            {stageLabel ?? `Stage ${stageNumber} of ${LAST_STAGE}`}
           </span>
           <span className="text-[var(--color-text-muted)]">·</span>
           <span className="text-xs font-medium text-[var(--color-text-muted)]">{eyebrow}</span>

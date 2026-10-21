@@ -5,7 +5,7 @@ import { Check, ChevronRight, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import type { StageNumber } from "../types";
 
-interface StepMeta {
+export interface StepMeta {
   stage: StageNumber;
   title: string;
   shortLabel: string;
@@ -24,6 +24,9 @@ interface SetupStepperProps {
   currentStage: StageNumber;
   highestReachedStage: StageNumber;
   onSelectStage: (stage: StageNumber) => void;
+  /** The steps to draw. Defaults to the five setup stages; the Sync flow passes its own two. */
+  steps?: StepMeta[];
+  ariaLabel?: string;
 }
 
 /**
@@ -35,12 +38,14 @@ export function SetupStepper({
   currentStage,
   highestReachedStage,
   onSelectStage,
+  steps = STEPS,
+  ariaLabel = "Setup pipeline progress",
 }: SetupStepperProps) {
   return (
     <div className="rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)] px-3 py-3 shadow-[var(--shadow-elevated)] sm:px-4">
-      <nav aria-label="Setup pipeline progress">
+      <nav aria-label={ariaLabel}>
         <ol className="flex items-center justify-between gap-1">
-          {STEPS.map((step, index) => {
+          {steps.map((step, index) => {
             const isCompleted = currentStage > step.stage;
             const isCurrent = currentStage === step.stage;
             const isAccessible = step.stage <= highestReachedStage;
@@ -102,7 +107,7 @@ export function SetupStepper({
                   </div>
                 </button>
 
-                {index < STEPS.length - 1 && (
+                {index < steps.length - 1 && (
                   <div className="hidden shrink-0 px-1 text-[var(--color-border-strong)] sm:flex">
                     <ChevronRight className="h-3.5 w-3.5" />
                   </div>

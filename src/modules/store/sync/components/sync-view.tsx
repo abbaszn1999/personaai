@@ -5,7 +5,6 @@ import {
   Sparkles,
   RefreshCw,
   ArrowRight,
-  ArrowLeft,
   CheckCircle2,
   AlertTriangle,
   Zap,
@@ -16,84 +15,28 @@ import {
   Check,
 } from 'lucide-react';
 import {
-  MockProduct,
-  FoundSizeChart,
-  GapItem,
-  PathChartAssignment,
-  BrandResearchedCategoryChart,
-} from '../types';
-import {
-  FOUND_SIZE_CHARTS,
-  INITIAL_PATH_ASSIGNMENTS,
-  BRAND_RESEARCHED_CATEGORY_CHARTS,
-} from '../data/mock-data';
-import {
   SYNC_HISTORY_DATA,
   NEW_SYNC_PRODUCTS,
-  NEW_SYNC_FOUND_SIZE_CHARTS,
-  NEW_SYNC_GAP_ITEMS,
   SyncHistoryEntry,
 } from '../data/sync-data';
-import { Stage4SizeChartResearch } from './stage-size-chart-research';
-import { Stage5ChartAssignment } from './stage-chart-assignment';
-import { Stage6Confirmation } from './stage-confirmation';
-import { JsonExtractorLoading } from './json-extractor-loading';
-import { SizeChartModal } from './size-chart-modal';
-import { GapFillModal } from './gap-fill-modal';
+import { SyncBoard } from './sync-board';
 
 interface SyncViewProps {
   onGoToSetup: () => void;
-  onViewSizeChart?: (chart: FoundSizeChart, item?: MockProduct) => void;
-  onOpenGapModal?: (item: GapItem) => void;
 }
 
-type SyncBoardStage = 1 | 2 | 3;
-
-interface SyncStepMeta {
-  stage: SyncBoardStage;
-  title: string;
-  shortLabel: string;
-  badge?: string;
-}
-
-const SYNC_STEPS: SyncStepMeta[] = [
-  { stage: 1, title: 'Size Chart Research', shortLabel: 'Research', badge: 'AI' },
-  { stage: 2, title: 'Chart Assignment', shortLabel: 'Assignment', badge: 'Rule' },
-  { stage: 3, title: 'Active Overview', shortLabel: 'Active' },
-];
-
-export function SyncView({
-  onGoToSetup,
-  onViewSizeChart,
-  onOpenGapModal,
-}: SyncViewProps) {
+/**
+ * The Sync tab: a dashboard of pending catalog changes (still demo content in the demo's light
+ * styling) and, once a sync is launched, a two-step board that is Setup's real Stage 4 (Size Chart
+ * Research) and Stage 5 (Active Overview) running on demo data. See `./sync-board`.
+ */
+export function SyncView({ onGoToSetup: _onGoToSetup }: SyncViewProps) {
   // Sync High-Level View
   const [inSyncBoard, setInSyncBoard] = useState(false);
   const [activeHistoryTab, setActiveHistoryTab] = useState<'alarm' | 'history'>('alarm');
   const [selectedHistoryEntry, setSelectedHistoryEntry] = useState<SyncHistoryEntry | null>(null);
 
-  // Sync Board Stepper State (Matching Setup design)
-  const [syncStage, setSyncStage] = useState<SyncBoardStage>(1);
-  const [highestReachedSyncStage, setHighestReachedSyncStage] = useState<SyncBoardStage>(1);
-
-  // Sync Datasets
-  const [syncFoundCharts] = useState<FoundSizeChart[]>([
-    ...FOUND_SIZE_CHARTS,
-    ...NEW_SYNC_FOUND_SIZE_CHARTS,
-  ]);
-  const [syncGapItems, setSyncGapItems] = useState<GapItem[]>(NEW_SYNC_GAP_ITEMS);
-  const [syncProducts] = useState<MockProduct[]>(NEW_SYNC_PRODUCTS);
-  const [syncPathAssignments, setSyncPathAssignments] = useState<PathChartAssignment[]>(INITIAL_PATH_ASSIGNMENTS);
-  const [syncBrandCharts] = useState<BrandResearchedCategoryChart[]>(BRAND_RESEARCHED_CATEGORY_CHARTS);
-
-  // Stage Processing States
-  const [syncSizeChartResearchDone, setSyncSizeChartResearchDone] = useState(true);
-  const [syncJsonExtractionDone, setSyncJsonExtractionDone] = useState(false);
-
-  // Modals inside SyncView
-  const [activeSizeChartModal, setActiveSizeChartModal] = useState<FoundSizeChart | null>(null);
-  const [activeItemContext, setActiveItemContext] = useState<MockProduct | null>(null);
-  const [activeGapModalItem, setActiveGapModalItem] = useState<GapItem | null>(null);
+  const syncProducts = NEW_SYNC_PRODUCTS;
 
   // Toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -106,72 +49,6 @@ export function SyncView({
   // Launch Sync Flow from Alarm - Directly opens the Size Chart tab without any loading
   const handleLaunchSync = () => {
     setInSyncBoard(true);
-    setSyncStage(1);
-    setHighestReachedSyncStage(1);
-    setSyncSizeChartResearchDone(true);
-  };
-
-  const handleSelectSyncStage = (stage: SyncBoardStage) => {
-    if (stage <= highestReachedSyncStage) {
-      setSyncStage(stage);
-    }
-  };
-
-  const handleAdvanceStage = (nextStage: SyncBoardStage) => {
-    setSyncStage(nextStage);
-    if (nextStage > highestReachedSyncStage) {
-      setHighestReachedSyncStage(nextStage);
-    }
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const handleAutoFillGaps = () => {
-    setSyncGapItems((prev) =>
-      prev.map((g) => ({
-        ...g,
-        status: 'complete',
-      }))
-    );
-    showToast('All size templates filled with standardized metric measurements');
-  };
-
-  const handleViewSizeChart = (chart: FoundSizeChart, item?: MockProduct) => {
-    setActiveSizeChartModal(chart);
-    setActiveItemContext(item || null);
-    if (onViewSizeChart) {
-      onViewSizeChart(chart, item);
-    }
-  };
-
-  const handleOpenGapModal = (item: GapItem) => {
-    setActiveGapModalItem(item);
-    if (onOpenGapModal) {
-      onOpenGapModal(item);
-    }
-  };
-
-  const handleFillGapById = (gapId: string) => {
-    const item = syncGapItems.find((g) => g.id === gapId);
-    if (item) {
-      handleOpenGapModal(item);
-    }
-  };
-
-  const handleSaveGapItem = (updatedItem: GapItem) => {
-    setSyncGapItems((prev) =>
-      prev.map((item) => (item.id === updatedItem.id ? updatedItem : item))
-    );
-    setActiveGapModalItem(null);
-    showToast(`Saved measurements for ${updatedItem.title}`);
-  };
-
-  const handleUpdateSyncPathAssignment = (id: string, variantId: string | null, variantName: string) => {
-    setSyncPathAssignments((prev) =>
-      prev.map((a) =>
-        a.id === id ? { ...a, assignedVariantId: variantId, assignedVariantName: variantName, isAutoMatched: false } : a
-      )
-    );
-    showToast(`Updated chart assignment rule for category path`);
   };
 
   return (
@@ -185,9 +62,17 @@ export function SyncView({
       )}
 
       {/* ========================================================================= */}
+      {/* SYNC BOARD: Setup's Stage 4 + Stage 5 on demo data. Rendered on the Store's */}
+      {/* own surface (not the demo's light one) so it looks exactly like Setup.     */}
+      {/* ========================================================================= */}
+      {inSyncBoard && <SyncBoard onExit={() => setInSyncBoard(false)} notify={showToast} />}
+
+      {/* ========================================================================= */}
       {/* ALARM & HISTORY SCREEN (BEFORE SYNC LAUNCH - SYNC DASHBOARD)              */}
+      {/* The demo's light surface, restored for the demo-styled dashboard.         */}
       {/* ========================================================================= */}
       {!inSyncBoard && (
+        <div className="sync-brand flex min-h-[calc(100vh-200px)] w-full flex-col overflow-hidden rounded-[var(--radius-2xl)] bg-slate-50 font-sans text-slate-900 selection:bg-purple-200 selection:text-purple-900">
         <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6">
           <div className="w-full space-y-6">
             {/* Header Card with Segmented Switcher */}
@@ -302,7 +187,7 @@ export function SyncView({
                         </div>
                         <div className="text-2xl font-black text-slate-900">6 SKUs</div>
                         <p className="text-[11px] text-slate-500 mt-0.5">
-                          Nordic Knitwear Lab &amp; Unbranded Headwear (Quick template input)
+                          Nordic Knitwear Lab &amp; Unbranded Basics (Quick template input)
                         </p>
                       </div>
                     </div>
@@ -453,175 +338,12 @@ export function SyncView({
             )}
           </div>
         </main>
-      )}
-
-      {/* ========================================================================= */}
-      {/* SYNC BOARD WITH EXACT SETUP DESIGN CLONED ACROSS ALL STAGES              */}
-      {/* ========================================================================= */}
-      {inSyncBoard && (
-        <div className="flex-1 flex flex-col w-full min-w-0">
-          {/* EXACT SETUP-STYLE FULL-WIDTH STEPPER TABS BAR */}
-          <div className="w-full bg-white border-b border-slate-200/80 shadow-2xs">
-            <div className="w-full px-4 sm:px-6 lg:px-8 py-3">
-              <nav aria-label="Sync Progress">
-                <ol className="flex items-center justify-between w-full gap-2">
-                  {SYNC_STEPS.map((step, idx) => {
-                    const isCompleted = syncStage > step.stage;
-                    const isCurrent = syncStage === step.stage;
-                    const isAccessible = step.stage <= highestReachedSyncStage;
-
-                    return (
-                      <li key={step.stage} className="flex-1 flex items-center">
-                        <div className="flex items-center w-full">
-                          <button
-                            type="button"
-                            disabled={!isAccessible}
-                            onClick={() => isAccessible && handleSelectSyncStage(step.stage)}
-                            className={`group flex items-center gap-2.5 text-left w-full transition-all duration-200 rounded-lg p-1.5 ${
-                              isAccessible ? 'cursor-pointer hover:bg-slate-50' : 'cursor-not-allowed opacity-60'
-                            }`}
-                          >
-                            {/* Step Circle Indicator */}
-                            <div
-                              className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300 ${
-                                isCompleted
-                                  ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/20'
-                                  : isCurrent
-                                  ? 'bg-gradient-to-br from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-white shadow-md shadow-purple-500/25 ring-3 ring-purple-100 ring-offset-1 scale-105'
-                                  : 'bg-slate-100 text-slate-500 border border-slate-200 group-hover:border-slate-300'
-                              }`}
-                            >
-                              {isCompleted ? <Check className="w-4 h-4 stroke-[2.5]" /> : step.stage}
-                            </div>
-
-                            {/* Text Label */}
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-1.5">
-                                <span
-                                  className={`text-xs font-semibold truncate transition-colors ${
-                                    isCurrent
-                                      ? 'text-purple-950 font-bold'
-                                      : isCompleted
-                                      ? 'text-slate-800'
-                                      : 'text-slate-500'
-                                  }`}
-                                >
-                                  <span className="hidden xl:inline">{step.title}</span>
-                                  <span className="xl:hidden">{step.shortLabel}</span>
-                                </span>
-
-                                {step.badge && (
-                                  <span className="hidden lg:inline-flex px-1.5 py-0.2 rounded text-[9px] font-bold bg-purple-100/80 text-purple-700 uppercase tracking-wider">
-                                    {step.badge}
-                                  </span>
-                                )}
-                              </div>
-
-                              <span className="hidden md:block text-[10px] text-slate-600 truncate">
-                                {isCompleted ? 'Completed' : isCurrent ? 'Active Stage' : `Step ${step.stage}`}
-                              </span>
-                            </div>
-                          </button>
-
-                          {/* Step Divider Arrow */}
-                          {idx < SYNC_STEPS.length - 1 && (
-                            <div className="hidden sm:flex items-center justify-center px-1 text-slate-300">
-                              <ArrowRight className="w-3.5 h-3.5" />
-                            </div>
-                          )}
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ol>
-              </nav>
-            </div>
-          </div>
-
-          {/* Sync Delta Notification Sub-Header */}
-          <div className="w-full bg-gradient-to-r from-amber-500/10 via-purple-500/5 to-pink-500/10 border-b border-amber-200/80 px-4 sm:px-6 lg:px-8 py-2.5 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-xs">
-              <span className="inline-flex items-center gap-1.5 font-bold text-amber-900 bg-amber-100/90 border border-amber-300/80 px-2.5 py-0.5 rounded-full">
-                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-                Shopify Delta Ingestion
-              </span>
-              <span className="text-slate-600 font-medium">
-                <strong>48 New SKUs</strong> · Auto-inherited Store Field Mappings
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setInSyncBoard(false)}
-                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg shadow-2xs transition-colors cursor-pointer"
-              >
-                <ArrowLeft className="w-3.5 h-3.5 text-slate-500" />
-                <span>Back to Sync Dashboard</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Main Stage Content Cloned Directly from Setup Stages */}
-          <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6">
-            <div className="w-full">
-              {/* STAGE 1: SIZE CHART RESEARCH */}
-              {syncStage === 1 && (
-                <Stage4SizeChartResearch
-                  foundCharts={syncFoundCharts}
-                  gapItems={syncGapItems}
-                  isCompleted={true}
-                  onSetCompleted={setSyncSizeChartResearchDone}
-                  onViewChart={handleViewSizeChart}
-                  onFillGap={handleFillGapById}
-                  onPrev={() => setInSyncBoard(false)}
-                  onNext={() => handleAdvanceStage(2)}
-                  stageLabel="Sync Stage 1 of 3"
-                  stepLabel="Size Chart Research & Verification"
-                  isSyncFlow={true}
-                />
-              )}
-
-              {/* STAGE 2: CHART ASSIGNMENT */}
-              {syncStage === 2 && (
-                <Stage5ChartAssignment
-                  pathAssignments={syncPathAssignments}
-                  brandCharts={syncBrandCharts}
-                  products={syncProducts}
-                  onUpdatePathAssignment={handleUpdateSyncPathAssignment}
-                  onPrev={() => handleAdvanceStage(1)}
-                  onNext={() => handleAdvanceStage(3)}
-                />
-              )}
-
-              {/* STAGE 3: ACTIVE OVERVIEW & JSON EXTRACTION */}
-              {syncStage === 3 && (
-                !syncJsonExtractionDone ? (
-                  <JsonExtractorLoading
-                    onComplete={() => setSyncJsonExtractionDone(true)}
-                    onCancel={() => handleSelectSyncStage(2)}
-                  />
-                ) : (
-                  <Stage6Confirmation
-                    products={syncProducts}
-                    foundCharts={syncFoundCharts}
-                    gapItems={syncGapItems}
-                    onViewChart={handleViewSizeChart}
-                    onPrev={() => handleAdvanceStage(2)}
-                    onReset={() => setInSyncBoard(false)}
-                    onRerunExtraction={() => setSyncJsonExtractionDone(false)}
-                    stageLabel="Sync Stage 3 of 3 · Active Delta Catalog"
-                  />
-                )
-              )}
-            </div>
-          </main>
         </div>
       )}
 
       {/* History Detail Drawer / Modal */}
       {selectedHistoryEntry && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="sync-brand fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
@@ -674,21 +396,6 @@ export function SyncView({
           </div>
         </div>
       )}
-
-      {/* Internal Modals for Sync View */}
-      <SizeChartModal
-        chart={activeSizeChartModal}
-        item={activeItemContext}
-        isOpen={!!activeSizeChartModal}
-        onClose={() => setActiveSizeChartModal(null)}
-      />
-
-      <GapFillModal
-        item={activeGapModalItem}
-        isOpen={!!activeGapModalItem}
-        onClose={() => setActiveGapModalItem(null)}
-        onSave={handleSaveGapItem}
-      />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import { create } from "zustand";
 import type {
   CategoryFilterConfig,
@@ -100,7 +101,7 @@ interface ChartModalTarget {
  *  slow enough that a long walk isn't a request per second for several minutes. */
 const POLL_INTERVAL_MS = 2_000;
 
-interface SizingUiState {
+export interface SizingUiState {
   stage: StageNumber;
   /** High-water mark, so a merchant can revisit a finished stage but not skip ahead. */
   highestStage: StageNumber;
@@ -352,7 +353,7 @@ let sampleRequestId = 0;
  * Kept out of `useStoreConnectionStore` because stage navigation is genuinely per-session UI, while
  * the connection store models a persisted record.
  */
-export const useSizingStore = create<SizingUiState>((set, get) => ({
+const sizingStore = create<SizingUiState>((set, get) => ({
   stage: 1,
   highestStage: 1,
   stageRestored: false,
@@ -1020,6 +1021,30 @@ export const useSizingStore = create<SizingUiState>((set, get) => ({
       ),
     })),
 }));
+
+/**
+ * Lets a subtree read a different sizing state than the live pipeline's.
+ *
+ * The Store → Sync tab renders the real Stage 4 and Stage 5 screens on its own demo data. Those
+ * screens read everything through `useSizingStore`, so providing a state here swaps what they see
+ * without touching the live store, the setup run, or any API. Outside a provider the hook behaves
+ * exactly as the plain zustand hook did.
+ */
+export const SizingStateOverrideContext = React.createContext<SizingUiState | null>(null);
+
+function useSizingStoreHook<T>(selector: (state: SizingUiState) => T): T {
+  const override = React.useContext(SizingStateOverrideContext);
+  // Both are always called so the hook order never depends on the context.
+  const live = sizingStore(selector);
+  return override ? selector(override) : live;
+}
+
+export const useSizingStore = Object.assign(useSizingStoreHook, {
+  getState: sizingStore.getState,
+  setState: sizingStore.setState,
+  subscribe: sizingStore.subscribe,
+  getInitialState: sizingStore.getInitialState,
+});
 
 /** One read of the run and everything the stages derive from it. `loadRun` decides whether to call
  *  this; the poll goes through `loadRun` without `ifStale`, so it always reads. */
