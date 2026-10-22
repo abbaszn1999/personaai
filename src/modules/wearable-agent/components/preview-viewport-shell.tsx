@@ -15,6 +15,10 @@ interface PreviewViewportShellProps {
    *  `mode === "mobile"` just needs the real mobile content layout at the widget's own size,
    *  same as the desktop branches below. */
   frameless?: boolean;
+  /** Floated over the card (the profile switcher). Rendered on the card's own box, not on the
+   *  full-width host, so a centered desktop card keeps it in its top corner. Sits outside the
+   *  card's overflow clip so its menu can open past the rounded edge. */
+  overlay?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
 }
@@ -30,6 +34,7 @@ export function PreviewViewportShell({
   mode,
   layout = "card",
   frameless = false,
+  overlay,
   children,
   className,
 }: PreviewViewportShellProps) {
@@ -47,14 +52,16 @@ export function PreviewViewportShell({
   if (frameless) {
     return (
       <div className={cn("w-full", mode === "desktop" && "flex justify-center", className)}>
-        <div
-          className={cn(
-            "@container overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--color-border)]",
-            "bg-[var(--color-surface-card)] shadow-[var(--shadow-elevated)]",
-            mode === "desktop" ? "w-full max-w-2xl" : "w-full"
-          )}
-        >
-          {children}
+        <div className={cn("relative", mode === "desktop" ? "w-full max-w-2xl" : "w-full")}>
+          {overlay}
+          <div
+            className={cn(
+              "@container overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--color-border)]",
+              "bg-[var(--color-surface-card)] shadow-[var(--shadow-elevated)]"
+            )}
+          >
+            {children}
+          </div>
         </div>
       </div>
     );

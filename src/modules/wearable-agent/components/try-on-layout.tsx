@@ -284,27 +284,34 @@ function TryOnExperience({
     }
   }
 
+  const profileSwitcher = embed ? (
+    <ProfileSwitcher
+      className="absolute left-4 top-4 z-40"
+      menuAlign="start"
+      profiles={agent.profiles}
+      activeProfileId={agent.activeProfileId}
+      maxProfiles={agent.maxProfiles}
+      onSwitch={agent.switchProfile}
+      onAdd={agent.addProfile}
+      onRename={agent.renameProfile}
+      onDelete={agent.removeProfile}
+      onSignOut={shopperSession?.signOut}
+    />
+  ) : null;
+
   return (
     <>
-          {embed && !agent.profileSubmitted && (
-            <ProfileSwitcher
-              className="absolute left-6 top-4"
-              profiles={agent.profiles}
-              activeProfileId={agent.activeProfileId}
-              maxProfiles={agent.maxProfiles}
-              onSwitch={agent.switchProfile}
-              onAdd={agent.addProfile}
-              onRename={agent.renameProfile}
-              onDelete={agent.removeProfile}
-              onSignOut={shopperSession?.signOut}
-            />
-          )}
           {agent.profileSubmitted ? (
             <PreviewViewportShell mode={viewportMode} layout="full" frameless={!!embed}>
               <TryOnAgentChat agent={agent} viewportMode={viewportMode} embed={embed} workspaceId={workspaceId} />
             </PreviewViewportShell>
           ) : (
-            <PreviewViewportShell mode={viewportMode} layout="card" frameless={!!embed}>
+            <PreviewViewportShell
+              mode={viewportMode}
+              layout="card"
+              frameless={!!embed}
+              overlay={profileSwitcher}
+            >
               {isOnboardingStep(agent.onboardingPhase) && (
                 <OnboardingShell
                   step={agent.onboardingPhase}

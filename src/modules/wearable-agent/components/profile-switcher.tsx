@@ -74,8 +74,12 @@ interface ProfileSwitcherProps {
   onDelete?: (id: string) => void;
   onSignOut?: () => void;
   /** Positioning only — the popover itself is always `absolute` under the pill so it never
-   *  stretches a chat header. Pass `absolute right-3 top-3` for the onboarding overlay. */
+   *  stretches a chat header. Pass `absolute left-4 top-4` for the onboarding overlay. */
   className?: string;
+  /** Which edge of the pill the menu hangs from. `end` opens toward the left, which suits a
+   *  pill on the right of a row. `start` opens toward the right, for a pill docked in the
+   *  card's top-left corner. */
+  menuAlign?: "start" | "end";
 }
 
 /** Pill + popover for switching between up to `maxProfiles` profiles on a signed-in shopper
@@ -91,6 +95,7 @@ export function ProfileSwitcher({
   onDelete,
   onSignOut,
   className,
+  menuAlign = "end",
 }: ProfileSwitcherProps) {
   const [open, setOpen] = React.useState(false);
   const [editingId, setEditingId] = React.useState<string | null>(null);
@@ -111,10 +116,10 @@ export function ProfileSwitcher({
     open
   );
 
-  // The popover is anchored `right-0` under the pill, which overflows the widget's left edge
-  // once the pill itself sits close to that edge (narrow mobile frames, or the switcher docked
-  // top-left elsewhere). Nudge it back inside the nearest clipping boundary instead of letting
-  // it get cut off — see getClippingBounds for why that boundary isn't always the window.
+  // The menu hangs off one side of the pill and can run past the widget edge (a narrow phone
+  // frame, or a pill docked in a corner). Nudge it back inside the nearest clipping boundary
+  // instead of letting it get cut off — see getClippingBounds for why that boundary isn't
+  // always the window.
   React.useLayoutEffect(() => {
     if (!open || !panelRef.current) {
       setPanelOffsetX(0);
@@ -170,7 +175,8 @@ export function ProfileSwitcher({
           ref={panelRef}
           style={panelOffsetX ? { transform: `translateX(${panelOffsetX}px)` } : undefined}
           className={cn(
-            "absolute right-0 top-full z-50 mt-2 w-60 rounded-2xl border backdrop-blur-2xl p-2",
+            "absolute top-full z-50 mt-2 w-60 rounded-2xl border backdrop-blur-2xl p-2",
+            menuAlign === "start" ? "left-0" : "right-0",
             styles.panel
           )}
         >
