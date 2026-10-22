@@ -7,7 +7,7 @@ import type { OnboardingPhase } from "@/modules/wearable-agent/types";
 import { useKeepFocusedFieldVisible } from "@/lib/hooks/use-visual-viewport";
 import { SAFE_BOTTOM } from "../../mobile-surface";
 
-/** Steps that get the shared chrome (back button + progress dots + slide transition). Avatar
+/** Steps that get the shared chrome (back button + progress bar + slide transition). Avatar
  *  generation and selection keep their own full-bleed screens, unchanged from before. */
 const STEP_SEQUENCE: OnboardingPhase[] = ["audience", "measurements"];
 
@@ -29,13 +29,12 @@ interface OnboardingShellProps {
   children: React.ReactNode;
 }
 
-/** Shared frame for the pre-avatar-generation onboarding steps: a back button + progress dots
- *  (skipped on the very first step), the step's own content with a directional slide-in, and an
- *  optional fixed footer for the primary action. Kept deliberately free of any animation
- *  library — see slide-in-right/slide-in-left/scale-in in globals.css — so this costs ~0kb on
- *  top of the widget bundle. */
+/** Shared frame for the pre-avatar-generation onboarding steps: a back button + progress bar,
+ *  the step's own content with a directional slide-in, and an optional footer for the primary
+ *  action. Kept deliberately free of any animation library — see slide-in-right/slide-in-left
+ *  in globals.css — so this costs ~0kb on top of the widget bundle. */
 export function OnboardingShell({ step, onBack, footer, children, reserveTopSpace = false }: OnboardingShellProps) {
-  const stepIndex = STEP_SEQUENCE.indexOf(step);
+  const stepIndex = Math.max(0, STEP_SEQUENCE.indexOf(step));
 
   // Tracks which direction to slide the new step in from, purely by comparing this render's
   // `step` to the last one we actually rendered — the sanctioned "adjust state during render"
@@ -56,62 +55,72 @@ export function OnboardingShell({ step, onBack, footer, children, reserveTopSpac
     <div
       ref={rootRef}
       className={cn(
-        "flex flex-col gap-6 px-6 pb-8",
-        reserveTopSpace ? "pt-[76px]" : "pt-8"
+        "flex min-h-full flex-1 flex-col justify-between gap-4 px-4 pb-5 @md:gap-5 @md:px-6 @md:pb-6",
+        reserveTopSpace ? "pt-[68px]" : "pt-4 @md:pt-6"
       )}
     >
-      {stepIndex > 0 && (
-        <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3">
+        {stepIndex > 0 ? (
           <button
             type="button"
             onClick={onBack}
             aria-label="Go back"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[var(--color-border)] text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-base)] hover:text-[var(--color-text-primary)]"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface-card)] text-[var(--color-text-secondary)] shadow-[var(--shadow-card)] transition-colors hover:bg-[var(--color-surface-base)] hover:text-[var(--color-text-primary)]"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
-          <div
-            className="flex flex-1 items-start gap-1.5"
-            role="progressbar"
-            aria-label="Onboarding progress"
-            aria-valuenow={stepIndex + 1}
-            aria-valuemin={1}
-            aria-valuemax={PROGRESS_STEPS.length}
-            aria-valuetext={`Step ${stepIndex + 1} of ${PROGRESS_STEPS.length}: ${PROGRESS_STEPS[stepIndex]?.label ?? ""}`}
-          >
-            {PROGRESS_STEPS.map((progressStep, i) => (
-              <div key={progressStep.label} className="flex min-w-0 flex-1 flex-col gap-1.5">
-                <span
-                  className={cn(
-                    "h-1 rounded-full transition-all duration-500",
-                    i <= stepIndex ? "gradient-brand" : "bg-[var(--color-border)]",
-                    i === stepIndex && "shadow-[0_0_10px_-1px_var(--color-brand)]"
-                  )}
-                />
-                <span
-                  className={cn(
-                    "truncate text-center text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors",
-                    i === stepIndex
-                      ? "text-[var(--color-text-primary)]"
-                      : i < stepIndex
-                        ? "text-[var(--color-text-secondary)]"
-                        : "text-[var(--color-text-muted)]"
-                  )}
-                >
-                  {progressStep.label}
-                </span>
-              </div>
-            ))}
-          </div>
-          <div className="h-11 w-11 shrink-0" aria-hidden />
-        </div>
-      )}
+        ) : (
+          <div className="h-9 w-9 shrink-0" aria-hidden />
+        )}
 
-      <div key={step} className={direction === "back" ? "animate-slide-left" : "animate-slide-right"}>
+        <div
+          className="mx-auto flex max-w-xs flex-1 items-start gap-1.5"
+          role="progressbar"
+          aria-label="Onboarding progress"
+          aria-valuenow={stepIndex + 1}
+          aria-valuemin={1}
+          aria-valuemax={PROGRESS_STEPS.length}
+          aria-valuetext={`Step ${stepIndex + 1} of ${PROGRESS_STEPS.length}: ${PROGRESS_STEPS[stepIndex]?.label ?? ""}`}
+        >
+          {PROGRESS_STEPS.map((progressStep, i) => (
+            <div key={progressStep.label} className="flex min-w-0 flex-1 flex-col gap-1">
+              <span
+                className={cn(
+                  "h-1 rounded-full transition-all duration-500",
+                  i <= stepIndex ? "gradient-brand" : "bg-[var(--color-border)]",
+                  i === stepIndex && "shadow-[0_0_8px_-1px_var(--color-brand)]"
+                )}
+              />
+              <span
+                className={cn(
+                  "truncate text-center text-[10px] font-semibold uppercase tracking-[0.08em] transition-colors",
+                  i === stepIndex
+                    ? "text-[var(--color-text-primary)]"
+                    : i < stepIndex
+                      ? "text-[var(--color-text-secondary)]"
+                      : "text-[var(--color-text-muted)]"
+                )}
+              >
+                {progressStep.label}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        <div className="h-9 w-9 shrink-0" aria-hidden />
+      </div>
+
+      <div
+        key={step}
+        className={cn(
+          "flex flex-1 flex-col justify-center",
+          direction === "back" ? "animate-slide-left" : "animate-slide-right"
+        )}
+      >
         {children}
       </div>
 
-      {footer && <div className={cn("flex flex-col items-center gap-2 pt-1", SAFE_BOTTOM)}>{footer}</div>}
+      {footer && <div className={cn("flex flex-col items-center gap-1.5 pt-1", SAFE_BOTTOM)}>{footer}</div>}
     </div>
   );
 }
