@@ -101,8 +101,8 @@ export function MobileDeviceFrame({ layout, children }: MobileDeviceFrameProps) 
               </div>
 
               {/* The page itself */}
-              <div className={cn("min-h-0 flex-1 overflow-y-auto overscroll-contain sidebar-scroll", layout === "full" && "flex flex-col")}>
-                <div className={cn(layout === "full" ? "min-h-0 flex-1" : "min-h-full")}>{children}</div>
+              <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain sidebar-scroll">
+                <div className={cn("flex flex-1 flex-col", layout === "full" && "min-h-0")}>{children}</div>
               </div>
 
               {/* Home indicator */}
