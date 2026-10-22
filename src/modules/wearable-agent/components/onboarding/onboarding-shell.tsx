@@ -21,10 +21,8 @@ interface OnboardingShellProps {
   /** Fixed action area under the content — omitted entirely for self-advancing steps
    *  (e.g. picking an audience card) so there's no dead space below them. */
   footer?: React.ReactNode;
-  /** True for real embeds, where the ProfileSwitcher pill floats absolutely over this shell's
-   *  top-left corner. Every step keeps its own strip of space above its content for the pill:
-   *  the back button + progress row on the later steps sits in the same corner, so without the
-   *  strip the pill lands right on top of the back button. */
+  /** True for real embeds, where the ProfileSwitcher pill floats over this shell's top-left
+   *  corner. A short strip keeps the back button and progress row clear of that pill. */
   reserveTopSpace?: boolean;
   children: React.ReactNode;
 }
@@ -56,7 +54,7 @@ export function OnboardingShell({ step, onBack, footer, children, reserveTopSpac
       ref={rootRef}
       className={cn(
         "flex min-h-full flex-1 flex-col justify-between gap-4 px-4 pb-5 @md:gap-5 @md:px-6 @md:pb-6",
-        reserveTopSpace ? "pt-[68px]" : "pt-4 @md:pt-6"
+        reserveTopSpace ? "pt-12" : "pt-4 @md:pt-6"
       )}
     >
       <div className="flex items-center gap-3">

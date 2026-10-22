@@ -80,6 +80,9 @@ interface ProfileSwitcherProps {
    *  pill on the right of a row. `start` opens toward the right, for a pill docked in the
    *  card's top-left corner. */
   menuAlign?: "start" | "end";
+  /** Tighter pill and menu. Used on the onboarding card, where the open list was covering the
+   *  step underneath. The chat header keeps the roomier default. */
+  compact?: boolean;
 }
 
 /** Pill + popover for switching between up to `maxProfiles` profiles on a signed-in shopper
@@ -96,6 +99,7 @@ export function ProfileSwitcher({
   onSignOut,
   className,
   menuAlign = "end",
+  compact = false,
 }: ProfileSwitcherProps) {
   const [open, setOpen] = React.useState(false);
   const [editingId, setEditingId] = React.useState<string | null>(null);
@@ -162,12 +166,13 @@ export function ProfileSwitcher({
         aria-expanded={open}
         aria-label={`Switch profile — currently ${active?.label || "Profile"}`}
         className={cn(
-          "flex min-h-11 items-center gap-1.5 rounded-full border backdrop-blur-xl px-3.5 text-[12px] font-medium transition-colors",
+          "flex items-center rounded-full border backdrop-blur-xl font-medium transition-colors",
+          compact ? "min-h-8 gap-1 px-2.5 text-[11px]" : "min-h-11 gap-1.5 px-3.5 text-[12px]",
           styles.pill
         )}
       >
-        <User className="h-3.5 w-3.5 shrink-0" />
-        <span className="max-w-[88px] truncate">{active?.label || "Profile"}</span>
+        <User className={cn("shrink-0", compact ? "h-3 w-3" : "h-3.5 w-3.5")} />
+        <span className={cn("truncate", compact ? "max-w-[72px]" : "max-w-[88px]")}>{active?.label || "Profile"}</span>
       </button>
 
       {open && (
@@ -175,27 +180,37 @@ export function ProfileSwitcher({
           ref={panelRef}
           style={panelOffsetX ? { transform: `translateX(${panelOffsetX}px)` } : undefined}
           className={cn(
-            "absolute top-full z-50 mt-2 w-60 rounded-2xl border backdrop-blur-2xl p-2",
+            "absolute top-full z-50 border backdrop-blur-2xl",
+            compact ? "mt-1 w-[10.25rem] rounded-xl p-1" : "mt-2 w-60 rounded-2xl p-2",
             menuAlign === "start" ? "left-0" : "right-0",
             styles.panel
           )}
         >
-          <p className={cn("px-1.5 pb-1.5 text-[10px] font-bold uppercase tracking-[0.16em]", styles.panelLabel)}>
+          <p
+            className={cn(
+              "font-bold uppercase",
+              compact
+                ? "px-1.5 pb-1 text-[9px] tracking-[0.12em]"
+                : "px-1.5 pb-1.5 text-[10px] tracking-[0.16em]",
+              styles.panelLabel
+            )}
+          >
             Profiles ({profiles.length}/{maxProfiles})
           </p>
-          <div className="space-y-1">
+          <div className={compact ? "space-y-0.5" : "space-y-1"}>
             {profiles.map((p) =>
               confirmingDeleteId === p.id ? (
-                <div key={p.id} className={cn("rounded-xl px-3 py-2.5", styles.row)}>
-                  <p className={cn("text-[13px] leading-snug", styles.rowText)}>
+                <div key={p.id} className={cn(compact ? "rounded-lg px-2 py-1.5" : "rounded-xl px-3 py-2.5", styles.row)}>
+                  <p className={cn(compact ? "text-[11px] leading-snug" : "text-[13px] leading-snug", styles.rowText)}>
                     Delete <span className="font-semibold">{p.label}</span>? Its measurements and avatar will be removed.
                   </p>
-                  <div className="mt-2 flex gap-2">
+                  <div className={cn("flex gap-1.5", compact ? "mt-1.5" : "mt-2")}>
                     <button
                       type="button"
                       onClick={() => setConfirmingDeleteId(null)}
                       className={cn(
-                        "min-h-10 flex-1 rounded-lg border px-2 text-[12px] font-medium transition-colors",
+                        "flex-1 rounded-lg border px-2 font-medium transition-colors",
+                        compact ? "min-h-7 text-[11px]" : "min-h-10 text-[12px]",
                         styles.addButton
                       )}
                     >
@@ -208,7 +223,10 @@ export function ProfileSwitcher({
                         setOpen(false);
                         onDelete?.(p.id);
                       }}
-                      className="min-h-10 flex-1 rounded-lg bg-[var(--color-error)] px-2 text-[12px] font-semibold text-white transition-opacity hover:opacity-90"
+                      className={cn(
+                        "flex-1 rounded-lg bg-[var(--color-error)] px-2 font-semibold text-white transition-opacity hover:opacity-90",
+                        compact ? "min-h-7 text-[11px]" : "min-h-10 text-[12px]"
+                      )}
                     >
                       Delete
                     </button>
@@ -218,7 +236,8 @@ export function ProfileSwitcher({
               <div
                 key={p.id}
                 className={cn(
-                  "flex min-h-12 items-center gap-1 rounded-xl px-2 transition-colors",
+                  "flex items-center transition-colors",
+                  compact ? "min-h-8 gap-0.5 rounded-lg px-1.5" : "min-h-12 gap-1 rounded-xl px-2",
                   p.id === activeProfileId ? styles.rowActive : styles.row
                 )}
               >
@@ -233,7 +252,8 @@ export function ProfileSwitcher({
                     }}
                     onBlur={() => commitRename(p.id)}
                     className={cn(
-                      "h-10 flex-1 min-w-0 rounded-lg px-2 text-[16px] outline-none",
+                      "flex-1 min-w-0 rounded-lg px-1.5 text-[16px] outline-none",
+                      compact ? "h-7" : "h-10 px-2",
                       styles.renameInput
                     )}
                   />
@@ -244,9 +264,15 @@ export function ProfileSwitcher({
                       onSwitch(p.id);
                       setOpen(false);
                     }}
-                    className={cn("flex min-h-12 flex-1 min-w-0 items-center gap-1.5 text-left text-[13px]", styles.rowText)}
+                    className={cn(
+                      "flex flex-1 min-w-0 items-center text-left",
+                      compact ? "min-h-8 gap-1 text-[12px]" : "min-h-12 gap-1.5 text-[13px]",
+                      styles.rowText
+                    )}
                   >
-                    {p.id === activeProfileId && <Check className="h-3.5 w-3.5 shrink-0 text-[var(--color-brand)]" />}
+                    {p.id === activeProfileId && (
+                      <Check className={cn("shrink-0 text-[var(--color-brand)]", compact ? "h-3 w-3" : "h-3.5 w-3.5")} />
+                    )}
                     <span className="truncate">{p.label}</span>
                   </button>
                 )}
@@ -261,11 +287,12 @@ export function ProfileSwitcher({
                       setDraftLabel(p.label);
                     }}
                     className={cn(
-                      "h-10 w-10 shrink-0 rounded-full flex items-center justify-center transition-colors",
+                      "shrink-0 rounded-full flex items-center justify-center transition-colors",
+                      compact ? "h-7 w-7" : "h-10 w-10",
                       styles.iconButton
                     )}
                   >
-                    <Pencil className="h-3.5 w-3.5" />
+                    <Pencil className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} />
                   </button>
                 )}
 
@@ -276,12 +303,13 @@ export function ProfileSwitcher({
                     aria-label={`Delete ${p.label}`}
                     onClick={() => setConfirmingDeleteId(p.id)}
                     className={cn(
-                      "h-10 w-10 shrink-0 rounded-full flex items-center justify-center transition-colors",
+                      "shrink-0 rounded-full flex items-center justify-center transition-colors",
+                      compact ? "h-7 w-7" : "h-10 w-10",
                       styles.iconButton,
                       "hover:text-[var(--color-error)]!"
                     )}
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    <Trash2 className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} />
                   </button>
                 )}
               </div>
@@ -297,11 +325,14 @@ export function ProfileSwitcher({
                 setOpen(false);
               }}
               className={cn(
-                "mt-1.5 min-h-11 w-full flex items-center justify-center gap-1.5 rounded-xl border px-2 text-[13px] font-medium transition-colors",
+                "w-full flex items-center justify-center border font-medium transition-colors",
+                compact
+                  ? "mt-1 min-h-7 gap-1 rounded-lg px-2 text-[11px]"
+                  : "mt-1.5 min-h-11 gap-1.5 rounded-xl px-2 text-[13px]",
                 styles.addButton
               )}
             >
-              <Plus className="h-3.5 w-3.5" /> Add profile
+              <Plus className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} /> Add profile
             </button>
           )}
           {onSignOut && (
@@ -312,7 +343,8 @@ export function ProfileSwitcher({
                 onSignOut();
               }}
               className={cn(
-                "mt-1 min-h-11 w-full rounded-xl px-2 text-[12px] font-medium transition-colors",
+                "w-full font-medium transition-colors",
+                compact ? "mt-0.5 min-h-7 rounded-lg px-2 text-[11px]" : "mt-1 min-h-11 rounded-xl px-2 text-[12px]",
                 styles.addButton
               )}
             >

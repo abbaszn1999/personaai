@@ -286,8 +286,12 @@ function TryOnExperience({
 
   const profileSwitcher = embed ? (
     <ProfileSwitcher
-      className="absolute left-4 top-4 z-40"
+      className={cn(
+        "absolute z-40",
+        viewportMode === "mobile" ? "left-2.5 top-2.5" : "left-4 top-3"
+      )}
       menuAlign="start"
+      compact
       profiles={agent.profiles}
       activeProfileId={agent.activeProfileId}
       maxProfiles={agent.maxProfiles}
