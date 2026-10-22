@@ -30,7 +30,30 @@ interface MeasureFieldProps {
   filledAtZero?: boolean;
   min?: number;
   max?: number;
+  /** Realistic finished range. Once the typed number cannot take another digit inside this
+   *  range, focus moves to `nextFieldId`. */
+  completeRange?: { min: number; max: number };
+  nextFieldId?: string;
   className?: string;
+}
+
+/** A measurement entry is finished when it sits inside the range and another digit would push
+ *  it past the maximum (so 90cm chest moves on, while 15 still waits in case it becomes 150).
+ *  A number that already uses every digit the maximum needs (180cm, shoe 42) is finished too. */
+export function entryReadyToAdvance(raw: string, min: number, max: number): boolean {
+  if (!/^\d+$/.test(raw)) return false;
+  const value = Number(raw);
+  if (value < min || value > max) return false;
+  const maxDigits = String(Math.floor(max)).length;
+  if (raw.length >= maxDigits) return true;
+  return value * 10 > max;
+}
+
+function focusMeasurementField(id: string) {
+  requestAnimationFrame(() => {
+    const el = document.getElementById(id);
+    if (el instanceof HTMLInputElement) el.focus();
+  });
 }
 
 /**
@@ -49,9 +72,31 @@ function MeasureField({
   filledAtZero = false,
   min,
   max,
+  completeRange,
+  nextFieldId,
   className,
 }: MeasureFieldProps) {
   const filled = value !== null && (filledAtZero || value > 0);
+  const typedLength = React.useRef(String(value ?? "").length);
+
+  React.useEffect(() => {
+    typedLength.current = String(value ?? "").length;
+  }, [value]);
+
+  function handleInput(raw: string) {
+    const previousLength = typedLength.current;
+    typedLength.current = raw.length;
+    onChange(raw);
+    if (
+      raw.length > previousLength &&
+      nextFieldId &&
+      completeRange &&
+      entryReadyToAdvance(raw, completeRange.min, completeRange.max)
+    ) {
+      focusMeasurementField(nextFieldId);
+    }
+  }
+
   return (
     <label
       htmlFor={id}
@@ -92,7 +137,7 @@ function MeasureField({
           max={max}
           placeholder={placeholder}
           value={value ?? ""}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => handleInput(e.target.value)}
           className={cn(
             "min-w-0 flex-1 bg-transparent text-[17px] font-semibold leading-tight tracking-tight tabular-nums text-[var(--color-text-primary)] outline-none @md:text-[18px]",
             "placeholder:font-normal placeholder:text-[var(--color-text-muted)]/45",
@@ -175,6 +220,8 @@ export function MeasurementsStep({ profile, onChange }: MeasurementsStepProps) {
             label="Height"
             unit="cm"
             placeholder="120"
+            completeRange={{ min: 40, max: 200 }}
+            nextFieldId="onboarding-weight"
             value={profile.heightCm}
             onChange={(raw) => editHeightWeight({ heightCm: Number(raw) || null })}
           />
@@ -183,6 +230,8 @@ export function MeasurementsStep({ profile, onChange }: MeasurementsStepProps) {
             label="Weight"
             unit="kg"
             placeholder="25"
+            completeRange={{ min: 2, max: 120 }}
+            nextFieldId="onboarding-age"
             value={profile.weightKg}
             onChange={(raw) => editHeightWeight({ weightKg: Number(raw) || null })}
           />
@@ -194,6 +243,8 @@ export function MeasurementsStep({ profile, onChange }: MeasurementsStepProps) {
             max={KIDS_AGE_RANGE.max}
             placeholder="6"
             filledAtZero
+            completeRange={KIDS_AGE_RANGE}
+            nextFieldId="onboarding-shoe"
             value={profile.ageYears}
             onChange={(raw) => {
               const trimmed = raw.trim();
@@ -206,6 +257,7 @@ export function MeasurementsStep({ profile, onChange }: MeasurementsStepProps) {
             label="Shoe size"
             unit="EU"
             placeholder="32"
+            completeRange={{ min: 16, max: 40 }}
             value={profile.shoeSizeEu}
             onChange={(raw) => onChange({ shoeSizeEu: Number(raw) || null })}
           />
@@ -219,6 +271,8 @@ export function MeasurementsStep({ profile, onChange }: MeasurementsStepProps) {
               label="Height"
               unit="cm"
               placeholder="168"
+              completeRange={{ min: 120, max: 220 }}
+              nextFieldId="onboarding-weight"
               value={profile.heightCm}
               onChange={(raw) => editHeightWeight({ heightCm: Number(raw) || null })}
             />
@@ -227,6 +281,8 @@ export function MeasurementsStep({ profile, onChange }: MeasurementsStepProps) {
               label="Weight"
               unit="kg"
               placeholder="65"
+              completeRange={{ min: 30, max: 180 }}
+              nextFieldId={profile.heightCm != null && profile.heightCm >= 120 ? "onboarding-shoe" : "onboarding-chest"}
               value={profile.weightKg}
               onChange={(raw) => editHeightWeight({ weightKg: Number(raw) || null })}
             />
@@ -239,6 +295,8 @@ export function MeasurementsStep({ profile, onChange }: MeasurementsStepProps) {
               unit="cm"
               placeholder="90"
               estimated={autoFilled.chestCm && isFilled(profile.chestCm)}
+              completeRange={{ min: 60, max: 160 }}
+              nextFieldId="onboarding-waist"
               value={profile.chestCm}
               onChange={(raw) => editBodyField("chestCm", raw)}
             />
@@ -248,6 +306,8 @@ export function MeasurementsStep({ profile, onChange }: MeasurementsStepProps) {
               unit="cm"
               placeholder="70"
               estimated={autoFilled.waistCm && isFilled(profile.waistCm)}
+              completeRange={{ min: 50, max: 150 }}
+              nextFieldId="onboarding-shoe"
               value={profile.waistCm}
               onChange={(raw) => editBodyField("waistCm", raw)}
             />
@@ -256,6 +316,7 @@ export function MeasurementsStep({ profile, onChange }: MeasurementsStepProps) {
               label="Shoe"
               unit="EU"
               placeholder="42"
+              completeRange={{ min: 20, max: 52 }}
               value={profile.shoeSizeEu}
               onChange={(raw) => onChange({ shoeSizeEu: Number(raw) || null })}
             />

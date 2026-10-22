@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Image from "next/image";
-import { ArrowRight, Baby, Check, ChevronLeft, ChevronRight, Sparkles, User, Users } from "lucide-react";
+import { ArrowRight, Baby, ChevronLeft, ChevronRight, Sparkles, User, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils/cn";
 import { DEMO_FACE_URLS } from "@/modules/wearable-agent/constants";
@@ -77,8 +77,7 @@ interface AudienceStepProps {
   onSelect: (audience: TryOnAudience) => void;
 }
 
-const SLIDE_WIDTH = "82%";
-const SLIDE_GUTTER_PX = 8;
+const CIRCLE_SLOT_PX = 120;
 
 function prefersReducedMotion(): boolean {
   return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -196,48 +195,15 @@ export function AudienceStep({
         </p>
       </div>
 
-      {/* ── MOBILE VIEW (< @md): Interactive horizontal slide deck ── */}
-      <div
-        className="flex flex-1 flex-col justify-between gap-3 @md:hidden"
-      >
-        {/* Quick-jump pill bar when there are multiple choices */}
-        {options.length > 1 && (
-          <div
-            className="flex items-center justify-center gap-1.5 overflow-x-auto px-1 py-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-            role="tablist"
-            aria-label="Fit profiles"
-          >
-            {options.map((opt, idx) => {
-              const isCurrent = idx === safeActiveIndex;
-              return (
-                <button
-                  key={opt.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={isCurrent}
-                  onClick={() => jumpTo(idx)}
-                  className={cn(
-                    "shrink-0 rounded-full px-3 py-1 text-xs font-semibold transition-all",
-                    isCurrent
-                      ? "gradient-brand text-white shadow-sm"
-                      : "border border-[var(--color-border)] bg-[var(--color-surface-base)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
-                  )}
-                >
-                  {opt.label}
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Slide stage */}
+      {/* ── MOBILE VIEW (< @md): compact circular slider ── */}
+      <div className="flex flex-col items-center gap-3 @md:hidden">
         <div
           role="region"
           aria-roledescription="carousel"
           aria-label="Who's trying this on?"
           tabIndex={0}
           onKeyDown={handleKeyDown}
-          className="relative -mx-4 flex items-center focus-visible:outline-none"
+          className="relative -mx-4 flex w-[calc(100%+2rem)] items-center focus-visible:outline-none"
         >
           {options.length > 1 && (
             <>
@@ -278,16 +244,10 @@ export function AudienceStep({
             <div
               aria-hidden
               className="shrink-0"
-              style={{
-                width:
-                  options.length > 1
-                    ? `calc((100% - ${SLIDE_WIDTH}) / 2 - ${SLIDE_GUTTER_PX}px)`
-                    : "16px",
-              }}
+              style={{ width: `calc((100% - ${CIRCLE_SLOT_PX}px) / 2)` }}
             />
             {options.map((opt, index) => {
               const isActive = index === safeActiveIndex;
-              const isSelected = value === opt.id;
               return (
                 <div
                   key={opt.id}
@@ -297,84 +257,32 @@ export function AudienceStep({
                   role="group"
                   aria-roledescription="slide"
                   aria-label={`${opt.label}, ${index + 1} of ${options.length}`}
-                  className="shrink-0 snap-center"
-                  style={{
-                    width:
-                      options.length > 1
-                        ? `calc(${SLIDE_WIDTH} + ${SLIDE_GUTTER_PX * 2}px)`
-                        : "calc(100% - 32px)",
-                    padding: options.length > 1 ? `0 ${SLIDE_GUTTER_PX}px` : "0",
-                  }}
+                  className="flex shrink-0 snap-center items-center justify-center"
+                  style={{ width: CIRCLE_SLOT_PX }}
                 >
                   <button
                     type="button"
                     onClick={() => {
-                      if (isActive || options.length === 1) {
-                        onSelect(opt.id);
-                      } else {
-                        jumpTo(index);
-                      }
+                      if (isActive || options.length === 1) onSelect(opt.id);
+                      else jumpTo(index);
                     }}
+                    aria-label={opt.label}
                     className={cn(
-                      "group relative flex h-[356px] w-full flex-col overflow-hidden rounded-[var(--radius-2xl)] border text-left transition-all duration-300",
+                      "relative overflow-hidden rounded-full border-2 bg-[var(--color-surface-base)] transition-all duration-300 ease-out",
                       isActive || options.length === 1
-                        ? "scale-100 border-[var(--color-brand)]/70 bg-[var(--color-surface-card)] opacity-100 shadow-[var(--shadow-elevated)] ring-2 ring-[var(--color-brand-light)]"
-                        : "scale-[0.93] border-[var(--color-border)] bg-[var(--color-surface-base)] opacity-60"
+                        ? "h-[104px] w-[104px] border-[var(--color-brand)] opacity-100 shadow-[var(--shadow-elevated)] ring-4 ring-[var(--color-brand-light)]"
+                        : "h-[72px] w-[72px] border-[var(--color-border)] opacity-55"
                     )}
                   >
-                    {/* Studio portrait header */}
-                    <div className="relative h-[206px] w-full shrink-0 overflow-hidden bg-[var(--color-surface-base)]">
-                      <Image
-                        src={DEMO_FACE_URLS[opt.id]}
-                        alt={opt.label}
-                        fill
-                        sizes="320px"
-                        className="object-cover object-top transition-transform duration-500 group-hover:scale-105"
-                        unoptimized
-                        draggable={false}
-                      />
-                      <span
-                        aria-hidden
-                        className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/65 via-black/20 to-transparent"
-                      />
-                      <span className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur-md">
-                        {opt.eyebrow}
-                      </span>
-                      {options.length > 1 ? (
-                        <span className="absolute right-3 top-3 inline-flex items-center rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-[#17121d] shadow-sm backdrop-blur">
-                          {index + 1} / {options.length}
-                        </span>
-                      ) : isSelected ? (
-                        <span className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full gradient-brand text-white shadow-sm">
-                          <Check className="h-3.5 w-3.5" strokeWidth={3} />
-                        </span>
-                      ) : null}
-                      <div className="absolute inset-x-3.5 bottom-2.5 flex items-end justify-between gap-2">
-                        <span className="text-xl font-bold tracking-tight text-white drop-shadow-sm">
-                          {opt.label}
-                        </span>
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/95 text-[#17121d] shadow-md transition-transform group-hover:translate-x-0.5">
-                          <ArrowRight className="h-4 w-4" />
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Slide details */}
-                    <div className="flex flex-1 flex-col justify-between p-3.5">
-                      <p className="text-xs leading-relaxed text-[var(--color-text-secondary)]">
-                        {opt.description}
-                      </p>
-                      <div className="flex flex-wrap items-center gap-1.5 pt-2">
-                        {opt.tags.map((tag) => (
-                          <span
-                            key={tag}
-                            className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface-base)] px-2.5 py-0.5 text-[10px] font-medium text-[var(--color-text-secondary)]"
-                          >
-                            {tag}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
+                    <Image
+                      src={DEMO_FACE_URLS[opt.id]}
+                      alt=""
+                      fill
+                      sizes="104px"
+                      className="object-cover object-top"
+                      unoptimized
+                      draggable={false}
+                    />
                   </button>
                 </div>
               );
@@ -382,18 +290,23 @@ export function AudienceStep({
             <div
               aria-hidden
               className="shrink-0"
-              style={{
-                width:
-                  options.length > 1
-                    ? `calc((100% - ${SLIDE_WIDTH}) / 2 - ${SLIDE_GUTTER_PX}px)`
-                    : "16px",
-              }}
+              style={{ width: `calc((100% - ${CIRCLE_SLOT_PX}px) / 2)` }}
             />
           </div>
         </div>
 
-        {/* Slide pagination dots + primary mobile CTA */}
-        <div className="flex flex-col items-center gap-2.5">
+        <div className="flex w-full flex-col items-center gap-2 text-center">
+          {activeOption && (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-brand-strong)]">
+                {activeOption.eyebrow}
+              </p>
+              <p className="text-lg font-bold tracking-tight text-[var(--color-text-primary)]">{activeOption.label}</p>
+              <p className="mx-auto mt-0.5 max-w-[16rem] text-xs leading-snug text-[var(--color-text-muted)]">
+                {activeOption.description}
+              </p>
+            </div>
+          )}
           {options.length > 1 && (
             <div className="flex items-center justify-center gap-1.5" aria-hidden>
               {options.map((opt, idx) => (
@@ -401,7 +314,7 @@ export function AudienceStep({
                   key={opt.id}
                   className={cn(
                     "h-1.5 rounded-full transition-all duration-300",
-                    idx === safeActiveIndex ? "w-5 gradient-brand" : "w-1.5 bg-[var(--color-border-strong)]"
+                    idx === safeActiveIndex ? "w-4 gradient-brand" : "w-1.5 bg-[var(--color-border-strong)]"
                   )}
                 />
               ))}
