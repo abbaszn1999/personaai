@@ -5,10 +5,9 @@ import { cn } from "@/lib/utils/cn";
 import { MobileDeviceFrame, MOBILE_SCREEN_HEIGHT, MOBILE_SCREEN_WIDTH } from "./mobile-device-frame";
 import type { PreviewViewportMode } from "./preview-viewport-toggle";
 
-/** Desktop agent frame used by the branding previewer. A real embed lays the chat out at this
- *  size too (scaled down to fit, never up) so a full-width store section keeps the same
- *  chat-to-avatar split instead of stretching the columns across the page. */
-export const DESKTOP_AGENT_STAGE = { width: 1280, height: 800 } as const;
+/** Desktop agent frame. Wider than the old 1280 so the chat header can hold the profile
+ *  chip and the store logo without them sitting on each other. Height stays 800. */
+export const DESKTOP_AGENT_STAGE = { width: 1440, height: 800 } as const;
 
 interface PreviewViewportShellProps {
   mode: PreviewViewportMode;

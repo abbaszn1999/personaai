@@ -44,46 +44,56 @@ interface TryOnAgentChatProps {
   workspaceId?: string;
 }
 
+// Default split of the desktop row: the chat takes 35% and the avatar the other 65%.
 // The avatar photo itself renders at a constant ~520px (fixed 780px-tall, 2:3 frame) so it
 // never rescales while dragging — resizing only changes how much background canvas + the
 // ~260px info column show around it. Min width keeps the figure and cards from overlapping.
-const AVATAR_PANEL_DEFAULT_WIDTH = 860;
-const AVATAR_PANEL_MIN_WIDTH = 820;
-const AVATAR_PANEL_MAX_WIDTH = 1100;
+const AVATAR_PANEL_SHARE = 0.65;
+const AVATAR_PANEL_MIN_WIDTH = 760;
+const AVATAR_PANEL_MAX_WIDTH = 1200;
 const AVATAR_PANEL_WIDTH_STORAGE_KEY = "wearable-agent:avatar-panel-width";
 const RESIZE_KEY_STEP = 24;
 
-function readStoredPanelWidth(): number {
-  if (typeof window === "undefined") return AVATAR_PANEL_DEFAULT_WIDTH;
+function readStoredPanelWidth(): number | null {
+  if (typeof window === "undefined") return null;
   const raw = window.localStorage.getItem(AVATAR_PANEL_WIDTH_STORAGE_KEY);
   const parsed = raw ? Number(raw) : NaN;
-  if (!Number.isFinite(parsed)) return AVATAR_PANEL_DEFAULT_WIDTH;
+  if (!Number.isFinite(parsed)) return null;
   return Math.min(AVATAR_PANEL_MAX_WIDTH, Math.max(AVATAR_PANEL_MIN_WIDTH, parsed));
 }
 
-/** Drag-to-resize the avatar panel by grabbing the divider between the two columns. Width
- *  persists across sessions (desktop dashboard preview only — embeds always default) so a
- *  merchant testing the layout doesn't have to redo it on every reload. */
-function useResizablePanel() {
-  const [width, setWidth] = React.useState(AVATAR_PANEL_DEFAULT_WIDTH);
+/** Drag-to-resize the avatar panel by grabbing the divider between the two columns. With no
+ *  saved width the columns stay at 35% chat / 65% avatar. A saved width is the dashboard
+ *  preview only — an embed always opens at that default so a shopper never inherits a
+ *  merchant's drag. */
+function useResizablePanel(embed: boolean | undefined) {
+  const [width, setWidth] = React.useState<number | null>(null);
   const [isDragging, setIsDragging] = React.useState(false);
-  const dragState = React.useRef({ startX: 0, startWidth: AVATAR_PANEL_DEFAULT_WIDTH });
+  const dragState = React.useRef({ startX: 0, startWidth: 0 });
 
   React.useEffect(() => {
+    if (embed) return;
+    // Stored width lives in localStorage, which only exists after mount. Reading it during
+    // render would disagree with the server HTML.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- client-only preference
     setWidth(readStoredPanelWidth());
-  }, []);
+  }, [embed]);
 
   const persist = React.useCallback((next: number) => {
+    if (embed) return;
     try {
       window.localStorage.setItem(AVATAR_PANEL_WIDTH_STORAGE_KEY, String(next));
     } catch {
       // Storage can throw in locked-down/incognito contexts — resizing still works for the
       // session, it just won't be remembered next time.
     }
-  }, []);
+  }, [embed]);
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    dragState.current = { startX: e.clientX, startWidth: width };
+    const panel = e.currentTarget.nextElementSibling;
+    const startWidth = panel instanceof HTMLElement ? panel.offsetWidth : AVATAR_PANEL_MIN_WIDTH;
+    dragState.current = { startX: e.clientX, startWidth };
+    setWidth(startWidth);
     setIsDragging(true);
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   };
@@ -101,7 +111,7 @@ function useResizablePanel() {
 
   const onPointerUp = () => {
     setIsDragging(false);
-    persist(width);
+    if (width !== null) persist(width);
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -114,11 +124,11 @@ function useResizablePanel() {
     else if (e.key === "End") delta = -AVATAR_PANEL_MAX_WIDTH;
     else return;
     e.preventDefault();
-    setWidth((w) => {
-      const next = Math.min(AVATAR_PANEL_MAX_WIDTH, Math.max(AVATAR_PANEL_MIN_WIDTH, w + delta));
-      persist(next);
-      return next;
-    });
+    const panel = e.currentTarget.nextElementSibling;
+    const base = panel instanceof HTMLElement ? panel.offsetWidth : AVATAR_PANEL_MIN_WIDTH;
+    const next = Math.min(AVATAR_PANEL_MAX_WIDTH, Math.max(AVATAR_PANEL_MIN_WIDTH, base + delta));
+    setWidth(next);
+    persist(next);
   };
 
   return { width, isDragging, onPointerDown, onPointerMove, onPointerUp, onKeyDown };
@@ -126,7 +136,7 @@ function useResizablePanel() {
 
 export function TryOnAgentChat({ agent, viewportMode = "desktop", embed, workspaceId }: TryOnAgentChatProps) {
   const outfitItemIds = agent.outfitItems.map((o) => o.id);
-  const resizer = useResizablePanel();
+  const resizer = useResizablePanel(!!embed);
   const isMobile = viewportMode === "mobile";
   // Picker for single-item "Add to Cart" clicks only — bulk actions ("Add all" in the avatar
   // panel, bundle "Add all" in chat) call `agent.addToCart`/`agent.addBundleToCart` directly and
@@ -198,7 +208,7 @@ export function TryOnAgentChat({ agent, viewportMode = "desktop", embed, workspa
         role="separator"
         aria-orientation="vertical"
         aria-label="Resize avatar panel"
-        aria-valuenow={resizer.width}
+        aria-valuenow={resizer.width ?? Math.round(AVATAR_PANEL_SHARE * 100)}
         aria-valuemin={AVATAR_PANEL_MIN_WIDTH}
         aria-valuemax={AVATAR_PANEL_MAX_WIDTH}
         tabIndex={0}
@@ -224,7 +234,10 @@ export function TryOnAgentChat({ agent, viewportMode = "desktop", embed, workspa
         />
       </div>
 
-      <div style={{ width: resizer.width }} className="shrink-0 h-full min-h-0">
+      <div
+        style={resizer.width !== null ? { width: resizer.width, flex: "0 0 auto" } : { flex: "65 1 0%" }}
+        className="h-full min-h-0"
+      >
         {avatarPanelDesktop}
       </div>
       {picker.pickerElement}
@@ -309,19 +322,21 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
 
   return (
     <div className={cn(
-      "flex-1 flex flex-col min-w-0 min-h-0 h-full overflow-hidden backdrop-blur-xl",
+      "flex-[35_1_0%] flex flex-col min-w-0 min-h-0 h-full overflow-hidden backdrop-blur-xl",
       compact
         ? "rounded-none border-0 bg-[var(--color-surface-card)]"
         : "rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-surface-card)]"
     )}>
-      {/* Header — the profile switcher sits where a logo would normally go (top-left), and the
-          branding itself is centered, so the one interactive control in this row reads as the
-          primary "you are here" anchor instead of competing off to one side. */}
-      <div className={cn("flex items-center border-b border-[var(--color-border)] shrink-0", compact ? "px-3 py-3" : "px-5 py-4")}>
-        <div className="flex flex-1 min-w-0 items-center justify-start">
-          {embed && <ChatProfileSwitcher agent={agent} />}
-        </div>
-        <div className="flex shrink-0 items-center gap-2.5">
+      {/* Header — the profile chip stays on the left and the store name sits in the space
+          beside it, so a narrow column truncates the name instead of painting the chip on
+          top of the logo. */}
+      <div className={cn("flex items-center gap-3 border-b border-[var(--color-border)] shrink-0", compact ? "px-3 py-3" : "px-5 py-4")}>
+        {embed && (
+          <div className="shrink-0">
+            <ChatProfileSwitcher agent={agent} />
+          </div>
+        )}
+        <div className="flex min-w-0 flex-1 items-center justify-center gap-2.5">
           {branding.logoUrl ? (
             <img src={branding.logoUrl} alt="" className="h-8 w-8 rounded-full object-cover shrink-0 shadow-sm" />
           ) : (
@@ -337,7 +352,6 @@ function StyleChatPanel({ agent, outfitItemIds, compact = false, onAddToCart, em
             </div>
           </div>
         </div>
-        <div className="flex-1" aria-hidden />
       </div>
 
       {/* Messages — only this area scrolls as the conversation grows */}
