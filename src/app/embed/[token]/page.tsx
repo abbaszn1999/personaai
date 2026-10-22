@@ -85,14 +85,10 @@ export default function EmbedPage({ params }: Props) {
       className={cn(
         "bg-[var(--color-surface-base)] box-border",
         isCompact ? "h-auto" : "h-screen",
-        // This padding exists to preview how the widget sits inside a desktop page's own
-        // margins — on an actual mobile device (or any real embed, which always renders
-        // edge-to-edge on the host page) it just eats into the already-tight viewport, leaves
-        // a background-colored gap the shopper can't scroll from within the widget itself, and
-        // shoves absolutely-positioned corner controls (e.g. the profile switcher pill) away
-        // from the real screen edge they're meant to dock to. Compact onboarding keeps a
-        // little inset so the short form doesn't glue itself to the screen edges.
-        (viewportMode !== "mobile" || isCompact) && "p-4 sm:p-6",
+        // Compact onboarding keeps a little inset so the short form doesn't glue itself to the
+        // screen edges. The desktop agent frames itself at the previewer size, so it doesn't
+        // also take this padding.
+        isCompact && "p-4 sm:p-6",
         state.branding.theme === "dark" && "dark"
       )}
       style={{

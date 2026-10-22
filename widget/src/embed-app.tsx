@@ -114,7 +114,7 @@ export function EmbedApp({ origin, embedToken, prefetchedConfig, onDisplayModeCh
         // Transparent by design — this box sits directly on the merchant's own page
         // background (any color/pattern), so only the card/panel surfaces inside it (which
         // keep their own bg + shadow) should ever paint a background.
-        "box-border p-4 sm:p-6",
+        "box-border",
         // On a phone the widget scrolls with the store's page. Its inner layers carry z-indexes
         // (chat panel, controls), and without a stacking context of their own those compete
         // with the store's header: a sticky header's z-index is smaller, so the widget painted
@@ -122,7 +122,7 @@ export function EmbedApp({ origin, embedToken, prefetchedConfig, onDisplayModeCh
         // widget's own box, level with the page content, so a store header always stays on top.
         // (Desktop is left alone: its modals are position:fixed and must cover the page.)
         viewportMode === "mobile" && "isolate",
-        isCompact ? "h-auto" : "h-full",
+        isCompact ? "h-auto p-4 sm:p-6" : "h-full",
         state.branding.theme === "dark" && "dark"
       )}
       style={{

@@ -5,6 +5,11 @@ import { cn } from "@/lib/utils/cn";
 import { MobileDeviceFrame, MOBILE_SCREEN_HEIGHT, MOBILE_SCREEN_WIDTH } from "./mobile-device-frame";
 import type { PreviewViewportMode } from "./preview-viewport-toggle";
 
+/** Desktop agent frame used by the branding previewer. A real embed lays the chat out at this
+ *  size too (scaled down to fit, never up) so a full-width store section keeps the same
+ *  chat-to-avatar split instead of stretching the columns across the page. */
+export const DESKTOP_AGENT_STAGE = { width: 1280, height: 800 } as const;
+
 interface PreviewViewportShellProps {
   mode: PreviewViewportMode;
   /** Card = centered onboarding widget; full = chat/agent fills the preview area. */
@@ -43,6 +48,9 @@ export function PreviewViewportShell({
   }
 
   if (layout === "full") {
+    if (frameless && mode === "desktop") {
+      return <DesktopAgentStage className={className}>{children}</DesktopAgentStage>;
+    }
     return <div className={cn("h-full min-h-0", className)}>{children}</div>;
   }
 
@@ -87,3 +95,46 @@ export function PreviewViewportShell({
 }
 
 export { MOBILE_SCREEN_HEIGHT as MOBILE_AGENT_HEIGHT, MOBILE_SCREEN_WIDTH as MOBILE_WIDTH };
+
+/** Centers the desktop agent at the previewer's frame and scales it down when the host is
+ *  smaller. The columns are laid out at 1280×800, with the same 24px inset the previewer uses,
+ *  so the chat and the avatar keep that proportion on a wide store page. */
+function DesktopAgentStage({ children, className }: { children: React.ReactNode; className?: string }) {
+  const [host, setHost] = React.useState<HTMLDivElement | null>(null);
+  const [size, setSize] = React.useState({ width: 0, height: 0 });
+
+  React.useEffect(() => {
+    if (!host) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setSize({ width: entry.contentRect.width, height: entry.contentRect.height });
+    });
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, [host]);
+
+  const ready = size.width > 0 && size.height > 0;
+  const scale = ready
+    ? Math.min(1, size.width / DESKTOP_AGENT_STAGE.width, size.height / DESKTOP_AGENT_STAGE.height)
+    : 0;
+
+  return (
+    <div ref={setHost} className={cn("flex h-full min-h-0 w-full items-center justify-center", className)}>
+      <div
+        className="relative shrink-0"
+        style={{ width: DESKTOP_AGENT_STAGE.width * scale, height: DESKTOP_AGENT_STAGE.height * scale }}
+      >
+        <div
+          className="absolute left-0 top-0 p-6"
+          style={{
+            width: DESKTOP_AGENT_STAGE.width,
+            height: DESKTOP_AGENT_STAGE.height,
+            transform: `scale(${scale})`,
+            transformOrigin: "top left",
+          }}
+        >
+          <div className="h-full min-h-0 overflow-hidden rounded-[var(--radius-2xl)]">{children}</div>
+        </div>
+      </div>
+    </div>
+  );
+}

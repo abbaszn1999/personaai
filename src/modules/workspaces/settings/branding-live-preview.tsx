@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { TryOnLayout } from "@/modules/wearable-agent/components/try-on-layout";
-import { PreviewViewportShell } from "@/modules/wearable-agent/components/preview-viewport-shell";
+import { DESKTOP_AGENT_STAGE, PreviewViewportShell } from "@/modules/wearable-agent/components/preview-viewport-shell";
 import { ShopperSignIn } from "@/modules/wearable-agent/components/onboarding/shopper-sign-in";
 import { WearableThemeProvider } from "@/modules/wearable-agent/theme-context";
 import { WearableBrandingProvider } from "@/modules/wearable-agent/branding-context";
@@ -18,10 +18,8 @@ import { cn } from "@/lib/utils/cn";
 export type PreviewDevice = "desktop" | "mobile";
 export type PreviewScreen = "chat" | "sign-in";
 
-/** The size a desktop shopper's window is previewed at. The real widget fills the shopper's whole
- *  window, so it is laid out at this size and scaled down to fit the panel, rather than squeezed
- *  into a panel narrower than the widget's own minimum width. */
-const DESKTOP_STAGE = { width: 1280, height: 800 } as const;
+/** Same frame the real desktop embed uses, scaled down to fit this panel. */
+const DESKTOP_STAGE = DESKTOP_AGENT_STAGE;
 
 interface BrandingLivePreviewProps {
   /** The unsaved form, so every edit shows up immediately. */
