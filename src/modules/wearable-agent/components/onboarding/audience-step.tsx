@@ -3,7 +3,6 @@
 import * as React from "react";
 import Image from "next/image";
 import { ArrowRight, Baby, Check, ChevronLeft, ChevronRight, Sparkles, User, Users } from "lucide-react";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils/cn";
 import { DEMO_FACE_URLS } from "@/modules/wearable-agent/constants";
@@ -76,10 +75,6 @@ interface AudienceStepProps {
   audiences?: readonly TryOnAudience[];
   /** Selecting a card advances immediately (Typeform-style, one question per screen). */
   onSelect: (audience: TryOnAudience) => void;
-  /** Only a profile added after the very first one needs its own name. */
-  showNameField?: boolean;
-  name?: string;
-  onNameChange?: (name: string) => void;
 }
 
 const SLIDE_WIDTH = "82%";
@@ -93,12 +88,7 @@ export function AudienceStep({
   value,
   audiences,
   onSelect,
-  showNameField = false,
-  name = "",
-  onNameChange,
 }: AudienceStepProps) {
-  const [draft, setDraft] = React.useState(name);
-  const nameComplete = !showNameField || draft.trim() !== "";
   const options = React.useMemo(
     () =>
       audiences && audiences.length > 0
@@ -182,7 +172,7 @@ export function AudienceStep({
     } else if (e.key === "ArrowLeft") {
       e.preventDefault();
       go(-1);
-    } else if (e.key === "Enter" && nameComplete && activeOption) {
+    } else if (e.key === "Enter" && activeOption) {
       e.preventDefault();
       onSelect(activeOption.id);
     }
@@ -190,23 +180,6 @@ export function AudienceStep({
 
   return (
     <div className="flex flex-1 flex-col justify-between gap-4 @md:gap-6">
-      {showNameField && (
-        <div className="mx-auto w-full max-w-xs text-left animate-fade-in">
-          <Input
-            inputSize="touch"
-            label="Whose profile is this?"
-            placeholder="e.g. Alex, Mom, Sara"
-            maxLength={40}
-            value={draft}
-            onChange={(e) => {
-              setDraft(e.target.value);
-              onNameChange?.(e.target.value);
-            }}
-            autoFocus
-          />
-        </div>
-      )}
-
       {/* Header */}
       <div className="text-center">
         <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-base)] px-2.5 py-0.5 text-[11px] font-medium text-[var(--color-text-secondary)]">
@@ -225,10 +198,7 @@ export function AudienceStep({
 
       {/* ── MOBILE VIEW (< @md): Interactive horizontal slide deck ── */}
       <div
-        className={cn(
-          "flex flex-1 flex-col justify-between gap-3 @md:hidden",
-          !nameComplete && "pointer-events-none opacity-40"
-        )}
+        className="flex flex-1 flex-col justify-between gap-3 @md:hidden"
       >
         {/* Quick-jump pill bar when there are multiple choices */}
         {options.length > 1 && (
@@ -338,7 +308,6 @@ export function AudienceStep({
                 >
                   <button
                     type="button"
-                    disabled={!nameComplete}
                     onClick={() => {
                       if (isActive || options.length === 1) {
                         onSelect(opt.id);
@@ -441,7 +410,6 @@ export function AudienceStep({
           {activeOption && (
             <Button
               size="lg"
-              disabled={!nameComplete}
               onClick={() => onSelect(activeOption.id)}
               className="h-11 w-full rounded-[var(--radius-xl)] text-sm font-semibold shadow-sm"
             >
@@ -454,10 +422,7 @@ export function AudienceStep({
 
       {/* ── DESKTOP VIEW (@md and up): Smart adaptive layout by option count ── */}
       <div
-        className={cn(
-          "hidden @md:block transition-opacity",
-          !nameComplete && "pointer-events-none opacity-40"
-        )}
+        className="hidden @md:block"
       >
         {options.length === 1 ? (
           /* Single-option spotlight card — centered, rich, no empty grid columns */
@@ -466,7 +431,6 @@ export function AudienceStep({
             return (
               <button
                 type="button"
-                disabled={!nameComplete}
                 onClick={() => onSelect(opt.id)}
                 className={cn(
                   "group mx-auto flex w-full max-w-lg items-stretch overflow-hidden rounded-[var(--radius-2xl)] border p-2.5 text-left transition-all duration-200",
@@ -528,7 +492,6 @@ export function AudienceStep({
                 <button
                   key={opt.id}
                   type="button"
-                  disabled={!nameComplete}
                   onClick={() => onSelect(opt.id)}
                   style={{ animationDelay: `${i * 0.04}s` }}
                   className={cn(
@@ -592,7 +555,6 @@ export function AudienceStep({
                 <button
                   key={opt.id}
                   type="button"
-                  disabled={!nameComplete}
                   onClick={() => onSelect(opt.id)}
                   style={{ animationDelay: `${i * 0.03}s` }}
                   className={cn(
@@ -633,12 +595,6 @@ export function AudienceStep({
           </div>
         )}
       </div>
-
-      {!nameComplete && (
-        <p className="text-center text-xs text-[var(--color-text-muted)]">
-          Add a name for this profile to continue
-        </p>
-      )}
     </div>
   );
 }

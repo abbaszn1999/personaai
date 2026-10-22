@@ -206,12 +206,6 @@ function TryOnExperience({
     onFillViewportChange?.(agent.profileSubmitted);
   }, [agent.profileSubmitted, onFillViewportChange]);
 
-  const activeProfileLabel = agent.profiles.find((p) => p.id === agent.activeProfileId)?.label ?? "";
-  // The auto-assigned placeholder ("Profile 1", "Profile 2"...) isn't a name the shopper
-  // chose — show the field empty so typing doesn't feel like editing existing text.
-  const hasCustomLabel =
-    activeProfileLabel.trim() !== "" && !/^Profile \d+$/.test(activeProfileLabel.trim());
-
   function renderStepBody() {
     switch (agent.onboardingPhase) {
       case "audience":
@@ -221,9 +215,6 @@ function TryOnExperience({
             value={agent.profile.audience}
             audiences={audiences}
             onSelect={agent.selectAudience}
-            showNameField={agent.profiles.length > 1}
-            name={hasCustomLabel ? activeProfileLabel : ""}
-            onNameChange={(name) => agent.renameProfile(agent.activeProfileId, name)}
           />
         );
       // Measurements + photo share one compact screen: 2-row body measurements on top and the
