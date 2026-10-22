@@ -85,6 +85,45 @@ export async function replaceSizingPathCoverage(
   return true;
 }
 
+/** Adds a sync's path counts to the rows Setup wrote; see `mergeSizingCoverage` for why a sync
+ *  merges where a scan replaces. */
+export async function mergeSizingPathCoverage(
+  connectionId: string,
+  rows: SizingPathCoverageInput[],
+): Promise<boolean> {
+  if (rows.length === 0) return true;
+  const current = new Map(
+    (await listSizingPathCoverage(connectionId)).map((row) => [
+      `${row.brandKey}\u0000${row.categoryId}\u0000${row.sizingCategory}`,
+      row,
+    ]),
+  );
+  const payload = rows.map((row) => {
+    const existing = current.get(`${row.brandKey}\u0000${row.categoryId}\u0000${row.sizingCategory}`);
+    return {
+      connection_id: connectionId,
+      brand_key: row.brandKey,
+      brand_name: existing?.brandName ?? row.brandName,
+      category_id: row.categoryId,
+      category_path: row.categoryPath,
+      sizing_category: row.sizingCategory,
+      sku_count: (existing?.skuCount ?? 0) + row.skuCount,
+    };
+  });
+  for (let index = 0; index < payload.length; index += INSERT_CHUNK) {
+    const { error } = await db
+      .from("sizing_path_coverage")
+      .upsert(payload.slice(index, index + INSERT_CHUNK), {
+        onConflict: "connection_id,brand_key,category_id,sizing_category",
+      });
+    if (error) {
+      console.error("[db/sizing-path-coverage merge]", connectionId, error);
+      return false;
+    }
+  }
+  return true;
+}
+
 export async function listSizingPathCoverage(connectionId: string): Promise<SizingPathCoverageRow[]> {
   const { data, error } = await db
     .from("sizing_path_coverage")

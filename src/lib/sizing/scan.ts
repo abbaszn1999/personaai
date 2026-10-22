@@ -8,7 +8,8 @@ import { sleep } from "@/lib/catalog/timeout";
 import type { StoreConnectionRow } from "@/lib/db/store-connections";
 import { replaceSizingCoverage } from "@/lib/db/sizing-coverage";
 import { replaceSizingNullRecords } from "@/lib/db/sizing-null-records";
-import { replaceSizingProductRecords } from "@/lib/db/sizing-product-records";
+import { replaceSizingProductRecords, type SizingProductRecordInput } from "@/lib/db/sizing-product-records";
+import type { RawCatalogProduct } from "@/lib/catalog/sync-types";
 import { replaceSizingPathCoverage } from "@/lib/db/sizing-path-coverage";
 import { sizingRunExists, updateSizingRun, type SizingRunRow } from "@/lib/db/sizing-runs";
 import { isSizingGroup, type SizingGroup } from "./measurements";
@@ -62,7 +63,7 @@ export interface ScanResult {
  * retaining full store payloads — image lists, variant trees, HTML descriptions — would make memory
  * scale with how verbose a merchant's CMS is. These are the only fields aggregation reads.
  */
-interface ScanRow {
+export interface ScanRow {
   externalId: string;
   sku: string | null;
   title: string;
@@ -79,6 +80,115 @@ interface ScanRow {
   storeCategoryPaths: string[][];
   personaPaths: ResolvedPersonaPath[];
   imageUrl: string | null;
+}
+
+type PersonaConfig = ReturnType<typeof buildPersonaMappingConfig>;
+
+export function personaConfigFor(connection: StoreConnectionRow): PersonaConfig {
+  return buildPersonaMappingConfig(
+    connection.personaTaxonomyScope,
+    connection.personaCategoryMap,
+    connection.categories,
+  );
+}
+
+/** What the scan keeps of one product. Shared with Sync so a new product is read exactly as Setup
+ *  read the catalog it joins. */
+export function toScanRow(
+  raw: RawCatalogProduct,
+  sourceCategoryIds: string[],
+  connection: StoreConnectionRow,
+  personaConfig: PersonaConfig,
+): ScanRow {
+  // Routed through the mapper's own extraction so sizes and audience are read exactly as the
+  // index will read them. Deriving them here from `variantOptions` directly is how a store
+  // gets a chart researched against sizes that never reach ACS.
+  const variants = extractVariantAttributes(raw, connection.acsFieldMapping);
+  const storeCategoryPaths = resolveCategoryPaths({ ...raw, sourceCategoryIds }, connection);
+  const personaPaths = resolvePersonaPaths(sourceCategoryIds, personaConfig, { title: raw.title });
+  const primaryPersonaPath = personaPaths[0] ?? null;
+  const override = connection.skuParentOverrides[raw.externalId];
+
+  return {
+    externalId: raw.externalId,
+    sku: raw.sku,
+    title: raw.title,
+    // A group or column the merchant pointed at `brand` in Stage 1 wins over the platform's own
+    // field, which is the whole point of the override — some stores keep the real brand in an
+    // attribute and leave the vendor field as their own shop name.
+    brandField: resolveProductBrand(raw, connection.acsFieldMapping),
+    sizingGroup: isSizingGroup(override) ? override : primaryPersonaPath?.sizingGroup ?? null,
+    sizingCategoryId: primaryPersonaPath?.key ?? null,
+    sizes: [...variants.sizes],
+    genders: [...variants.genders],
+    ageGroups: [...variants.ageGroups],
+    storeCategoryPaths,
+    personaPaths,
+    imageUrl: raw.imageUrl,
+  };
+}
+
+export interface ScanAggregates {
+  aggregator: CoverageAggregator;
+  pathRows: ReturnType<PathCoverageAggregator["result"]>;
+  records: SizingProductRecordInput[];
+}
+
+/** Folds scanned rows into the coverage, path coverage and product snapshot the scan persists. */
+export function aggregateScanRows(connection: StoreConnectionRow, scanned: readonly ScanRow[]): ScanAggregates {
+  // Every row, not just the sized ones. Which parent a product is sized on came from the merchant's
+  // Categories mapping during the walk; the unsized ones are handed over so the aggregator can count
+  // them, which is the only place the size of that gap is recorded.
+  const aggregator = new CoverageAggregator();
+  // Second aggregation over the same rows, on the axis `sizing_coverage` cannot express: the merchant
+  // category the product was actually sized from. Stage 5 assigns charts per path, and "Tommy tops"
+  // is not a path — `Men > T-Shirts` and `Women > Tops` are, and they want different variants.
+  const paths = new PathCoverageAggregator(connection.categories, buildCategoryIndex(connection.categories));
+
+  for (const row of scanned) {
+    aggregator.add({
+      externalId: row.externalId,
+      sku: row.sku,
+      title: row.title,
+      brand: row.brandField,
+      sizingGroup: row.sizingGroup,
+      sizes: row.sizes,
+      genders: row.genders,
+      ageGroups: row.ageGroups,
+      storeCategoryPaths: row.storeCategoryPaths,
+      imageUrl: row.imageUrl,
+    });
+    // The primary path only: it is the one the product's chart is chosen from, so counting a second
+    // collection's leaf would ask the merchant for a chart no product is ever routed to.
+    const primaryPath = row.personaPaths[0];
+    if (primaryPath) {
+      paths.addPersonaPath({
+        externalId: row.externalId,
+        brand: row.brandField,
+        sizingGroup: row.sizingGroup ?? primaryPath.sizingGroup,
+        pathKey: primaryPath.key,
+        path: primaryPath.segments,
+      });
+    }
+  }
+
+  const records = scanned.flatMap((row) =>
+    row.sizingGroup
+      ? [{
+          externalId: row.externalId,
+          sku: row.sku,
+          title: row.title,
+          brandKey: normalizeBrandKey(row.brandField),
+          sizingCategory: row.sizingGroup,
+          primaryPersonaLeafKey: row.sizingCategoryId,
+          rawSizeFormat: toRawFormat(row.sizes),
+          leafSourceCategoryIds: leafSourceCategoryIds(row.personaPaths, row.sizingCategoryId),
+          brandLabel: row.brandField?.trim() || null,
+        }]
+      : []
+  );
+
+  return { aggregator, pathRows: paths.result(), records };
 }
 
 /**
@@ -110,12 +220,7 @@ export async function runSizingScan(connection: StoreConnectionRow, run: SizingR
   // about it, so how the store chose to chunk its own API never reaches the model.
   // Derived from a category list that cannot change mid-walk, so build it once rather than once per
   // product.
-  const categoryIndex = buildCategoryIndex(connection.categories);
-  const personaConfig = buildPersonaMappingConfig(
-    connection.personaTaxonomyScope,
-    connection.personaCategoryMap,
-    connection.categories,
-  );
+  const personaConfig = personaConfigFor(connection);
 
   const scanned: ScanRow[] = [];
   // Products with no image are never published, so they are kept out of coverage too: counted here
@@ -140,33 +245,7 @@ export async function runSizingScan(connection: StoreConnectionRow, run: SizingR
           withoutImage += 1;
           continue;
         }
-        const sourceCategoryIds = membership(raw, group);
-        // Routed through the mapper's own extraction so sizes and audience are read exactly as the
-        // index will read them. Deriving them here from `variantOptions` directly is how a store
-        // gets a chart researched against sizes that never reach ACS.
-        const variants = extractVariantAttributes(raw, connection.acsFieldMapping);
-        const storeCategoryPaths = resolveCategoryPaths({ ...raw, sourceCategoryIds }, connection);
-        const personaPaths = resolvePersonaPaths(sourceCategoryIds, personaConfig, { title: raw.title });
-        const primaryPersonaPath = personaPaths[0] ?? null;
-        const override = connection.skuParentOverrides[raw.externalId];
-
-        scanned.push({
-          externalId: raw.externalId,
-          sku: raw.sku,
-          title: raw.title,
-          // A group or column the merchant pointed at `brand` in Stage 1 wins over the platform's own
-          // field, which is the whole point of the override — some stores keep the real brand in an
-          // attribute and leave the vendor field as their own shop name.
-          brandField: resolveProductBrand(raw, connection.acsFieldMapping),
-          sizingGroup: isSizingGroup(override) ? override : primaryPersonaPath?.sizingGroup ?? null,
-          sizingCategoryId: primaryPersonaPath?.key ?? null,
-          sizes: [...variants.sizes],
-          genders: [...variants.genders],
-          ageGroups: [...variants.ageGroups],
-          storeCategoryPaths,
-          personaPaths,
-          imageUrl: raw.imageUrl,
-        });
+        scanned.push(toScanRow(raw, membership(raw, group), connection, personaConfig));
       }
 
       if (scanned.length - flushedAt >= PROGRESS_FLUSH_PRODUCTS) {
@@ -188,45 +267,9 @@ export async function runSizingScan(connection: StoreConnectionRow, run: SizingR
   // stage sends the complete distinct non-empty brand list to Gemini in one request.
   await updateSizingRun(run.id, { phase: "aggregating", phaseDone: null, phaseTotal: null });
 
-  // Every row, not just the sized ones. Which parent a product is sized on came from the merchant's
-  // Categories mapping during the walk; the unsized ones are handed over so the aggregator can count
-  // them, which is the only place the size of that gap is recorded.
-  const aggregator = new CoverageAggregator();
-  // Second aggregation over the same rows, on the axis `sizing_coverage` cannot express: the merchant
-  // category the product was actually sized from. Stage 5 assigns charts per path, and "Tommy tops"
-  // is not a path — `Men > T-Shirts` and `Women > Tops` are, and they want different variants.
-  const paths = new PathCoverageAggregator(connection.categories, categoryIndex);
-
-  for (const row of scanned) {
-    aggregator.add({
-      externalId: row.externalId,
-      sku: row.sku,
-      title: row.title,
-      brand: row.brandField,
-      sizingGroup: row.sizingGroup,
-      sizes: row.sizes,
-      genders: row.genders,
-      ageGroups: row.ageGroups,
-      storeCategoryPaths: row.storeCategoryPaths,
-      imageUrl: row.imageUrl,
-    });
-    // The primary path only: it is the one the product's chart is chosen from, so counting a second
-    // collection's leaf would ask the merchant for a chart no product is ever routed to.
-    const primaryPath = row.personaPaths[0];
-    if (primaryPath) {
-      paths.addPersonaPath({
-        externalId: row.externalId,
-        brand: row.brandField,
-        sizingGroup: row.sizingGroup ?? primaryPath.sizingGroup,
-        pathKey: primaryPath.key,
-        path: primaryPath.segments,
-      });
-    }
-  }
-
+  const { aggregator, pathRows, records } = aggregateScanRows(connection, scanned);
   const rows = aggregator.rows();
   const stats = aggregator.stats();
-  const pathRows = paths.result();
 
   // A walk takes minutes, and Start from scratch can land in the middle of one. Its results belong
   // to a setup that no longer exists, so they are dropped rather than written over the fresh one.
@@ -234,24 +277,7 @@ export async function runSizingScan(connection: StoreConnectionRow, run: SizingR
     throw new Error("Start from scratch removed this scan's run before its results were saved.");
   }
 
-  const productsWritten = await replaceSizingProductRecords(
-    connection.id,
-    scanned.flatMap((row) =>
-      row.sizingGroup
-        ? [{
-            externalId: row.externalId,
-            sku: row.sku,
-            title: row.title,
-            brandKey: normalizeBrandKey(row.brandField),
-            sizingCategory: row.sizingGroup,
-            primaryPersonaLeafKey: row.sizingCategoryId,
-            rawSizeFormat: toRawFormat(row.sizes),
-            leafSourceCategoryIds: leafSourceCategoryIds(row.personaPaths, row.sizingCategoryId),
-            brandLabel: row.brandField?.trim() || null,
-          }]
-        : []
-    )
-  );
+  const productsWritten = await replaceSizingProductRecords(connection.id, records);
   if (!productsWritten) {
     throw new Error("Scan finished but its Stage 2 product snapshot could not be saved.");
   }

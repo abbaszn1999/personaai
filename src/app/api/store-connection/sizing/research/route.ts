@@ -3,6 +3,7 @@ import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
 import { refuseDuringSetupReset } from "@/lib/catalog/setup-reset-guard";
 import { listSizingCoverage, resetResearchOutcomes } from "@/lib/db/sizing-coverage";
 import { getActiveSizingRun, queueScopedResearch } from "@/lib/db/sizing-runs";
+import { refuseDuringSync } from "@/lib/sync/guard";
 import { UNKNOWN_BRAND_KEY } from "@/lib/sizing/keys";
 import { buildBrandResearch } from "@/lib/sizing/chart-results";
 import { listSharedChartsForBrands } from "@/lib/db/sizing-charts";
@@ -45,6 +46,8 @@ export async function POST(request: Request) {
     }
     const resetting = refuseDuringSetupReset(connection);
     if (resetting) return resetting;
+    const syncing = await refuseDuringSync(connection.id);
+    if (syncing) return syncing;
 
     const body = (await request.json().catch(() => ({}))) as { brandKey?: unknown; force?: unknown };
     const requested = typeof body.brandKey === "string" && body.brandKey.trim() ? body.brandKey.trim() : null;

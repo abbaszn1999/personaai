@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SizingCoverageRow } from "@/lib/db/sizing-coverage";
-import { brandSourceFingerprint, type StoreBrandMapping } from "./brand-mapping";
-import { buildBrandMappingState } from "./brand-mapping-state";
+import { brandSourceFingerprint, mappingWithNewBrandGroups, type StoreBrandMapping } from "./brand-mapping";
+import { buildBrandMappingState, buildNewBrandMappingState } from "./brand-mapping-state";
 
 function coverage(overrides: Partial<SizingCoverageRow> = {}): SizingCoverageRow {
   return {
@@ -115,5 +115,75 @@ describe("buildBrandMappingState", () => {
       ["moustache", ["moustache", "moustache_men", "moustache_women"]],
       ["moustache_suit", ["moustache_suit"]],
     ]);
+  });
+});
+
+describe("buildNewBrandMappingState (Sync)", () => {
+  const stocked = [
+    coverage(),
+    coverage({ id: "coverage-2", brandKey: "tom_tailor_men", brandName: "Tom Tailor Men", skuCount: 4 }),
+  ];
+  const house = (brandKey: string, brandName: string) =>
+    coverage({ id: `coverage-${brandKey}`, brandKey, brandName, brandType: "private", brandCanonicalName: null, skuCount: 3 });
+
+  it("lists only the global brands no confirmed alias covers", () => {
+    const state = buildNewBrandMappingState({
+      coverage: [...stocked, coverage({ id: "coverage-3", brandKey: "salomon", brandName: "Salomon", skuCount: 2 })],
+      mapping,
+      sharedBrandKeys: ["tom_tailor", "salomon"],
+      runBrandKeys: new Set(["salomon"]),
+    });
+    expect(state.status).toBe("needs_mapping");
+    expect(state.brands.map((brand) => brand.rawKey)).toEqual(["salomon"]);
+    expect(state.groups.flatMap((group) => group.rawKeys)).toEqual(["salomon"]);
+  });
+
+  it("lists only the sync's own private labels nobody grouped", () => {
+    const state = buildNewBrandMappingState({
+      coverage: [...stocked, house("moustache", "Moustache"), house("moustache_kids", "Moustache Kids")],
+      mapping: {
+        ...mapping,
+        privateAliases: {
+          moustache: { canonicalKey: "moustache", canonicalName: "Moustache", labels: ["Moustache"], skuCount: 3, sizingCategories: ["tops"] },
+        },
+      },
+      sharedBrandKeys: ["tom_tailor"],
+      runBrandKeys: new Set(["moustache_kids"]),
+    });
+    expect(state.status).toBe("ready");
+    expect(state.privateBrands.map((brand) => brand.rawKey)).toEqual(["moustache_kids"]);
+    // The label can join the group the merchant already made.
+    expect(state.privateGroups.map((group) => group.canonicalKey)).toEqual(["moustache"]);
+  });
+
+  it("is ready once the new brands are grouped, keeping every alias Setup confirmed", () => {
+    const withNew = [...stocked, coverage({ id: "coverage-3", brandKey: "salomon", brandName: "Salomon", skuCount: 2 })];
+    const before = buildBrandMappingState({ coverage: withNew, mapping, sharedBrandKeys: ["tom_tailor", "salomon"] });
+    const sync = buildNewBrandMappingState({
+      coverage: withNew,
+      mapping,
+      sharedBrandKeys: ["tom_tailor", "salomon"],
+      runBrandKeys: new Set(["salomon"]),
+    });
+
+    const merged = mappingWithNewBrandGroups(
+      mapping,
+      before.brands,
+      sync.brands,
+      [{ canonicalKey: "salomon", canonicalName: "Salomon", rawKeys: ["salomon"], shared: true }],
+      "2026-10-22T00:00:00.000Z",
+    );
+
+    expect(Object.keys(merged.aliases).sort()).toEqual(["salomon", "tom_tailor", "tom_tailor_men"]);
+    expect(merged.aliases.tom_tailor_men.canonicalKey).toBe("tom_tailor");
+    const after = buildBrandMappingState({ coverage: withNew, mapping: merged, sharedBrandKeys: ["tom_tailor", "salomon"] });
+    expect(after.status).toBe("ready");
+  });
+
+  it("refuses a save that leaves a new brand ungrouped", () => {
+    const withNew = [...stocked, coverage({ id: "coverage-3", brandKey: "salomon", brandName: "Salomon", skuCount: 2 })];
+    const all = buildBrandMappingState({ coverage: withNew, mapping, sharedBrandKeys: [] }).brands;
+    const fresh = all.filter((brand) => brand.rawKey === "salomon");
+    expect(() => mappingWithNewBrandGroups(mapping, all, fresh, [], "2026-10-22T00:00:00.000Z")).toThrow();
   });
 });

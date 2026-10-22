@@ -6,6 +6,8 @@ import { sleep } from "./timeout";
 import { computeSourceHash, sourceConfigKey } from "./source-hash";
 import { loadSourceHashes } from "@/lib/db/catalog-source-hashes";
 import { getAcsPublishStampId } from "@/lib/db/sizing-runs";
+import { listHeldSyncProductIds, markSyncProductsRemoved } from "@/lib/db/sync-new-products";
+import { detectNewProducts, syncHoldActive } from "@/lib/sync/detect";
 
 /** Enqueue in chunks rather than one message per round trip — 20,000 individual inserts is
  *  the difference between a sync that finishes in a minute and one that takes an hour. */
@@ -71,6 +73,7 @@ export async function enqueueCatalogSync(
   }
 
   let unchanged: UnchangedFilter | undefined;
+  let holdNew: HoldFilter | undefined;
   if (options.skipUnchanged) {
     const [stored, publishId] = await Promise.all([loadSourceHashes(connection.id), getAcsPublishStampId(connection.id)]);
     if (stored) {
@@ -78,25 +81,40 @@ export async function enqueueCatalogSync(
       unchanged = (product, sourceCategoryIds) =>
         stored.get(product.externalId) === computeSourceHash(product, sourceCategoryIds, configKey);
     }
+    // The reconcile is where a product missed by its webhook is found. One new since Setup
+    // published waits for Sync like a webhook's would, and one already waiting stays out of ACS.
+    if (await syncHoldActive(connection.id)) {
+      holdNew = async (messages) => {
+        const [detected, waiting] = await Promise.all([
+          detectNewProducts(
+            connection,
+            messages.map((message) => ({ product: message.product, sourceCategoryIds: message.sourceCategoryIds })),
+            "reconcile",
+          ),
+          listHeldSyncProductIds(connection.id),
+        ]);
+        // A whole-selection walk is also the proof a waiting product is still sold: one it did
+        // not reach was deleted or left the selected categories without a webhook saying so.
+        if (waiting && !options.onlyCategoryIds && !options.updatedAfter) {
+          const walked = new Set(messages.map((message) => message.product.externalId));
+          const gone = [...waiting].filter((id) => !walked.has(id));
+          if (gone.length > 0) await markSyncProductsRemoved(connection.id, gone);
+        }
+        return new Set([...(detected?.heldIds ?? []), ...(waiting ?? [])]);
+      };
+    }
   }
 
-  return walkCategoryGroups(connection.id, pager, unchanged);
+  return walkCategoryGroups(connection.id, pager, unchanged, holdNew);
 }
 
-/**
- * Pages through each category in turn, enqueueing every product once.
- *
- * The dedupe is what keeps this honest. Categories overlap — a dress can sit in "Dresses",
- * "Summer" and "Sale" — and each appearance would otherwise be enqueued separately and enriched
- * separately, at full price, for one product. Every category a product was found in is recorded
- * on its single message, because that set is what decides later whether deselecting one category
- * should remove it.
- */
-async function walkCategoryGroups(
+type HoldFilter = (messages: CatalogQueueMessage[]) => Promise<Set<string>>;
+
+/** Every in-scope product once, with every selected category it was found under. */
+export async function collectCatalogProducts(
   connectionId: string,
   pager: CatalogPager,
-  isUnchanged?: UnchangedFilter,
-): Promise<EnqueueResult> {
+): Promise<{ messages: CatalogQueueMessage[]; pages: number; duplicates: number }> {
   const sourcesByProduct = new Map<string, { product: RawCatalogProduct; sourceCategoryIds: Set<string> }>();
   let pages = 0;
   let duplicates = 0;
@@ -127,11 +145,32 @@ async function walkCategoryGroups(
     }
   }
 
-  const all: CatalogQueueMessage[] = [...sourcesByProduct.values()].map((entry) => ({
+  const messages: CatalogQueueMessage[] = [...sourcesByProduct.values()].map((entry) => ({
     connectionId,
     product: entry.product,
     sourceCategoryIds: [...entry.sourceCategoryIds],
   }));
+  return { messages, pages, duplicates };
+}
+
+/**
+ * Pages through each category in turn, enqueueing every product once.
+ *
+ * The dedupe is what keeps this honest. Categories overlap — a dress can sit in "Dresses",
+ * "Summer" and "Sale" — and each appearance would otherwise be enqueued separately and enriched
+ * separately, at full price, for one product. Every category a product was found in is recorded
+ * on its single message, because that set is what decides later whether deselecting one category
+ * should remove it.
+ */
+async function walkCategoryGroups(
+  connectionId: string,
+  pager: CatalogPager,
+  isUnchanged?: UnchangedFilter,
+  holdNew?: HoldFilter,
+): Promise<EnqueueResult> {
+  const { messages: walked, pages, duplicates } = await collectCatalogProducts(connectionId, pager);
+  const held = holdNew ? await holdNew(walked) : new Set<string>();
+  const all = held.size > 0 ? walked.filter((message) => !held.has(message.product.externalId)) : walked;
   const messages = isUnchanged
     ? all.filter((message) => !isUnchanged(message.product, message.sourceCategoryIds))
     : all;

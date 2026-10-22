@@ -4,6 +4,7 @@ import { POST } from "./route";
 
 vi.mock("@/lib/catalog/index-product", () => ({ indexProductIfInScope: vi.fn() }));
 vi.mock("@/lib/catalog/acs/sync", () => ({ markAcsProductOutOfStock: vi.fn() }));
+vi.mock("@/lib/db/sync-new-products", () => ({ markSyncProductsRemoved: vi.fn() }));
 vi.mock("@/lib/db/store-connections", () => ({ getStoreConnectionsByStoreUrl: vi.fn() }));
 vi.mock("@/lib/catalog/path-config/rebuild", () => ({ markPathConfigStale: vi.fn() }));
 vi.mock("@/lib/catalog/catalog-change", () => ({ noteStoreProductChanged: vi.fn() }));

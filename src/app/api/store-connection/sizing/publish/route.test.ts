@@ -12,6 +12,7 @@ vi.mock("@/lib/db/sizing-runs", () => ({
   updateSizingRun: vi.fn(),
 }));
 vi.mock("@/lib/catalog/acs/stage-five-preview", () => ({ summarizeGeneratedSizing: vi.fn() }));
+vi.mock("@/lib/sync/guard", () => ({ refuseDuringSync: vi.fn(async () => null) }));
 
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner } from "@/lib/db/store-connections";

@@ -24,6 +24,7 @@ import { sizingForRawProduct } from "./sizing-for-product";
 import { computeSourceHash, sourceConfigKey } from "./source-hash";
 import { saveSourceHashes } from "@/lib/db/catalog-source-hashes";
 import { retireStaleAcsProducts } from "@/lib/catalog/acs/catalog-reads";
+import { markAllPendingSyncProductsPublished } from "@/lib/db/sync-new-products";
 import { setupResetPending } from "@/lib/catalog/setup-reset-state";
 import {
   getAcsPublishStampId,
@@ -204,6 +205,7 @@ export async function settleFinishedRuns(): Promise<number> {
           });
       if (status === "ready") {
         clearAcsStageFiveCache(connection.id);
+        await markAllPendingSyncProductsPublished(connection.id, sizingRun.id);
         // Everything this publish wrote carries its run id; whatever still carries another one was
         // written by an earlier catalog and is no longer part of this one. Not awaited: it pages the
         // shared ACS catalog, which must not hold up settling the other connections.
@@ -415,7 +417,8 @@ async function reportProgress(connection: StoreConnectionRow, indexedDelta: numb
 
   await updateCatalogSyncState(connection.id, { progress, status });
   const sizingRun = await getActiveSizingRun(connection.id);
-  if (sizingRun?.stage === "publish") {
+  // A sync writes its products itself rather than through this queue, so its progress is its own.
+  if (sizingRun?.kind === "setup" && sizingRun.stage === "publish") {
     await updateSizingRun(sizingRun.id, {
       phaseDone: progress,
       phaseTotal: connection.catalogSyncTotal,

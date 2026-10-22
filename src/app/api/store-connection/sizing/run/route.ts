@@ -10,6 +10,7 @@ import { listSizingPathCoverage } from "@/lib/db/sizing-path-coverage";
 import { attachPersonaLeaves, summarizeCoverage } from "@/lib/sizing/summary";
 import { buildIdentification, buildRouting } from "@/lib/sizing/routing";
 import { mappedSourceCategoryIds } from "@/lib/catalog/persona-mapping";
+import { refuseDuringSync } from "@/lib/sync/guard";
 
 /**
  * The size-intelligence pipeline's run state and its results.
@@ -90,6 +91,8 @@ export async function POST() {
     }
     const resetting = refuseDuringSetupReset(connection);
     if (resetting) return resetting;
+    const syncing = await refuseDuringSync(connection.id);
+    if (syncing) return syncing;
 
     // Gated on the same approval the index is gated on. The scan reads sizes and audience through the
     // merchant's option-group mapping, so scanning before that is approved would classify brands and

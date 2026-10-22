@@ -22,6 +22,16 @@ const getAcsPublishStampId = vi.fn(async (): Promise<string | null> => "run-live
 vi.mock("@/lib/db/sizing-runs", () => ({
   getAcsPublishStampId: () => getAcsPublishStampId(),
 }));
+const syncHoldActive = vi.fn(async () => false);
+const holdWebhookProduct = vi.fn(async () => true);
+vi.mock("@/lib/sync/detect", () => ({
+  syncHoldActive: () => syncHoldActive(),
+  holdWebhookProduct: (...args: unknown[]) => holdWebhookProduct(...(args as [])),
+}));
+const markSyncProductsRemoved = vi.fn(async () => undefined);
+vi.mock("@/lib/db/sync-new-products", () => ({
+  markSyncProductsRemoved: (...args: unknown[]) => markSyncProductsRemoved(...(args as [])),
+}));
 
 const { indexSingleProduct, indexProductIfInScope, resolveCategoryPaths, resolveGarmentCategory } = await import(
   "./index-product"
@@ -108,6 +118,8 @@ beforeEach(() => {
   syncProductToAcs.mockReset().mockResolvedValue(true);
   downgradeAcsProductIfExists.mockReset().mockResolvedValue(false);
   fetchByIds.mockReset().mockResolvedValue([]);
+  holdWebhookProduct.mockClear();
+  markSyncProductsRemoved.mockClear();
 });
 
 describe("indexSingleProduct", () => {
@@ -132,6 +144,29 @@ describe("indexProductIfInScope", () => {
     const outcome = await indexProductIfInScope(scopedConnection, product);
     expect(outcome).toBe("indexed");
     expect(syncProductToAcs).toHaveBeenCalledOnce();
+  });
+
+  it("holds a product ACS has never had for Sync instead of indexing it", async () => {
+    syncHoldActive.mockResolvedValueOnce(true);
+    holdWebhookProduct.mockResolvedValueOnce(true);
+    const outcome = await indexProductIfInScope(scopedConnection, product);
+    expect(outcome).toBe("held");
+    expect(holdWebhookProduct).toHaveBeenCalledOnce();
+    expect(syncProductToAcs).not.toHaveBeenCalled();
+  });
+
+  it("still indexes an update to a product ACS already holds while the hold is on", async () => {
+    syncHoldActive.mockResolvedValueOnce(true);
+    holdWebhookProduct.mockResolvedValueOnce(false);
+    const outcome = await indexProductIfInScope(scopedConnection, product);
+    expect(outcome).toBe("indexed");
+    expect(syncProductToAcs).toHaveBeenCalledOnce();
+  });
+
+  it("drops a waiting product from the Sync queue when it leaves the selected categories", async () => {
+    downgradeAcsProductIfExists.mockResolvedValue(false);
+    await indexProductIfInScope(scopedConnection, { ...product, sourceCategoryIds: ["99"] });
+    expect(markSyncProductsRemoved).toHaveBeenCalledWith("conn-1", [product.externalId]);
   });
 
   it("reports out-of-scope without touching ACS when nothing overlaps and it never existed", async () => {

@@ -5,86 +5,22 @@ import { listSizingCoverage, setResearchOutcomes } from "@/lib/db/sizing-coverag
 import {
   insertPrivateChart,
   listPrivateChartsForBrands,
-  listSharedChartsForBrands,
   updatePrivateChartById,
 } from "@/lib/db/sizing-charts";
 import { getLatestSizingRun } from "@/lib/db/sizing-runs";
-import {
-  buildChartResults,
-  buildBrandResearch,
-  missingLeavesFor,
-  stockedLeavesKey,
-} from "@/lib/sizing/chart-results";
+import { missingLeavesFor, stockedLeavesKey } from "@/lib/sizing/chart-results";
 import { parseDraft, type ChartDraftRow } from "@/lib/sizing/chart-draft";
 import { chartHasBounds } from "@/lib/sizing/chart-schema";
 import { isSizingGroup } from "@/lib/sizing/measurements";
 import { isAudience, normalizeBrandKey, UNKNOWN_BRAND_KEY } from "@/lib/sizing/keys";
 import { sanitizeCoverage } from "@/lib/sizing/variant-match";
 import { sharedSizeLabels } from "@/lib/sizing/canonical";
-import { canonicalizeCoverageForCharts } from "@/lib/sizing/brand-mapping-view";
 import { listSizingPathCoverage } from "@/lib/db/sizing-path-coverage";
 import { buildStockedLeaves } from "@/lib/sizing/stocked-leaves";
 import { clearGeneratedStageFiveCache } from "@/lib/catalog/acs/stage-five-preview";
-import { brandFilterSource, leafSourceLinks } from "@/lib/catalog/storefront-links";
-import { probeShopifyFilter, shopifyFilterParameter } from "@/lib/catalog/storefront-filter-probe";
-import { getWooBrandTerms } from "@/lib/catalog/storefront-brand-terms";
-import type { StoreConnectionRow } from "@/lib/db/store-connections";
-import type { BrandType } from "@/lib/db/sizing-coverage";
-import { getSizingProductFacets } from "@/lib/db/sizing-product-records";
-import { brandLeafSourceLinks, type BrandLeafSourceLinks } from "@/lib/sizing/brand-leaf-sources";
-import { facetsHaveSources } from "@/lib/sizing/record-facets";
 import { leafLabel, mappedPersonaLeaves } from "@/modules/store/mapping/persona-taxonomy";
-import {
-  brandMappingIsCurrent,
-  parseStoreBrandMapping,
-  resolveChartBrandKey,
-} from "@/lib/sizing/brand-mapping";
-
-/**
- * The collections that hold each chart brand's items under each subcategory, as links that open the
- * storefront already filtered to that brand. Empty until a scan has saved collections per product, and
- * never allowed to fail the chart list it rides along with: the screen falls back to the full list of
- * collections mapped to the subcategory.
- */
-async function loadBrandLeafSources(
-  connection: StoreConnectionRow,
-  types: ReadonlyMap<string, BrandType>,
-  brandMapping: ReturnType<typeof parseStoreBrandMapping>,
-): Promise<BrandLeafSourceLinks> {
-  try {
-    const facetRows = await getSizingProductFacets(connection.id);
-    if (!facetRows || !facetsHaveSources(facetRows)) return {};
-
-    const source = brandFilterSource(connection.acsFieldMapping);
-    const parameter = connection.platform === "shopify" ? shopifyFilterParameter(source) : null;
-    const handle = connection.categories.find((category) => category.handle?.trim())?.handle?.trim();
-    const [support, wooBrands] = await Promise.all([
-      parameter && handle
-        ? probeShopifyFilter(storefrontOrigin(connection.storeUrl), handle, parameter)
-        : Promise.resolve(null),
-      source.kind === "vendor" ? getWooBrandTerms(connection) : Promise.resolve([]),
-    ]);
-
-    return brandLeafSourceLinks({
-      facetRows,
-      resolveBrandKey: (rawKey) => resolveChartBrandKey(rawKey, types.get(rawKey), brandMapping),
-      categories: connection.categories,
-      platform: connection.platform,
-      storeUrl: connection.storeUrl,
-      source,
-      wooBrands,
-      support,
-    });
-  } catch (err) {
-    console.error("[store-connection sizing/charts brandLeafSources]", err);
-    return {};
-  }
-}
-
-function storefrontOrigin(storeUrl: string): string {
-  const trimmed = storeUrl.trim().replace(/\/+$/, "");
-  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
-}
+import { parseStoreBrandMapping, resolveChartBrandKey } from "@/lib/sizing/brand-mapping";
+import { buildChartsView } from "@/lib/sizing/charts-view";
 
 /**
  * Stage 4's whole surface: the coverage-driven chart and gap join, plus one row per global brand at
@@ -112,77 +48,9 @@ export async function GET() {
       getLatestSizingRun(connection.id),
       listSizingPathCoverage(connection.id),
     ]);
-    const brandMapping = parseStoreBrandMapping(connection.sizingBrandMapping);
-    const globalKeys = coverage.filter((row) => row.brandType === "global").map((row) => row.brandKey);
-    if (!brandMappingIsCurrent(globalKeys, brandMapping)) {
-      return Response.json(
-        { error: "Confirm the canonical brand mapping before viewing chart research." },
-        { status: 409 },
-      );
-    }
-    const canonical = canonicalizeCoverageForCharts(coverage, brandMapping);
-
-    const globalBrandKeys = [
-      ...new Set(canonical.rows.filter((row) => row.brandType === "global").map((row) => row.brandKey)),
-    ];
-    const privateBrandKeys = [
-      ...new Set(
-        canonical.rows
-          .filter((row) => row.brandType === "private" || row.brandType === "none")
-          .map((row) => row.brandKey),
-      ),
-    ];
-    const [sharedCharts, privateCharts] = await Promise.all([
-      listSharedChartsForBrands(globalBrandKeys),
-      listPrivateChartsForBrands(connection.id, privateBrandKeys),
-    ]);
-    const charts = [...sharedCharts, ...privateCharts];
-
-    const mappedLeaves = mappedPersonaLeaves(connection.personaCategoryMap, connection.personaTaxonomyScope);
-    const types = new Map(coverage.map((row) => [row.brandKey, row.brandType]));
-    const stocked = buildStockedLeaves(pathCoverage, types, brandMapping, mappedLeaves);
-
-    const results = buildChartResults(canonical.rows, charts, stocked);
-    const brands = buildBrandResearch(
-      canonical.rows,
-      charts,
-      {
-        // Only while research is the live stage. A scope left on a run that has moved past research is
-        // spent, and reading it would show brands as Queued forever.
-        scopedBrandKeys: run?.stage === "research" ? run.researchBrandKeys : [],
-        currentBrandKey: run?.stage === "research" ? run.researchCurrentBrandKey : null,
-      },
-      stocked
-    ).map((brand) => ({
-      ...brand,
-      memberBrands: canonical.membersByCanonicalKey.get(brand.brandKey) ?? [
-        { brandKey: brand.brandKey, brandName: brand.brandName, skuCount: brand.skuCount },
-      ],
-    }));
-
-    const leafCounts = new Map<string, number>();
-    for (const path of pathCoverage) {
-      const brandKey = resolveChartBrandKey(path.brandKey, types.get(path.brandKey), brandMapping);
-      const key = `${brandKey}\u0000${path.categoryId}`;
-      leafCounts.set(key, (leafCounts.get(key) ?? 0) + path.skuCount);
-    }
-
-    return Response.json({
-      ...results,
-      brands,
-      mappedLeaves,
-      leafCounts: [...leafCounts].map(([key, skuCount]) => {
-        const [brandKey, leafKey] = key.split("\u0000");
-        return { brandKey, leafKey, skuCount };
-      }),
-      leafSources: leafSourceLinks(
-        connection.personaCategoryMap,
-        connection.categories,
-        connection.platform,
-        connection.storeUrl,
-      ),
-      brandLeafSources: await loadBrandLeafSources(connection, types, brandMapping),
-    });
+    const view = await buildChartsView({ connection, run, allCoverage: coverage, coverage, pathCoverage });
+    if (!view.ok) return Response.json({ error: view.error }, { status: view.status });
+    return Response.json(view.body);
   } catch (err) {
     console.error("[store-connection sizing/charts GET]", err);
     return Response.json({ error: "Could not load the researched charts" }, { status: 500 });

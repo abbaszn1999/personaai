@@ -6,6 +6,7 @@ import { markPathConfigStale } from "@/lib/catalog/path-config/rebuild";
 import { noteStoreProductChanged } from "@/lib/catalog/catalog-change";
 import { mapShopifyWebhookProduct, normalizeShopifyDomain } from "@/lib/shopify/client";
 import { decodeCredentials } from "@/lib/utils/crypto";
+import { markSyncProductsRemoved } from "@/lib/db/sync-new-products";
 import { verifyHmacSignature } from "@/lib/utils/internal-auth";
 
 export const runtime = "nodejs";
@@ -67,6 +68,7 @@ export async function POST(request: Request) {
       // Downgraded rather than removed — Google's own guidance is that deleting an ACS product
       // invalidates the user-event history tied to its id (see `markAcsProductOutOfStock`).
       if (id) {
+        await markSyncProductsRemoved(connection.id, [`gid://shopify/Product/${id}`]);
         await markAcsProductOutOfStock(connection.id, `gid://shopify/Product/${id}`);
         noteStoreProductChanged(connection.id, `gid://shopify/Product/${id}`);
       }

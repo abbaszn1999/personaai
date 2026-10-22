@@ -148,13 +148,22 @@ export async function getActiveSizingRun(connectionId: string): Promise<SizingRu
   return data ? rowToRun(data) : null;
 }
 
+export type SizingRunKind = SizingRunRow["kind"];
+
 /** The run the UI reports on: the live one if there is one, otherwise the most recent finished run
- *  so a merchant returning to a completed pipeline sees its result rather than an empty pipeline. */
-export async function getLatestSizingRun(connectionId: string): Promise<SizingRunRow | null> {
+ *  so a merchant returning to a completed pipeline sees its result rather than an empty pipeline.
+ *
+ *  Per kind, because Setup and Sync each report on their own pipeline: a sync of new products is not
+ *  a stage the Setup page should open on, and Setup's finished run is not a sync in progress. */
+export async function getLatestSizingRun(
+  connectionId: string,
+  kind: SizingRunKind = "setup",
+): Promise<SizingRunRow | null> {
   const { data, error } = await db
     .from("sizing_runs")
     .select("*")
     .eq("connection_id", connectionId)
+    .eq("kind", kind)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -167,12 +176,14 @@ export async function getLatestSizingRun(connectionId: string): Promise<SizingRu
   return data ? rowToRun(data) : null;
 }
 
-/** The catalog version currently available in ACS, even while a newer setup run is in progress. */
+/** The catalog version currently available in ACS, even while a newer setup run is in progress.
+ *  Setup runs only: a sync adds products to that catalog under its stamp rather than replacing it. */
 export async function getLatestPublishedSizingRun(connectionId: string): Promise<SizingRunRow | null> {
   const { data, error } = await db
     .from("sizing_runs")
     .select("*")
     .eq("connection_id", connectionId)
+    .eq("kind", "setup")
     .not("published_at", "is", null)
     .order("published_at", { ascending: false })
     .limit(1)
@@ -204,6 +215,7 @@ export async function getAcsPublishStampId(connectionId: string): Promise<string
     .from("sizing_runs")
     .select("id")
     .eq("connection_id", connectionId)
+    .eq("kind", "setup")
     .eq("stage", "publish")
     .in("status", ["pending", "running"])
     .order("created_at", { ascending: false })
@@ -354,6 +366,7 @@ export async function listActivePublishingSizingRuns(): Promise<SizingRunRow[]> 
   const { data, error } = await db
     .from("sizing_runs")
     .select("*")
+    .eq("kind", "setup")
     .eq("stage", "publish")
     .eq("status", "running")
     .order("created_at", { ascending: true });
@@ -382,12 +395,14 @@ export async function listActivePublishingSizingRuns(): Promise<SizingRunRow[]> 
 export async function advanceBlockedRun(
   connectionId: string,
   from: readonly SizingRunStage[],
-  to: SizingRunStage
+  to: SizingRunStage,
+  kind: SizingRunKind = "setup",
 ): Promise<SizingRunRow | null> {
   const { data, error } = await db
     .from("sizing_runs")
     .update({ stage: to, status: "blocked", error: null, updated_at: new Date().toISOString() })
     .eq("connection_id", connectionId)
+    .eq("kind", kind)
     .eq("status", "blocked")
     .in("stage", from as SizingRunStage[])
     .select("*")
@@ -435,6 +450,7 @@ export async function queueScopedResearch(
       updated_at: new Date().toISOString(),
     })
     .eq("connection_id", connectionId)
+    .eq("kind", "setup")
     .in("status", LIVE_STATUSES)
     .select("*")
     .maybeSingle();
@@ -464,6 +480,7 @@ export async function rewindRun(connectionId: string, stage: SizingRunStage): Pr
     .from("sizing_runs")
     .update({ stage, status: "pending", error: null, updated_at: new Date().toISOString() })
     .eq("connection_id", connectionId)
+    .eq("kind", "setup")
     .in("status", LIVE_STATUSES)
     .select("*")
     .maybeSingle();
@@ -474,6 +491,34 @@ export async function rewindRun(connectionId: string, stage: SizingRunStage): Pr
   }
 
   return data ? rowToRun(data) : null;
+}
+
+export async function getSizingRun(runId: string): Promise<SizingRunRow | null> {
+  const { data, error } = await db.from("sizing_runs").select("*").eq("id", runId).maybeSingle();
+  if (error) {
+    console.error("[db/sizing-runs getSizingRun]", runId, error);
+    return null;
+  }
+  return data ? rowToRun(data) : null;
+}
+
+/** A store's syncs of new products, newest first, for Sync History. */
+export async function listDeltaSizingRuns(
+  connectionId: string,
+  options: { limit: number; offset: number },
+): Promise<{ runs: SizingRunRow[]; total: number }> {
+  const { data, error, count } = await db
+    .from("sizing_runs")
+    .select("*", { count: "exact" })
+    .eq("connection_id", connectionId)
+    .eq("kind", "delta")
+    .order("created_at", { ascending: false })
+    .range(options.offset, options.offset + options.limit - 1);
+  if (error) {
+    console.error("[db/sizing-runs listDeltaSizingRuns]", connectionId, error);
+    return { runs: [], total: 0 };
+  }
+  return { runs: ((data as Array<Record<string, unknown>>) ?? []).map(rowToRun), total: count ?? 0 };
 }
 
 export async function failSizingRun(runId: string, message: string): Promise<void> {

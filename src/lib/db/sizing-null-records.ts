@@ -55,6 +55,27 @@ export async function replaceSizingNullRecords(connectionId: string, records: Nu
   return true;
 }
 
+/** Adds a sync's unbranded products to the list, leaving the ones Setup found in place. */
+export async function addSizingNullRecords(connectionId: string, records: NullRecord[]): Promise<boolean> {
+  for (let i = 0; i < records.length; i += INSERT_CHUNK) {
+    const payload = records.slice(i, i + INSERT_CHUNK).map((record) => ({
+      connection_id: connectionId,
+      external_id: record.externalId,
+      sku: record.sku,
+      title: record.title,
+      sizing_category: record.sizingCategory,
+    }));
+    const { error } = await db
+      .from("sizing_null_records")
+      .upsert(payload, { onConflict: "connection_id,external_id" });
+    if (error) {
+      console.error("[db/sizing-null-records add]", connectionId, error);
+      return false;
+    }
+  }
+  return true;
+}
+
 export async function listSizingNullRecords(connectionId: string): Promise<SizingNullRecordRow[]> {
   const { data, error } = await db
     .from("sizing_null_records")

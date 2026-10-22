@@ -10,6 +10,8 @@ import { expandCategorySelection } from "./category-scope";
 import { buildPersonaMappingConfig, resolvePersonaPaths } from "./persona-mapping";
 import { createCatalogPager } from "./pager";
 import type { RawCatalogProduct } from "./sync-types";
+import { holdWebhookProduct, syncHoldActive } from "@/lib/sync/detect";
+import { markSyncProductsRemoved } from "@/lib/db/sync-new-products";
 
 /** No more "unchanged" outcome — there is no local hash-gated cache to skip, and ACS's own
  *  import is cheap enough (no per-product model call the way Gemini enrichment/embedding was)
@@ -17,7 +19,7 @@ import type { RawCatalogProduct } from "./sync-types";
 export type IndexOutcome = "indexed" | "failed";
 
 /** Adds the two decisions a webhook can reach that a direct index call cannot. */
-export type WebhookIndexOutcome = IndexOutcome | "out-of-scope" | "removed";
+export type WebhookIndexOutcome = IndexOutcome | "out-of-scope" | "removed" | "held";
 
 /** What a connection needs to resolve a product's category paths and route its option groups —
  *  just enough to be usable from a test fixture without pulling in the whole `StoreConnectionRow`.
@@ -197,6 +199,7 @@ export async function indexProductIfInScope(
   }
 
   if (!membership.some((id) => scope.includes(id))) {
+    await markSyncProductsRemoved(connection.id, [product.externalId]);
     const removed = await downgradeAcsProductIfExists(connection.id, product.externalId);
     return removed ? "removed" : "out-of-scope";
   }
@@ -206,10 +209,15 @@ export async function indexProductIfInScope(
   // that no longer exists; the next publish writes it with everything else.
   if ((await getAcsPublishStampId(connection.id)) === null) return "out-of-scope";
 
-  return indexSingleProduct(
-    connection.id,
-    { ...product, sourceCategoryIds: membership, customFields, variants },
-    membership,
-    connection
-  );
+  // A product the store added after Setup published waits for the merchant's next Sync, which
+  // classifies its brand and gives it a chart before ACS ever holds it.
+  const refreshedProduct = { ...product, sourceCategoryIds: membership, customFields, variants };
+  if (
+    (await syncHoldActive(connection.id)) &&
+    (await holdWebhookProduct(connection, refreshedProduct, membership))
+  ) {
+    return "held";
+  }
+
+  return indexSingleProduct(connection.id, refreshedProduct, membership, connection);
 }

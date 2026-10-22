@@ -369,6 +369,31 @@ export function mappingFromGroups(
 }
 
 /**
+ * Sync's save: groups only the global brands a sync introduced, and keeps every alias the merchant
+ * already confirmed. The fingerprint is taken over all of the store's global brands, so the result
+ * is current for the whole catalog exactly as a full Setup confirmation would be.
+ */
+export function mappingWithNewBrandGroups(
+  current: StoreBrandMapping,
+  allBrands: readonly DiscoveredBrand[],
+  newBrands: readonly DiscoveredBrand[],
+  groups: readonly BrandMappingGroup[],
+  confirmedAt: string,
+): StoreBrandMapping {
+  const added = newBrands.length > 0
+    ? mappingFromGroups(current, newBrands, groups, confirmedAt).aliases
+    : {};
+  const stocked = new Set(allBrands.map((brand) => brand.rawKey));
+  const kept = Object.fromEntries(Object.entries(current.aliases).filter(([rawKey]) => stocked.has(rawKey)));
+  return {
+    ...current,
+    confirmedAt,
+    sourceFingerprint: brandSourceFingerprint([...stocked]),
+    aliases: { ...kept, ...added },
+  };
+}
+
+/**
  * The store's grouping of its own private labels. Optional per label — one left out keeps its own
  * charts — but a label may join only one group, and a group may not take a global brand's key: both
  * pools are keyed by brand, so sharing a key would make one brand's coverage read as the other's.

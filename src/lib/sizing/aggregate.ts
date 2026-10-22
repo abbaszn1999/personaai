@@ -113,6 +113,48 @@ const MAX_PATHS_PER_ROW = 12;
 const MAX_FORMATS_PER_ROW = 400;
 
 /**
+ * Adds a sync's coverage for one (brand x sizing category) to the row Setup already wrote for it,
+ * under the same caps a full scan applies: counts add, and samples, paths and formats keep what the
+ * row already had before taking the sync's.
+ */
+export function mergeCoverageRows(existing: CoverageRow, added: CoverageRow): CoverageRow {
+  const paths = [...existing.storeCategoryPaths];
+  const pathKeys = new Set(paths.map((path) => path.join("\u0000")));
+  for (const path of added.storeCategoryPaths) {
+    const key = path.join("\u0000");
+    if (pathKeys.has(key) || paths.length >= MAX_PATHS_PER_ROW) continue;
+    pathKeys.add(key);
+    paths.push(path);
+  }
+
+  const sampleIds = new Set(existing.sampleSkus.map((sample) => sample.externalId));
+  const samples = [
+    ...existing.sampleSkus,
+    ...added.sampleSkus.filter((sample) => !sampleIds.has(sample.externalId)),
+  ].slice(0, MAX_SAMPLES_PER_ROW);
+
+  const formats: Record<string, { count: number }> = {};
+  for (const [format, value] of Object.entries(existing.rawFormats)) formats[format] = { count: value.count };
+  for (const [format, value] of Object.entries(added.rawFormats)) {
+    if (formats[format]) formats[format] = { count: formats[format].count + value.count };
+    else if (Object.keys(formats).length < MAX_FORMATS_PER_ROW) formats[format] = { count: value.count };
+  }
+
+  const audienceHints = { ...existing.audienceHints };
+  for (const [hint, count] of Object.entries(added.audienceHints)) audienceHints[hint] = (audienceHints[hint] ?? 0) + count;
+
+  return {
+    ...existing,
+    brandName: existing.brandName ?? added.brandName,
+    skuCount: existing.skuCount + added.skuCount,
+    storeCategoryPaths: paths,
+    sampleSkus: samples,
+    rawFormats: formats,
+    audienceHints,
+  };
+}
+
+/**
  * Ceiling on individually listed unbranded products.
  *
  * This independently bounds the manual gap-fill queue. Reported through `nullRecordsTruncated`

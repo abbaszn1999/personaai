@@ -24,6 +24,19 @@ vi.mock("@/lib/db/store-connections", () => ({
   updateCatalogSyncState: () => updateCatalogSyncState(),
 }));
 
+const syncHoldActive = vi.fn(async () => false);
+const detectNewProducts = vi.fn();
+vi.mock("@/lib/sync/detect", () => ({
+  syncHoldActive: () => syncHoldActive(),
+  detectNewProducts: (...args: unknown[]) => detectNewProducts(...args),
+}));
+const listHeldSyncProductIds = vi.fn(async (): Promise<Set<string> | null> => new Set());
+const markSyncProductsRemoved = vi.fn(async () => undefined);
+vi.mock("@/lib/db/sync-new-products", () => ({
+  listHeldSyncProductIds: () => listHeldSyncProductIds(),
+  markSyncProductsRemoved: (...args: unknown[]) => markSyncProductsRemoved(...(args as [])),
+}));
+
 vi.mock("@/lib/woocommerce/client", () => ({
   listWooCatalogPage: (...args: unknown[]) => listWooCatalogPage(...args),
   fetchWooStoreCurrency: async () => "USD",
@@ -260,5 +273,56 @@ describe("enqueueCatalogSync — skipUnchanged", () => {
 
     expect(loadSourceHashes).not.toHaveBeenCalled();
     expect(result.enqueued).toBe(1);
+  });
+});
+
+describe("enqueueCatalogSync — new products held for Sync", () => {
+  const conn = connection();
+
+  beforeEach(() => {
+    loadSourceHashes.mockResolvedValue(new Map());
+    syncHoldActive.mockResolvedValue(true);
+  });
+
+  it("keeps products new since the Setup publish, and those already waiting, out of the queue", async () => {
+    pagesByCategory({ "1": [product("known", ["1"]), product("fresh", ["1"]), product("waiting", ["1"])] });
+    detectNewProducts.mockResolvedValue({ recorded: 1, heldIds: new Set(["fresh"]) });
+    listHeldSyncProductIds.mockResolvedValue(new Set(["waiting"]));
+
+    const result = await enqueueCatalogSync(conn, { skipUnchanged: true });
+
+    expect(enqueuedMessages().map((m) => m.product.externalId)).toEqual(["known"]);
+    expect(result.enqueued).toBe(1);
+    expect(detectNewProducts).toHaveBeenCalledWith(conn, expect.any(Array), "reconcile");
+  });
+
+  it("drops a waiting product a whole-selection walk no longer finds", async () => {
+    pagesByCategory({ "1": [product("known", ["1"])] });
+    detectNewProducts.mockResolvedValue({ recorded: 0, heldIds: new Set() });
+    listHeldSyncProductIds.mockResolvedValue(new Set(["deleted"]));
+
+    await enqueueCatalogSync(conn, { skipUnchanged: true });
+
+    expect(markSyncProductsRemoved).toHaveBeenCalledWith("conn-1", ["deleted"]);
+  });
+
+  it("does not drop waiting products on a walk of only some categories", async () => {
+    pagesByCategory({ "1": [product("known", ["1"])] });
+    detectNewProducts.mockResolvedValue({ recorded: 0, heldIds: new Set() });
+    listHeldSyncProductIds.mockResolvedValue(new Set(["elsewhere"]));
+
+    await enqueueCatalogSync(conn, { skipUnchanged: true, onlyCategoryIds: ["1"] });
+
+    expect(markSyncProductsRemoved).not.toHaveBeenCalled();
+  });
+
+  it("holds nothing back before the first Setup publish", async () => {
+    syncHoldActive.mockResolvedValue(false);
+    pagesByCategory({ "1": [product("fresh", ["1"])] });
+
+    await enqueueCatalogSync(conn, { skipUnchanged: true });
+
+    expect(detectNewProducts).not.toHaveBeenCalled();
+    expect(enqueuedMessages()).toHaveLength(1);
   });
 });

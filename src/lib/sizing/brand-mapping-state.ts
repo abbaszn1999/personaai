@@ -101,6 +101,49 @@ function groupsFromConfirmed(
   return [...grouped.values()].sort((a, b) => a.canonicalName.localeCompare(b.canonicalName));
 }
 
+/**
+ * The mapping screen as a sync shows it: only the global brands no confirmed alias covers yet, and
+ * only the run's own private labels that nobody grouped. Brands Setup already mapped are settled and
+ * stay out of the list; `ready` is still judged over the whole store, because that is what lets
+ * chart routing proceed.
+ */
+export function buildNewBrandMappingState(input: {
+  coverage: readonly SizingCoverageRow[];
+  mapping: StoreBrandMapping;
+  sharedBrandKeys: readonly string[];
+  runBrandKeys: ReadonlySet<string>;
+}): BrandMappingState {
+  const full = buildBrandMappingState(input);
+  const mapping = parseStoreBrandMapping(input.mapping);
+  const confirmed = mapping.confirmedAt !== null;
+  const brands = full.brands.filter((brand) => !confirmed || !mapping.aliases[brand.rawKey]);
+  const privateBrands = full.privateBrands.filter(
+    (brand) => input.runBrandKeys.has(brand.rawKey) && !mapping.privateAliases[brand.rawKey],
+  );
+  // A new private label may join a group the merchant already made, so existing groups are targets
+  // beside the new labels themselves.
+  const privateTargets = new Map<string, CanonicalBrandTarget>();
+  for (const alias of Object.values(mapping.privateAliases)) {
+    privateTargets.set(alias.canonicalKey, { canonicalKey: alias.canonicalKey, canonicalName: alias.canonicalName, shared: false });
+  }
+  for (const brand of privateBrands) {
+    if (!privateTargets.has(brand.rawKey)) {
+      privateTargets.set(brand.rawKey, {
+        canonicalKey: brand.rawKey,
+        canonicalName: brand.labels[0] ?? brandDisplayNameFromKey(brand.rawKey),
+        shared: false,
+      });
+    }
+  }
+  return {
+    ...full,
+    brands,
+    groups: suggestBrandMappingGroups(brands, full.targets),
+    privateBrands,
+    privateGroups: suggestBrandMappingGroups(privateBrands, [...privateTargets.values()]),
+  };
+}
+
 export function buildBrandMappingState(input: {
   coverage: readonly SizingCoverageRow[];
   mapping: StoreBrandMapping;

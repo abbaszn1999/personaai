@@ -2,6 +2,7 @@ import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { getStoreConnectionByOwner } from "@/lib/db/store-connections";
 import { refuseDuringSetupReset } from "@/lib/catalog/setup-reset-guard";
 import { rewindRun } from "@/lib/db/sizing-runs";
+import { refuseDuringSync } from "@/lib/sync/guard";
 
 /**
  * Sends the live run back to the catalog scan.
@@ -29,6 +30,8 @@ export async function POST() {
     }
     const resetting = refuseDuringSetupReset(connection);
     if (resetting) return resetting;
+    const syncing = await refuseDuringSync(connection.id);
+    if (syncing) return syncing;
 
     const run = await rewindRun(connection.id, "scan");
     if (!run) {

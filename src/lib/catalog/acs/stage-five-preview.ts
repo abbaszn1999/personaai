@@ -60,6 +60,16 @@ export interface GeneratedSizingSummary {
   chartKeys: string[];
   canonicalBrandKeys: string[];
   brandMappingCurrent: boolean;
+  /** Sync previews only: products the merchant's mapping gives no sizing family. They publish with
+   *  no chart by design, so they are neither matched nor unresolved. */
+  unsized?: number;
+}
+
+/** A preview over named products rather than the whole snapshot: one sync's new products. */
+export interface PreviewScope {
+  /** Cache identity, distinct per sync run. */
+  key: string;
+  externalIds: string[];
 }
 
 interface GeneratedCatalogSnapshot {
@@ -177,14 +187,20 @@ async function buildCatalogSnapshot(
   connection: StoreConnectionRow,
   context: SizingResolutionContext,
   rawMaxAgeMs: number,
+  scope?: PreviewScope,
 ): Promise<GeneratedCatalogSnapshot> {
   const externalIds: string[] = [];
   let total = 0;
-  for (let offset = 0; ; offset += SNAPSHOT_PAGE_SIZE) {
-    const page = await listSizingProductRecordsPage(connection.id, { offset, limit: SNAPSHOT_PAGE_SIZE });
-    total = page.total;
-    externalIds.push(...page.records.map((record) => record.externalId));
-    if (page.records.length < SNAPSHOT_PAGE_SIZE || externalIds.length >= total) break;
+  if (scope) {
+    externalIds.push(...scope.externalIds);
+    total = externalIds.length;
+  } else {
+    for (let offset = 0; ; offset += SNAPSHOT_PAGE_SIZE) {
+      const page = await listSizingProductRecordsPage(connection.id, { offset, limit: SNAPSHOT_PAGE_SIZE });
+      total = page.total;
+      externalIds.push(...page.records.map((record) => record.externalId));
+      if (page.records.length < SNAPSHOT_PAGE_SIZE || externalIds.length >= total) break;
+    }
   }
 
   const raws = await getRawProducts(connection, externalIds, { maxAgeMs: rawMaxAgeMs });
@@ -200,6 +216,7 @@ async function buildCatalogSnapshot(
   let unavailable = 0;
   let withoutImage = 0;
   let unresolved = 0;
+  let unsized = 0;
   let variantCount = 0;
 
   // Snapshot order, so page boundaries do not reshuffle when the store answers ids in its own order.
@@ -218,9 +235,12 @@ async function buildCatalogSnapshot(
       excluded += 1;
       continue;
     }
-    const { sizing, resolution } = resolveRawProductSizing(raw, connection, context);
-    byStatus[resolution.status] = (byStatus[resolution.status] ?? 0) + 1;
-    if (resolution.status !== "matched") {
+    const { sizing, resolution, input } = resolveRawProductSizing(raw, connection, context);
+    // The Setup snapshot holds sized products only; a sync's list holds every new product.
+    const isUnsized = scope !== undefined && input.sizingCategory === "";
+    if (isUnsized) unsized += 1;
+    else byStatus[resolution.status] = (byStatus[resolution.status] ?? 0) + 1;
+    if (!isUnsized && resolution.status !== "matched") {
       unresolved += 1;
       const groupKey = `${resolution.canonicalBrandKey}|${resolution.leafKey ?? ""}|${resolution.status}`;
       let group = groups.get(groupKey);
@@ -277,6 +297,7 @@ async function buildCatalogSnapshot(
       chartKeys: [...chartKeys],
       canonicalBrandKeys: [...canonicalBrandKeys],
       brandMappingCurrent: context.brandMappingCurrent,
+      ...(scope ? { unsized } : {}),
     },
   };
 }
@@ -284,13 +305,19 @@ async function buildCatalogSnapshot(
 async function generatedSnapshot(
   connection: StoreConnectionRow,
   mode: "swr" | "current",
+  scope?: PreviewScope,
 ): Promise<{ snapshot: GeneratedCatalogSnapshot } & SnapshotFreshness> {
-  const { context, fingerprint } = await previewInputs(connection);
+  const inputs = await previewInputs(connection);
+  const { context } = inputs;
+  const fingerprint = scope
+    ? createHash("sha1").update(JSON.stringify([inputs.fingerprint, [...scope.externalIds].sort()])).digest("hex")
+    : inputs.fingerprint;
+  const cacheKey = scope ? `${connection.id}:${scope.key}` : connection.id;
   // Only an age-based rebuild of an unchanged preview re-reads the store. A first build (including
   // the first after a restart, from persisted reads) or one for changed inputs reuses what was read.
-  const previous = snapshots.peek(connection.id);
+  const previous = snapshots.peek(cacheKey);
   const reuseReads = previous === undefined || previous.fingerprint !== fingerprint;
-  const result = await snapshots.get(connection.id, {
+  const result = await snapshots.get(cacheKey, {
     fingerprint,
     maxAgeMs: PREVIEW_MAX_AGE_MS,
     mode,
@@ -299,18 +326,19 @@ async function generatedSnapshot(
         connection,
         context,
         reuseReads ? INPUT_CHANGE_RAW_MAX_AGE_MS : PREVIEW_MAX_AGE_MS,
+        scope,
       ),
   });
 
   // Built on top of older store reads: answer now, and bring the products up to date behind it.
   let refreshing = result.refreshing;
   if (!refreshing && Date.now() - result.value.readAt > PREVIEW_MAX_AGE_MS) {
-    snapshots.invalidate(connection.id);
+    snapshots.invalidate(cacheKey);
     void snapshots
-      .get(connection.id, {
+      .get(cacheKey, {
         fingerprint,
         maxAgeMs: PREVIEW_MAX_AGE_MS,
-        build: () => buildCatalogSnapshot(connection, context, PREVIEW_MAX_AGE_MS),
+        build: () => buildCatalogSnapshot(connection, context, PREVIEW_MAX_AGE_MS, scope),
       })
       .catch(() => undefined);
     refreshing = true;
@@ -327,9 +355,9 @@ async function generatedSnapshot(
  */
 export async function summarizeGeneratedSizing(
   connection: StoreConnectionRow,
-  options: { mode?: "swr" | "current" } = {},
+  options: { mode?: "swr" | "current"; scope?: PreviewScope } = {},
 ): Promise<GeneratedSizingSummary & SnapshotFreshness> {
-  const { snapshot, builtAt, refreshing } = await generatedSnapshot(connection, options.mode ?? "swr");
+  const { snapshot, builtAt, refreshing } = await generatedSnapshot(connection, options.mode ?? "swr", options.scope);
   return { ...snapshot.summary, builtAt, refreshing };
 }
 
@@ -340,9 +368,10 @@ export async function listGeneratedAcsStageFiveProducts(
     limit: number;
     brandKeys?: string[] | null;
     brandTypes?: ReadonlyMap<string, BrandType>;
+    scope?: PreviewScope;
   },
 ): Promise<AcsStageFivePreview & SnapshotFreshness> {
-  const { snapshot, builtAt, refreshing } = await generatedSnapshot(connection, "swr");
+  const { snapshot, builtAt, refreshing } = await generatedSnapshot(connection, "swr", options.scope);
   const filtered = filterStageFiveRecords(snapshot.records, options);
   const page = filtered.slice(options.offset, options.offset + options.limit);
   const counts = {

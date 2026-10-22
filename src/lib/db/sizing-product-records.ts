@@ -78,6 +78,89 @@ export async function replaceSizingProductRecords(
   return true;
 }
 
+function recordPayload(connectionId: string, record: SizingProductRecordInput) {
+  return {
+    connection_id: connectionId,
+    external_id: record.externalId,
+    sku: record.sku,
+    title: record.title,
+    brand_key: record.brandKey,
+    sizing_category: record.sizingCategory,
+    primary_persona_leaf_key: record.primaryPersonaLeafKey,
+    raw_size_format: record.rawSizeFormat,
+    leaf_source_category_ids: record.leafSourceCategoryIds?.length ? record.leafSourceCategoryIds : null,
+    brand_label: record.brandLabel ?? null,
+  };
+}
+
+/**
+ * Adds a sync's new products to the snapshot without touching the rest of it. A re-run of the same
+ * sync rewrites its own rows rather than duplicating them.
+ */
+export async function upsertSizingProductRecords(
+  connectionId: string,
+  records: SizingProductRecordInput[],
+): Promise<boolean> {
+  const unique = new Map<string, SizingProductRecordInput>();
+  for (const record of records) if (!unique.has(record.externalId)) unique.set(record.externalId, record);
+  const rows = [...unique.values()];
+  for (let index = 0; index < rows.length; index += INSERT_CHUNK) {
+    const { error } = await db
+      .from("sizing_product_records")
+      .upsert(rows.slice(index, index + INSERT_CHUNK).map((record) => recordPayload(connectionId, record)), {
+        onConflict: "connection_id,external_id",
+      });
+    if (error) {
+      console.error("[db/sizing-product-records upsert]", connectionId, error);
+      return false;
+    }
+  }
+  return true;
+}
+
+const ID_PAGE = 1000;
+const ID_CHUNK = 200;
+
+/** Every external id in the snapshot: the products the last Setup scan read. */
+export async function listSizingProductRecordIds(connectionId: string): Promise<Set<string> | null> {
+  const ids = new Set<string>();
+  for (let offset = 0; ; offset += ID_PAGE) {
+    const { data, error } = await db
+      .from("sizing_product_records")
+      .select("external_id")
+      .eq("connection_id", connectionId)
+      .order("external_id", { ascending: true })
+      .range(offset, offset + ID_PAGE - 1);
+    if (error) {
+      console.error("[db/sizing-product-records listIds]", connectionId, error);
+      return null;
+    }
+    const rows = (data ?? []) as Array<{ external_id: string }>;
+    for (const row of rows) ids.add(row.external_id);
+    if (rows.length < ID_PAGE) return ids;
+  }
+}
+
+export async function listSizingProductRecordsByIds(
+  connectionId: string,
+  externalIds: readonly string[],
+): Promise<SizingProductRecordRow[]> {
+  const rows: SizingProductRecordRow[] = [];
+  for (let index = 0; index < externalIds.length; index += ID_CHUNK) {
+    const { data, error } = await db
+      .from("sizing_product_records")
+      .select(RECORD_COLUMNS)
+      .eq("connection_id", connectionId)
+      .in("external_id", externalIds.slice(index, index + ID_CHUNK));
+    if (error) {
+      console.error("[db/sizing-product-records listByIds]", connectionId, error);
+      return rows;
+    }
+    rows.push(...((data ?? []) as unknown as Array<Record<string, unknown>>).map(rowToProduct));
+  }
+  return rows;
+}
+
 function rowToProduct(row: Record<string, unknown>): SizingProductRecordRow {
   return {
     id: row.id as string,

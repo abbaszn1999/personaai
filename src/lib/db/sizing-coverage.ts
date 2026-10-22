@@ -1,5 +1,5 @@
 import { db } from "@/lib/supabase/server";
-import type { CoverageRow } from "@/lib/sizing/aggregate";
+import { mergeCoverageRows, type CoverageRow } from "@/lib/sizing/aggregate";
 import { isCacheDisabled } from "@/lib/utils/disable-cache";
 
 /**
@@ -123,6 +123,58 @@ export async function replaceSizingCoverage(connectionId: string, rows: Coverage
 
   // Again after the writes: a read that started between the delete and the last insert must not
   // be what the next screen is served.
+  forgetSizingCoverage(connectionId);
+  return true;
+}
+
+/**
+ * Adds a sync's coverage to what Setup wrote, without removing anything.
+ *
+ * The opposite trade from `replaceSizingCoverage`: a sync reads only the store's new products, so a
+ * row it did not reach is still stocked, not gone. A pair Setup already has keeps its row — and its
+ * classification and research outcome — with the sync's counts added; a new pair takes the brand's
+ * existing type when the brand is known from another category, and is `unclassified` only when the
+ * brand itself is new. That last group is exactly what the sync then classifies.
+ */
+export async function mergeSizingCoverage(connectionId: string, rows: CoverageRow[]): Promise<boolean> {
+  if (rows.length === 0) return true;
+  const [current, types] = await Promise.all([
+    listSizingCoverage(connectionId, { fresh: true }).catch(() => null),
+    getBrandTypes(connectionId),
+  ]);
+  if (!current) return false;
+  const byPair = new Map(current.map((row) => [`${row.brandKey}\u0000${row.sizingCategory}`, row]));
+
+  const payload = rows.map((row) => {
+    const existing = byPair.get(`${row.brandKey}\u0000${row.sizingCategory}`);
+    const merged = existing ? mergeCoverageRows(existing, row) : row;
+    return {
+      connection_id: connectionId,
+      brand_key: merged.brandKey,
+      brand_name: merged.brandName,
+      brand_type: existing?.brandType ?? types.get(row.brandKey)?.brandType ?? "unclassified",
+      brand_canonical_name: existing?.brandCanonicalName ?? types.get(row.brandKey)?.canonicalName ?? null,
+      sizing_category: merged.sizingCategory,
+      sku_count: merged.skuCount,
+      store_category_paths: merged.storeCategoryPaths,
+      sample_skus: merged.sampleSkus,
+      raw_formats: merged.rawFormats,
+      audience_hints: merged.audienceHints,
+      updated_at: new Date().toISOString(),
+    };
+  });
+
+  forgetSizingCoverage(connectionId);
+  for (let i = 0; i < payload.length; i += UPSERT_CHUNK) {
+    const { error } = await db
+      .from("sizing_coverage")
+      .upsert(payload.slice(i, i + UPSERT_CHUNK), { onConflict: "connection_id,brand_key,sizing_category" });
+    if (error) {
+      console.error("[db/sizing-coverage mergeSizingCoverage]", connectionId, error);
+      forgetSizingCoverage(connectionId);
+      return false;
+    }
+  }
   forgetSizingCoverage(connectionId);
   return true;
 }

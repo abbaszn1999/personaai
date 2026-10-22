@@ -15,6 +15,8 @@ import { runBrandClassification } from "./classify";
 import { runChartResearch } from "./research";
 import { runSizingScan } from "./scan";
 import { loadSizingResolutionContext, resolveProductChart } from "./product-chart";
+import { runDeltaScan } from "@/lib/sync/delta-scan";
+import { runDeltaPublish } from "@/lib/sync/delta-publish";
 
 /**
  * Drives size-intelligence runs from the background, shared by the in-process worker and the
@@ -106,6 +108,25 @@ async function advanceRun(run: SizingRunRow): Promise<SizingPassResult> {
 
     switch (run.stage) {
       case "scan": {
+        // A sync reads only the products it took, and adds them to what Setup wrote. Classification
+        // after it is the same stage Setup runs, and it only ever sends unclassified brands, which
+        // after a delta scan are exactly the brands these products introduced.
+        if (run.kind === "delta") {
+          const result = await runDeltaScan(connection, run);
+          console.log(
+            `[sizing jobs] sync ${run.id} read ${result.scanned} new product(s) for ${connection.id}: ` +
+              `${result.newBrands} new brand(s), ${result.removed} no longer in the store`
+          );
+          await updateSizingRun(run.id, {
+            stage: "classify",
+            status: "pending",
+            error: null,
+            phase: null,
+            phaseDone: null,
+            phaseTotal: null,
+          });
+          return { ...base, outcome: "advanced" };
+        }
         const result = await runSizingScan(connection, run);
         console.log(
           `[sizing jobs] scanned ${result.stats.counted} product(s) for ${connection.id}: ` +
@@ -239,6 +260,11 @@ async function advanceRun(run: SizingRunRow): Promise<SizingPassResult> {
 
       case "assign":
       case "resolve": {
+        // A sync's publish resolves each product as it writes it; there is no catalog-wide pass.
+        if (run.kind === "delta") {
+          await updateSizingRun(run.id, { stage: "publish", status: "pending", error: null, phase: null });
+          return { ...base, outcome: "advanced" };
+        }
         const snapshot = await getSizingProductSnapshotHealth(connection.id);
         if (!snapshot) {
           throw new Error("The saved sizing product data could not be validated before publishing.");
@@ -292,6 +318,22 @@ async function advanceRun(run: SizingRunRow): Promise<SizingPassResult> {
       }
 
       case "publish": {
+        if (run.kind === "delta") {
+          await updateSizingRun(run.id, { status: "running", phase: null, error: null });
+          const result = await runDeltaPublish(connection, run);
+          console.log(
+            `[sizing jobs] sync ${run.id} published ${result.written} product(s) for ${connection.id}: ` +
+              `${result.excluded} without a Persona path, ${result.removed} no longer in the store`
+          );
+          await updateSizingRun(run.id, {
+            status: "complete",
+            publishedAt: new Date().toISOString(),
+            phaseDone: result.written,
+            phaseTotal: result.written,
+            error: null,
+          });
+          return { ...base, outcome: "advanced" };
+        }
         const result = await startCatalogBackfill(connection);
         if (result.enqueued === 0) {
           await updateCatalogSyncState(connection.id, { status: "ready", progress: 0, total: 0 });

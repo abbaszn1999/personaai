@@ -6,6 +6,7 @@ import { getStoreConnectionsByStoreUrl } from "@/lib/db/store-connections";
 import { markPathConfigStale } from "@/lib/catalog/path-config/rebuild";
 import { noteStoreProductChanged } from "@/lib/catalog/catalog-change";
 import { mapWooWebhookProduct } from "@/lib/woocommerce/client";
+import { markSyncProductsRemoved } from "@/lib/db/sync-new-products";
 import { deriveWebhookSecret, verifyHmacSignature } from "@/lib/utils/internal-auth";
 
 export const runtime = "nodejs";
@@ -59,6 +60,7 @@ export async function POST(request: Request) {
       const id = (payload as { id?: number }).id;
       // Downgraded rather than removed — see the Shopify webhook route's identical note.
       if (id) {
+        await markSyncProductsRemoved(connection.id, [String(id)]);
         await markAcsProductOutOfStock(connection.id, String(id));
         noteStoreProductChanged(connection.id, String(id));
       }
