@@ -72,7 +72,7 @@ export function LiveProductPicker({
                   "inline-flex h-8 shrink-0 items-center gap-1 rounded-lg px-2.5 text-[10px] font-semibold transition-all",
                   inCart
                     ? "bg-[var(--color-surface-base)] text-[var(--color-text-secondary)]"
-                    : "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-[var(--color-brand-contrast)] hover:brightness-110",
+                    : "bg-gradient-to-r from-[var(--color-brand-from)] to-[var(--color-brand-to)] text-white hover:brightness-110",
                   "disabled:cursor-default"
                 )}
               >

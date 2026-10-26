@@ -39,6 +39,10 @@ export interface Product {
   attributes?: Record<string, string[]>;
   /** In-stock sizes the store's size chart says fit this shopper, best first. */
   fitSizes?: string[];
+  /** The size the shopper chose in the Size Guide, in the store's own label. It overrides the
+   *  recommendation for add to cart, since some shoppers wear a size up or down on purpose. The
+   *  recommendation itself (`fitSizes`) is left as it is. */
+  selectedSize?: string;
   /** The colours the shopper asked for on the turn that showed this product, as the store spells
    *  them. Add to cart keeps to them when the product comes in several colours. */
   preferredColors?: string[];

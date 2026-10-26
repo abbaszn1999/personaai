@@ -7,6 +7,7 @@ import { describeSpec, type SearchSpec } from "../shared/acs-translator";
 import { bodyMeasurements, describeFit } from "../shared/fit";
 import { resolvePrefixCache } from "@/lib/ai/gemini-cache";
 import { toProducts } from "../shared/hydrate";
+import { localizeFitSizes } from "@/lib/sizing/store-fit-sizes";
 import { resolveReferencedItem } from "../shared/referenced-item";
 import { isDisplayable, recordShown, searchCatalog, verifyForDisplay } from "../shared/search";
 import { cleanQuickOptions, textEvents } from "../shared/stream";
@@ -453,7 +454,7 @@ export async function* runPersona(ctx: AgentContext, options: RunPersonaOptions 
   recordShown(ctx, search.query || search.path, outcome.attributionToken, ids);
   yield* textEvents(decision.reply || text.found);
   const colours = requestedColours(spec);
-  const products = toProducts(verified);
+  const products = toProducts(await localizeFitSizes(ctx.connection, verified));
   yield { type: "products", products: colours.length ? products.map((product) => ({ ...product, preferredColors: colours })) : products };
   yield { type: "product_recommendations", productIds: ids };
   const quick = quickOptions(decision.quick_options);

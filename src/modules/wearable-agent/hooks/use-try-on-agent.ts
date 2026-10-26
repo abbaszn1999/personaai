@@ -614,6 +614,13 @@ function overlayServerProfiles(
   };
 }
 
+/** The sizes the store should look for when adding a product: the one the shopper picked in the
+ *  Size Guide, else the sizes that fit them. Nothing when neither is known. */
+function cartSizesFor(product: Product): string[] | undefined {
+  if (product.selectedSize) return [product.selectedSize];
+  return product.fitSizes?.length ? product.fitSizes : undefined;
+}
+
 export function useTryOnAgent(
   embed?: EmbedRuntimeConfig,
   welcomeMessage?: string,
@@ -2123,7 +2130,7 @@ export function useTryOnAgent(
                   embedToken: embed.embedToken,
                   productId: product.id,
                   ...(products.length === 1 && variantId ? { variantId } : {}),
-                  ...(product.fitSizes?.length ? { sizes: product.fitSizes } : {}),
+                  ...(cartSizesFor(product) ? { sizes: cartSizesFor(product) } : {}),
                   ...(product.preferredColors?.length ? { colors: product.preferredColors } : {}),
                 }),
                 signal: controller.signal,
@@ -2292,7 +2299,7 @@ export function useTryOnAgent(
                 body: JSON.stringify({
                   embedToken: embed.embedToken,
                   productId: product.id,
-                  ...(product.fitSizes?.length ? { sizes: product.fitSizes } : {}),
+                  ...(cartSizesFor(product) ? { sizes: cartSizesFor(product) } : {}),
                   ...(product.preferredColors?.length ? { colors: product.preferredColors } : {}),
                 }),
                 signal: controller.signal,
@@ -2339,9 +2346,11 @@ export function useTryOnAgent(
 
   /** The second press on a product that is already in the cart. */
   function removeFromCart(product: Product) {
-    if (!state.cartItems.some((p) => p.id === product.id)) return;
+    // The cart's own copy knows which size was added, which the product pressed here may not.
+    const inCart = state.cartItems.find((p) => p.id === product.id);
+    if (!inCart) return;
     if (embed?.enableRealCart) {
-      removeProductsFromRealCart([product]);
+      removeProductsFromRealCart([inCart]);
       return;
     }
     const next = state.cartItems.filter((p) => p.id !== product.id);

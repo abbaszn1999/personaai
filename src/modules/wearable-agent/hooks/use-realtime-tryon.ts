@@ -74,8 +74,29 @@ function pickRecordingMimeType(): string {
   return "";
 }
 
-/** Saves the recorded clip straight to the shopper's downloads folder — no upload, no modal,
- *  just a `<a download>` click, since the whole point is a frictionless "keep my try-on". */
+/** A finished recording, held in the browser until the shopper saves, shares or dismisses it. */
+export interface RecordedClip {
+  url: string;
+  blob: Blob;
+  extension: string;
+  seconds: number;
+}
+
+function clipFile(clip: RecordedClip): File {
+  return new File([clip.blob], `live-try-on.${clip.extension}`, { type: clip.blob.type });
+}
+
+/** Whether this browser can hand the clip to the system share sheet (most phones can). */
+function canShareClipFile(clip: RecordedClip | null): boolean {
+  if (!clip || typeof navigator === "undefined" || typeof navigator.canShare !== "function") return false;
+  try {
+    return navigator.canShare({ files: [clipFile(clip)] });
+  } catch {
+    return false;
+  }
+}
+
+/** Saves the clip to the shopper's downloads folder with a plain `<a download>` click: no upload. */
 function downloadBlob(blob: Blob, extension: string) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -98,6 +119,11 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
   const [facingMode, setFacingMode] = React.useState<CameraFacingMode>("user");
   const [isRecording, setIsRecording] = React.useState(false);
   const [recordingSeconds, setRecordingSeconds] = React.useState(0);
+  const [clip, setClip] = React.useState<RecordedClip | null>(null);
+  // True while a version is being sent to Decart, so the UI can say "Putting on Version 2…".
+  const [isApplying, setIsApplying] = React.useState(false);
+  const applyingCountRef = React.useRef(0);
+  const clipRef = React.useRef<RecordedClip | null>(null);
 
   const clientRef = React.useRef<RealTimeClient | null>(null);
   const cameraStreamRef = React.useRef<MediaStream | null>(null);
@@ -212,6 +238,8 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
       setRemoteStream(null);
       setStatus("idle");
       setActiveLookId(null);
+      applyingCountRef.current = 0;
+      setIsApplying(false);
       console.info("[use-realtime-tryon] session ended", {
         reason,
         elapsedSeconds: elapsedSecondsRef.current,
@@ -396,6 +424,8 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
     }
     setActiveLookId(look.id);
     setErrorMessage(null);
+    applyingCountRef.current += 1;
+    setIsApplying(true);
 
     switchQueueRef.current = switchQueueRef.current.catch(() => {}).then(async () => {
       try {
@@ -409,6 +439,9 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
           setActiveLookId(null);
           setErrorMessage(error instanceof Error ? error.message : "Unable to apply this look.");
         }
+      } finally {
+        applyingCountRef.current = Math.max(0, applyingCountRef.current - 1);
+        if (applyingCountRef.current === 0) setIsApplying(false);
       }
     });
     await switchQueueRef.current;
@@ -449,6 +482,11 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
       const recorder = mimeType ? new MediaRecorder(remoteStream, { mimeType }) : new MediaRecorder(remoteStream);
       recordedChunksRef.current = [];
       recordingStreamRef.current = remoteStream;
+      const startedAt = performance.now();
+      // A new recording replaces the previous clip, which is released now.
+      if (clipRef.current) URL.revokeObjectURL(clipRef.current.url);
+      clipRef.current = null;
+      setClip(null);
 
       recorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) recordedChunksRef.current.push(event.data);
@@ -463,7 +501,15 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
         setRecordingSeconds(0);
         if (chunks.length > 0) {
           const type = recorder.mimeType || mimeType || "video/webm";
-          downloadBlob(new Blob(chunks, { type }), type.includes("mp4") ? "mp4" : "webm");
+          const blob = new Blob(chunks, { type });
+          const next: RecordedClip = {
+            url: URL.createObjectURL(blob),
+            blob,
+            extension: type.includes("mp4") ? "mp4" : "webm",
+            seconds: Math.max(1, Math.round((performance.now() - startedAt) / 1000)),
+          };
+          clipRef.current = next;
+          setClip(next);
         }
       };
 
@@ -496,6 +542,37 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
 
   React.useEffect(() => clearRecordingInterval, [clearRecordingInterval]);
 
+  const dismissClip = React.useCallback(() => {
+    if (clipRef.current) URL.revokeObjectURL(clipRef.current.url);
+    clipRef.current = null;
+    setClip(null);
+  }, []);
+
+  const saveClip = React.useCallback(() => {
+    if (clipRef.current) downloadBlob(clipRef.current.blob, clipRef.current.extension);
+  }, []);
+
+  const shareClip = React.useCallback(async () => {
+    const current = clipRef.current;
+    if (!current) return;
+    try {
+      await navigator.share({ files: [clipFile(current)], title: "My live try-on" });
+    } catch (error) {
+      // Closing the share sheet is a choice, not a failure; anything else falls back to saving.
+      if (!(error instanceof DOMException && error.name === "AbortError")) downloadBlob(current.blob, current.extension);
+    }
+  }, []);
+
+  const canShareClip = React.useMemo(() => canShareClipFile(clip), [clip]);
+
+  // The clip lives only as long as the widget does.
+  React.useEffect(
+    () => () => {
+      if (clipRef.current) URL.revokeObjectURL(clipRef.current.url);
+    },
+    []
+  );
+
   React.useEffect(() => {
     const onBeforeUnload = () => {
       recordFinishedPreview(activePreviewRef.current, true);
@@ -520,6 +597,12 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
     facingMode,
     isRecording,
     recordingSeconds,
+    isApplying,
+    clip,
+    canShareClip,
+    dismissClip,
+    saveClip,
+    shareClip,
     start,
     applyLook,
     flipCamera,

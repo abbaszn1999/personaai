@@ -9,11 +9,19 @@ import { cn } from "@/lib/utils/cn";
 import { useClickOutside } from "@/lib/hooks/use-click-outside";
 import { useWearableTheme } from "../theme-context";
 import { HOTSPOT_MIN_GAP, placeHotspotCard, spreadHotspots, type Point } from "../utils/hotspot-layout";
+import { bodyHotspotAnchor } from "../utils/hotspot-anchor";
+import { useBodyBounds } from "../lib/use-body-bounds";
+import type { GarmentCategory } from "../utils/fit-metrics";
 
 export interface ActiveLookItem {
   product: Product;
   size: string;
+  /** Fallback spot (%), used until the body is found in the picture, or when it can't be. */
   position: { top: string; left: string };
+  /** What the garment is, and how many of the same kind came before it. With the body found,
+   *  these place the dot on the garment itself. */
+  slot?: GarmentCategory;
+  stagger?: number;
 }
 
 interface GarmentHotspotProps {
@@ -251,6 +259,8 @@ export function GarmentHotspot({
 
 interface GarmentHotspotLayerProps {
   items: readonly ActiveLookItem[];
+  /** The avatar picture the dots sit on. Its body is located so each dot lands on its garment. */
+  imageUrl?: string | null;
   cartItemIds: ReadonlySet<string>;
   pendingCartIds: ReadonlySet<string>;
   onAddToCart: (product: Product) => void;
@@ -266,6 +276,7 @@ interface GarmentHotspotLayerProps {
  */
 export function GarmentHotspotLayer({
   items,
+  imageUrl,
   cartItemIds,
   pendingCartIds,
   onAddToCart,
@@ -284,17 +295,25 @@ export function GarmentHotspotLayer({
     return () => observer.disconnect();
   }, []);
 
+  const bounds = useBodyBounds(imageUrl ?? null)?.bounds ?? null;
+
   const points = React.useMemo(() => {
     if (size.width === 0 || size.height === 0) return [];
     const half = HOTSPOT_MIN_GAP / 2;
+    // Each dot's spot as fractions of the picture: on the garment when the body was found,
+    // otherwise the fixed guess.
+    const spots = items.map((item) => {
+      const onBody = bounds && item.slot ? bodyHotspotAnchor(item.slot, bounds, item.stagger ?? 0) : null;
+      return onBody ?? { top: parseFloat(item.position.top) / 100, left: parseFloat(item.position.left) / 100 };
+    });
     const ys = spreadHotspots(
-      items.map((item) => (parseFloat(item.position.top) / 100) * size.height),
+      spots.map((spot) => spot.top * size.height),
       HOTSPOT_MIN_GAP,
       half,
       Math.max(half, size.height - half)
     );
-    return items.map((item, i) => ({ x: (parseFloat(item.position.left) / 100) * size.width, y: ys[i] }));
-  }, [items, size.width, size.height]);
+    return spots.map((spot, i) => ({ x: spot.left * size.width, y: ys[i] }));
+  }, [items, bounds, size.width, size.height]);
 
   return (
     <div ref={layerRef} className="pointer-events-none absolute inset-0 z-[18]">

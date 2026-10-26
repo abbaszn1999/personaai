@@ -3,6 +3,7 @@ import { findNode, unisexDepartmentFor } from "@/lib/catalog/path-config/lookup"
 import type { CatalogCandidate } from "@/lib/retrieval/types";
 import { parseHardRules } from "../shared/hard-rules";
 import { hydrateLiveFacts, toProducts } from "../shared/hydrate";
+import { localizeFitSizes } from "@/lib/sizing/store-fit-sizes";
 import { categoryOf, departmentOf, personaPathOf } from "../shared/product-record";
 import { searchCatalog } from "../shared/search";
 import { formatMoney, textEvents } from "../shared/stream";
@@ -552,9 +553,9 @@ async function buildLooks(ctx: AgentContext, input: BuildInput): Promise<BuildOu
   return { looks, products: [...products.values()], reply };
 }
 
-function* emitLooks(output: BuildOutput): Generator<AgentEvent> {
+async function* emitLooks(ctx: AgentContext, output: BuildOutput): AsyncGenerator<AgentEvent> {
   if (output.looks.length === 0) return;
-  yield { type: "bundle", bundles: output.looks, products: toProducts(output.products) };
+  yield { type: "bundle", bundles: output.looks, products: toProducts(await localizeFitSizes(ctx.connection, output.products)) };
 }
 
 type AnchorSetup = { ok: true; department: string; slots: SlotInPlay[] } | { ok: false; message: string };
@@ -683,7 +684,7 @@ async function* anchorTurn(ctx: AgentContext, attachment: Extract<AgentAttachmen
   });
   log(ctx, { anchor_turn: "built", anchor: productId, looks: output.looks.length });
   yield* textEvents(output.reply);
-  yield* emitLooks(output);
+  yield* emitLooks(ctx, output);
   const pieces = output.looks.flatMap((look) => look.productIds).filter((id) => id !== productId);
   const shownIds = [...new Set([...pieces, ...shown])].slice(0, MAX_SHOWN_PIECES);
   yield { type: "attachment", attachment: { kind: "anchor", productId, brief, ...(shownIds.length > 0 ? { shownIds } : {}) } };
@@ -754,7 +755,7 @@ async function* followUp(ctx: AgentContext, look: LookRecord): AsyncGenerator<Ag
       brief,
     };
     yield* textEvents(value.reply?.trim() || say.lookNowCosts(formatMoney(updated.total, config.currency)));
-    yield { type: "bundle", bundles: [updated], products: toProducts(keptPieces) };
+    yield { type: "bundle", bundles: [updated], products: toProducts(await localizeFitSizes(ctx.connection, keptPieces)) };
     yield { type: "attachment", attachment: { kind: "look", look: updated } };
     return;
   }
@@ -807,7 +808,7 @@ async function* followUp(ctx: AgentContext, look: LookRecord): AsyncGenerator<Ag
     looks: output.looks.map((entry, index) => ({ ...entry, label: index === 0 ? look.label : `${look.label} · ${index + 1}` })),
   };
   yield* textEvents(output.reply || value.reply);
-  yield* emitLooks(changed);
+  yield* emitLooks(ctx, changed);
   yield { type: "attachment", attachment: { kind: "look", look: changed.looks[0] } };
 }
 

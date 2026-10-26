@@ -45,8 +45,8 @@ import { useWearableTheme } from "../theme-context";
 import { useWearableBranding } from "../branding-context";
 import { MOBILE_SURFACE, NO_IOS_ZOOM_TEXT, SAFE_BOTTOM, SHEET_H } from "../mobile-surface";
 import type { EmbedRuntimeConfig } from "../hooks/use-try-on-agent";
-import { useRealtimeTryOn } from "../hooks/use-realtime-tryon";
-import { RealtimeTryOnOverlay } from "./realtime-tryon-overlay";
+import { REALTIME_TRYON_SESSION_CAP_SECONDS, useRealtimeTryOn } from "../hooks/use-realtime-tryon";
+import { RealtimeTryOnOverlay, type LiveVersion, type RealtimeTryOnOverlayProps } from "./realtime-tryon-overlay";
 import { LiveProductPicker } from "./live-product-picker";
 interface AvatarMannequinPanelProps {
   profile: TryOnProfile;
@@ -487,6 +487,10 @@ export function AvatarMannequinPanel({
 
   const cartItemIds = React.useMemo(() => new Set(cartItems.map((p) => p.id)), [cartItems]);
   const pendingCartIds = React.useMemo(() => new Set(pendingCartItemIds), [pendingCartItemIds]);
+  const cartSizes = React.useMemo(
+    () => Object.fromEntries(cartItems.filter((p) => p.selectedSize).map((p) => [p.id, p.selectedSize as string])),
+    [cartItems]
+  );
 
   /** Garments on the avatar — only real try-on results or the live outfit being built. */
   const activeItems: ActiveLookItem[] = React.useMemo(() => {
@@ -511,6 +515,8 @@ export function AvatarMannequinPanel({
         product,
         size: currentTryOn?.recommendedSizes[product.id] ?? fallbackSize,
         position: getHotspotPosition(product, staggerIndex),
+        slot: category,
+        stagger: staggerIndex,
       };
     });
   }, [currentTryOn, hasGeneratedLooks, outfitItems, defaultSize, profile.shoeSizeEu, profile.audience]);
@@ -518,6 +524,55 @@ export function AvatarMannequinPanel({
   // `currentTryOn` is null there and there is nothing to put on the shopper.
   const liveLook = currentTryOn && currentTryOn.outfitProducts.length > 0 ? currentTryOn : null;
   const liveProducts = liveLook ? liveLook.outfitProducts : [];
+
+  // The versions that can be worn on camera: every generated look (the plain avatar, Version 1,
+  // wears nothing), named as the rest of the widget names them.
+  const liveVersions = React.useMemo<LiveVersion[]>(
+    () =>
+      tryOnImages.flatMap((tryOn, index) =>
+        tryOn.outfitProducts.length > 0
+          ? [{ id: tryOn.id, imageUrl: tryOn.imageUrl, label: `Version ${index + 2}` }]
+          : []
+      ),
+    [tryOnImages]
+  );
+  function selectLiveVersion(id: string) {
+    const index = tryOnImages.findIndex((tryOn) => tryOn.id === id);
+    if (index >= 0) onSelectImage(index + 1);
+  }
+  // Starting from the plain avatar, or with nothing chosen, wears the newest version.
+  function startLive() {
+    if (!liveLook) {
+      const newest = liveVersions[liveVersions.length - 1];
+      if (newest) selectLiveVersion(newest.id);
+    }
+    void realtime.start();
+  }
+  const liveOverlayProps: Omit<RealtimeTryOnOverlayProps, "shopSheet" | "shopCount"> = {
+    status: realtime.status,
+    stream: realtime.remoteStream,
+    remainingSeconds: realtime.remainingSeconds,
+    maxSeconds: REALTIME_TRYON_SESSION_CAP_SECONDS,
+    errorMessage: realtime.errorMessage,
+    versions: liveVersions,
+    selectedVersionId: liveLook?.id ?? null,
+    backdropUrl: profile.backdropUrl ? studioBackdropUrl : null,
+    isApplying: realtime.isApplying,
+    facingMode: realtime.facingMode,
+    isRecording: realtime.isRecording,
+    recordingSeconds: realtime.recordingSeconds,
+    clip: realtime.clip,
+    canShareClip: realtime.canShareClip,
+    onSelectVersion: selectLiveVersion,
+    onStart: startLive,
+    onStop: () => realtime.stop("stop-button"),
+    onFlipCamera: realtime.flipCamera,
+    onStartRecording: realtime.startRecording,
+    onStopRecording: realtime.stopRecording,
+    onSaveClip: realtime.saveClip,
+    onShareClip: realtime.shareClip,
+    onDismissClip: realtime.dismissClip,
+  };
 
   // Put the look on the shopper once, as soon as the live camera connects. The ref stops a failed
   // attempt from retrying in a loop, and is only cleared when the session actually ends: a camera
@@ -634,8 +689,8 @@ export function AvatarMannequinPanel({
         viewMode={viewMode}
         onViewModeChange={changeViewMode}
         liveTryOnEnabled={liveTryOnEnabled}
-        realtime={realtime}
         liveProducts={liveProducts}
+        liveOverlayProps={liveOverlayProps}
         onRequestSpace={onRequestSpace}
         onChatTabHiddenChange={onChatTabHiddenChange}
       />
@@ -656,22 +711,7 @@ export function AvatarMannequinPanel({
           Draggable to pan once zoomed in (pointer handlers no-op at 1x zoom). ── */}
       {viewMode === "live" ? (
         <div className="absolute inset-y-0 left-0 right-[300px] overflow-hidden">
-          <RealtimeTryOnOverlay
-            status={realtime.status}
-            stream={realtime.remoteStream}
-            remainingSeconds={realtime.remainingSeconds}
-            activeLookId={realtime.activeLookId}
-            errorMessage={realtime.errorMessage}
-            hasLook={liveProducts.length > 0}
-            facingMode={realtime.facingMode}
-            isRecording={realtime.isRecording}
-            recordingSeconds={realtime.recordingSeconds}
-            onStart={realtime.start}
-            onStop={() => realtime.stop("stop-button")}
-            onFlipCamera={realtime.flipCamera}
-            onStartRecording={realtime.startRecording}
-            onStopRecording={realtime.stopRecording}
-          />
+          <RealtimeTryOnOverlay {...liveOverlayProps} />
         </div>
       ) : (
         <>
@@ -712,6 +752,7 @@ export function AvatarMannequinPanel({
               {viewMode === "photo" && !isGenerating && !isRegeneratingAvatar && (
                 <GarmentHotspotLayer
                   items={activeItems}
+                  imageUrl={imgSrc}
                   cartItemIds={cartItemIds}
                   pendingCartIds={pendingCartIds}
                   onAddToCart={onAddToCart}
@@ -963,7 +1004,10 @@ export function AvatarMannequinPanel({
           lookLabel={lookLabel}
           items={activeItems}
           cartItemIds={cartItemIds}
+          pendingCartIds={pendingCartIds}
+          cartSizes={cartSizes}
           onAddToCart={onAddToCart}
+          onRemoveFromCart={onRemoveFromCart}
           onClose={() => setIsSizeGuideOpen(false)}
         />
       )}
@@ -1057,8 +1101,8 @@ interface MobileAvatarStripProps {
   viewMode: "photo" | "live";
   onViewModeChange: (mode: "photo" | "live") => void;
   liveTryOnEnabled: boolean;
-  realtime: ReturnType<typeof useRealtimeTryOn>;
   liveProducts: Product[];
+  liveOverlayProps: Omit<RealtimeTryOnOverlayProps, "shopSheet" | "shopCount">;
   onRequestSpace?: () => void;
   onChatTabHiddenChange?: (hidden: boolean) => void;
 }
@@ -1096,8 +1140,8 @@ function MobileAvatarStrip({
   viewMode,
   onViewModeChange,
   liveTryOnEnabled,
-  realtime,
   liveProducts,
+  liveOverlayProps,
   onRequestSpace,
   onChatTabHiddenChange,
 }: MobileAvatarStripProps) {
@@ -1174,20 +1218,19 @@ function MobileAvatarStrip({
       {viewMode === "live" ? (
         <div className="absolute inset-0 overflow-hidden">
           <RealtimeTryOnOverlay
-            status={realtime.status}
-            stream={realtime.remoteStream}
-            remainingSeconds={realtime.remainingSeconds}
-            activeLookId={realtime.activeLookId}
-            errorMessage={realtime.errorMessage}
-            hasLook={liveProducts.length > 0}
-            facingMode={realtime.facingMode}
-            isRecording={realtime.isRecording}
-            recordingSeconds={realtime.recordingSeconds}
-            onStart={realtime.start}
-            onStop={() => realtime.stop("stop-button")}
-            onFlipCamera={realtime.flipCamera}
-            onStartRecording={realtime.startRecording}
-            onStopRecording={realtime.stopRecording}
+            {...liveOverlayProps}
+            shopCount={liveProducts.length}
+            shopSheet={
+              liveProducts.length > 0 ? (
+                <LiveProductPicker
+                  mobile
+                  products={liveProducts}
+                  cartItemIds={cartItemIds}
+                  pendingCartIds={pendingCartIds}
+                  onAddToCart={onAddToCart}
+                />
+              ) : undefined
+            }
           />
         </div>
       ) : (
@@ -1226,6 +1269,7 @@ function MobileAvatarStrip({
             {viewMode === "photo" && !isGenerating && !isRegeneratingAvatar && (
               <GarmentHotspotLayer
                 items={activeItems}
+                imageUrl={imgSrc}
                 cartItemIds={cartItemIds}
                 pendingCartIds={pendingCartIds}
                 onAddToCart={onAddToCart}
@@ -1355,18 +1399,6 @@ function MobileAvatarStrip({
           );
         })()}
       </div>
-      )}
-
-      {viewMode === "live" && realtime.status === "live" && liveProducts.length > 0 && (
-        <div className="absolute inset-x-0 bottom-0 z-[18]">
-          <LiveProductPicker
-            mobile
-            products={liveProducts}
-            cartItemIds={cartItemIds}
-            pendingCartIds={pendingCartIds}
-            onAddToCart={onAddToCart}
-          />
-        </div>
       )}
 
       {/* ════════════════════════════════════════════════════════════════════

@@ -115,15 +115,23 @@ export async function searchCatalog(
   const collect = (results: AcsSearchResultItem[] | undefined) => {
     const byProduct = new Map<string, CatalogCandidate>();
     const rows = new Map<string, Set<string>>();
+    const sizes = new Map<string, Set<string>>();
     for (const item of results ?? []) {
       const candidate = toCandidate(item);
       if (!byProduct.has(candidate.externalId)) byProduct.set(candidate.externalId, candidate);
       const productRows = rows.get(candidate.externalId) ?? new Set<string>();
       for (const row of candidate.attributes?.fit_rows ?? []) productRows.add(row);
       rows.set(candidate.externalId, productRows);
+      // A size variant records only its own size; the product's sizes are every hit's, together.
+      const productSizes = sizes.get(candidate.externalId) ?? new Set<string>();
+      for (const size of candidate.attributes?.size ?? []) productSizes.add(size);
+      sizes.set(candidate.externalId, productSizes);
     }
     const candidates: CatalogCandidate[] = [];
-    for (const candidate of byProduct.values()) {
+    for (const original of byProduct.values()) {
+      const allSizes = [...(sizes.get(original.externalId) ?? [])];
+      const candidate =
+        allSizes.length > 0 ? { ...original, attributes: { ...original.attributes, size: allSizes } } : original;
       if (!body) {
         candidates.push(candidate);
         continue;
