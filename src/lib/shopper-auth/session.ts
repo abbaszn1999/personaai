@@ -14,10 +14,11 @@ const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days — long-lived on pu
  *  client's own storage; the database only ever sees/keeps its hash. */
 export async function issueShopperSession(
   shopperAccountId: string,
-  userAgent: string | null
+  userAgent: string | null,
+  ttlMs: number = SESSION_TTL_MS
 ): Promise<string> {
   const token = generateSessionToken();
-  const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
+  const expiresAt = new Date(Date.now() + ttlMs).toISOString();
   await createShopperSession({
     shopperAccountId,
     tokenHash: hashToken(token),

@@ -197,7 +197,7 @@ export function resolveGarmentSlot(product: Product): GarmentCategory {
 
 const HOTSPOT_BASE_POSITION: Record<GarmentCategory, { top: number; left: number }> = {
   dress:     { top: 42, left: 48 },
-  outerwear: { top: 30, left: 46 }, // jacket / coat chest area
+  outerwear: { top: 22, left: 31 }, // jacket / coat shoulder (screen-left), as `bodyHotspotAnchor` places it
   top:       { top: 25, left: 46 }, // shirt / knit chest area
   bottom:    { top: 60, left: 50 }, // hip / waist area
   shoes:     { top: 91, left: 48 }, // near the feet

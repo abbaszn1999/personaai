@@ -16,7 +16,7 @@ export async function OPTIONS() {
 export async function POST(req: NextRequest) {
   try {
     const body: RequestBody = await req.json().catch(() => ({}));
-    const auth = await requireShopperEmbed(req, body.embedToken);
+    const auth = await requireShopperEmbed(req, body.embedToken, { allowGuest: true });
     if ("error" in auth) {
       if (auth.error.status === 401) return embedJson({ ok: true });
       return auth.error;

@@ -9,6 +9,7 @@ import {
 import { allowLoginCodeRequest } from "@/lib/shopper-auth/rate-limit";
 import { generateLoginCode, hashToken } from "@/lib/shopper-auth/tokens";
 import { sendShopperLoginCode } from "@/lib/shopper-auth/email";
+import { isGuestEmail } from "@/lib/shopper-auth/guest";
 
 const CODE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const RESEND_COOLDOWN_MS = 60 * 1000; // 60 seconds
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest) {
     const { workspace } = resolution;
 
     const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-    if (!email || !EMAIL_RE.test(email)) {
+    if (!email || !EMAIL_RE.test(email) || isGuestEmail(email)) {
       return embedJson({ error: "Enter a valid email address." }, { status: 400 });
     }
 

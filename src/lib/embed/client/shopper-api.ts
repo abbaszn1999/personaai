@@ -4,6 +4,8 @@ export interface ShopperAccountPublic {
   id: string;
   email: string;
   createdAt: string;
+  /** A one-time visit with no email and nothing saved. Absent for real accounts. */
+  isGuest?: boolean;
 }
 
 export interface ShopperProfilePublic {
@@ -70,6 +72,15 @@ export async function verifyShopperCode(
     method: "POST",
     embedToken,
     body: JSON.stringify({ embedToken, ...input }),
+  });
+}
+
+/** "Continue as guest": a session with no email and no saved profiles. */
+export async function startShopperGuest(apiBase: string, embedToken: string) {
+  return shopperFetch(apiBase, "/shopper/guest", {
+    method: "POST",
+    embedToken,
+    body: JSON.stringify({ embedToken }),
   });
 }
 

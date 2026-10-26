@@ -146,7 +146,24 @@ function SignInPreview() {
     return { ok: false };
   }, []);
 
-  return <ShopperSignIn error={note} onRequestCode={requestCode} onVerifyCode={verifyCode} />;
+  const google = React.useCallback(async () => {
+    setNote("This is a preview: Google sign-in is not opened here.");
+    return { ok: false as const, cancelled: true };
+  }, []);
+  const guest = React.useCallback(async () => {
+    setNote("This is a preview: a guest visit is not started here.");
+    return false;
+  }, []);
+
+  return (
+    <ShopperSignIn
+      error={note}
+      onRequestCode={requestCode}
+      onVerifyCode={verifyCode}
+      onGoogle={google}
+      onGuest={guest}
+    />
+  );
 }
 
 /**

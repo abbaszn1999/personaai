@@ -12,6 +12,7 @@
 const SESSION_ID_PREFIX = "autoshopping_embed_session:";
 const STATE_PREFIX = "autoshopping_embed_state:";
 const SHOPPER_TOKEN_PREFIX = "autoshopping_shopper_token:";
+const GUEST_FLAG_PREFIX = "autoshopping_guest:";
 
 function safeLocalStorage(): Storage | null {
   try {
@@ -22,10 +23,47 @@ function safeLocalStorage(): Storage | null {
   }
 }
 
+function safeSessionStorage(): Storage | null {
+  try {
+    return typeof window !== "undefined" ? window.sessionStorage : null;
+  } catch {
+    return null;
+  }
+}
+
+/** True while this tab is a guest visit. The flag itself lives in the tab's session storage, so it
+ *  survives a reload but not a new tab or a closed one. */
+export function isGuestMode(embedToken: string): boolean {
+  try {
+    return safeSessionStorage()?.getItem(`${GUEST_FLAG_PREFIX}${embedToken}`) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Switch before saving anything for a guest: from then on everything below (session id, widget
+ *  state, token) goes to the tab's session storage, which the browser empties when the tab closes. */
+export function setGuestMode(embedToken: string, on: boolean): void {
+  const storage = safeSessionStorage();
+  if (!storage) return;
+  try {
+    if (on) storage.setItem(`${GUEST_FLAG_PREFIX}${embedToken}`, "1");
+    else storage.removeItem(`${GUEST_FLAG_PREFIX}${embedToken}`);
+  } catch {
+    // Non-fatal.
+  }
+}
+
+/** Where this visitor's data lives: the tab for a guest, the device for everyone else. A guest
+ *  whose browser blocks session storage gets none at all, rather than falling back to the device. */
+function storageFor(embedToken: string): Storage | null {
+  return isGuestMode(embedToken) ? safeSessionStorage() : safeLocalStorage();
+}
+
 /** One random id per (browser, embed token) pair — used server-side only to key the ephemeral
  *  avatar cache per-shopper, never sent anywhere else or treated as an identity. */
 export function getOrCreateEmbedSessionId(embedToken: string): string {
-  const storage = safeLocalStorage();
+  const storage = storageFor(embedToken);
   const key = `${SESSION_ID_PREFIX}${embedToken}`;
   if (!storage) return `ephemeral-${Math.random().toString(36).slice(2)}`;
 
@@ -43,7 +81,7 @@ export function getOrCreateEmbedSessionId(embedToken: string): string {
 /** Forgets this browser's session id so the next shopper to sign in gets a new one and
  *  doesn't inherit the previous shopper's spend on the usage page. */
 export function resetEmbedSessionId(embedToken: string): void {
-  const storage = safeLocalStorage();
+  const storage = storageFor(embedToken);
   if (!storage) return;
   try {
     storage.removeItem(`${SESSION_ID_PREFIX}${embedToken}`);
@@ -53,7 +91,7 @@ export function resetEmbedSessionId(embedToken: string): void {
 }
 
 export function loadEmbedState<T>(embedToken: string): T | null {
-  const storage = safeLocalStorage();
+  const storage = storageFor(embedToken);
   if (!storage) return null;
   try {
     const raw = storage.getItem(`${STATE_PREFIX}${embedToken}`);
@@ -64,7 +102,7 @@ export function loadEmbedState<T>(embedToken: string): T | null {
 }
 
 export function saveEmbedState<T>(embedToken: string, state: T): void {
-  const storage = safeLocalStorage();
+  const storage = storageFor(embedToken);
   if (!storage) return;
   try {
     storage.setItem(`${STATE_PREFIX}${embedToken}`, JSON.stringify(state));
@@ -74,7 +112,7 @@ export function saveEmbedState<T>(embedToken: string, state: T): void {
 }
 
 export function clearEmbedState(embedToken: string): void {
-  const storage = safeLocalStorage();
+  const storage = storageFor(embedToken);
   if (!storage) return;
   try {
     storage.removeItem(`${STATE_PREFIX}${embedToken}`);
@@ -84,7 +122,7 @@ export function clearEmbedState(embedToken: string): void {
 }
 
 export function loadShopperToken(embedToken: string): string | null {
-  const storage = safeLocalStorage();
+  const storage = storageFor(embedToken);
   if (!storage) return null;
   try {
     return storage.getItem(`${SHOPPER_TOKEN_PREFIX}${embedToken}`);
@@ -94,7 +132,7 @@ export function loadShopperToken(embedToken: string): string | null {
 }
 
 export function saveShopperToken(embedToken: string, token: string): void {
-  const storage = safeLocalStorage();
+  const storage = storageFor(embedToken);
   if (!storage) return;
   try {
     storage.setItem(`${SHOPPER_TOKEN_PREFIX}${embedToken}`, token);
@@ -113,7 +151,7 @@ export function embedRequestHeaders(embedToken: string): Record<string, string> 
 }
 
 export function clearShopperToken(embedToken: string): void {
-  const storage = safeLocalStorage();
+  const storage = storageFor(embedToken);
   if (!storage) return;
   try {
     storage.removeItem(`${SHOPPER_TOKEN_PREFIX}${embedToken}`);

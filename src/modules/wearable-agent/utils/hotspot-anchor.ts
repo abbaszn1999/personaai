@@ -13,7 +13,9 @@ import type { GarmentCategory } from "./fit-metrics";
  *  middle of the fabric, not its edge. */
 const ANCHOR_AT: Record<GarmentCategory, number> = {
   top: 0.31,
-  outerwear: 0.31,
+  // The shoulder seam, not the chest: a jacket's dot sits on its shoulder so it never shares the
+  // chest with a top worn under it.
+  outerwear: 0.21,
   dress: 0.42,
   bottom: 0.58,
   shoes: 0.97,
@@ -24,6 +26,11 @@ const ANCHOR_AT: Record<GarmentCategory, number> = {
  *  screen), a quarter of the way in from the body's outer edge: on the cloth, never in the gap. */
 const ON_LEG: ReadonlySet<GarmentCategory> = new Set(["bottom", "shoes"]);
 const LEG_SHARE = 0.25;
+
+/** Outerwear gets its dot on the shopper's right shoulder (left on the screen): a fifth of the way
+ *  in from the body's outer edge at shoulder height, which is on the cloth of the shoulder. */
+const ON_SHOULDER: ReadonlySet<GarmentCategory> = new Set(["outerwear"]);
+const SHOULDER_SHARE = 0.2;
 
 /** Extra drop for a second garment of the same kind, so two tops don't share one dot. */
 const STAGGER = 0.04;
@@ -49,6 +56,8 @@ export function bodyHotspotAnchor(
   let left: number;
   if (ON_LEG.has(slot)) {
     left = extent.left + (extent.right - extent.left) * LEG_SHARE;
+  } else if (ON_SHOULDER.has(slot)) {
+    left = extent.left + (extent.right - extent.left) * SHOULDER_SHARE;
   } else {
     const torso = bounds.torsoAt(y) ?? extent;
     left = (torso.left + torso.right) / 2;

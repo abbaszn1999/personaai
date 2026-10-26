@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { resolveEmbedRequest } from "@/lib/embed/resolve";
 import { embedJson } from "@/lib/embed/cors";
 import type { EmbedWorkspaceResolution } from "@/lib/db/workspaces";
+import { isGuestAccount } from "./guest";
 import { extractBearerToken, resolveShopperSession, type ResolvedShopperSession } from "./session";
 
 export type ShopperEmbedAuth =
@@ -14,7 +15,9 @@ export type ShopperEmbedAuth =
  *  every caller treats it as signed-out. */
 export async function requireShopperEmbed(
   req: NextRequest,
-  embedToken: unknown
+  embedToken: unknown,
+  /** Guests may resume and sign out, but never touch saved profiles: those routes leave this off. */
+  options: { allowGuest?: boolean } = {}
 ): Promise<ShopperEmbedAuth> {
   const resolution = await resolveEmbedRequest(embedToken, { req });
   if ("error" in resolution) return resolution;
@@ -23,6 +26,11 @@ export async function requireShopperEmbed(
   const session = await resolveShopperSession(token);
   if (!token || !session || session.account.workspaceId !== resolution.workspace.workspaceId) {
     return { error: embedJson({ error: "Not signed in" }, { status: 401 }) };
+  }
+  if (isGuestAccount(session.account) && !options.allowGuest) {
+    return {
+      error: embedJson({ error: "Sign in to save profiles.", code: "guest_not_allowed" }, { status: 403 }),
+    };
   }
 
   return { workspace: resolution.workspace, session, token };

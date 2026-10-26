@@ -9,13 +9,16 @@ import {
   loadShopperToken,
   resetEmbedSessionId,
   saveShopperToken,
+  setGuestMode,
 } from "@/lib/embed/client/embed-storage";
+import { signInWithGooglePopup, type GoogleSignInResult } from "@/lib/embed/client/google-popup";
 import {
   createShopperProfileRemote,
   deleteShopperProfileRemote,
   fetchShopperMe,
   logoutShopper,
   requestShopperCode,
+  startShopperGuest,
   updateShopperProfileRemote,
   verifyShopperCode,
   type ShopperAccountPublic,
@@ -30,8 +33,13 @@ export interface ShopperRuntime {
   account: ShopperAccountPublic | null;
   profiles: ShopperProfilePublic[];
   error: string | null;
+  /** A one-time visit: no email, no saved profiles, everything gone when the tab closes. */
+  isGuest: boolean;
   requestCode: (email: string) => Promise<boolean>;
   verifyCode: (email: string, code: string, acceptPrivacy?: boolean) => Promise<{ ok: boolean; privacyRequired?: boolean }>;
+  /** Opens Google in a popup; resolves with a one-time ticket to redeem through `verifyCode`. */
+  signInWithGoogle: () => Promise<GoogleSignInResult>;
+  continueAsGuest: () => Promise<boolean>;
   signOut: () => Promise<void>;
   createProfile: (draft: ShopperProfileDraft) => Promise<ShopperProfilePublic | null>;
   updateProfile: (id: string, draft: ShopperProfileDraft) => Promise<ShopperProfilePublic | null>;
@@ -69,6 +77,7 @@ export function useShopperAuth(embed: EmbedRuntimeConfig): ShopperRuntime {
       if (cancelled) return;
       if (!result.ok || !result.body.account) {
         clearShopperToken(embed.embedToken);
+        setGuestMode(embed.embedToken, false);
         tokenRef.current = null;
         setStatus("signed-out");
         return;
@@ -112,6 +121,8 @@ export function useShopperAuth(embed: EmbedRuntimeConfig): ShopperRuntime {
         setError(result.body.error || "That code didn't work — please try again.");
         return { ok: false };
       }
+      // A real account always lives on the device, never in a guest tab's storage.
+      setGuestMode(embed.embedToken, false);
       saveShopperToken(embed.embedToken, result.body.token);
       tokenRef.current = result.body.token;
       setAccount(result.body.account);
@@ -122,6 +133,31 @@ export function useShopperAuth(embed: EmbedRuntimeConfig): ShopperRuntime {
     [embed.apiBase, embed.embedToken]
   );
 
+  const signInWithGoogle = React.useCallback(async () => {
+    setError(null);
+    const result = await signInWithGooglePopup(embed.apiBase, embed.embedToken);
+    if (!result.ok && result.error) setError(result.error);
+    return result;
+  }, [embed.apiBase, embed.embedToken]);
+
+  const continueAsGuest = React.useCallback(async () => {
+    setError(null);
+    const result = await startShopperGuest(embed.apiBase, embed.embedToken);
+    if (!result.ok || !result.body.token || !result.body.account) {
+      setError(result.body.error || "Couldn't start a guest visit. Please try again.");
+      return false;
+    }
+    // Before anything is saved: from here on the token, session id and widget state go to the tab's
+    // session storage, so a guest leaves nothing on the device once the tab closes.
+    setGuestMode(embed.embedToken, true);
+    saveShopperToken(embed.embedToken, result.body.token);
+    tokenRef.current = result.body.token;
+    setAccount({ ...result.body.account, isGuest: true });
+    setProfiles([]);
+    setStatus("ready");
+    return true;
+  }, [embed.apiBase, embed.embedToken]);
+
   const signOut = React.useCallback(async () => {
     const token = tokenRef.current;
     if (token) {
@@ -131,6 +167,8 @@ export function useShopperAuth(embed: EmbedRuntimeConfig): ShopperRuntime {
     clearShopperToken(embed.embedToken);
     clearEmbedState(embed.embedToken);
     resetEmbedSessionId(embed.embedToken);
+    // Last: the clears above have to hit the storage the guest data was actually in.
+    setGuestMode(embed.embedToken, false);
     setAccount(null);
     setProfiles([]);
     setStatus("signed-out");
@@ -173,5 +211,21 @@ export function useShopperAuth(embed: EmbedRuntimeConfig): ShopperRuntime {
     [embed.apiBase, embed.embedToken]
   );
 
-  return { status, account, profiles, error, requestCode, verifyCode, signOut, createProfile, updateProfile, deleteProfile };
+  const isGuest = account?.isGuest === true;
+
+  return {
+    status,
+    account,
+    profiles,
+    error,
+    isGuest,
+    requestCode,
+    verifyCode,
+    signInWithGoogle,
+    continueAsGuest,
+    signOut,
+    createProfile,
+    updateProfile,
+    deleteProfile,
+  };
 }

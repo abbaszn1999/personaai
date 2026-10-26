@@ -10,6 +10,7 @@ import {
 } from "@/lib/db/shopper-accounts";
 import { listShopperProfiles } from "@/lib/db/shopper-profiles";
 import { linkShopperSession, parseEmbedSessionId } from "@/lib/db/shopper-session-links";
+import { isGuestEmail } from "@/lib/shopper-auth/guest";
 import { hashToken } from "@/lib/shopper-auth/tokens";
 import { issueShopperSession } from "@/lib/shopper-auth/session";
 import { serializeShopperProfile } from "@/lib/shopper-auth/serialize-profile";
@@ -42,7 +43,7 @@ export async function POST(req: NextRequest) {
 
     const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
     const code = typeof body.code === "string" ? body.code.trim() : "";
-    if (!email || !code) {
+    if (!email || !code || isGuestEmail(email)) {
       return embedJson({ error: "Email and code are required." }, { status: 400 });
     }
 

@@ -3,6 +3,7 @@ import { embedJson, embedOptions } from "@/lib/embed/cors";
 import { touchShopperAccountLastSeen } from "@/lib/db/shopper-accounts";
 import { listShopperProfiles } from "@/lib/db/shopper-profiles";
 import { linkShopperSession, parseEmbedSessionId } from "@/lib/db/shopper-session-links";
+import { isGuestAccount } from "@/lib/shopper-auth/guest";
 import { requireShopperEmbed } from "@/lib/shopper-auth/require";
 import { serializeShopperProfile } from "@/lib/shopper-auth/serialize-profile";
 
@@ -16,8 +17,16 @@ export async function OPTIONS() {
 export async function GET(req: NextRequest) {
   try {
     const embedToken = req.nextUrl.searchParams.get("embedToken");
-    const auth = await requireShopperEmbed(req, embedToken);
+    const auth = await requireShopperEmbed(req, embedToken, { allowGuest: true });
     if ("error" in auth) return auth.error;
+
+    // A guest has nothing saved, and their spend stays under their own anonymous session.
+    if (isGuestAccount(auth.session.account)) {
+      return embedJson({
+        account: { id: auth.session.account.id, email: "", createdAt: auth.session.account.createdAt, isGuest: true },
+        profiles: [],
+      });
+    }
 
     void touchShopperAccountLastSeen(auth.session.account.id);
     const sessionId = parseEmbedSessionId(req.nextUrl.searchParams.get("sessionId"));

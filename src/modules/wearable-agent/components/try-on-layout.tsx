@@ -153,14 +153,24 @@ function EmbeddedTryOn({
   if (shopper.status === "signed-out") {
     return (
       <PreviewViewportShell mode={viewportMode} layout="card" frameless>
-        <ShopperSignIn error={shopper.error} onRequestCode={shopper.requestCode} onVerifyCode={shopper.verifyCode} />
+        <ShopperSignIn
+          error={shopper.error}
+          onRequestCode={shopper.requestCode}
+          onVerifyCode={shopper.verifyCode}
+          onGoogle={shopper.signInWithGoogle}
+          onGuest={shopper.continueAsGuest}
+        />
       </PreviewViewportShell>
     );
   }
 
   return (
     <EmbedShopperSessionContext.Provider
-      value={{ email: shopper.account?.email ?? "", signOut: () => void shopper.signOut() }}
+      value={{
+        email: shopper.account?.email ?? "",
+        isGuest: shopper.isGuest,
+        signOut: () => void shopper.signOut(),
+      }}
     >
       <TryOnExperience
         viewportMode={viewportMode}
@@ -168,12 +178,17 @@ function EmbeddedTryOn({
         branding={branding}
         workspaceId={workspaceId}
         audiences={audiences}
-        shopper={{
-          profiles: shopper.profiles,
-          createProfile: shopper.createProfile,
-          updateProfile: shopper.updateProfile,
-          deleteProfile: shopper.deleteProfile,
-        }}
+        // A guest has no saved profiles: the agent keeps everything in the tab, as an anonymous visit does.
+        shopper={
+          shopper.isGuest
+            ? undefined
+            : {
+                profiles: shopper.profiles,
+                createProfile: shopper.createProfile,
+                updateProfile: shopper.updateProfile,
+                deleteProfile: shopper.deleteProfile,
+              }
+        }
         onFillViewportChange={onFillViewportChange}
       />
     </EmbedShopperSessionContext.Provider>
@@ -291,6 +306,7 @@ function TryOnExperience({
       onRename={agent.renameProfile}
       onDelete={agent.removeProfile}
       onSignOut={shopperSession?.signOut}
+      guest={shopperSession?.isGuest}
     />
   ) : null;
 

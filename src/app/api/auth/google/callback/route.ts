@@ -11,6 +11,7 @@ import { sessionOptions, type SessionData } from "@/modules/auth/lib/session";
 import { buildSessionProfile } from "@/modules/auth/lib/get-user";
 import { getUserByEmail, createGoogleUser, linkGoogleAccount } from "@/lib/db/users";
 import { createSession } from "@/lib/db/sessions";
+import { handleShopperGoogleCallback, isShopperGoogleFlow } from "@/lib/shopper-auth/google-popup";
 
 const APP_URL = process.env.APP_URL ?? "http://localhost:3000";
 
@@ -22,6 +23,9 @@ function redirectTo(path: string): NextResponse {
 }
 
 export async function GET(req: NextRequest) {
+  // A shopper signing in from a store's widget comes back through this same redirect URI.
+  if (isShopperGoogleFlow(req)) return handleShopperGoogleCallback(req);
+
   try {
     const { searchParams } = new URL(req.url);
     const code = searchParams.get("code");

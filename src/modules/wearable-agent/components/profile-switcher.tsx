@@ -83,6 +83,8 @@ interface ProfileSwitcherProps {
   /** Tighter pill and menu. Used on the onboarding card, where the open list was covering the
    *  step underneath. The chat header keeps the roomier default. */
   compact?: boolean;
+  /** A guest visit: no profiles to list, just a note that nothing is saved and a way to sign in. */
+  guest?: boolean;
 }
 
 /** Pill + popover for switching between up to `maxProfiles` profiles on a signed-in shopper
@@ -100,6 +102,7 @@ export function ProfileSwitcher({
   className,
   menuAlign = "end",
   compact = false,
+  guest = false,
 }: ProfileSwitcherProps) {
   const [open, setOpen] = React.useState(false);
   const [editingId, setEditingId] = React.useState<string | null>(null);
@@ -140,7 +143,67 @@ export function ProfileSwitcher({
 
   // Only worth showing once there's actually a choice to make or room to add one — a lone
   // profile with no room to grow would just be a confusing button that does nothing useful.
-  if (profiles.length <= 1 && profiles.length >= maxProfiles) return null;
+  if (!guest && profiles.length <= 1 && profiles.length >= maxProfiles) return null;
+
+  if (guest) {
+    return (
+      <div
+        ref={rootRef}
+        className={cn("relative z-40 shrink-0", className)}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label="Guest visit"
+          className={cn(
+            "flex items-center rounded-full border backdrop-blur-xl font-medium transition-colors",
+            compact ? "min-h-8 gap-1 px-2.5 text-[11px]" : "min-h-11 gap-1.5 px-3.5 text-[12px]",
+            styles.pill
+          )}
+        >
+          <User className={cn("shrink-0", compact ? "h-3 w-3" : "h-3.5 w-3.5")} />
+          <span>Guest</span>
+        </button>
+
+        {open && (
+          <div
+            ref={panelRef}
+            style={panelOffsetX ? { transform: `translateX(${panelOffsetX}px)` } : undefined}
+            className={cn(
+              "absolute top-full z-50 border backdrop-blur-2xl",
+              compact ? "mt-1 w-[10.25rem] rounded-xl p-2" : "mt-2 w-60 rounded-2xl p-3",
+              menuAlign === "start" ? "left-0" : "right-0",
+              styles.panel
+            )}
+          >
+            <p className={cn("leading-snug", compact ? "text-[11px]" : "text-[13px]", styles.rowText)}>
+              You&apos;re browsing as a guest. Nothing is saved, and your measurements and avatar are cleared when you
+              leave.
+            </p>
+            {onSignOut && (
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  onSignOut();
+                }}
+                className={cn(
+                  "mt-2 w-full border font-medium transition-colors",
+                  compact ? "min-h-7 rounded-lg px-2 text-[11px]" : "min-h-11 rounded-xl px-2 text-[13px]",
+                  styles.addButton
+                )}
+              >
+                Sign in to save profiles
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   const active = profiles.find((p) => p.id === activeProfileId);
 

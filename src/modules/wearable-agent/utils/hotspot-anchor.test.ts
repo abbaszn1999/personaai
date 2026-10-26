@@ -19,6 +19,17 @@ describe("bodyHotspotAnchor", () => {
     expect(spot.top).toBeCloseTo(0.1 + 0.8 * 0.31);
   });
 
+  it("puts a jacket on the shoulder: higher than a top, and off the centre line", () => {
+    const jacket = bodyHotspotAnchor("outerwear", body)!;
+    const top = bodyHotspotAnchor("top", body)!;
+    expect(jacket.top).toBeCloseTo(0.1 + 0.8 * 0.21);
+    expect(jacket.top).toBeLessThan(top.top);
+    expect(jacket.left).toBeCloseTo(0.38);
+    expect(jacket.left).toBeLessThan(0.5);
+    // Only the jacket moved: a top is still on the middle of the chest.
+    expect(top.left).toBeCloseTo(0.5);
+  });
+
   it("puts pants on the thigh of one leg, not in the gap between them", () => {
     const spot = bodyHotspotAnchor("bottom", body)!;
     expect(spot.left).toBeCloseTo(0.4);
