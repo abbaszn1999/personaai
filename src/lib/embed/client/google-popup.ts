@@ -43,11 +43,9 @@ export function parsePopupMessage(data: unknown): GoogleSignInResult | null {
 /** `apiBase` is the embed API root (".../api/embed"): the popup page is served from the same origin. */
 export function signInWithGooglePopup(apiBase: string, embedToken: string): Promise<GoogleSignInResult> {
   return new Promise((resolve) => {
-    let apiOrigin: string;
     let startUrl: string;
     try {
       const api = new URL(apiBase, window.location.href);
-      apiOrigin = api.origin;
       const query = new URLSearchParams({ embedToken, origin: window.location.origin });
       startUrl = `${api.origin}${api.pathname.replace(/\/$/, "")}/shopper/google/start?${query.toString()}`;
     } catch {
@@ -78,8 +76,10 @@ export function signInWithGooglePopup(apiBase: string, embedToken: string): Prom
     };
 
     function onMessage(event: MessageEvent) {
-      // Only the popup we opened, and only from our own origin, can complete the sign-in.
-      if (event.origin !== apiOrigin || event.source !== popup) return;
+      // Only the popup window we opened can complete the sign-in. Its last page is served by the app's
+      // own host, which can differ from the API host the popup started on, so the window is what is
+      // trusted rather than the origin; the message is also posted only to this page's origin.
+      if (event.source !== popup) return;
       const result = parsePopupMessage(event.data);
       if (!result) return;
       try {

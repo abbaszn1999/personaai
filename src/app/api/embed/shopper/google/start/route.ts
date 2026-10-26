@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolveEmbedRequest } from "@/lib/embed/resolve";
 import { buildGoogleAuthUrl } from "@/modules/auth/lib/google";
 import {
+  canonicalStartUrl,
   encodeFlowCookie,
   normalizeOrigin,
   renderPopupResult,
@@ -19,6 +20,10 @@ export async function GET(req: NextRequest) {
     renderPopupResult({ source: SHOPPER_GOOGLE_MESSAGE_SOURCE, ok: false, error }, origin);
 
   if (!origin) return fail("This sign-in link isn't valid. Close this window and try again.");
+
+  // Google returns to APP_URL, so the flow cookie must be set there rather than on the API host.
+  const handoff = canonicalStartUrl(req.url, req.headers.get("x-forwarded-host") ?? req.headers.get("host"), process.env.APP_URL);
+  if (handoff) return NextResponse.redirect(handoff);
 
   const embedToken = req.nextUrl.searchParams.get("embedToken");
   const resolution = await resolveEmbedRequest(embedToken, { req, kind: "auth" });

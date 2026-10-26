@@ -62,6 +62,25 @@ export function normalizeOrigin(value: string | null | undefined): string | null
   }
 }
 
+/**
+ * Google can only send the shopper back to the one registered redirect URI, which lives on `APP_URL`.
+ * The flow cookie is host-only, so the popup has to start on that same host: the widget may be talking
+ * to another one (the service's own onrender.com address, a custom API domain), where a cookie would
+ * never reach the callback. Returns the URL to continue on, or null when already on the right host.
+ */
+export function canonicalStartUrl(requestUrl: string, requestHost: string | null, appUrl: string | undefined): string | null {
+  if (!appUrl) return null;
+  try {
+    const app = new URL(appUrl);
+    const current = new URL(requestUrl);
+    const host = (requestHost ?? current.host).toLowerCase();
+    if (host === app.host.toLowerCase()) return null;
+    return `${app.origin}${current.pathname}${current.search}`;
+  } catch {
+    return null;
+  }
+}
+
 /** JSON that is safe to place inside an inline `<script>`: no `</script>`, no line separators. */
 function scriptSafeJson(value: unknown): string {
   return JSON.stringify(value).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { encodeFlowCookie, normalizeOrigin, renderPopupResult, SHOPPER_GOOGLE_MESSAGE_SOURCE } from "./google-popup";
+import { canonicalStartUrl, encodeFlowCookie, normalizeOrigin, renderPopupResult, SHOPPER_GOOGLE_MESSAGE_SOURCE } from "./google-popup";
 import { parsePopupMessage } from "@/lib/embed/client/google-popup";
 
 describe("normalizeOrigin", () => {
@@ -43,6 +43,22 @@ describe("renderPopupResult", () => {
   it("posts nothing when there is no safe origin to tell", async () => {
     const html = await renderPopupResult(ok, null).text();
     expect(html).toContain("var origin=null");
+  });
+});
+
+describe("canonicalStartUrl", () => {
+  const start = "https://personaai-1lxx.onrender.com/api/embed/shopper/google/start?embedToken=e&origin=https%3A%2F%2Fshop.test";
+
+  it("hands a popup that started on the API host over to the app host, keeping the query", () => {
+    expect(canonicalStartUrl(start, "personaai-1lxx.onrender.com", "https://app.autommerce.com")).toBe(
+      "https://app.autommerce.com/api/embed/shopper/google/start?embedToken=e&origin=https%3A%2F%2Fshop.test"
+    );
+  });
+
+  it("stays put when already on the app host, or when APP_URL is unknown", () => {
+    expect(canonicalStartUrl(start, "app.autommerce.com", "https://app.autommerce.com")).toBeNull();
+    expect(canonicalStartUrl("http://localhost:3000/x?a=1", "localhost:3000", "http://localhost:3000")).toBeNull();
+    expect(canonicalStartUrl(start, "personaai-1lxx.onrender.com", undefined)).toBeNull();
   });
 });
 
