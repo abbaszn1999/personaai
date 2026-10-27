@@ -4,6 +4,7 @@ import {
   buildImageEditBody,
   GeminiImageError,
   imageModel,
+  imageOutputSize,
   imageThinkingLevel,
   parseInteractionResponse,
   readInteractionUsage,
@@ -70,8 +71,33 @@ describe("imageThinkingLevel", () => {
   });
 });
 
+describe("imageOutputSize", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("is 1K unless told otherwise", () => {
+    vi.stubEnv("GEMINI_IMAGE_SIZE", "");
+    expect(imageOutputSize()).toBe("1K");
+  });
+
+  it("can be changed without a deploy", () => {
+    vi.stubEnv("GEMINI_IMAGE_SIZE", " 512 ");
+    expect(imageOutputSize()).toBe("512");
+    vi.stubEnv("GEMINI_IMAGE_SIZE", "2k");
+    expect(imageOutputSize()).toBe("2K");
+  });
+
+  it("falls back to 1K for anything it does not know", () => {
+    vi.stubEnv("GEMINI_IMAGE_SIZE", "8K");
+    expect(imageOutputSize()).toBe("1K");
+  });
+});
+
 describe("buildImageEditBody", () => {
   const parts = [{ type: "image", mime_type: "image/png", data: "AAAA" }];
+
+  it("sends the requested output size", () => {
+    expect(buildImageEditBody("m", "p", parts, undefined, "minimal", "512").response_format.image_size).toBe("512");
+  });
 
   it("puts the thinking level in generation_config and keeps the prompt first", () => {
     const body = buildImageEditBody("m", "dress them", parts, undefined, "minimal");

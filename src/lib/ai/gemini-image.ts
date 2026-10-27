@@ -95,6 +95,20 @@ export function imageThinkingLevel(): ImageThinkingLevel {
   return THINKING_LEVELS.find((level) => level === raw) ?? "minimal";
 }
 
+export type ImageOutputSize = "512" | "1K" | "2K";
+
+const OUTPUT_SIZES: readonly ImageOutputSize[] = ["512", "1K", "2K"];
+
+/**
+ * The resolution of the picture the model draws. A smaller picture is faster to generate and to send
+ * back. `GEMINI_IMAGE_SIZE` changes it without a deploy; anything unrecognised means `1K`, the size
+ * the billing estimates and the layouts were built around.
+ */
+export function imageOutputSize(): ImageOutputSize {
+  const raw = process.env.GEMINI_IMAGE_SIZE?.trim().toUpperCase();
+  return OUTPUT_SIZES.find((size) => size === raw) ?? "1K";
+}
+
 /** An optional second model for the retry, so a model that is down does not fail both attempts. */
 export function imageFallbackModel(): string | null {
   const fallback = process.env.GEMINI_IMAGE_FALLBACK_MODEL?.trim() || process.env.GEMINI_TRYON_FALLBACK_MODEL?.trim();
@@ -306,12 +320,13 @@ export function buildImageEditBody(
   prompt: string,
   imageParts: ReadonlyArray<{ type: string; mime_type: string; data: string }>,
   aspectRatio: string | undefined,
-  thinkingLevel: ImageThinkingLevel
+  thinkingLevel: ImageThinkingLevel,
+  imageSize: ImageOutputSize = "1K"
 ) {
   return {
     model,
     input: [{ type: "text", text: prompt }, ...imageParts],
-    response_format: { type: "image", aspect_ratio: aspectRatio ?? "3:4", image_size: "1K" },
+    response_format: { type: "image", aspect_ratio: aspectRatio ?? "3:4", image_size: imageSize },
     generation_config: { thinking_level: thinkingLevel },
   };
 }
@@ -332,7 +347,9 @@ export async function editGeminiImage(input: GeminiImageEditInput): Promise<Gemi
     data: image.data.toString("base64"),
   }));
   const thinkingLevel = imageThinkingLevel();
-  const buildBody = (model: string) => buildImageEditBody(model, input.prompt, imageParts, input.aspectRatio, thinkingLevel);
+  const imageSize = imageOutputSize();
+  const buildBody = (model: string) =>
+    buildImageEditBody(model, input.prompt, imageParts, input.aspectRatio, thinkingLevel, imageSize);
 
   let apiKey: string;
   try {
@@ -345,7 +362,7 @@ export async function editGeminiImage(input: GeminiImageEditInput): Promise<Gemi
   // judged on real traffic. Sizes are the raw picture bytes, before base64.
   const startedAt = Date.now();
   const describe = (outcome: string) =>
-    `[gemini-image] ${outcome} model=${imageModel()} thinking=${thinkingLevel} images=${input.images.length} ` +
+    `[gemini-image] ${outcome} model=${imageModel()} thinking=${thinkingLevel} size=${imageSize} images=${input.images.length} ` +
     `inputBytes=${input.images.reduce((sum, image) => sum + image.data.length, 0)} ms=${Date.now() - startedAt}`;
   try {
     const result = await requestImage(buildBody, apiKey, input.limits);

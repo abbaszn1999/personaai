@@ -5,6 +5,7 @@ import {
   isProductImageHostDown,
 } from "@/lib/images/product-image";
 import { PersonaAgentError } from "@/lib/try-on/errors";
+import { preparePhotoForAvatar, type PreparedImage } from "@/lib/try-on/image-passthrough";
 
 /**
  * Loading the pictures a render is built from.
@@ -86,30 +87,34 @@ export async function readImageBytes(urlOrDataUrl: string): Promise<Buffer> {
   throw new PersonaAgentError("Couldn't load your avatar picture. Please try again.", "avatar_image");
 }
 
-function toJpeg(source: Buffer): Promise<Buffer> {
-  return sharp(source, { limitInputPixels: MAX_INPUT_PIXELS })
-    .rotate()
-    .resize({ width: GARMENT_MAX_PX, height: GARMENT_MAX_PX, fit: "inside", withoutEnlargement: true })
-    .jpeg({ quality: 92 })
-    .toBuffer();
+/**
+ * The garment as the model will receive it. A picture the model reads as it is (JPEG, PNG or WebP,
+ * upright, within the size cap, no transparency, an ordinary colour space) is passed on untouched,
+ * which skips a decode and re-encode per garment. Anything else is rotated, shrunk to the cap and
+ * saved as a JPEG.
+ */
+function prepareGarment(source: Buffer): Promise<PreparedImage> {
+  return preparePhotoForAvatar(source, { maxSidePx: GARMENT_MAX_PX, maxInputPixels: MAX_INPUT_PIXELS });
 }
 
 /**
- * Fetches one garment reference and transcodes it to JPEG.
+ * Fetches one garment reference, ready to send to the model.
  *
- * The transcode is the point: most storefronts serve WebP and many block hotlinking, so the
- * model is sent the bytes rather than the merchant's URL, and the render's success does not
- * depend on the merchant's CDN policy. It also applies EXIF rotation, so the model sees the
- * garment the way a shopper does.
+ * The model is sent the bytes rather than the merchant's URL, because many storefronts block
+ * hotlinking and the render's success should not depend on the merchant's CDN policy. The bytes are
+ * only rewritten when they have to be (see `prepareGarment`): a store's own WebP or JPEG that is
+ * already a sensible size goes through as it is, and anything oversized, rotated, transparent or in
+ * a format the model does not read becomes an upright JPEG, so the model sees the garment the way a
+ * shopper does.
  *
  * The original is tried first, for detail. If the store's image host is down or slow, the copy
  * the widget already displayed (cached by the product-image proxy) is used instead, so a flaky
  * CDN costs resolution rather than the whole render.
  */
-export async function loadGarmentReference(imageUrl: string): Promise<Buffer> {
+export async function loadGarmentReference(imageUrl: string): Promise<PreparedImage> {
   if (imageUrl.startsWith("data:")) {
     try {
-      return await toJpeg(await readImageBytes(imageUrl));
+      return await prepareGarment(await readImageBytes(imageUrl));
     } catch {
       throw new PersonaAgentError("One of the item pictures could not be read.", "garment_image");
     }
@@ -119,15 +124,16 @@ export async function loadGarmentReference(imageUrl: string): Promise<Buffer> {
     const original = await fetchWithRetry(imageUrl);
     if (original) {
       try {
-        return await toJpeg(original);
+        return await prepareGarment(original);
       } catch {
         // An undecodable original is treated like an unreachable one; the cached copy may differ.
       }
     }
   }
 
+  // The proxy always stores its copy as a JPEG.
   const cached = await getCachedProductImage(imageUrl);
-  if (cached) return cached.body;
+  if (cached) return { data: cached.body, mimeType: "image/jpeg" };
 
   throw new PersonaAgentError(
     "Couldn't load one of the item pictures from the store. Please try again.",

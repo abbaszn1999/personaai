@@ -67,10 +67,15 @@ export async function prepareAvatarForTryOn(bytes: Buffer): Promise<PreparedImag
 export interface PhotoLimits {
   maxSidePx?: number;
   maxBytes?: number;
+  /** Refuses to decode a picture claiming more pixels than this (decompression bombs). Only the
+   *  rewrite path decodes; the header check above it never does. */
+  maxInputPixels?: number;
 }
 
 /**
- * The shopper's own photo for avatar creation. It can be anything, so it is only sent as it is when
+ * A picture of unknown origin that becomes a reference image: the shopper's own photo for avatar
+ * creation, or a garment photo from a store (see image-source.ts, which sets its own limits). It can
+ * be anything, so it is only sent as it is when
  * every check passes: a readable format, upright, no larger than the cap in either direction and in
  * bytes, no transparency, an ordinary colour space and a single frame. Anything else is rotated,
  * resized to the cap and saved as a JPEG, which is what every photo went through before.
@@ -91,7 +96,7 @@ export async function preparePhotoForAvatar(bytes: Buffer, limits: PhotoLimits =
     bytes.length <= maxBytes;
   if (fine && header.mimeType) return { data: bytes, mimeType: header.mimeType };
 
-  const data = await sharp(bytes)
+  const data = await sharp(bytes, limits.maxInputPixels ? { limitInputPixels: limits.maxInputPixels } : undefined)
     .rotate()
     .resize({ width: maxSide, height: maxSide, fit: "inside", withoutEnlargement: true })
     .jpeg({ quality: 92 })

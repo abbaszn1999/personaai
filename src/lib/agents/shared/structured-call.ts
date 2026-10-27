@@ -30,6 +30,8 @@ export interface StructuredCallInput {
   cacheAs?: string;
   /** Everything after the cached boundary for this turn. */
   userText: string;
+  /** A picture sent ahead of `userText`, for the calls that read one (base64, no `data:` prefix). */
+  image?: { mimeType: string; data: string };
   schema: Record<string, unknown>;
   thinking?: ThinkingMode;
   timeoutMs?: number;
@@ -81,7 +83,15 @@ async function send(input: StructuredCallInput, useCache: boolean) {
   try {
     return await ai.models.generateContent({
       model: input.model,
-      contents: [{ role: "user", parts: [{ text: input.userText }] }],
+      contents: [
+        {
+          role: "user",
+          parts: [
+            ...(input.image ? [{ inlineData: { mimeType: input.image.mimeType, data: input.image.data } }] : []),
+            { text: input.userText },
+          ],
+        },
+      ],
       config: {
         abortSignal: input.signal ? AbortSignal.any([signal, input.signal]) : signal,
         ...(useCache && input.cacheName ? { cachedContent: input.cacheName } : { systemInstruction: input.prefix }),

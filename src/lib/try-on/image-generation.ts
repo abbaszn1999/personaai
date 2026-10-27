@@ -313,7 +313,7 @@ async function renderTryOn(
   garments: TryOnGarmentRef[]
 ): Promise<{ imageUrl: string; garmentCount: number; costNanos: number }> {
   try {
-    const [person, garmentJpegs] = await Promise.all([
+    const [person, garmentImages] = await Promise.all([
       readImageBytes(input.avatarImageUrl).then(prepareAvatarForTryOn),
       Promise.all(garments.map((g) => loadGarmentReference(g.imageUrl))),
     ]);
@@ -324,7 +324,7 @@ async function renderTryOn(
       prompt: buildTryOnPrompt(garments.map((g) => ({ slot: g.slot, leaf: g.leaf }))),
       images: [
         { data: person.data, mimeType: person.mimeType },
-        ...garmentJpegs.map((data) => ({ data, mimeType: "image/jpeg" })),
+        ...garmentImages.map(({ data, mimeType }) => ({ data, mimeType })),
       ],
     });
 

@@ -7,7 +7,7 @@ import { generateTryOnImage } from "@/lib/try-on/image-generation";
 import { parseTryOnGarments } from "@/lib/try-on/request";
 import { dedupeRequest, parseRequestId } from "@/lib/try-on/dedupe";
 import { toTryOnErrorResponse, tryOnFailure } from "@/lib/try-on/error-response";
-import { PersonaAgentError } from "@/lib/try-on/errors";
+import { chargeAfterResponse } from "@/lib/try-on/charge-after-response";
 import { resolveEmbedRequest } from "@/lib/embed/resolve";
 import { embedJson, embedOptions } from "@/lib/embed/cors";
 
@@ -35,11 +35,14 @@ export async function POST(req: NextRequest) {
     if ("error" in resolution) return resolution.error;
     const { workspace } = resolution;
 
-    const user = await getUserById(workspace.ownerId);
+    // Independent lookups of the same owner, so one trip's wait instead of two.
+    const [user, billing] = await Promise.all([
+      getUserById(workspace.ownerId),
+      getAccountBillingContext(workspace.ownerId),
+    ]);
     if (!user) {
       return embedJson({ error: "Merchant account not found" }, { status: 404 });
     }
-    const billing = await getAccountBillingContext(workspace.ownerId);
     if (!billing) return failure("insufficient_balance", OUT_OF_ALLOWANCE);
 
     const { avatarImageUrl } = body;
@@ -68,22 +71,24 @@ export async function POST(req: NextRequest) {
         added,
       });
 
-      const consumed = await consumeImageGeneration(
-        workspace.ownerId,
-        "try_on",
-        billing.cycleStartIso,
-        billing.tier.monthlyGarmentUnits,
-        costNanos,
-        { sessionId: sessionId || null, source: "store" }
+      // The picture goes back first; the charge is recorded once the response is out (see
+      // chargeAfterResponse). A retry that joins this request does not run this again.
+      await chargeAfterResponse(`owner=${workspace.ownerId} costNanos=${costNanos}`, () =>
+        consumeImageGeneration(
+          workspace.ownerId,
+          "try_on",
+          billing.cycleStartIso,
+          billing.tier.monthlyGarmentUnits,
+          costNanos,
+          { sessionId: sessionId || null, source: "store" }
+        )
       );
-      if (consumed === null) throw new PersonaAgentError(OUT_OF_ALLOWANCE, "insufficient_balance");
       return imageUrl;
     });
 
-    const refreshedUser = await getUserById(workspace.ownerId);
-    const creditsRemaining = refreshedUser?.credits ?? user.credits;
-
-    return embedJson({ imageUrl: result, creditsRemaining });
+    // The balance as it was when the render started: the charge lands after this response, and
+    // nothing reads this figure from a try-on reply.
+    return embedJson({ imageUrl: result, creditsRemaining: user.credits });
   } catch (err) {
     console.error("[api/embed/persona/try-on POST]", err);
     const { status, body } = toTryOnErrorResponse(err);

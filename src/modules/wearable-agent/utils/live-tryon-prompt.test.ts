@@ -63,6 +63,80 @@ describe("buildLookTryOnPrompt", () => {
   });
 });
 
+describe("buildLookTryOnPrompt visible details", () => {
+  const detailed = (name: string, extra: Partial<Product>): Product => ({ ...product(name), ...extra }) as Product;
+
+  it("adds the visible details the catalog records, in a stable order", () => {
+    const hoodie = detailed("Navy Hoodie", {
+      attributes: { fit: ["relaxed"], material: ["Cotton fleece"], collar: ["Hooded"] },
+    });
+    expect(buildLookTryOnPrompt([hoodie])).toBe(
+      "Substitute the outfit with Navy Hoodie (cotton fleece, relaxed fit, hooded)."
+    );
+  });
+
+  it("names the garment type from its leaf only when the title leaves it out", () => {
+    expect(buildLookTryOnPrompt([detailed("Aero Classic", { garmentLeaf: "polo-shirt" })])).toBe(
+      "Substitute the outfit with Aero Classic (polo shirt)."
+    );
+    expect(buildLookTryOnPrompt([detailed("Classic Polo Shirt", { garmentLeaf: "polo-shirt" })])).toBe(
+      "Substitute the outfit with Classic Polo Shirt."
+    );
+    expect(buildLookTryOnPrompt([detailed("Classic Tee", { garmentLeaf: "other" })])).toBe(
+      "Substitute the outfit with Classic Tee."
+    );
+  });
+
+  it("skips a detail the title already says", () => {
+    const tee = detailed("Navy Cotton Tee", { attributes: { color: ["Navy"], material: ["Cotton"], fit: ["Slim"] } });
+    expect(buildLookTryOnPrompt([tee])).toBe("Substitute the outfit with Navy Cotton Tee (slim fit).");
+  });
+
+  it("ignores an attribute with several values, since nothing says which one is in the picture", () => {
+    const tee = detailed("Everyday Tee", { attributes: { color: ["Red", "Blue", "Black"], material: ["Linen"] } });
+    expect(buildLookTryOnPrompt([tee])).toBe("Substitute the outfit with Everyday Tee (linen).");
+  });
+
+  it("never reads internal or non-visual catalog keys as a detail", () => {
+    const tee = detailed("Everyday Tee", {
+      attributes: {
+        merchant_id: ["abc123"],
+        fit_rows: ["row-1"],
+        fit_chest_cm: ["102"],
+        size: ["M"],
+        persona_publish_id: ["run-9"],
+        opt_collar_type: ["Crew neck"],
+      },
+    });
+    expect(buildLookTryOnPrompt([tee])).toBe("Substitute the outfit with Everyday Tee (crew neck).");
+  });
+
+  it("drops details from the last items first, then whole items, to stay within the limit", () => {
+    const wide = (i: number) =>
+      detailed(`Garment ${i} ${"x".repeat(60)}`, {
+        attributes: { material: ["m".repeat(28)], fit: ["f".repeat(28)], collar: ["c".repeat(28)] },
+      });
+    const prompt = buildLookTryOnPrompt([wide(1), wide(2), wide(3), wide(4)]);
+    expect(prompt.length).toBeLessThanOrEqual(LIVE_TRYON_PROMPT_MAX_CHARS);
+    expect(prompt.endsWith(".")).toBe(true);
+    // Every item is still named; only the trailing details were given up.
+    expect(prompt.match(/Garment \d/g)).toHaveLength(4);
+    expect(prompt).toContain("Garment 1");
+    expect(prompt.indexOf("(")).toBeGreaterThan(-1);
+    expect(prompt.lastIndexOf("(")).toBeLessThan(prompt.indexOf("Garment 4"));
+  });
+
+  it("keeps asking for one thing only", () => {
+    const prompt = buildLookTryOnPrompt([
+      detailed("Navy Hoodie", { attributes: { fit: ["relaxed"] } }),
+      detailed("Chinos", { attributes: { color: ["Beige"] } }),
+    ]);
+    expect(prompt).toBe("Substitute the outfit with Navy Hoodie (relaxed fit) and Chinos (beige).");
+    expect(prompt).not.toMatch(/preserve|identity|pose|surroundings/i);
+    expect(prompt.match(/Substitute|Add /g)).toHaveLength(1);
+  });
+});
+
 describe("lookUsageName", () => {
   it("lists the items and stays a sane length", () => {
     expect(lookUsageName([product("Hoodie"), product("Chinos")])).toBe("Look: Hoodie, Chinos");

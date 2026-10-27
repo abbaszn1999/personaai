@@ -1,14 +1,13 @@
 import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/modules/auth/lib/get-user";
 import { consumeImageGeneration } from "@/lib/db/image-generations";
-import { getUserById } from "@/lib/db/users";
 import { canGenerateImage, getAccountBillingContext } from "@/lib/billing/account";
 import { estimateTryOnCostNanos } from "@/lib/billing/pricing";
 import { generateTryOnImage } from "@/lib/try-on/image-generation";
 import { parseTryOnGarments } from "@/lib/try-on/request";
 import { dedupeRequest, parseRequestId } from "@/lib/try-on/dedupe";
 import { toTryOnErrorResponse, tryOnFailure } from "@/lib/try-on/error-response";
-import { PersonaAgentError } from "@/lib/try-on/errors";
+import { chargeAfterResponse } from "@/lib/try-on/charge-after-response";
 
 /**
  * A render takes ~12-30s. The image model gets two attempts inside a 150 s budget (see
@@ -56,22 +55,24 @@ export async function POST(req: NextRequest) {
         added,
       });
 
-      const consumed = await consumeImageGeneration(
-        user.id,
-        "try_on",
-        billing.cycleStartIso,
-        billing.tier.monthlyGarmentUnits,
-        costNanos,
-        { sessionId: user.id, source: "preview" }
+      // The picture goes back first; the charge is recorded once the response is out (see
+      // chargeAfterResponse). A retry that joins this request does not run this again.
+      await chargeAfterResponse(`user=${user.id} costNanos=${costNanos}`, () =>
+        consumeImageGeneration(
+          user.id,
+          "try_on",
+          billing.cycleStartIso,
+          billing.tier.monthlyGarmentUnits,
+          costNanos,
+          { sessionId: user.id, source: "preview" }
+        )
       );
-      if (consumed === null) throw new PersonaAgentError(OUT_OF_ALLOWANCE, "insufficient_balance");
       return rendered;
     });
 
-    const refreshedUser = await getUserById(user.id);
-    const creditsRemaining = refreshedUser?.credits ?? billing.user.credits;
-
-    return Response.json({ imageUrl, creditsRemaining });
+    // The balance as it was when the render started: the charge lands after this response, and
+    // nothing reads this figure from a try-on reply.
+    return Response.json({ imageUrl, creditsRemaining: billing.user.credits });
   } catch (err) {
     console.error("[agents/persona/try-on POST]", err);
     const { status, body } = toTryOnErrorResponse(err);
