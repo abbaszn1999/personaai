@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { geminiImageCostNanos } from "@/lib/billing/pricing";
 import {
+  buildImageEditBody,
   GeminiImageError,
   imageModel,
+  imageThinkingLevel,
   parseInteractionResponse,
   readInteractionUsage,
   requestImage,
@@ -44,6 +46,48 @@ describe("imageModel", () => {
     expect(imageModel()).toBe("some-other-image-model");
     expect(imageModel()).toBe("some-other-image-model");
     expect(warn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("imageThinkingLevel", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("is minimal unless told otherwise", () => {
+    vi.stubEnv("GEMINI_IMAGE_THINKING_LEVEL", "");
+    expect(imageThinkingLevel()).toBe("minimal");
+  });
+
+  it("can be raised without a deploy", () => {
+    vi.stubEnv("GEMINI_IMAGE_THINKING_LEVEL", " Medium ");
+    expect(imageThinkingLevel()).toBe("medium");
+    vi.stubEnv("GEMINI_IMAGE_THINKING_LEVEL", "high");
+    expect(imageThinkingLevel()).toBe("high");
+  });
+
+  it("falls back to minimal for anything it does not know", () => {
+    vi.stubEnv("GEMINI_IMAGE_THINKING_LEVEL", "turbo");
+    expect(imageThinkingLevel()).toBe("minimal");
+  });
+});
+
+describe("buildImageEditBody", () => {
+  const parts = [{ type: "image", mime_type: "image/png", data: "AAAA" }];
+
+  it("puts the thinking level in generation_config and keeps the prompt first", () => {
+    const body = buildImageEditBody("m", "dress them", parts, undefined, "minimal");
+    expect(body.generation_config).toEqual({ thinking_level: "minimal" });
+    expect(body.model).toBe("m");
+    expect(body.input[0]).toEqual({ type: "text", text: "dress them" });
+    expect(body.input[1]).toEqual(parts[0]);
+  });
+
+  it("defaults to the 3:4 avatar framing at 1K", () => {
+    expect(buildImageEditBody("m", "p", parts, undefined, "high").response_format).toEqual({
+      type: "image",
+      aspect_ratio: "3:4",
+      image_size: "1K",
+    });
+    expect(buildImageEditBody("m", "p", parts, "1:1", "high").response_format.aspect_ratio).toBe("1:1");
   });
 });
 

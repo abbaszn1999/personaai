@@ -276,6 +276,7 @@ export function AudienceStep({
                   >
                     <Image
                       src={DEMO_FACE_URLS[opt.id]}
+                      loading="eager"
                       alt=""
                       fill
                       sizes="104px"
@@ -354,6 +355,7 @@ export function AudienceStep({
                 <div className="relative w-36 shrink-0 overflow-hidden rounded-[var(--radius-xl)] bg-[var(--color-surface-base)]">
                   <Image
                     src={DEMO_FACE_URLS[opt.id]}
+                    loading="eager"
                     alt=""
                     fill
                     sizes="144px"
@@ -417,6 +419,7 @@ export function AudienceStep({
                   <div className="relative h-36 w-full overflow-hidden bg-[var(--color-surface-base)]">
                     <Image
                       src={DEMO_FACE_URLS[opt.id]}
+                      loading="eager"
                       alt=""
                       fill
                       sizes="220px"
@@ -481,6 +484,7 @@ export function AudienceStep({
                   <span className="relative h-16 w-16 shrink-0 overflow-hidden rounded-[var(--radius-lg)] bg-[var(--color-surface-base)]">
                     <Image
                       src={DEMO_FACE_URLS[opt.id]}
+                      loading="eager"
                       alt=""
                       fill
                       sizes="64px"

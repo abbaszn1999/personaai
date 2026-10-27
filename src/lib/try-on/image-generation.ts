@@ -1,8 +1,7 @@
-import sharp from "sharp";
 import { AVATAR_LIMITS, editGeminiImage, GeminiImageError } from "@/lib/ai/gemini-image";
-import { flattenOntoChromaKey, stripBackgroundToTransparent } from "@/lib/ai/background-removal";
 import { estimateAvatarCostNanos, estimateTryOnCostNanos, geminiImageCostNanos } from "@/lib/billing/pricing";
 import { PersonaAgentError } from "@/lib/try-on/errors";
+import { prepareAvatarForTryOn, preparePhotoForAvatar } from "@/lib/try-on/image-passthrough";
 import { loadGarmentReference, readImageBytes } from "@/lib/try-on/image-source";
 import { tryOnRenderGate } from "@/lib/try-on/render-gate";
 import { buildTryOnPrompt } from "@/lib/try-on/prompt";
@@ -47,9 +46,8 @@ const AVATAR_STYLES = [
 ] as const;
 
 /**
- * Not used: avatars no longer sit on a plate. Kept, with the plates under public/avatars/backgrounds
- * and the cut-out code in lib/ai/background-removal.ts, in case plates come back. Each plate would
- * pair 1:1 with the avatar style at the same index.
+ * Not used: avatars no longer sit on a plate. Kept, with the plates under public/avatars/backgrounds,
+ * in case plates come back. Each plate would pair 1:1 with the avatar style at the same index.
  */
 export function backdropPathForIndex(index: number): string {
   return `/avatars/backgrounds/backdrop-${index + 1}.webp`;
@@ -160,19 +158,16 @@ export async function* generateAvatarVariationsStream(
   const stylesToUse = AVATAR_STYLES.slice(0, clampedCount);
   if (stylesToUse.length === 0) return;
 
-  // Decoded once and shared by every variation: the reference photo is identical across the
-  // batch. It is re-encoded as an upright JPEG whatever the shopper uploaded (EXIF rotation applied,
-  // capped at 1536px) so the model always receives a format it reads and a sensible size. A photo
+  // Prepared once and shared by every variation: the reference photo is identical across the
+  // batch. A photo that is already fine (a readable format, upright, within 1536px and 2 MB, no
+  // transparency) goes to the model as it is; anything else is straightened, capped at 1536px and
+  // saved as a JPEG, so the model always receives a format it reads and a sensible size. A photo
   // that can't be read is fatal to the whole batch by definition — there is nothing to generate
   // from — so it's reported as a per-variation error for each style rather than thrown, to
   // keep the streaming contract (callers treat a thrown error as "the request broke").
-  let photo: Buffer;
+  let photo: { data: Buffer; mimeType: string };
   try {
-    photo = await sharp(Buffer.from(input.photoBase64, "base64"))
-      .rotate()
-      .resize({ width: 1536, height: 1536, fit: "inside", withoutEnlargement: true })
-      .jpeg({ quality: 92 })
-      .toBuffer();
+    photo = await preparePhotoForAvatar(Buffer.from(input.photoBase64, "base64"));
   } catch (err) {
     console.error("[try-on generateAvatarVariationsStream] photo could not be read", err);
     const message = "Couldn't read your photo. Please try a different JPEG or PNG.";
@@ -195,7 +190,7 @@ export async function* generateAvatarVariationsStream(
           const generated = await editGeminiImage({
             prompt: buildAvatarPrompt(input, style.styleHint, background.name),
             images: [
-              { data: photo, mimeType: "image/jpeg" },
+              { data: photo.data, mimeType: photo.mimeType },
               { data: loadAvatarBackground(background), mimeType: "image/jpeg" },
             ],
             aspectRatio: AVATAR_ASPECT_RATIO,
@@ -269,19 +264,6 @@ export interface GenerateTryOnImageInput {
 }
 
 /**
- * Whether the image has any see-through pixel, i.e. it is a cut-out saved by the earlier
- * transparent-avatar pipeline. An opaque PNG that merely carries an alpha channel (every pixel
- * fully opaque) is not one, so the channel's minimum is checked rather than its existence.
- */
-export async function hasTransparentPixels(bytes: Buffer): Promise<boolean> {
-  const image = sharp(bytes);
-  const { hasAlpha } = await image.metadata();
-  if (!hasAlpha) return false;
-  const { channels } = await image.stats();
-  return channels.length >= 4 && channels[channels.length - 1].min < 250;
-}
-
-/**
  * Collapses a kept-vs-added diff into the single outfit to render.
  *
  * Try-on takes the whole outfit at once rather than a description of what changed, so the diff
@@ -311,12 +293,8 @@ export function mergeOutfitGarments(
  *
  * Avatars are opaque photos with their background baked in, and the render is an edit of that
  * photo: the prompt tells the model to keep the background unchanged, and the result is returned
- * as it comes back, with no cut-out.
- *
- * The one exception is an avatar saved before that change, a transparent cut-out meant to sit on
- * a backdrop plate. It still goes through the old path (re-keyed onto a magenta plate on the way
- * in, cut back out on the way out; see flattenOntoChromaKey for why a transparent PNG can't be
- * sent as-is), so those shoppers' avatars keep working next to their plate.
+ * as it comes back, with no cut-out. The stored avatar itself goes to the model as it is (see
+ * prepareAvatarForTryOn), so neither direction re-encodes the picture.
  */
 export async function generateTryOnImage(
   input: GenerateTryOnImageInput
@@ -335,12 +313,8 @@ async function renderTryOn(
   garments: TryOnGarmentRef[]
 ): Promise<{ imageUrl: string; garmentCount: number; costNanos: number }> {
   try {
-    const avatarBytes = await readImageBytes(input.avatarImageUrl);
-    const legacyCutout = await hasTransparentPixels(avatarBytes);
     const [person, garmentJpegs] = await Promise.all([
-      legacyCutout
-        ? flattenOntoChromaKey(avatarBytes.toString("base64"))
-        : sharp(avatarBytes).rotate().png().toBuffer(),
+      readImageBytes(input.avatarImageUrl).then(prepareAvatarForTryOn),
       Promise.all(garments.map((g) => loadGarmentReference(g.imageUrl))),
     ]);
 
@@ -349,16 +323,10 @@ async function renderTryOn(
     const generated = await editGeminiImage({
       prompt: buildTryOnPrompt(garments.map((g) => ({ slot: g.slot, leaf: g.leaf }))),
       images: [
-        { data: person, mimeType: "image/png" },
+        { data: person.data, mimeType: person.mimeType },
         ...garmentJpegs.map((data) => ({ data, mimeType: "image/jpeg" })),
       ],
     });
-
-    const rendered = legacyCutout
-      ? await stripBackgroundToTransparent(generated.image.toString("base64"), generated.mimeType).then(
-          (stripped) => ({ mimeType: stripped.mimeType as string, base64: stripped.imageBase64 })
-        )
-      : { mimeType: generated.mimeType, base64: generated.image.toString("base64") };
 
     // The real cost comes from the token counts Google returned for this exact call. Only a
     // response that omitted them falls back to the estimate, so a render is never free.
@@ -367,7 +335,7 @@ async function renderTryOn(
       : estimateTryOnCostNanos(garments.length);
 
     return {
-      imageUrl: `data:${rendered.mimeType};base64,${rendered.base64}`,
+      imageUrl: `data:${generated.mimeType};base64,${generated.image.toString("base64")}`,
       garmentCount: garments.length,
       costNanos,
     };

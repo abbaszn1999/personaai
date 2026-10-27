@@ -23,14 +23,14 @@ describe("demoProfile", () => {
       const profile = demoProfile(audience);
       expect(profile.audience, audience).toBe(audience);
       expect(profile.avatarUrl, audience).toBeTruthy();
-      expect(profile.backdropUrl, audience).toBeTruthy();
+      expect(profile.backdropUrl, audience).toBeNull();
       expect(profile.heightCm, audience).toBeGreaterThan(0);
       expect(profile.weightKg, audience).toBeGreaterThan(0);
       expect(profile.shoeSizeEu, audience).toBeGreaterThan(0);
     }
   });
 
-  it("never uses the fallback mannequin, which the avatar panel draws without a backdrop", () => {
+  it("never uses the fallback mannequin, which the avatar panel treats differently", () => {
     for (const audience of ALL) {
       expect(demoProfile(audience).avatarUrl, audience).not.toBe(DEFAULT_MANNEQUIN_IMAGE);
     }

@@ -1,11 +1,9 @@
 import type { TryOnAudience, TryOnProfile } from "./types";
-import { STUDIO_BACKDROPS } from "./constants";
-
 /**
  * A ready-made shopper for the branding page's live preview, so a merchant can open the real
  * widget and start typing or wearing items straight away instead of creating an avatar first.
  *
- * It is a normal, already-submitted profile: the avatar is one of the studio cutouts the widget
+ * It is a normal, already-submitted profile: the avatar is one of the studio photos the widget
  * already ships, the measurements are typical for that department, and everything downstream
  * (chat, size advice, try-on renders) treats it like any shopper's profile.
  */
@@ -13,8 +11,8 @@ export interface DemoSeed {
   audience: TryOnAudience;
 }
 
-// Transparent cutouts, like a real shopper's render: the merchant's backdrop shows behind them
-// and the measurement marks find the body from the alpha channel, not from the scenery.
+// Opaque studio photos, like a real shopper's render: the backdrop is part of the picture, so the
+// try-on edits it as it is and the measurement marks find the body from its edges.
 const FEMALE_AVATAR = "/avatars/demo/demo-female-1.webp";
 const MALE_AVATAR = "/avatars/demo/demo-male-2.webp";
 
@@ -38,8 +36,8 @@ export function demoProfile(audience: TryOnAudience): TryOnProfile {
     waistCm: null,
     hipsCm: null,
     avatarUrl: MALE_AVATAR,
-    // Any plate: the avatar panel draws the one picked in Branding whenever this is set.
-    backdropUrl: STUDIO_BACKDROPS[0].url,
+    // No plate, as for a real shopper: the avatar already carries its own backdrop.
+    backdropUrl: null,
   };
 
   if (audience === "woman") {

@@ -80,6 +80,21 @@ export function imageModel(): string {
   return model;
 }
 
+export type ImageThinkingLevel = "minimal" | "medium" | "high";
+
+const THINKING_LEVELS: readonly ImageThinkingLevel[] = ["minimal", "medium", "high"];
+
+/**
+ * How much the model reasons before it draws. Left unset, Nano Banana 2.1 runs at `medium`, which
+ * spends hundreds of thinking tokens (and seconds) on a task whose prompt already says exactly what
+ * to do. `minimal` is the fast setting; `GEMINI_IMAGE_THINKING_LEVEL` raises it again without a deploy
+ * if bundle quality ever needs it. Anything unrecognised means `minimal`.
+ */
+export function imageThinkingLevel(): ImageThinkingLevel {
+  const raw = process.env.GEMINI_IMAGE_THINKING_LEVEL?.trim().toLowerCase();
+  return THINKING_LEVELS.find((level) => level === raw) ?? "minimal";
+}
+
 /** An optional second model for the retry, so a model that is down does not fail both attempts. */
 export function imageFallbackModel(): string | null {
   const fallback = process.env.GEMINI_IMAGE_FALLBACK_MODEL?.trim() || process.env.GEMINI_TRYON_FALLBACK_MODEL?.trim();
@@ -285,6 +300,22 @@ export async function requestImage(
   throw lastError ?? new GeminiImageError("Gemini image request failed.");
 }
 
+/** The Interactions API request for one render, kept pure so the exact body can be tested. */
+export function buildImageEditBody(
+  model: string,
+  prompt: string,
+  imageParts: ReadonlyArray<{ type: string; mime_type: string; data: string }>,
+  aspectRatio: string | undefined,
+  thinkingLevel: ImageThinkingLevel
+) {
+  return {
+    model,
+    input: [{ type: "text", text: prompt }, ...imageParts],
+    response_format: { type: "image", aspect_ratio: aspectRatio ?? "3:4", image_size: "1K" },
+    generation_config: { thinking_level: thinkingLevel },
+  };
+}
+
 /**
  * Edits `images[0]` according to `prompt`, using the other images as references. The prompt names
  * images by position ("image 1", "image 2"), so the order of `images` is the contract.
@@ -300,11 +331,8 @@ export async function editGeminiImage(input: GeminiImageEditInput): Promise<Gemi
     mime_type: image.mimeType,
     data: image.data.toString("base64"),
   }));
-  const buildBody = (model: string) => ({
-    model,
-    input: [{ type: "text", text: input.prompt }, ...imageParts],
-    response_format: { type: "image", aspect_ratio: input.aspectRatio ?? "3:4", image_size: "1K" },
-  });
+  const thinkingLevel = imageThinkingLevel();
+  const buildBody = (model: string) => buildImageEditBody(model, input.prompt, imageParts, input.aspectRatio, thinkingLevel);
 
   let apiKey: string;
   try {
@@ -313,5 +341,18 @@ export async function editGeminiImage(input: GeminiImageEditInput): Promise<Gemi
     throw new GeminiImageError("Image rendering is not configured (GEMINI_API_KEY).", undefined, "not_configured");
   }
 
-  return requestImage(buildBody, apiKey, input.limits);
+  // One line per render, so a change to the model, the thinking level or the pictures sent can be
+  // judged on real traffic. Sizes are the raw picture bytes, before base64.
+  const startedAt = Date.now();
+  const describe = (outcome: string) =>
+    `[gemini-image] ${outcome} model=${imageModel()} thinking=${thinkingLevel} images=${input.images.length} ` +
+    `inputBytes=${input.images.reduce((sum, image) => sum + image.data.length, 0)} ms=${Date.now() - startedAt}`;
+  try {
+    const result = await requestImage(buildBody, apiKey, input.limits);
+    console.info(describe("ok"));
+    return result;
+  } catch (err) {
+    console.info(describe(`failed(${err instanceof GeminiImageError ? err.code : "error"})`));
+    throw err;
+  }
 }
