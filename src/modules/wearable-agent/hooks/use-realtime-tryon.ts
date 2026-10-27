@@ -6,17 +6,11 @@ import { loadDecartRuntime } from "./decart-runtime";
 import type { EmbedRuntimeConfig, GeneratedTryOn } from "./use-try-on-agent";
 import { embedRequestHeaders, getOrCreateEmbedSessionId } from "@/lib/embed/client/embed-storage";
 import { LIVE_SESSION_PRODUCT_ID, LIVE_SESSION_PRODUCT_NAME } from "@/lib/billing/live-session";
-import { LIVE_TRYON_PROMPT_MAX_CHARS, buildLookTryOnPrompt, lookUsageName } from "../utils/live-tryon-prompt";
-import { lookImageForDescription } from "../utils/look-description-image";
+import { LIVE_TRYON_PROMPT, lookUsageName } from "../utils/live-tryon-prompt";
 import { prepareReferenceImage } from "../utils/reference-image";
 import { sessionSeconds } from "../utils/live-session-seconds";
 
 export const REALTIME_TRYON_SESSION_CAP_SECONDS = 90;
-
-/** How long a look's prompt may take to be written from its picture before the catalog prompt is
- *  used instead. A live session is billed by the second and the shopper is waiting on camera. */
-const LOOK_PROMPT_TIMEOUT_MS = 10_000;
-
 export type RealtimeTryOnStatus =
   | "idle"
   | "requesting-permission"
@@ -407,70 +401,8 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
     await connect(facingModeRef.current);
   }, [status, connect]);
 
-  /** The prompt that goes with a look's picture, one per look for the life of the widget (a camera
-   *  flip re-sends the same look, and the shopper may switch back and forth). It is written by a
-   *  vision model from the avatar render itself, so it describes exactly what the avatar wears.
-   *  When that cannot be had in time (no network, the model failing, a reply that is not a clean
-   *  garment sentence) it is the prompt built from the catalog, so a look always has one. */
-  const lookPromptsRef = React.useRef(new Map<string, Promise<string>>());
-  const getLookPrompt = React.useCallback(
-    (look: GeneratedTryOn): Promise<string> => {
-      const known = lookPromptsRef.current.get(look.id);
-      if (known) return known;
-
-      const fromCatalog = buildLookTryOnPrompt(look.outfitProducts);
-      const pending = (async () => {
-        if (!fromCatalog) return "";
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), LOOK_PROMPT_TIMEOUT_MS);
-        try {
-          const image = await lookImageForDescription(await getLookImage(look));
-          if (!image) return fromCatalog;
-          const response = await fetch(
-            embedApiBase ? `${embedApiBase}/persona/live-look` : "/api/agents/persona/live-look",
-            {
-              method: "POST",
-              headers: embedToken ? embedRequestHeaders(embedToken) : { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                ...(embedToken ? { embedToken } : workspaceId ? { workspaceId } : {}),
-                image,
-                itemNames: look.outfitProducts.map((product) => product.name),
-              }),
-              signal: controller.signal,
-            }
-          );
-          const data: { prompt?: unknown } = await response.json().catch(() => ({}));
-          const described = typeof data.prompt === "string" ? data.prompt.trim() : "";
-          if (response.ok && described && described.length <= LIVE_TRYON_PROMPT_MAX_CHARS) {
-            console.info("[use-realtime-tryon] look prompt (from the avatar picture)", described);
-            return described;
-          }
-          console.info("[use-realtime-tryon] look prompt (from the catalog)", fromCatalog);
-          return fromCatalog;
-        } catch {
-          console.info("[use-realtime-tryon] look prompt (from the catalog)", fromCatalog);
-          return fromCatalog;
-        } finally {
-          clearTimeout(timer);
-        }
-      })();
-      lookPromptsRef.current.set(look.id, pending);
-      return pending;
-    },
-    [embedApiBase, embedToken, workspaceId]
-  );
-
-  /** Starts writing a look's prompt now, so it is ready by the time the camera is connected and the
-   *  look is applied. Safe to call more than once. */
-  const prepareLook = React.useCallback(
-    (look: GeneratedTryOn) => {
-      void getLookPrompt(look);
-    },
-    [getLookPrompt]
-  );
-
   /** Puts the shopper's look on them: the look's own render (their avatar already wearing the
-   *  outfit) goes to Decart as the single reference image, with a prompt describing its items.
+   *  outfit) goes to Decart as the single reference image, with a fixed prompt to wear it.
    *  `resume` re-sends the look that is already active (after a camera flip) without logging a
    *  second preview. */
   const applyLook = React.useCallback(async (look: GeneratedTryOn, options?: { resume?: boolean }) => {
@@ -496,10 +428,8 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
 
     switchQueueRef.current = switchQueueRef.current.catch(() => {}).then(async () => {
       try {
-        const prompt = await getLookPrompt(look);
-        if (!prompt) throw new Error("This look has no items to try on.");
         const image = await prepareReferenceImage(await getLookImage(look));
-        await client.set({ prompt, image, enhance: false });
+        await client.set({ prompt: LIVE_TRYON_PROMPT, image, enhance: false });
       } catch (error) {
         if (activePreviewRef.current?.look.id === look.id) {
           activePreviewRef.current = null;
@@ -512,7 +442,7 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
       }
     });
     await switchQueueRef.current;
-  }, [recordFinishedPreview, getLookPrompt]);
+  }, [recordFinishedPreview]);
 
   /** Switches between the front ("user") and rear ("environment") camera. The SDK build
    *  in use here has no way to hot-swap a live WebRTC video track, so this reconnects the
@@ -671,7 +601,6 @@ export function useRealtimeTryOn({ embed, workspaceId }: UseRealtimeTryOnOptions
     saveClip,
     shareClip,
     start,
-    prepareLook,
     applyLook,
     flipCamera,
     startRecording,

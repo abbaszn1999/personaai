@@ -542,16 +542,10 @@ export function AvatarMannequinPanel({
   }
   // Starting from the plain avatar, or with nothing chosen, wears the newest version.
   function startLive() {
-    let target = liveLook;
-    if (!target) {
+    if (!liveLook) {
       const newest = liveVersions[liveVersions.length - 1];
-      if (newest) {
-        selectLiveVersion(newest.id);
-        target = tryOnImages.find((tryOn) => tryOn.id === newest.id) ?? null;
-      }
+      if (newest) selectLiveVersion(newest.id);
     }
-    // The look's prompt is written from its picture while the camera and Decart connect.
-    if (target) realtime.prepareLook(target);
     void realtime.start();
   }
   const liveOverlayProps: Omit<RealtimeTryOnOverlayProps, "shopSheet" | "shopCount"> = {
