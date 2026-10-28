@@ -8,7 +8,7 @@ import type { Product } from "@/modules/commerce/types";
  * against unrelated requests.
  */
 export const LIVE_TRYON_PROMPT =
-  "Substitute the outfit with the complete outfit worn by the person in the reference image, reproducing every garment and the footwear exactly in color, fabric, fit, length, pattern and detail.";
+  "Substitute the outfit with the complete outfit shown in the reference image: all clothing on the upper body, all clothing on the lower body and the shoes on the feet, each worn exactly as pictured with the same color, fabric, fit, length and open or closed styling.";
 
 /** A single name is never allowed past this, so one very long title can't crowd out the others. */
 const NAME_MAX_CHARS = 90;
